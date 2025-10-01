@@ -243,7 +243,19 @@ export default function TelnetCard() {
         <div className="flex items-center space-x-2">
           <label className="text-xs text-gray-600">Bulk Mode</label>
           <button
-            onClick={() => setIsBulkMode(!isBulkMode)}
+            onClick={() => {
+              setIsBulkMode(!isBulkMode);
+              // Limpiar formulario cuando se activa bulk mode
+              if (!isBulkMode) {
+                setHost('');
+                setPort('23');
+                setTimeout('5000');
+                setResult(null);
+                setSelectedHostParam(null);
+                setSelectedPortParam(null);
+                setSelectedTimeoutParam(null);
+              }
+            }}
             className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
               isBulkMode ? 'bg-blue-600' : 'bg-gray-300'
             }`}

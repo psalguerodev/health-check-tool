@@ -48,8 +48,8 @@ export default function ParameterSelectorModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] overflow-hidden">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 p-4 pt-16">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
           <div className="flex items-center space-x-2">
@@ -112,36 +112,31 @@ export default function ParameterSelectorModal({
               {filteredParameters.map((param) => (
                 <div
                   key={param.id}
-                  className="p-2 border border-gray-200 rounded hover:bg-blue-50 hover:border-blue-300 cursor-pointer transition-colors group"
+                  className="px-3 py-2 border border-gray-200 rounded hover:bg-blue-50 hover:border-blue-300 cursor-pointer transition-colors group"
                   onClick={() => handleSelect(param)}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-2 mb-1">
-                        <span className="font-medium text-gray-900 truncate">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-medium text-gray-900 text-sm truncate">
                           {param.name}
                         </span>
-                        <span className="px-1.5 py-0.5 text-xs rounded bg-gray-100 text-gray-700">
+                        <span className="px-1.5 py-0.5 text-xs rounded bg-gray-100 text-gray-600">
                           {param.category}
                         </span>
                         {param.type === 'secure' && (
-                          <span className="px-1.5 py-0.5 text-xs bg-orange-100 text-orange-700 rounded">
-                            🔒
-                          </span>
+                          <span className="text-xs">🔒</span>
                         )}
-                        <span className="text-xs text-gray-400 group-hover:text-blue-600">
-                          ← Click para seleccionar
-                        </span>
                       </div>
 
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-2 mt-1">
                         {param.type === 'secure' ? (
                           <div className="flex items-center space-x-1">
                             <input
                               type={showValues[param.id] ? 'text' : 'password'}
                               value={param.value}
                               readOnly
-                              className="text-xs bg-transparent border-none outline-none text-gray-600 truncate"
+                              className="text-xs bg-transparent border-none outline-none text-gray-500 truncate"
                             />
                             <button
                               onClick={(e) => {
@@ -158,17 +153,14 @@ export default function ParameterSelectorModal({
                             </button>
                           </div>
                         ) : (
-                          <span className="text-xs text-gray-600 truncate">
+                          <span className="text-xs text-gray-500 truncate">
                             {param.value}
                           </span>
                         )}
+                        <span className="text-xs text-gray-400 group-hover:text-blue-600">
+                          ←
+                        </span>
                       </div>
-
-                      {param.description && (
-                        <p className="text-xs text-gray-500 mt-1 truncate">
-                          {param.description}
-                        </p>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -183,12 +175,25 @@ export default function ParameterSelectorModal({
             <p className="text-xs text-gray-500">
               Selecciona una variable local para usarla en tu configuración
             </p>
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm bg-gray-500 text-white rounded hover:bg-gray-600"
-            >
-              Cancelar
-            </button>
+            <div className="flex space-x-2">
+              <button
+                onClick={() => {
+                  // Abrir el modal de Variables Locales para crear nueva variable
+                  const event = new CustomEvent('openParameterStore');
+                  window.dispatchEvent(event);
+                  onClose();
+                }}
+                className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                + Nueva Variable
+              </button>
+              <button
+                onClick={onClose}
+                className="px-3 py-1 text-xs text-gray-500 hover:text-gray-700 underline"
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
         </div>
       </div>

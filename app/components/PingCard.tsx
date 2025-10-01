@@ -234,7 +234,19 @@ export default function PingCard() {
         <div className="flex items-center space-x-2">
           <label className="text-xs text-gray-600">Bulk Mode</label>
           <button
-            onClick={() => setIsBulkMode(!isBulkMode)}
+            onClick={() => {
+              setIsBulkMode(!isBulkMode);
+              // Limpiar formulario cuando se activa bulk mode
+              if (!isBulkMode) {
+                setHost('');
+                setTimeout('5000');
+                setCount('1');
+                setResult(null);
+                setSelectedHostParam(null);
+                setSelectedTimeoutParam(null);
+                setSelectedCountParam(null);
+              }
+            }}
             className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
               isBulkMode ? 'bg-blue-600' : 'bg-gray-300'
             }`}

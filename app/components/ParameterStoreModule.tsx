@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Settings,
   Plus,
@@ -38,6 +38,23 @@ export default function ParameterStoreModule() {
     description: '',
     category: 'general' as Parameter['category'],
   });
+
+  // Escuchar evento para abrir el modal desde otros componentes
+  useEffect(() => {
+    const handleOpenParameterStore = () => {
+      setIsOpen(true);
+      setShowForm(true); // Abrir directamente el formulario de nueva variable
+    };
+
+    window.addEventListener('openParameterStore', handleOpenParameterStore);
+
+    return () => {
+      window.removeEventListener(
+        'openParameterStore',
+        handleOpenParameterStore
+      );
+    };
+  }, []);
 
   const getCategoryIcon = (category: Parameter['category']) => {
     switch (category) {
@@ -109,7 +126,7 @@ export default function ParameterStoreModule() {
   return (
     <>
       {/* Botón flotante para abrir modal */}
-      <div className="fixed bottom-6 right-6 z-40">
+      <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-40">
         <button
           onClick={() => setIsOpen(true)}
           className="flex items-center space-x-2 px-4 py-3 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-colors"
@@ -124,8 +141,8 @@ export default function ParameterStoreModule() {
 
       {/* Modal */}
       {isOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 p-4 pt-16">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
             {/* Header del modal */}
             <div className="flex items-center justify-between p-4 border-b border-gray-200">
               <div className="flex items-center space-x-3">

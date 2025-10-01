@@ -10,6 +10,7 @@ import TelnetCard from './components/TelnetCard';
 import PingCard from './components/PingCard';
 import HistorySidebar from './components/HistorySidebar';
 import ParameterStoreModule from './components/ParameterStoreModule';
+import ServerInfoCard from './components/ServerInfoCard';
 import {
   Database,
   Server,
@@ -51,10 +52,13 @@ export default function Home() {
       {/* Contenido principal */}
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="mb-6">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-xl font-semibold text-gray-900 mb-1">
-                Health Check Tool
+              <h1 className="text-xl font-semibold text-gray-900 mb-1 relative">
+                <span className="bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
+                  Health Check Tool
+                </span>
+                <div className="absolute -bottom-1 left-0 w-12 h-0.5 bg-gradient-to-r from-blue-500 to-blue-300 rounded-full"></div>
               </h1>
               <p className="text-sm text-gray-600">
                 Ingrese los datos de conexión y pruebe la conectividad
@@ -68,6 +72,11 @@ export default function Home() {
               <History className="w-4 h-4" />
               <span>Historial</span>
             </button>
+          </div>
+
+          {/* Información del servidor */}
+          <div className="flex justify-center">
+            <ServerInfoCard />
           </div>
         </div>
 
