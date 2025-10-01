@@ -16,7 +16,7 @@ import {
   HTTPConfig,
   TelnetConfig,
   PingConfig,
-} from '../../../types';
+} from '../../types';
 
 export async function POST(request: NextRequest) {
   try {

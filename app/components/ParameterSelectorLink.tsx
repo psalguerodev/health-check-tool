@@ -32,7 +32,8 @@ export default function ParameterSelectorLink({
   const [showPassword, setShowPassword] = useState(false);
   const { getParametersByCategory } = useParameterStore();
 
-  const parameters = getParametersByCategory(category);
+  const parameters =
+    category === 'all' ? [] : getParametersByCategory(category);
   const hasParameters = parameters.length > 0;
 
   const handleParameterSelect = (parameter: Parameter) => {

@@ -71,7 +71,7 @@ export default function SQLServerCard() {
       const errorResult = {
         success: false,
         message: 'Error de conexión',
-        error: error.message,
+        error: error instanceof Error ? error.message : 'Error desconocido',
       };
       setResult(errorResult);
 

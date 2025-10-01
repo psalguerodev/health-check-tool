@@ -40,7 +40,6 @@ export async function POST(request: NextRequest) {
             name: param.Name,
             value: param.Value,
             type: param.Type,
-            description: param.Description,
             version: param.Version,
             lastModifiedDate: param.LastModifiedDate,
           })) || [],
