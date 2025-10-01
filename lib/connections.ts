@@ -5,6 +5,8 @@ import {
   PostgreSQLConfig,
   SQSConfig,
   HTTPConfig,
+  TelnetConfig,
+  PingConfig,
 } from '../app/types';
 
 // DB2 Connection
@@ -232,6 +234,272 @@ export async function testHTTPConnection(
     return {
       success: false,
       message: `Error en HTTP ${config.method}: ${error.message}`,
+      duration: Date.now() - startTime,
+      error: error.message,
+      timestamp: new Date(),
+    };
+  }
+}
+
+// Telnet Connection - Implementación Real
+export async function testTelnetConnection(
+  config: TelnetConfig
+): Promise<TestResult> {
+  const startTime = Date.now();
+
+  try {
+    // Importar net module de Node.js para conexión TCP real
+    const net = await import('net');
+
+    return new Promise((resolve) => {
+      const socket = new net.Socket();
+      let isResolved = false;
+
+      // Timeout para la conexión
+      const timeout = setTimeout(() => {
+        if (!isResolved) {
+          isResolved = true;
+          socket.destroy();
+          resolve({
+            success: false,
+            message: `Timeout de conexión Telnet (${
+              config.timeout || 5000
+            }ms) - ${config.host}:${config.port}`,
+            duration: Date.now() - startTime,
+            error: 'Connection timeout',
+            timestamp: new Date(),
+          });
+        }
+      }, config.timeout || 5000);
+
+      // Evento de conexión exitosa
+      socket.connect(config.port, config.host, () => {
+        if (!isResolved) {
+          isResolved = true;
+          clearTimeout(timeout);
+          socket.destroy();
+
+          const duration = Date.now() - startTime;
+          resolve({
+            success: true,
+            message: `Conexión Telnet real exitosa en ${duration}ms (${config.host}:${config.port})`,
+            duration,
+            timestamp: new Date(),
+          });
+        }
+      });
+
+      // Evento de error
+      socket.on('error', (error: any) => {
+        if (!isResolved) {
+          isResolved = true;
+          clearTimeout(timeout);
+
+          const duration = Date.now() - startTime;
+          let errorMessage = `Error de conexión Telnet: ${error.message}`;
+
+          // Mensajes de error más específicos
+          if (error.code === 'ECONNREFUSED') {
+            errorMessage = `Conexión rechazada - Puerto ${config.port} cerrado en ${config.host}`;
+          } else if (error.code === 'ENOTFOUND') {
+            errorMessage = `Host no encontrado: ${config.host}`;
+          } else if (error.code === 'ETIMEDOUT') {
+            errorMessage = `Timeout de conexión a ${config.host}:${config.port}`;
+          }
+
+          resolve({
+            success: false,
+            message: errorMessage,
+            duration,
+            error: error.message,
+            timestamp: new Date(),
+          });
+        }
+      });
+
+      // Evento de cierre
+      socket.on('close', () => {
+        // Socket cerrado, no hacer nada si ya se resolvió
+      });
+    });
+  } catch (error: any) {
+    return {
+      success: false,
+      message: `Error al inicializar conexión Telnet: ${error.message}`,
+      duration: Date.now() - startTime,
+      error: error.message,
+      timestamp: new Date(),
+    };
+  }
+}
+
+// Ping Connection - Implementación Real
+export async function testPingConnection(
+  config: PingConfig
+): Promise<TestResult> {
+  const startTime = Date.now();
+
+  try {
+    // Importar child_process para ejecutar comando ping real
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
+
+    // Validación robusta del sistema operativo
+    const platform = process.platform;
+    const isWindows = platform === 'win32';
+    const isMacOS = platform === 'darwin';
+    const isLinux = platform === 'linux';
+    const isUnix =
+      platform === 'freebsd' || platform === 'openbsd' || platform === 'sunos';
+
+    const count = config.count || 1;
+    const timeout = Math.ceil((config.timeout || 5000) / 1000); // Convertir a segundos
+
+    let pingCommand: string;
+    let platformName: string;
+
+    // Determinar comando ping según el sistema operativo detectado
+    if (isWindows) {
+      // Windows: -n para count, -w para timeout en milisegundos
+      pingCommand = `ping -n ${count} -w ${timeout * 1000} ${config.host}`;
+      platformName = 'Windows';
+    } else if (isMacOS) {
+      // macOS: -c para count, sin timeout (usar timeout del proceso)
+      pingCommand = `ping -c ${count} ${config.host}`;
+      platformName = 'macOS';
+    } else if (isLinux) {
+      // Linux: -c para count, -W para timeout en segundos
+      pingCommand = `ping -c ${count} -W ${timeout} ${config.host}`;
+      platformName = 'Linux';
+    } else if (isUnix) {
+      // Unix (FreeBSD, OpenBSD, Solaris): -c para count, -W para timeout en segundos
+      pingCommand = `ping -c ${count} -W ${timeout} ${config.host}`;
+      platformName = 'Unix';
+    } else {
+      // Sistema operativo no reconocido - usar comando genérico
+      pingCommand = `ping -c ${count} -W ${timeout} ${config.host}`;
+      platformName = 'Unknown';
+    }
+
+    // Log para debugging (opcional)
+    console.log(
+      `Ping command for ${platformName} (${platform}): ${pingCommand}`
+    );
+
+    // Validación adicional: verificar que ping esté disponible
+    try {
+      await execAsync(
+        'ping -V 2>/dev/null || ping --version 2>/dev/null || echo "ping available"'
+      );
+    } catch (versionError) {
+      // Si no se puede verificar la versión, continuar de todas formas
+      console.log('No se pudo verificar la versión de ping, continuando...');
+    }
+
+    try {
+      const { stdout, stderr } = await execAsync(pingCommand, {
+        timeout: Math.max((config.timeout || 5000) * 2, 10000), // Timeout más generoso
+        maxBuffer: 1024 * 1024, // 1MB buffer
+      });
+
+      const duration = Date.now() - startTime;
+
+      // Analizar la salida del ping para determinar si fue exitoso
+      const isSuccess =
+        stdout.includes('time=') ||
+        stdout.includes('time<') ||
+        stdout.includes('bytes from') ||
+        stdout.includes('Reply from');
+
+      if (isSuccess) {
+        // Extraer información del ping (tiempo de respuesta)
+        const timeMatch = stdout.match(/time[<=](\d+(?:\.\d+)?)/);
+        const responseTime = timeMatch ? timeMatch[1] : 'N/A';
+
+        // Intentar extraer la IP resuelta del output del ping
+        let resolvedIP = '';
+        const ipMatch = stdout.match(/PING\s+\S+\s+\(([0-9.]+)\)/);
+        if (ipMatch) {
+          resolvedIP = ipMatch[1];
+        }
+
+        // Si no se encontró IP en el output, intentar resolver DNS manualmente
+        if (!resolvedIP) {
+          try {
+            const { promisify } = await import('util');
+            const dns = await import('dns');
+            const lookup = promisify(dns.lookup);
+            const result = await lookup(config.host);
+            resolvedIP = result.address;
+          } catch (dnsError) {
+            // Si falla la resolución DNS, continuar sin IP
+            console.log('No se pudo resolver DNS:', dnsError);
+          }
+        }
+
+        const ipInfo = resolvedIP ? ` (IP: ${resolvedIP})` : '';
+        const message = `Ping real exitoso en ${duration}ms - ${config.host}${ipInfo} (${count} paquetes, tiempo: ${responseTime}ms)`;
+
+        return {
+          success: true,
+          message,
+          duration,
+          timestamp: new Date(),
+          resolvedIP, // Agregar IP resuelta al resultado
+        };
+      } else {
+        return {
+          success: false,
+          message: `Ping falló - ${config.host} no responde`,
+          duration,
+          error: stderr || 'No response from host',
+          timestamp: new Date(),
+        };
+      }
+    } catch (execError: any) {
+      const duration = Date.now() - startTime;
+
+      // Analizar diferentes tipos de errores según el sistema operativo
+      let errorMessage = `Error de ping en ${platformName}: ${execError.message}`;
+
+      // Errores comunes en todos los sistemas
+      if (
+        execError.code === 'ENOTFOUND' ||
+        execError.message.includes('Name or service not known')
+      ) {
+        errorMessage = `Host no encontrado: ${config.host}`;
+      } else if (
+        execError.code === 'ETIMEDOUT' ||
+        execError.message.includes('Request timeout')
+      ) {
+        errorMessage = `Timeout de ping (${config.timeout || 5000}ms) - ${
+          config.host
+        }`;
+      } else if (execError.message.includes('Destination Host Unreachable')) {
+        errorMessage = `Host inalcanzable: ${config.host}`;
+      } else if (execError.message.includes('Request timeout for icmp_seq')) {
+        errorMessage = `Timeout de paquetes ICMP - ${config.host}`;
+      } else if (execError.message.includes('unrecognized option')) {
+        errorMessage = `Comando ping no compatible con ${platformName} (${platform})`;
+      } else if (execError.message.includes('Permission denied')) {
+        errorMessage = `Permisos insuficientes para ejecutar ping en ${platformName}`;
+      } else if (execError.message.includes('ping: command not found')) {
+        errorMessage = `Comando ping no disponible en ${platformName}`;
+      }
+
+      return {
+        success: false,
+        message: errorMessage,
+        duration,
+        error: execError.message,
+        timestamp: new Date(),
+      };
+    }
+  } catch (error: any) {
+    return {
+      success: false,
+      message: `Error al inicializar ping: ${error.message}`,
       duration: Date.now() - startTime,
       error: error.message,
       timestamp: new Date(),

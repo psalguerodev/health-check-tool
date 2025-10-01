@@ -6,9 +6,19 @@ import SQLServerCard from './components/SQLServerCard';
 import PostgreSQLCard from './components/PostgreSQLCard';
 import SQSCard from './components/SQSCard';
 import HTTPCard from './components/HTTPCard';
+import TelnetCard from './components/TelnetCard';
+import PingCard from './components/PingCard';
 import HistorySidebar from './components/HistorySidebar';
 import ParameterStoreModule from './components/ParameterStoreModule';
-import { Database, Server, Globe, MessageSquare, History } from 'lucide-react';
+import {
+  Database,
+  Server,
+  Globe,
+  MessageSquare,
+  History,
+  Terminal,
+  Wifi,
+} from 'lucide-react';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('db2');
@@ -30,6 +40,8 @@ export default function Home() {
     },
     { id: 'sqs', name: 'AWS SQS', icon: MessageSquare, component: SQSCard },
     { id: 'http', name: 'HTTP', icon: Globe, component: HTTPCard },
+    { id: 'telnet', name: 'Telnet', icon: Terminal, component: TelnetCard },
+    { id: 'ping', name: 'Ping', icon: Wifi, component: PingCard },
   ];
 
   const ActiveComponent = tabs.find((tab) => tab.id === activeTab)?.component;

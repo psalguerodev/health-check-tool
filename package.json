@@ -27,6 +27,8 @@
     "typescript": "^5"
   },
   "devDependencies": {
+    "@types/mssql": "^9.1.8",
+    "@types/pg": "^8.15.5",
     "eslint": "^8",
     "eslint-config-next": "14.0.0"
   }

@@ -5,6 +5,8 @@ import {
   testPostgreSQLConnection,
   testSQSConnection,
   testHTTPConnection,
+  testTelnetConnection,
+  testPingConnection,
 } from '../../../lib/connections';
 import {
   DB2Config,
@@ -12,6 +14,8 @@ import {
   PostgreSQLConfig,
   SQSConfig,
   HTTPConfig,
+  TelnetConfig,
+  PingConfig,
 } from '../../../types';
 
 export async function POST(request: NextRequest) {
@@ -36,6 +40,12 @@ export async function POST(request: NextRequest) {
         break;
       case 'HTTP':
         result = await testHTTPConnection(config as HTTPConfig);
+        break;
+      case 'Telnet':
+        result = await testTelnetConnection(config as TelnetConfig);
+        break;
+      case 'Ping':
+        result = await testPingConnection(config as PingConfig);
         break;
       default:
         return NextResponse.json(
