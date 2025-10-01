@@ -11,6 +11,7 @@ import PingCard from './components/PingCard';
 import HistorySidebar from './components/HistorySidebar';
 import ParameterStoreModule from './components/ParameterStoreModule';
 import ServerInfoCard from './components/ServerInfoCard';
+import VersionInfo from './components/VersionInfo';
 import {
   Database,
   Server,
@@ -54,12 +55,17 @@ export default function Home() {
         <div className="mb-6">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-xl font-semibold text-gray-900 mb-1 relative">
-                <span className="bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
-                  Health Check Tool
-                </span>
-                <div className="absolute -bottom-1 left-0 w-12 h-0.5 bg-gradient-to-r from-blue-500 to-blue-300 rounded-full"></div>
-              </h1>
+              <div className="flex items-center space-x-3 mb-1">
+                <h1 className="text-xl font-semibold text-gray-900 relative">
+                  <span className="bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
+                    Health Check Tool
+                  </span>
+                  <div className="absolute -bottom-1 left-0 w-12 h-0.5 bg-gradient-to-r from-blue-500 to-blue-300 rounded-full"></div>
+                </h1>
+                <div className="flex items-center">
+                  <VersionInfo />
+                </div>
+              </div>
               <p className="text-sm text-gray-600">
                 Ingrese los datos de conexión y pruebe la conectividad
                 inmediatamente. Las pruebas se guardan en el historial.

@@ -95,6 +95,11 @@ export default function ServerInfoCard() {
             <Clock className="w-3 h-3 text-gray-400" />
             <span className="text-xs text-gray-600">{serverInfo.uptime}</span>
           </div>
+
+          <div className="flex items-center space-x-1">
+            <Server className="w-3 h-3 text-gray-400" />
+            <span className="text-xs text-gray-600">{serverInfo.platform}</span>
+          </div>
         </div>
       </div>
     </div>
