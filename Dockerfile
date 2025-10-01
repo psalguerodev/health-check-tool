@@ -1,5 +1,8 @@
-# Usar Node.js 18 Alpine como base
+# Usar Node.js 18 como base
 FROM node:18
+
+# Instalar herramientas de red necesarias
+RUN apt-get update && apt-get install -y iputils-ping && rm -rf /var/lib/apt/lists/*
 
 # Establecer directorio de trabajo
 WORKDIR /app

@@ -354,7 +354,8 @@ export async function testPingConnection(
       platform === 'freebsd' || platform === 'openbsd' || platform === 'sunos';
 
     const count = config.count || 1;
-    const timeout = Math.ceil((config.timeout || 5000) / 1000); // Convertir a segundos
+    const timeoutMs = config.timeout || 5000; // Timeout en milisegundos
+    const timeoutSeconds = Math.ceil(timeoutMs / 1000); // Convertir a segundos
 
     let pingCommand: string;
     let platformName: string;
@@ -362,23 +363,23 @@ export async function testPingConnection(
     // Determinar comando ping según el sistema operativo detectado
     if (isWindows) {
       // Windows: -n para count, -w para timeout en milisegundos
-      pingCommand = `ping -n ${count} -w ${timeout * 1000} ${config.host}`;
+      pingCommand = `ping -n ${count} -w ${timeoutMs} ${config.host}`;
       platformName = 'Windows';
     } else if (isMacOS) {
       // macOS: -c para count, -W para timeout en segundos
-      pingCommand = `ping -c ${count} -W ${timeout} ${config.host}`;
+      pingCommand = `ping -c ${count} -W ${timeoutSeconds} ${config.host}`;
       platformName = 'macOS';
     } else if (isLinux) {
       // Linux: -c para count, -W para timeout en segundos
-      pingCommand = `ping -c ${count} -W ${timeout} ${config.host}`;
+      pingCommand = `ping -c ${count} -W ${timeoutSeconds} ${config.host}`;
       platformName = 'Linux';
     } else if (isUnix) {
       // Unix (FreeBSD, OpenBSD, Solaris): -c para count, -W para timeout en segundos
-      pingCommand = `ping -c ${count} -W ${timeout} ${config.host}`;
+      pingCommand = `ping -c ${count} -W ${timeoutSeconds} ${config.host}`;
       platformName = 'Unix';
     } else {
       // Sistema operativo no reconocido - usar comando genérico
-      pingCommand = `ping -c ${count} -W ${timeout} ${config.host}`;
+      pingCommand = `ping -c ${count} -W ${timeoutSeconds} ${config.host}`;
       platformName = 'Unknown';
     }
 
@@ -386,6 +387,7 @@ export async function testPingConnection(
     console.log(
       `Ping command for ${platformName} (${platform}): ${pingCommand}`
     );
+    console.log(`Timeout configurado: ${timeoutMs}ms (${timeoutSeconds}s)`);
 
     // Validación adicional: verificar que ping esté disponible
     try {
@@ -399,7 +401,7 @@ export async function testPingConnection(
 
     try {
       const { stdout, stderr } = await execAsync(pingCommand, {
-        timeout: Math.max((config.timeout || 5000) * 2, 10000), // Timeout más generoso
+        timeout: Math.max(timeoutMs * 2, 10000), // Timeout del execAsync: 2x el timeout del ping
         maxBuffer: 1024 * 1024, // 1MB buffer
       }).catch((error) => {
         // En macOS, el ping puede fallar pero aún devolver información útil en stdout
@@ -418,20 +420,43 @@ export async function testPingConnection(
         stdout.includes('time<') ||
         stdout.includes('bytes from') ||
         stdout.includes('Reply from') ||
-        stdout.includes('64 bytes from');
+        stdout.includes('64 bytes from') ||
+        stdout.includes('round-trip');
 
       // Verificar que no haya pérdida total de paquetes
+      // Solo considerar pérdida si hay 0 paquetes recibidos O 100% de pérdida
       const hasPacketLoss =
         stdout.includes('100.0% packet loss') ||
         stdout.includes('100% packet loss') ||
-        stdout.includes('0 packets received');
+        (stdout.includes('packets transmitted') &&
+          stdout.includes('0 packets received'));
 
       const isSuccess = hasReceivedPackets && !hasPacketLoss;
 
+      // Debug temporal
+      console.log('Ping stdout:', stdout);
+      console.log('hasReceivedPackets:', hasReceivedPackets);
+      console.log('hasPacketLoss:', hasPacketLoss);
+      console.log('isSuccess:', isSuccess);
+
       if (isSuccess) {
         // Extraer información del ping (tiempo de respuesta)
-        const timeMatch = stdout.match(/time[<=](\d+(?:\.\d+)?)/);
-        const responseTime = timeMatch ? timeMatch[1] : 'N/A';
+        // Buscar diferentes patrones de tiempo en el output
+        let responseTime = 'N/A';
+
+        // Patrón 1: time=XX.XXX ms
+        let timeMatch = stdout.match(/time[<=](\d+(?:\.\d+)?)/);
+        if (timeMatch) {
+          responseTime = timeMatch[1];
+        } else {
+          // Patrón 2: round-trip min/avg/max/stddev = XX.XXX/XX.XXX/XX.XXX/XX.XXX ms
+          timeMatch = stdout.match(/round-trip.*?=.*?(\d+(?:\.\d+)?)/);
+          if (timeMatch) {
+            responseTime = timeMatch[1];
+          }
+        }
+
+        console.log('Response time extracted:', responseTime);
 
         // Intentar extraer la IP resuelta del output del ping
         let resolvedIP = '';
