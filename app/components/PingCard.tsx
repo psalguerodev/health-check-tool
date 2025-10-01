@@ -25,10 +25,18 @@ export default function PingCard() {
   const [bulkHosts, setBulkHosts] = useState('');
   const [bulkResults, setBulkResults] = useState<any[]>([]);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
+  const [abortController, setAbortController] =
+    useState<AbortController | null>(null);
 
   const { addTestResult } = useTestHistoryContext();
 
   const resetForm = () => {
+    // Cancelar proceso en curso si existe
+    if (abortController) {
+      abortController.abort();
+      setAbortController(null);
+    }
+
     setHost('');
     setTimeout('5000');
     setCount('1');
@@ -39,6 +47,7 @@ export default function PingCard() {
     setBulkHosts('');
     setBulkResults([]);
     setBulkProgress({ current: 0, total: 0 });
+    setIsLoading(false);
   };
 
   const testBulkPing = async () => {
@@ -52,83 +61,106 @@ export default function PingCard() {
       return;
     }
 
+    // Crear AbortController para cancelar el proceso
+    const controller = new AbortController();
+    setAbortController(controller);
+
     setIsLoading(true);
     setBulkResults([]);
     setBulkProgress({ current: 0, total: hosts.length });
 
-    for (let i = 0; i < hosts.length; i++) {
-      const currentHost = hosts[i];
-      setBulkProgress({ current: i + 1, total: hosts.length });
+    try {
+      for (let i = 0; i < hosts.length; i++) {
+        // Verificar si el proceso fue cancelado
+        if (controller.signal.aborted) {
+          break;
+        }
 
-      try {
-        const response = await fetch('/api/test-connection', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        const currentHost = hosts[i];
+        setBulkProgress({ current: i + 1, total: hosts.length });
+
+        try {
+          const response = await fetch('/api/test-connection', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'Ping',
+              config: {
+                host: currentHost,
+                timeout: parseInt(timeout),
+                count: parseInt(count),
+              },
+            }),
+            signal: controller.signal, // Agregar señal de aborto
+          });
+
+          const data = await response.json();
+
+          // Agregar resultado al array de resultados
+          const result = {
+            host: currentHost,
+            success: data.success,
+            message: data.message,
+            duration: data.duration || 0,
+            timestamp: new Date(),
+            resolvedIP: data.resolvedIP || null,
+          };
+
+          setBulkResults((prev) => [...prev, result]);
+
+          // Guardar en historial individual
+          addTestResult({
             type: 'Ping',
-            config: {
-              host: currentHost,
-              timeout: parseInt(timeout),
-              count: parseInt(count),
-            },
-          }),
-        });
+            url: currentHost,
+            host: currentHost,
+            endpoint: currentHost,
+            method: 'PING',
+            success: data.success,
+            message: data.message,
+            duration: data.duration || 0,
+            timestamp: new Date(),
+          });
+        } catch (error) {
+          const errorResult = {
+            host: currentHost,
+            success: false,
+            message: 'Error de conexión',
+            duration: 0,
+            timestamp: new Date(),
+          };
 
-        const data = await response.json();
+          setBulkResults((prev) => [...prev, errorResult]);
 
-        // Agregar resultado al array de resultados
-        const result = {
-          host: currentHost,
-          success: data.success,
-          message: data.message,
-          duration: data.duration || 0,
-          timestamp: new Date(),
-          resolvedIP: data.resolvedIP || null,
-        };
-
-        setBulkResults((prev) => [...prev, result]);
-
-        // Guardar en historial individual
-        addTestResult({
-          type: 'Ping',
-          url: currentHost,
-          host: currentHost,
-          endpoint: currentHost,
-          method: 'PING',
-          success: data.success,
-          message: data.message,
-          duration: data.duration || 0,
-          timestamp: new Date(),
-        });
-      } catch (error) {
-        const errorResult = {
-          host: currentHost,
-          success: false,
-          message: 'Error de conexión',
-          duration: 0,
-          timestamp: new Date(),
-        };
-
-        setBulkResults((prev) => [...prev, errorResult]);
-
-        addTestResult({
-          type: 'Ping',
-          url: currentHost,
-          host: currentHost,
-          endpoint: currentHost,
-          method: 'PING',
-          success: false,
-          message: 'Error de conexión',
-          duration: 0,
-          timestamp: new Date(),
-        });
+          addTestResult({
+            type: 'Ping',
+            url: currentHost,
+            host: currentHost,
+            endpoint: currentHost,
+            method: 'PING',
+            success: false,
+            message: 'Error de conexión',
+            duration: 0,
+            timestamp: new Date(),
+          });
+        }
       }
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log('Proceso de ping cancelado');
+      } else {
+        console.error('Error en testBulkPing:', error);
+      }
+    } finally {
+      setIsLoading(false);
+      setAbortController(null);
     }
-
-    setIsLoading(false);
   };
 
   const testConnection = async () => {
+    // Crear AbortController para cancelar el proceso
+    const controller = new AbortController();
+    setAbortController(controller);
+
     setIsLoading(true);
     setResult(null);
 
@@ -144,6 +176,7 @@ export default function PingCard() {
             count: parseInt(count),
           },
         }),
+        signal: controller.signal, // Agregar señal de aborto
       });
 
       const data = await response.json();
@@ -161,7 +194,12 @@ export default function PingCard() {
         duration: data.duration || 0,
         timestamp: new Date(),
       });
-    } catch (error) {
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log('Proceso de ping cancelado');
+        return;
+      }
+
       const errorResult = {
         success: false,
         message: 'Error de conexión',
@@ -183,6 +221,7 @@ export default function PingCard() {
       });
     } finally {
       setIsLoading(false);
+      setAbortController(null);
     }
   };
 

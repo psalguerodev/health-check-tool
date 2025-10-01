@@ -26,10 +26,18 @@ export default function TelnetCard() {
   const [bulkHosts, setBulkHosts] = useState('');
   const [bulkResults, setBulkResults] = useState<any[]>([]);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
+  const [abortController, setAbortController] =
+    useState<AbortController | null>(null);
 
   const { addTestResult } = useTestHistoryContext();
 
   const resetForm = () => {
+    // Cancelar proceso en curso si existe
+    if (abortController) {
+      abortController.abort();
+      setAbortController(null);
+    }
+
     setHost('');
     setPort('23');
     setTimeout('5000');
@@ -40,6 +48,7 @@ export default function TelnetCard() {
     setBulkHosts('');
     setBulkResults([]);
     setBulkProgress({ current: 0, total: 0 });
+    setIsLoading(false);
   };
 
   const testBulkTelnet = async () => {
@@ -60,84 +69,107 @@ export default function TelnetCard() {
       return;
     }
 
+    // Crear AbortController para cancelar el proceso
+    const controller = new AbortController();
+    setAbortController(controller);
+
     setIsLoading(true);
     setBulkResults([]);
     setBulkProgress({ current: 0, total: connections.length });
 
-    for (let i = 0; i < connections.length; i++) {
-      const connection = connections[i];
-      setBulkProgress({ current: i + 1, total: connections.length });
+    try {
+      for (let i = 0; i < connections.length; i++) {
+        // Verificar si el proceso fue cancelado
+        if (controller.signal.aborted) {
+          break;
+        }
 
-      try {
-        const response = await fetch('/api/test-connection', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        const connection = connections[i];
+        setBulkProgress({ current: i + 1, total: connections.length });
+
+        try {
+          const response = await fetch('/api/test-connection', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'Telnet',
+              config: {
+                host: connection.host,
+                port: parseInt(connection.port),
+                timeout: parseInt(timeout),
+              },
+            }),
+            signal: controller.signal, // Agregar señal de aborto
+          });
+
+          const data = await response.json();
+
+          // Agregar resultado al array de resultados
+          const result = {
+            host: connection.host,
+            port: connection.port,
+            success: data.success,
+            message: data.message,
+            duration: data.duration || 0,
+            timestamp: new Date(),
+          };
+
+          setBulkResults((prev) => [...prev, result]);
+
+          // Guardar en historial individual
+          addTestResult({
             type: 'Telnet',
-            config: {
-              host: connection.host,
-              port: parseInt(connection.port),
-              timeout: parseInt(timeout),
-            },
-          }),
-        });
+            url: `${connection.host}:${connection.port}`,
+            host: connection.host,
+            endpoint: `${connection.host}:${connection.port}`,
+            method: 'TELNET',
+            success: data.success,
+            message: data.message,
+            duration: data.duration || 0,
+            timestamp: new Date(),
+          });
+        } catch (error) {
+          const errorResult = {
+            host: connection.host,
+            port: connection.port,
+            success: false,
+            message: 'Error de conexión',
+            duration: 0,
+            timestamp: new Date(),
+          };
 
-        const data = await response.json();
+          setBulkResults((prev) => [...prev, errorResult]);
 
-        // Agregar resultado al array de resultados
-        const result = {
-          host: connection.host,
-          port: connection.port,
-          success: data.success,
-          message: data.message,
-          duration: data.duration || 0,
-          timestamp: new Date(),
-        };
-
-        setBulkResults((prev) => [...prev, result]);
-
-        // Guardar en historial individual
-        addTestResult({
-          type: 'Telnet',
-          url: `${connection.host}:${connection.port}`,
-          host: connection.host,
-          endpoint: `${connection.host}:${connection.port}`,
-          method: 'TELNET',
-          success: data.success,
-          message: data.message,
-          duration: data.duration || 0,
-          timestamp: new Date(),
-        });
-      } catch (error) {
-        const errorResult = {
-          host: connection.host,
-          port: connection.port,
-          success: false,
-          message: 'Error de conexión',
-          duration: 0,
-          timestamp: new Date(),
-        };
-
-        setBulkResults((prev) => [...prev, errorResult]);
-
-        addTestResult({
-          type: 'Telnet',
-          url: `${connection.host}:${connection.port}`,
-          host: connection.host,
-          endpoint: `${connection.host}:${connection.port}`,
-          method: 'TELNET',
-          success: false,
-          message: 'Error de conexión',
-          duration: 0,
-          timestamp: new Date(),
-        });
+          addTestResult({
+            type: 'Telnet',
+            url: `${connection.host}:${connection.port}`,
+            host: connection.host,
+            endpoint: `${connection.host}:${connection.port}`,
+            method: 'TELNET',
+            success: false,
+            message: 'Error de conexión',
+            duration: 0,
+            timestamp: new Date(),
+          });
+        }
       }
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log('Proceso de telnet cancelado');
+      } else {
+        console.error('Error en testBulkTelnet:', error);
+      }
+    } finally {
+      setIsLoading(false);
+      setAbortController(null);
     }
-
-    setIsLoading(false);
   };
 
   const testConnection = async () => {
+    // Crear AbortController para cancelar el proceso
+    const controller = new AbortController();
+    setAbortController(controller);
+
     setIsLoading(true);
     setResult(null);
 
@@ -153,6 +185,7 @@ export default function TelnetCard() {
             timeout: parseInt(timeout),
           },
         }),
+        signal: controller.signal, // Agregar señal de aborto
       });
 
       const data = await response.json();
@@ -170,7 +203,12 @@ export default function TelnetCard() {
         duration: data.duration || 0,
         timestamp: new Date(),
       });
-    } catch (error) {
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log('Proceso de telnet cancelado');
+        return;
+      }
+
       const errorResult = {
         success: false,
         message: 'Error de conexión',
@@ -192,6 +230,7 @@ export default function TelnetCard() {
       });
     } finally {
       setIsLoading(false);
+      setAbortController(null);
     }
   };
 

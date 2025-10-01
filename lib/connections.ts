@@ -365,8 +365,8 @@ export async function testPingConnection(
       pingCommand = `ping -n ${count} -w ${timeout * 1000} ${config.host}`;
       platformName = 'Windows';
     } else if (isMacOS) {
-      // macOS: -c para count, sin timeout (usar timeout del proceso)
-      pingCommand = `ping -c ${count} ${config.host}`;
+      // macOS: -c para count, -W para timeout en segundos
+      pingCommand = `ping -c ${count} -W ${timeout} ${config.host}`;
       platformName = 'macOS';
     } else if (isLinux) {
       // Linux: -c para count, -W para timeout en segundos
@@ -401,16 +401,32 @@ export async function testPingConnection(
       const { stdout, stderr } = await execAsync(pingCommand, {
         timeout: Math.max((config.timeout || 5000) * 2, 10000), // Timeout más generoso
         maxBuffer: 1024 * 1024, // 1MB buffer
+      }).catch((error) => {
+        // En macOS, el ping puede fallar pero aún devolver información útil en stdout
+        if (error.stdout) {
+          return { stdout: error.stdout, stderr: error.stderr || '' };
+        }
+        throw error;
       });
 
       const duration = Date.now() - startTime;
 
       // Analizar la salida del ping para determinar si fue exitoso
-      const isSuccess =
+      // Verificar que realmente haya recibido paquetes
+      const hasReceivedPackets =
         stdout.includes('time=') ||
         stdout.includes('time<') ||
         stdout.includes('bytes from') ||
-        stdout.includes('Reply from');
+        stdout.includes('Reply from') ||
+        stdout.includes('64 bytes from');
+
+      // Verificar que no haya pérdida total de paquetes
+      const hasPacketLoss =
+        stdout.includes('100.0% packet loss') ||
+        stdout.includes('100% packet loss') ||
+        stdout.includes('0 packets received');
+
+      const isSuccess = hasReceivedPackets && !hasPacketLoss;
 
       if (isSuccess) {
         // Extraer información del ping (tiempo de respuesta)
@@ -459,9 +475,59 @@ export async function testPingConnection(
       }
     } catch (execError: any) {
       const duration = Date.now() - startTime;
+      let errorMessage = `Ping falló - ${config.host} no responde`;
+
+      // En macOS, el ping puede fallar pero aún devolver stdout con información útil
+      // Intentar analizar el stdout si está disponible
+      if (execError.stdout) {
+        const stdout = execError.stdout;
+        // Verificar que realmente haya recibido paquetes
+        const hasReceivedPackets =
+          stdout.includes('time=') ||
+          stdout.includes('time<') ||
+          stdout.includes('bytes from') ||
+          stdout.includes('Reply from') ||
+          stdout.includes('64 bytes from');
+
+        // Verificar que no haya pérdida total de paquetes
+        const hasPacketLoss =
+          stdout.includes('100.0% packet loss') ||
+          stdout.includes('100% packet loss') ||
+          stdout.includes('0 packets received');
+
+        const isSuccess = hasReceivedPackets && !hasPacketLoss;
+
+        if (isSuccess) {
+          const timeMatch = stdout.match(/time[<=](\d+(?:\.\d+)?)/);
+          const responseTime = timeMatch ? timeMatch[1] : 'N/A';
+
+          return {
+            success: true,
+            message: `Ping real exitoso en ${duration}ms - ${config.host} (${count} paquetes, tiempo: ${responseTime}ms)`,
+            duration,
+            timestamp: new Date(),
+          };
+        }
+
+        // Analizar el stdout para determinar el tipo específico de fallo
+        if (stdout.includes('100% packet loss')) {
+          errorMessage = `Pérdida total de paquetes - ${config.host} no responde`;
+        } else if (stdout.includes('Network is unreachable')) {
+          errorMessage = `Red inalcanzable - ${config.host}`;
+        } else if (stdout.includes('No route to host')) {
+          errorMessage = `Sin ruta al host - ${config.host}`;
+        } else if (stdout.includes('Host is down')) {
+          errorMessage = `Host apagado - ${config.host}`;
+        } else if (stdout.includes('Request timeout')) {
+          errorMessage = `Timeout de ping (${config.timeout || 5000}ms) - ${
+            config.host
+          }`;
+        } else if (stdout.includes('Destination Host Unreachable')) {
+          errorMessage = `Host inalcanzable: ${config.host}`;
+        }
+      }
 
       // Analizar diferentes tipos de errores según el sistema operativo
-      let errorMessage = `Error de ping en ${platformName}: ${execError.message}`;
 
       // Errores comunes en todos los sistemas
       if (
@@ -486,6 +552,20 @@ export async function testPingConnection(
         errorMessage = `Permisos insuficientes para ejecutar ping en ${platformName}`;
       } else if (execError.message.includes('ping: command not found')) {
         errorMessage = `Comando ping no disponible en ${platformName}`;
+      } else if (execError.message.includes('100% packet loss')) {
+        errorMessage = `Pérdida total de paquetes - ${config.host} no responde`;
+      } else if (execError.message.includes('Network is unreachable')) {
+        errorMessage = `Red inalcanzable - ${config.host}`;
+      } else if (execError.message.includes('No route to host')) {
+        errorMessage = `Sin ruta al host - ${config.host}`;
+      } else if (execError.message.includes('Host is down')) {
+        errorMessage = `Host apagado - ${config.host}`;
+      } else if (execError.message.includes('Connection refused')) {
+        errorMessage = `Conexión rechazada - ${config.host}`;
+      } else if (execError.message.includes('Operation timed out')) {
+        errorMessage = `Operación timeout (${config.timeout || 5000}ms) - ${
+          config.host
+        }`;
       }
 
       return {
