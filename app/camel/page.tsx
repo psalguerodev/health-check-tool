@@ -50,9 +50,9 @@ export default function CamelPage() {
         </div>
 
         {/* Contenido principal */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="bg-white border border-gray-300 rounded-lg">
-            <div className="p-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2">
+          <div className="bg-white border border-gray-300 rounded-lg h-[calc(100vh-200px)]">
+            <div className="p-6 h-full">
               <CamelRepositoriesTable />
             </div>
           </div>
