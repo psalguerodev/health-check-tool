@@ -18,6 +18,7 @@ import ParameterStoreModule from '../components/ParameterStoreModule';
 import ServerInfoCard from '../components/ServerInfoCard';
 import VersionInfo from '../components/VersionInfo';
 import PageHeader from '../components/PageHeader';
+import Breadcrumbs from '../components/Breadcrumbs';
 import { TestHistoryProvider } from '../context/TestHistoryContext';
 
 export default function KernelPage() {
@@ -26,7 +27,7 @@ export default function KernelPage() {
 
   return (
     <TestHistoryProvider historyKey="kernelHistory">
-      <div className="min-h-screen bg-white">
+      <div className="min-h-screen bg-gray-50">
         {/* Header */}
         <PageHeader
           icon={Terminal}
@@ -39,15 +40,16 @@ export default function KernelPage() {
           showSectionFilter={true}
         />
 
-        {/* Contenido principal */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="mb-6">
-            {/* Información del servidor */}
-            <div className="flex justify-center">
-              <ServerInfoCard />
-            </div>
+        {/* Breadcrumbs y Server Info */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex justify-between items-center">
+            <Breadcrumbs items={[{ label: 'Kernel', current: true }]} />
+            <ServerInfoCard />
           </div>
+        </div>
 
+        {/* Contenido principal */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2">
           {/* Contenido principal */}
           <div className="bg-white border border-gray-300 rounded-lg">
             <div className="p-6">

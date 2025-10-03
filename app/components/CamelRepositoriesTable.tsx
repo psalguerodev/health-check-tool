@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Search, GitBranch, Download, RefreshCw } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 interface Repository {
   workspace: string;
@@ -21,12 +22,19 @@ interface Repository {
 }
 
 export default function CamelRepositoriesTable() {
+  const router = useRouter();
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [filteredRepositories, setFilteredRepositories] = useState<
     Repository[]
   >([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+
+  const handleRowClick = (repoSlug: string, hasBlueprint: boolean) => {
+    if (hasBlueprint) {
+      router.push(`/camel/${repoSlug}`);
+    }
+  };
 
   // Cargar datos del CSV
   useEffect(() => {
@@ -436,7 +444,12 @@ export default function CamelRepositoriesTable() {
               {filteredRepositories.map((repo, index) => (
                 <tr
                   key={`${repo.workspace}-${repo.repo_slug}-${index}`}
-                  className="hover:bg-gray-50"
+                  className={`hover:bg-gray-50 ${
+                    repo.has_blueprint ? 'cursor-pointer' : 'cursor-default'
+                  }`}
+                  onClick={() =>
+                    handleRowClick(repo.repo_slug, repo.has_blueprint)
+                  }
                 >
                   <td className="px-4 py-4 w-48">
                     <div className="flex items-center">

@@ -22,6 +22,7 @@ import HistorySidebar from '../components/HistorySidebar';
 import ChatSidebar from '../components/ChatSidebar';
 import BitbucketConfigModule from '../components/BitbucketConfigModule';
 import PageHeader from '../components/PageHeader';
+import Breadcrumbs from '../components/Breadcrumbs';
 import { TestHistoryProvider } from '../context/TestHistoryContext';
 
 export default function CamelPage() {
@@ -30,7 +31,7 @@ export default function CamelPage() {
 
   return (
     <TestHistoryProvider historyKey="camelHistory">
-      <div className="min-h-screen bg-white">
+      <div className="min-h-screen bg-gray-50">
         {/* Header */}
         <PageHeader
           icon={Container}
@@ -42,6 +43,11 @@ export default function CamelPage() {
           currentPage="camel"
           showSectionFilter={true}
         />
+
+        {/* Breadcrumbs */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <Breadcrumbs items={[{ label: 'Camel', current: true }]} />
+        </div>
 
         {/* Contenido principal */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">

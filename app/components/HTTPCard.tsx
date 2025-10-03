@@ -193,138 +193,140 @@ export default function HTTPCard() {
   };
 
   return (
-    <div className="space-y-3">
-      {/* Botón para importar cURL */}
-      <div className="flex justify-between items-center mb-4">
-        <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-            <Globe className="w-4 h-4 text-blue-600" />
+    <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+      <div className="space-y-3">
+        {/* Botón para importar cURL */}
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+              <Globe className="w-4 h-4 text-blue-600" />
+            </div>
+            <h3 className="text-sm font-semibold text-gray-900 relative">
+              <span className="bg-gradient-to-r from-blue-800 to-blue-600 bg-clip-text text-transparent">
+                Configuración HTTP
+              </span>
+              <div className="absolute -bottom-1 left-0 w-6 h-0.5 bg-gradient-to-r from-blue-500 to-blue-400 rounded-full"></div>
+            </h3>
           </div>
-          <h3 className="text-sm font-semibold text-gray-900 relative">
-            <span className="bg-gradient-to-r from-blue-800 to-blue-600 bg-clip-text text-transparent">
-              Configuración HTTP
-            </span>
-            <div className="absolute -bottom-1 left-0 w-6 h-0.5 bg-gradient-to-r from-blue-500 to-blue-400 rounded-full"></div>
-          </h3>
-        </div>
-        <div className="flex space-x-2">
-          <button
-            onClick={() => setShowCurlImport(!showCurlImport)}
-            className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
-          >
-            {showCurlImport ? 'Ocultar' : 'Importar cURL'}
-          </button>
-          <button
-            onClick={() => {
-              const testCurl = `curl --location 'https://api.clickup.com/api/v2/list/901108308144/task' \\
---header 'Authorization: pk_75423518_Q07Z5P9KCN7G9HCKKR3SUV2D4PH8NBMD' \\
---header 'Accept: application/json'`;
-              parseCurlCommand(testCurl);
-            }}
-            className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
-          >
-            Probar Parser
-          </button>
-        </div>
-      </div>
-
-      {/* Panel de importación cURL */}
-      {showCurlImport && (
-        <div className="p-3 bg-gray-50 rounded border">
-          <label className="block text-xs font-medium mb-2 text-gray-700">
-            Pegar comando cURL:
-          </label>
-          <textarea
-            value={curlCommand}
-            onChange={(e) => setCurlCommand(e.target.value)}
-            placeholder="curl -X POST https://api.example.com/data -H Content-Type: application/json -d {key: value}"
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded mb-2"
-            rows={3}
-          />
           <div className="flex space-x-2">
             <button
-              onClick={() => parseCurlCommand(curlCommand)}
-              disabled={!curlCommand.trim()}
-              className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              onClick={() => setShowCurlImport(!showCurlImport)}
+              className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
             >
-              Importar
+              {showCurlImport ? 'Ocultar' : 'Importar cURL'}
             </button>
             <button
               onClick={() => {
-                setCurlCommand('');
-                setShowCurlImport(false);
+                const testCurl = `curl --location 'https://api.clickup.com/api/v2/list/901108308144/task' \\
+--header 'Authorization: pk_75423518_Q07Z5P9KCN7G9HCKKR3SUV2D4PH8NBMD' \\
+--header 'Accept: application/json'`;
+                parseCurlCommand(testCurl);
               }}
-              className="px-3 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600"
+              className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
             >
-              Cancelar
+              Probar Parser
             </button>
           </div>
         </div>
-      )}
 
-      <ParameterSelectorLink
-        category="api"
-        placeholder="URL (ej: https://api.ejemplo.com/endpoint)"
-        value={url}
-        onChange={setUrl}
-        onSelect={setSelectedUrlParam}
-        className="w-full"
-      />
-      <div className="grid grid-cols-2 gap-2">
-        <select
-          value={method}
-          onChange={(e) => setMethod(e.target.value)}
-          className="px-3 py-2 text-sm border border-gray-300 rounded"
-        >
-          <option value="GET">GET</option>
-          <option value="POST">POST</option>
-          <option value="PUT">PUT</option>
-          <option value="DELETE">DELETE</option>
-          <option value="PATCH">PATCH</option>
-        </select>
+        {/* Panel de importación cURL */}
+        {showCurlImport && (
+          <div className="p-3 bg-gray-50 rounded border">
+            <label className="block text-xs font-medium mb-2 text-gray-700">
+              Pegar comando cURL:
+            </label>
+            <textarea
+              value={curlCommand}
+              onChange={(e) => setCurlCommand(e.target.value)}
+              placeholder="curl -X POST https://api.example.com/data -H Content-Type: application/json -d {key: value}"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded mb-2"
+              rows={3}
+            />
+            <div className="flex space-x-2">
+              <button
+                onClick={() => parseCurlCommand(curlCommand)}
+                disabled={!curlCommand.trim()}
+                className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              >
+                Importar
+              </button>
+              <button
+                onClick={() => {
+                  setCurlCommand('');
+                  setShowCurlImport(false);
+                }}
+                className="px-3 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
         <ParameterSelectorLink
           category="api"
-          placeholder="Headers (ej: Content-Type: application/json)"
-          value={headers}
-          onChange={setHeaders}
-          onSelect={setSelectedHeadersParam}
-        />
-      </div>
-      {/* Body solo para POST */}
-      {method === 'POST' && (
-        <ParameterSelectorLink
-          category="api"
-          placeholder="Body (JSON, XML, etc.)"
-          value={body}
-          onChange={setBody}
-          onSelect={setSelectedBodyParam}
+          placeholder="URL (ej: https://api.ejemplo.com/endpoint)"
+          value={url}
+          onChange={setUrl}
+          onSelect={setSelectedUrlParam}
           className="w-full"
-          multiline
-          rows={3}
         />
-      )}
-      <div className="flex justify-end items-center space-x-2">
-        <button
-          onClick={testConnection}
-          disabled={isLoading || !url}
-          className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-        >
-          {isLoading ? 'Probando...' : 'Probar Conexión'}
-        </button>
-        <button
-          onClick={resetForm}
-          className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors duration-200"
-        >
-          Resetear
-        </button>
+        <div className="grid grid-cols-2 gap-2">
+          <select
+            value={method}
+            onChange={(e) => setMethod(e.target.value)}
+            className="px-3 py-2 text-sm border border-gray-300 rounded"
+          >
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="DELETE">DELETE</option>
+            <option value="PATCH">PATCH</option>
+          </select>
+          <ParameterSelectorLink
+            category="api"
+            placeholder="Headers (ej: Content-Type: application/json)"
+            value={headers}
+            onChange={setHeaders}
+            onSelect={setSelectedHeadersParam}
+          />
+        </div>
+        {/* Body solo para POST */}
+        {method === 'POST' && (
+          <ParameterSelectorLink
+            category="api"
+            placeholder="Body (JSON, XML, etc.)"
+            value={body}
+            onChange={setBody}
+            onSelect={setSelectedBodyParam}
+            className="w-full"
+            multiline
+            rows={3}
+          />
+        )}
+        <div className="flex justify-end items-center space-x-2">
+          <button
+            onClick={testConnection}
+            disabled={isLoading || !url}
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+          >
+            {isLoading ? 'Probando...' : 'Probar Conexión'}
+          </button>
+          <button
+            onClick={resetForm}
+            className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors duration-200"
+          >
+            Resetear
+          </button>
+        </div>
+        {result && (
+          <TestResultCard
+            result={result}
+            showResponse={true}
+            responseTitle="Respuesta HTTP"
+          />
+        )}
       </div>
-      {result && (
-        <TestResultCard
-          result={result}
-          showResponse={true}
-          responseTitle="Respuesta HTTP"
-        />
-      )}
     </div>
   );
 }

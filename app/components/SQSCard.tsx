@@ -99,81 +99,83 @@ export default function SQSCard() {
   ];
 
   return (
-    <div className="space-y-3">
-      <div className="flex justify-between items-center mb-4">
-        <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-            <MessageSquare className="w-4 h-4 text-blue-600" />
+    <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+      <div className="space-y-3">
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+              <MessageSquare className="w-4 h-4 text-blue-600" />
+            </div>
+            <h3 className="text-sm font-semibold text-gray-900 relative">
+              <span className="bg-gradient-to-r from-blue-800 to-blue-600 bg-clip-text text-transparent">
+                Configuración AWS SQS
+              </span>
+              <div className="absolute -bottom-1 left-0 w-6 h-0.5 bg-gradient-to-r from-blue-500 to-blue-400 rounded-full"></div>
+            </h3>
           </div>
-          <h3 className="text-sm font-semibold text-gray-900 relative">
-            <span className="bg-gradient-to-r from-blue-800 to-blue-600 bg-clip-text text-transparent">
-              Configuración AWS SQS
-            </span>
-            <div className="absolute -bottom-1 left-0 w-6 h-0.5 bg-gradient-to-r from-blue-500 to-blue-400 rounded-full"></div>
-          </h3>
         </div>
-      </div>
-      <select
-        value={region}
-        onChange={(e) => setRegion(e.target.value)}
-        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200 appearance-none"
-      >
-        <option value="">Seleccionar región AWS</option>
-        {awsRegions.map((reg) => (
-          <option key={reg.value} value={reg.value}>
-            {reg.label}
-          </option>
-        ))}
-      </select>
-      <ParameterSelectorLink
-        category="aws"
-        placeholder="Access Key ID"
-        value={accessKeyId}
-        onChange={setAccessKeyId}
-        onSelect={setSelectedAccessKeyParam}
-        className="w-full"
-      />
-      <ParameterSelectorLink
-        category="aws"
-        placeholder="Secret Access Key"
-        value={secretAccessKey}
-        onChange={setSecretAccessKey}
-        onSelect={setSelectedSecretKeyParam}
-        className="w-full"
-        isPassword={true}
-      />
-      <ParameterSelectorLink
-        category="aws"
-        placeholder="URL de la cola"
-        value={queueUrl}
-        onChange={setQueueUrl}
-        onSelect={setSelectedQueueUrlParam}
-        className="w-full"
-      />
-
-      <div className="flex justify-end items-center space-x-2">
-        <button
-          onClick={testConnection}
-          disabled={
-            isLoading ||
-            !region ||
-            !accessKeyId ||
-            !secretAccessKey ||
-            !queueUrl
-          }
-          className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+        <select
+          value={region}
+          onChange={(e) => setRegion(e.target.value)}
+          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200 appearance-none"
         >
-          {isLoading ? 'Probando...' : 'Probar Conexión'}
-        </button>
-        <button
-          onClick={resetForm}
-          className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors duration-200"
-        >
-          Resetear
-        </button>
-      </div>
+          <option value="">Seleccionar región AWS</option>
+          {awsRegions.map((reg) => (
+            <option key={reg.value} value={reg.value}>
+              {reg.label}
+            </option>
+          ))}
+        </select>
+        <ParameterSelectorLink
+          category="aws"
+          placeholder="Access Key ID"
+          value={accessKeyId}
+          onChange={setAccessKeyId}
+          onSelect={setSelectedAccessKeyParam}
+          className="w-full"
+        />
+        <ParameterSelectorLink
+          category="aws"
+          placeholder="Secret Access Key"
+          value={secretAccessKey}
+          onChange={setSecretAccessKey}
+          onSelect={setSelectedSecretKeyParam}
+          className="w-full"
+          isPassword={true}
+        />
+        <ParameterSelectorLink
+          category="aws"
+          placeholder="URL de la cola"
+          value={queueUrl}
+          onChange={setQueueUrl}
+          onSelect={setSelectedQueueUrlParam}
+          className="w-full"
+        />
 
-      {result && <TestResultCard result={result} showResponse={false} />}
+        <div className="flex justify-end items-center space-x-2">
+          <button
+            onClick={testConnection}
+            disabled={
+              isLoading ||
+              !region ||
+              !accessKeyId ||
+              !secretAccessKey ||
+              !queueUrl
+            }
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+          >
+            {isLoading ? 'Probando...' : 'Probar Conexión'}
+          </button>
+          <button
+            onClick={resetForm}
+            className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors duration-200"
+          >
+            Resetear
+          </button>
+        </div>
+
+        {result && <TestResultCard result={result} showResponse={false} />}
+      </div>
     </div>
   );
 }

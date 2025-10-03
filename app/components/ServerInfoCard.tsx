@@ -41,10 +41,10 @@ export default function ServerInfoCard() {
 
   if (isLoading) {
     return (
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+      <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
         <div className="flex items-center space-x-2">
-          <Server className="w-4 h-4 text-gray-400" />
-          <span className="text-xs text-gray-500">
+          <Server className="w-4 h-4 text-blue-500" />
+          <span className="text-xs text-gray-600">
             Cargando info del servidor...
           </span>
         </div>
@@ -54,51 +54,57 @@ export default function ServerInfoCard() {
 
   if (!serverInfo) {
     return (
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+      <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
         <div className="flex items-center space-x-2">
-          <Server className="w-4 h-4 text-gray-400" />
-          <span className="text-xs text-gray-500">Info no disponible</span>
+          <Server className="w-4 h-4 text-blue-500" />
+          <span className="text-xs text-gray-600">Info no disponible</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+    <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2 mr-6">
           <Server className="w-4 h-4 text-blue-600" />
-          <span className="text-xs font-medium text-gray-700">Servidor</span>
+          <span className="text-xs font-medium text-gray-800">Servidor</span>
         </div>
 
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-1">
-            <Wifi className="w-3 h-3 text-gray-400" />
-            <span className="text-xs text-gray-600 ">{serverInfo.ip}</span>
+            <Wifi className="w-3 h-3 text-blue-500" />
+            <span className="text-xs text-gray-700 font-medium">
+              {serverInfo.ip}
+            </span>
           </div>
 
           <div className="flex items-center space-x-1">
-            <HardDrive className="w-3 h-3 text-gray-400" />
-            <span className="text-xs text-gray-600">
+            <HardDrive className="w-3 h-3 text-blue-500" />
+            <span className="text-xs text-gray-700 font-medium">
               {serverInfo.memory.used}/{serverInfo.memory.total}
             </span>
           </div>
 
           <div className="flex items-center space-x-1">
-            <Cpu className="w-3 h-3 text-gray-400" />
-            <span className="text-xs text-gray-600">
+            <Cpu className="w-3 h-3 text-blue-500" />
+            <span className="text-xs text-gray-700 font-medium">
               {serverInfo.cpu.usage}%
             </span>
           </div>
 
           <div className="flex items-center space-x-1">
-            <Clock className="w-3 h-3 text-gray-400" />
-            <span className="text-xs text-gray-600">{serverInfo.uptime}</span>
+            <Clock className="w-3 h-3 text-blue-500" />
+            <span className="text-xs text-gray-700 font-medium">
+              {serverInfo.uptime}
+            </span>
           </div>
 
           <div className="flex items-center space-x-1">
-            <Server className="w-3 h-3 text-gray-400" />
-            <span className="text-xs text-gray-600">{serverInfo.platform}</span>
+            <Server className="w-3 h-3 text-blue-500" />
+            <span className="text-xs text-gray-700 font-medium">
+              {serverInfo.platform}
+            </span>
           </div>
         </div>
       </div>

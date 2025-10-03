@@ -14,6 +14,7 @@ import ParameterStoreModule from './components/ParameterStoreModule';
 import ServerInfoCard from './components/ServerInfoCard';
 import VersionInfo from './components/VersionInfo';
 import PageHeader from './components/PageHeader';
+import Breadcrumbs from './components/Breadcrumbs';
 // import LocalStorageDebug from './components/LocalStorageDebug';
 import { TestHistoryProvider } from './context/TestHistoryContext';
 import {
@@ -58,7 +59,7 @@ export default function Home() {
 
   return (
     <TestHistoryProvider historyKey="healthCheckHistory">
-      <div className="min-h-screen bg-white">
+      <div className="min-h-screen bg-gray-50">
         {/* Header */}
         <PageHeader
           icon={Activity}
@@ -71,15 +72,16 @@ export default function Home() {
           showSectionFilter={true}
         />
 
-        {/* Contenido principal */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="mb-6">
-            {/* Información del servidor */}
-            <div className="flex justify-center">
-              <ServerInfoCard />
-            </div>
+        {/* Breadcrumbs y Server Info */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex justify-between items-center">
+            <Breadcrumbs items={[{ label: 'Health Check', current: true }]} />
+            <ServerInfoCard />
           </div>
+        </div>
 
+        {/* Contenido principal */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2">
           {/* Layout con tabs verticales */}
           <div className="flex gap-6">
             {/* Tabs verticales */}
