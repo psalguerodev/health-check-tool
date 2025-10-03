@@ -103,6 +103,7 @@ export default function BlueprintAnalyzer({
   );
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summary, setSummary] = useState<string>('');
+  const [summaryError, setSummaryError] = useState<string>('');
 
   // Función para generar nodos y edges del gráfico
   const generateGraphData = (analysis: BlueprintAnalysis) => {
@@ -276,15 +277,16 @@ export default function BlueprintAnalyzer({
     if (!analysis) return;
 
     setSummaryLoading(true);
+    setSummaryError(''); // Limpiar errores previos
     try {
       // Obtener las credenciales del localStorage (mismo que usa el chat)
       const apiKey = localStorage.getItem('openai_api_key');
       const systemPrompt =
         localStorage.getItem('openai_system_prompt') ||
-        'Eres un asistente útil especializado en análisis de arquitecturas de software.';
+        'Eres un arquitecto de software experto especializado en análisis de servicios Apache Camel. Tu tarea es analizar blueprints XML para entender qué problema de negocio resuelve cada servicio, cómo funciona técnicamente, y cuál es su propósito en el ecosistema de aplicaciones. Debes proporcionar insights claros sobre el valor de negocio y la funcionalidad técnica del servicio.';
 
       if (!apiKey) {
-        setSummary(
+        setSummaryError(
           'Error: No se encontraron credenciales de OpenAI. Configúralas en el sidebar del Chat.'
         );
         return;
@@ -297,40 +299,105 @@ export default function BlueprintAnalyzer({
       }
       const blueprintXml = await xmlResponse.text();
 
-      // Prompts específicos para cada tipo de resumen
+      // Crear un archivo temporal con el XML
+      const xmlBlob = new Blob([blueprintXml], { type: 'application/xml' });
+      const xmlFile = new File([xmlBlob], 'blueprint.xml', {
+        type: 'application/xml',
+      });
+
+      // Crear FormData para enviar el archivo como adjunto
+      const formData = new FormData();
+      formData.append('file', xmlFile);
+      formData.append('purpose', 'assistants');
+
+      // Subir el archivo a OpenAI
+      const uploadResponse = await fetch('https://api.openai.com/v1/files', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: formData,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(`Error subiendo archivo: ${uploadResponse.status}`);
+      }
+
+      const uploadData = await uploadResponse.json();
+      const fileId = uploadData.id;
+
+      // Prompts específicos para cada tipo de resumen (sin incluir el XML)
       const prompts = {
-        detailed: `Analiza este blueprint.xml de Apache Camel del servicio "${analysis.serviceName}" y genera un resumen detallado que incluya:
+        detailed: `Analiza el blueprint.xml de Apache Camel del servicio "${analysis.serviceName}" y genera un resumen detallado que incluya:
 
-1. **Arquitectura del Servicio**: Descripción general de la funcionalidad
-2. **Rutas Expuestas**: Lista de endpoints, protocolos y paths
-3. **Dependencias**: Beans, servicios internos y componentes
-4. **Data Sources**: Bases de datos y conexiones configuradas
-5. **Servicios Externos**: APIs y servicios que invoca
-6. **Configuración**: Propiedades y parámetros importantes
-7. **Flujo de Datos**: Cómo fluyen los datos a través del servicio
-8. **Consideraciones Técnicas**: Aspectos importantes para desarrollo/mantenimiento
+1. **Propósito del Servicio**: ¿Qué problema de negocio resuelve este servicio? ¿Cuál es su función principal?
+2. **Arquitectura del Servicio**: Descripción general de la funcionalidad y cómo está estructurado
+3. **Rutas Expuestas**: Lista completa de endpoints, protocolos y paths con sus propósitos
+4. **Flujo de Procesamiento**: Cómo el servicio procesa las solicitudes y transforma los datos
+5. **Dependencias**: Beans, servicios internos y componentes que utiliza
+6. **Data Sources**: Bases de datos y conexiones configuradas, incluyendo su propósito
+7. **Servicios Externos**: APIs y servicios que invoca, explicando por qué los necesita
+8. **Configuración**: Propiedades y parámetros importantes para el funcionamiento
+9. **Consideraciones Técnicas**: Aspectos importantes para desarrollo, mantenimiento y operación
+10. **Casos de Uso**: Ejemplos de cómo se usaría este servicio en escenarios reales`,
 
-Blueprint XML:
-\`\`\`xml
-${blueprintXml}
-\`\`\``,
+        compact: `Analiza el blueprint.xml de Apache Camel del servicio "${analysis.serviceName}" y genera un resumen compacto que incluya:
 
-        compact: `Analiza este blueprint.xml de Apache Camel del servicio "${analysis.serviceName}" y genera un resumen compacto que incluya:
-
-1. **Propósito**: ¿Qué hace este servicio?
-2. **Endpoints**: Principales rutas expuestas
-3. **Dependencias**: Bases de datos y servicios externos clave
-4. **Configuración**: Parámetros más importantes
-
-Blueprint XML:
-\`\`\`xml
-${blueprintXml}
-\`\`\``,
+1. **Propósito**: ¿Qué problema resuelve este servicio? ¿Para qué se usa?
+2. **Funcionalidad Principal**: ¿Cómo funciona el servicio? ¿Qué hace con los datos?
+3. **Endpoints Clave**: Principales rutas expuestas y su propósito
+4. **Dependencias**: Bases de datos y servicios externos que utiliza
+5. **Configuración**: Parámetros más importantes para su funcionamiento
+6. **Caso de Uso**: Un ejemplo práctico de cómo se usaría este servicio`,
       };
 
       const prompt = prompts[summaryType];
 
-      // Llamar directamente a la API de OpenAI con las credenciales del localStorage
+      // Usar un enfoque más simple: enviar el XML como texto pero optimizado
+      // Extraer solo las partes más importantes del XML para reducir tokens
+      const xmlLines = blueprintXml.split('\n');
+      const importantLines = xmlLines.filter(
+        (line) =>
+          line.includes('<route') ||
+          line.includes('<bean') ||
+          line.includes('<property') ||
+          line.includes('<from') ||
+          line.includes('<to') ||
+          line.includes('<camelContext') ||
+          line.includes('<blueprint') ||
+          line.includes('<dataSource') ||
+          line.includes('<jdbc') ||
+          line.includes('<rest') ||
+          line.includes('<cxf') ||
+          line.includes('<http') ||
+          line.includes('<timer') ||
+          line.includes('<file') ||
+          line.includes('<jms') ||
+          line.includes('<amqp') ||
+          line.includes('<kafka')
+      );
+
+      // Limitar a las primeras 150 líneas importantes para controlar tokens
+      const truncatedXml = importantLines.slice(0, 150).join('\n');
+
+      const optimizedPrompt = `${prompt}
+
+XML del Blueprint (versión optimizada con elementos clave):
+\`\`\`xml
+${truncatedXml}
+\`\`\`
+
+Contexto adicional: Analiza el nombre del servicio "${analysis.serviceName}" para inferir su propósito. Considera que los servicios Apache Camel típicamente manejan:
+- Integración de sistemas
+- Procesamiento de datos
+- Transformación de formatos
+- Orquestación de flujos de trabajo
+- Comunicación entre servicios
+- Procesamiento de eventos
+
+Nota: Este es un resumen del XML completo que incluye solo los elementos más relevantes para el análisis (rutas, beans, propiedades, data sources, etc.).`;
+
+      // Usar la API de chat completions normal (más confiable)
       const response = await fetch(
         'https://api.openai.com/v1/chat/completions',
         {
@@ -348,7 +415,7 @@ ${blueprintXml}
               },
               {
                 role: 'user',
-                content: prompt,
+                content: optimizedPrompt,
               },
             ],
             max_tokens: 2000,
@@ -363,16 +430,13 @@ ${blueprintXml}
           data.choices[0]?.message?.content || 'No se pudo generar el resumen'
         );
       } else {
-        const errorData = await response.json();
-        setSummary(
-          `Error al generar el resumen: ${
-            errorData.error?.message || 'Error desconocido'
-          }`
+        setSummaryError(
+          `Error al generar el resumen: Error en el procesamiento del archivo`
         );
       }
     } catch (error) {
       console.error('Error al generar resumen:', error);
-      setSummary(
+      setSummaryError(
         `Error al generar el resumen: ${
           error instanceof Error ? error.message : 'Error desconocido'
         }`
@@ -380,6 +444,11 @@ ${blueprintXml}
     } finally {
       setSummaryLoading(false);
     }
+  };
+
+  const clearSummaryError = () => {
+    setSummaryError('');
+    setSummary('');
   };
 
   const handleTabChange = async (tabId: string) => {
@@ -1429,7 +1498,51 @@ ${blueprintXml}
 
                 {/* Contenido del resumen */}
                 <div className="flex-1 overflow-y-auto">
-                  {summary ? (
+                  {summaryError ? (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-start">
+                        <div className="flex-shrink-0">
+                          <svg
+                            className="h-5 w-5 text-red-400"
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                        </div>
+                        <div className="ml-3 flex-1">
+                          <h3 className="text-sm font-medium text-red-800 mb-2">
+                            Error al generar el resumen
+                          </h3>
+                          <p className="text-sm text-red-700 mb-3">
+                            {summaryError}
+                          </p>
+                          <div className="flex space-x-3">
+                            <button
+                              onClick={() => {
+                                clearSummaryError();
+                                generateSummary();
+                              }}
+                              className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200"
+                            >
+                              <RefreshCw className="w-4 h-4 mr-2" />
+                              Reintentar
+                            </button>
+                            <button
+                              onClick={clearSummaryError}
+                              className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200"
+                            >
+                              Limpiar
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : summary ? (
                     <div className="bg-gray-50 rounded-lg p-4 border">
                       <div className="prose prose-sm max-w-none">
                         <ReactMarkdown
