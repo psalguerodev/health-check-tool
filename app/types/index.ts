@@ -59,7 +59,15 @@ export interface TestResult {
 export interface ConnectionTest {
   id: string;
   name: string;
-  type: 'DB2' | 'SQLServer' | 'PostgreSQL' | 'SQS' | 'HTTP' | 'Telnet' | 'Ping';
+  type:
+    | 'DB2'
+    | 'SQLServer'
+    | 'PostgreSQL'
+    | 'SQS'
+    | 'HTTP'
+    | 'Telnet'
+    | 'Ping'
+    | 'Kubernetes';
   status: 'pending' | 'success' | 'error';
   result?: TestResult;
   config: any;

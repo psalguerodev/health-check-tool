@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { CheckCircle, XCircle, Clock } from 'lucide-react';
-import { useTestHistoryContext } from '../context/TestHistoryContext';
+import { useTestHistory } from '../hooks/useTestHistory';
 import ParameterSelectorLink from './ParameterSelectorLink';
 import { Parameter } from '../context/ParameterStoreContext';
 
@@ -23,7 +23,7 @@ export default function DB2Card() {
     useState<Parameter | null>(null);
   const [selectedPasswordParam, setSelectedPasswordParam] =
     useState<Parameter | null>(null);
-  const { addTestResult } = useTestHistoryContext();
+  const { addTestResult } = useTestHistory('healthCheckHistory');
 
   const resetForm = () => {
     setHost('');

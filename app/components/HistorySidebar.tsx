@@ -16,18 +16,29 @@ import {
 } from 'lucide-react';
 import { useTestHistoryContext } from '../context/TestHistoryContext';
 import { TestHistoryItem } from '../hooks/useTestHistory';
+import { useEffect } from 'react';
 
 interface HistorySidebarProps {
   isOpen: boolean;
   onClose: () => void;
+  historyKey?: string;
 }
 
 export default function HistorySidebar({
   isOpen,
   onClose,
+  historyKey = 'healthCheckHistory',
 }: HistorySidebarProps) {
-  const { history, clearHistory, exportToCSV } = useTestHistoryContext();
+  const { history, clearHistory, exportToCSV, refreshHistory } =
+    useTestHistoryContext();
   const [filter, setFilter] = useState<'all' | 'success' | 'error'>('all');
+
+  // Refrescar historial cuando se abra el sidebar
+  useEffect(() => {
+    if (isOpen) {
+      refreshHistory();
+    }
+  }, [isOpen]); // Removido refreshHistory de las dependencias
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -202,6 +213,14 @@ export default function HistorySidebar({
                       {item.method && (
                         <div>
                           <strong>Método:</strong> {item.method}
+                        </div>
+                      )}
+                      {item.command && (
+                        <div>
+                          <strong>Comando:</strong>{' '}
+                          <code className="bg-gray-100 px-1 rounded text-xs">
+                            {item.command}
+                          </code>
                         </div>
                       )}
                     </div>

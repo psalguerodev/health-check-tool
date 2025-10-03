@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { CheckCircle, XCircle } from 'lucide-react';
-import { useTestHistoryContext } from '../context/TestHistoryContext';
+import { useTestHistory } from '../hooks/useTestHistory';
 import ParameterSelectorLink from './ParameterSelectorLink';
 import { Parameter } from '../context/ParameterStoreContext';
 
@@ -29,7 +29,7 @@ export default function TelnetCard() {
   const [abortController, setAbortController] =
     useState<AbortController | null>(null);
 
-  const { addTestResult } = useTestHistoryContext();
+  const { addTestResult } = useTestHistory('healthCheckHistory');
 
   const resetForm = () => {
     // Cancelar proceso en curso si existe

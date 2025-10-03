@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { CheckCircle, XCircle } from 'lucide-react';
-import { useTestHistoryContext } from '../context/TestHistoryContext';
+import ResultActions from './ResultActions';
+import { useTestHistory } from '../hooks/useTestHistory';
 import ParameterSelectorLink from './ParameterSelectorLink';
 import { Parameter } from '../context/ParameterStoreContext';
 
@@ -19,7 +20,7 @@ export default function SQSCard() {
     useState<Parameter | null>(null);
   const [selectedQueueUrlParam, setSelectedQueueUrlParam] =
     useState<Parameter | null>(null);
-  const { addTestResult } = useTestHistoryContext();
+  const { addTestResult } = useTestHistory('healthCheckHistory');
 
   const resetForm = () => {
     setRegion('');
@@ -172,18 +173,24 @@ export default function SQSCard() {
               : 'bg-red-50 text-red-700'
           }`}
         >
-          <div className="flex items-center space-x-1 mb-1">
-            {result.success ? (
-              <CheckCircle className="w-3 h-3" />
-            ) : (
-              <XCircle className="w-3 h-3" />
-            )}
-            <span className="font-medium">
-              {result.success ? 'Conexión exitosa' : 'Error de conexión'}
-            </span>
-            {result.duration && (
-              <span className="text-gray-500">({result.duration}ms)</span>
-            )}
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center space-x-1">
+              {result.success ? (
+                <CheckCircle className="w-3 h-3" />
+              ) : (
+                <XCircle className="w-3 h-3" />
+              )}
+              <span className="font-medium">
+                {result.success ? 'Conexión exitosa' : 'Error de conexión'}
+              </span>
+              {result.duration && (
+                <span className="text-gray-500">({result.duration}ms)</span>
+              )}
+            </div>
+            <ResultActions
+              content={result.message}
+              filename={`sqs_${result.success ? 'success' : 'error'}`}
+            />
           </div>
           <p>{result.message}</p>
         </div>

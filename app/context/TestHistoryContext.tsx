@@ -8,6 +8,7 @@ interface TestHistoryContextType {
   addTestResult: (testResult: Omit<TestHistoryItem, 'id'>) => void;
   clearHistory: () => void;
   exportToCSV: () => void;
+  refreshHistory: () => void;
 }
 
 const TestHistoryContext = createContext<TestHistoryContextType | undefined>(
@@ -16,22 +17,30 @@ const TestHistoryContext = createContext<TestHistoryContextType | undefined>(
 
 export function TestHistoryProvider({
   children,
+  historyKey = 'healthCheckHistory',
 }: {
   children: React.ReactNode;
+  historyKey?: string;
 }) {
-  const { history, addTestResult, clearHistory, exportToCSV } =
-    useTestHistory();
+  const { history, addTestResult, clearHistory, exportToCSV, refreshHistory } =
+    useTestHistory(historyKey);
 
   return (
     <TestHistoryContext.Provider
-      value={{ history, addTestResult, clearHistory, exportToCSV }}
+      value={{
+        history,
+        addTestResult,
+        clearHistory,
+        exportToCSV,
+        refreshHistory,
+      }}
     >
       {children}
     </TestHistoryContext.Provider>
   );
 }
 
-export function useTestHistoryContext() {
+export function useTestHistoryContext(historyKey?: string) {
   const context = useContext(TestHistoryContext);
   if (context === undefined) {
     throw new Error(

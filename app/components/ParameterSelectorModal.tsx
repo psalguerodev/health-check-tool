@@ -99,7 +99,12 @@ export default function ParameterSelectorModal({
                     "Variables Locales"
                   </p>
                   <button
-                    onClick={onClose}
+                    onClick={() => {
+                      // Abrir el modal de Variables Locales
+                      const event = new CustomEvent('openParameterStore');
+                      window.dispatchEvent(event);
+                      onClose();
+                    }}
                     className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
                   >
                     Ir a Variables Locales

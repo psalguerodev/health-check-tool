@@ -12,6 +12,7 @@ import {
   MessageSquare,
   Wifi,
 } from 'lucide-react';
+import ResultActions from './ResultActions';
 
 interface ConnectionCardProps {
   test: ConnectionTest;
@@ -116,20 +117,30 @@ export default function ConnectionCard({
 
       {test.result && (
         <div className="p-3 border-b border-gray-200">
-          <div className="flex items-center space-x-2 mb-1">
-            {getStatusIcon(test.result.success ? 'success' : 'error')}
-            <span
-              className={`text-xs font-medium ${
-                test.result.success ? 'text-green-700' : 'text-red-700'
-              }`}
-            >
-              {test.result.success ? 'Éxito' : 'Error'}
-            </span>
-            {test.result.duration && (
-              <span className="text-xs text-gray-500">
-                ({test.result.duration}ms)
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center space-x-2">
+              {getStatusIcon(test.result.success ? 'success' : 'error')}
+              <span
+                className={`text-xs font-medium ${
+                  test.result.success ? 'text-green-700' : 'text-red-700'
+                }`}
+              >
+                {test.result.success ? 'Éxito' : 'Error'}
               </span>
-            )}
+              {test.result.duration && (
+                <span className="text-xs text-gray-500">
+                  ({test.result.duration}ms)
+                </span>
+              )}
+            </div>
+            <ResultActions
+              content={`${test.result.message}${
+                test.result.error ? '\n\nDetalles:\n' + test.result.error : ''
+              }`}
+              filename={`${test.type}_${
+                test.result.success ? 'success' : 'error'
+              }`}
+            />
           </div>
           <p className="text-xs text-gray-700 mb-1">{test.result.message}</p>
           {test.result.error && (

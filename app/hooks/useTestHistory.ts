@@ -13,18 +13,19 @@ export interface TestHistoryItem {
   queueUrl?: string;
   endpoint?: string;
   method?: string;
+  command?: string;
   success: boolean;
   message: string;
   duration: number;
   timestamp: Date;
 }
 
-export function useTestHistory() {
+export function useTestHistory(historyKey: string = 'healthCheckHistory') {
   const [history, setHistory] = useState<TestHistoryItem[]>([]);
 
-  // Cargar historial desde localStorage al montar el componente
-  useEffect(() => {
-    const savedHistory = localStorage.getItem('testHistory');
+  // Función para cargar historial desde localStorage
+  const loadHistoryFromStorage = () => {
+    const savedHistory = localStorage.getItem(historyKey);
     if (savedHistory) {
       try {
         const parsed = JSON.parse(savedHistory);
@@ -34,17 +35,45 @@ export function useTestHistory() {
           timestamp: new Date(item.timestamp),
         }));
         setHistory(historyWithDates);
+        return historyWithDates;
+      } catch (error) {
+        console.error('Error al cargar historial:', error);
+        setHistory([]);
+        return [];
+      }
+    } else {
+      setHistory([]);
+      return [];
+    }
+  };
+
+  // Cargar historial desde localStorage al montar el componente
+  useEffect(() => {
+    const savedHistory = localStorage.getItem(historyKey);
+    if (savedHistory) {
+      try {
+        const parsed = JSON.parse(savedHistory);
+        const historyWithDates = parsed.map((item: any) => ({
+          ...item,
+          timestamp: new Date(item.timestamp),
+        }));
+        setHistory(historyWithDates);
       } catch (error) {
         console.error('Error al cargar historial:', error);
         setHistory([]);
       }
+    } else {
+      setHistory([]);
     }
-  }, []);
+  }, [historyKey]);
 
   // Guardar historial en localStorage cuando cambie
   useEffect(() => {
-    localStorage.setItem('testHistory', JSON.stringify(history));
-  }, [history]);
+    // Solo guardar si el historial no está vacío
+    if (history.length > 0) {
+      localStorage.setItem(historyKey, JSON.stringify(history));
+    }
+  }, [history, historyKey]);
 
   const addTestResult = (testResult: Omit<TestHistoryItem, 'id'>) => {
     const newItem: TestHistoryItem = {
@@ -57,7 +86,11 @@ export function useTestHistory() {
 
   const clearHistory = () => {
     setHistory([]);
-    localStorage.removeItem('testHistory');
+    localStorage.removeItem(historyKey);
+  };
+
+  const refreshHistory = () => {
+    loadHistoryFromStorage();
   };
 
   const exportToCSV = () => {
@@ -115,5 +148,6 @@ export function useTestHistory() {
     addTestResult,
     clearHistory,
     exportToCSV,
+    refreshHistory,
   };
 }
