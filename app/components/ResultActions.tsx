@@ -37,24 +37,24 @@ export default function ResultActions({
   };
 
   return (
-    <div className="flex items-center space-x-1 ml-auto">
+    <div className="flex items-center space-x-2 ml-auto">
       <button
         onClick={handleCopy}
-        className="p-1 hover:bg-gray-200 rounded transition-colors"
+        className="p-1 text-gray-500 hover:text-gray-700"
         title="Copiar al portapapeles"
       >
         {copied ? (
-          <Check className="w-3 h-3 text-green-600" />
+          <Check className="w-4 h-4 text-green-600" />
         ) : (
-          <Copy className="w-3 h-3 text-gray-600" />
+          <Copy className="w-4 h-4" />
         )}
       </button>
       <button
         onClick={handleDownload}
-        className="p-1 hover:bg-gray-200 rounded transition-colors"
+        className="p-1 text-gray-500 hover:text-gray-700"
         title="Descargar resultado"
       >
-        <Download className="w-3 h-3 text-gray-600" />
+        <Download className="w-4 h-4" />
       </button>
     </div>
   );

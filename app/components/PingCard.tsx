@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { CheckCircle, XCircle } from 'lucide-react';
+import { Wifi, CheckCircle, XCircle } from 'lucide-react';
 import { useTestHistory } from '../hooks/useTestHistory';
 import ParameterSelectorLink from './ParameterSelectorLink';
+import TestResultCard from './TestResultCard';
 import { Parameter } from '../context/ParameterStoreContext';
 
 export default function PingCard() {
@@ -227,10 +228,18 @@ export default function PingCard() {
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-between items-center">
-        <span className="text-xs font-medium text-gray-700">
-          Configuración Ping
-        </span>
+      <div className="flex justify-between items-center mb-4">
+        <div className="flex items-center space-x-3">
+          <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+            <Wifi className="w-4 h-4 text-blue-600" />
+          </div>
+          <h3 className="text-sm font-semibold text-gray-900 relative">
+            <span className="bg-gradient-to-r from-blue-800 to-blue-600 bg-clip-text text-transparent">
+              Configuración Ping
+            </span>
+            <div className="absolute -bottom-1 left-0 w-6 h-0.5 bg-gradient-to-r from-blue-500 to-blue-400 rounded-full"></div>
+          </h3>
+        </div>
         <div className="flex items-center space-x-2">
           <label className="text-xs text-gray-600">Bulk Mode</label>
           <button
@@ -298,7 +307,7 @@ export default function PingCard() {
               value={bulkHosts}
               onChange={(e) => setBulkHosts(e.target.value)}
               placeholder="google.com&#10;8.8.8.8&#10;cloudflare.com&#10;github.com"
-              className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded"
               rows={4}
             />
           </div>
@@ -330,7 +339,7 @@ export default function PingCard() {
             (!isBulkMode && !host) ||
             (isBulkMode && !bulkHosts.trim())
           }
-          className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+          className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
         >
           {isLoading
             ? isBulkMode
@@ -338,11 +347,11 @@ export default function PingCard() {
               : 'Probando...'
             : isBulkMode
             ? 'Probar Todos'
-            : 'Probar'}
+            : 'Probar Conexión'}
         </button>
         <button
           onClick={resetForm}
-          className="text-xs text-gray-500 hover:text-gray-700 underline"
+          className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors duration-200"
         >
           Resetear
         </button>
@@ -350,33 +359,7 @@ export default function PingCard() {
 
       {/* Resultados individuales */}
       {!isBulkMode && result && (
-        <div
-          className={`p-2 rounded text-xs ${
-            result.success
-              ? 'bg-green-50 text-green-700'
-              : 'bg-red-50 text-red-700'
-          }`}
-        >
-          <div className="flex items-center space-x-1 mb-1">
-            {result.success ? (
-              <CheckCircle className="w-3 h-3" />
-            ) : (
-              <XCircle className="w-3 h-3" />
-            )}
-            <span className="font-medium">
-              {result.success ? 'Ping exitoso' : 'Error de ping'}
-            </span>
-            {result.resolvedIP && (
-              <span className="text-blue-600 text-xs">
-                ({result.resolvedIP})
-              </span>
-            )}
-            {result.duration && (
-              <span className="text-gray-500">({result.duration}ms)</span>
-            )}
-          </div>
-          <p>{result.message}</p>
-        </div>
+        <TestResultCard result={result} showResponse={false} />
       )}
 
       {/* Resultados del modo bulk */}

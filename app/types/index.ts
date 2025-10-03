@@ -54,6 +54,7 @@ export interface TestResult {
   error?: string;
   timestamp: Date;
   resolvedIP?: string;
+  response?: any;
 }
 
 export interface ConnectionTest {

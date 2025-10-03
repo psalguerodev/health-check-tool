@@ -51,7 +51,7 @@ export default function ParameterSelectorLink({
             value={value}
             onChange={(e) => onChange(e.target.value)}
             rows={rows}
-            className="w-full px-2 py-1 pr-8 text-xs border border-gray-300 rounded resize-none"
+            className="w-full px-3 py-2 pr-8 text-sm border border-gray-300 rounded resize-none"
           />
         ) : (
           <input
@@ -59,7 +59,7 @@ export default function ParameterSelectorLink({
             placeholder={placeholder}
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            className="w-full px-2 py-1 pr-16 text-xs border border-gray-300 rounded"
+            className="w-full px-3 py-2 pr-16 text-sm border border-gray-300 rounded"
           />
         )}
 

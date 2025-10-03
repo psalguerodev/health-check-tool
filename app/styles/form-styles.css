@@ -1,0 +1,262 @@
+/* Estilos consistentes para formularios */
+
+/* Inputs base */
+.form-input {
+  @apply w-full px-3 py-2 text-sm border border-gray-300 rounded-lg 
+         focus:ring-2 focus:ring-blue-500 focus:border-blue-500 
+         transition-colors duration-200 bg-white h-10;
+}
+
+.form-input:focus {
+  @apply outline-none shadow-sm;
+}
+
+/* Inputs con error */
+.form-input-error {
+  @apply border-red-300 focus:ring-red-500 focus:border-red-500;
+}
+
+/* Selects */
+.form-select {
+  @apply w-full px-3 py-2 text-sm border border-gray-300 rounded-lg 
+         focus:ring-2 focus:ring-blue-500 focus:border-blue-500 
+         transition-colors duration-200 bg-white cursor-pointer
+         h-10;
+}
+
+.form-select:focus {
+  @apply outline-none shadow-sm;
+}
+
+/* Textareas */
+.form-textarea {
+  @apply w-full px-3 py-2 text-sm border border-gray-300 rounded-lg 
+         focus:ring-2 focus:ring-blue-500 focus:border-blue-500 
+         transition-colors duration-200 bg-white resize-y;
+}
+
+.form-textarea:focus {
+  @apply outline-none shadow-sm;
+}
+
+/* Botones primarios */
+.btn-primary {
+  @apply px-4 py-2 text-sm font-medium text-white bg-blue-600 
+         rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 
+         focus:ring-offset-2 transition-colors duration-200 
+         disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+
+/* Botones secundarios */
+.btn-secondary {
+  @apply px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 
+         rounded-lg hover:bg-gray-200 focus:ring-2 focus:ring-gray-500 
+         focus:ring-offset-2 transition-colors duration-200 
+         disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+
+/* Botones de reset */
+.btn-reset {
+  @apply px-3 py-1 text-xs text-gray-500 hover:text-gray-700 
+         hover:bg-gray-100 rounded-md transition-colors duration-200;
+}
+
+/* Botones pequeños */
+.btn-sm {
+  @apply px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200;
+}
+
+/* Labels */
+.form-label {
+  @apply block text-sm font-medium text-gray-700 mb-2;
+}
+
+.form-label-required::after {
+  content: ' *';
+  @apply text-red-500;
+}
+
+/* Grupos de formulario */
+.form-group {
+  @apply space-y-1;
+}
+
+.form-row {
+  @apply grid grid-cols-1 sm:grid-cols-2 gap-4;
+}
+
+/* Estados de carga */
+.btn-loading {
+  @apply relative;
+}
+
+.btn-loading::after {
+  content: '';
+  @apply absolute inset-0 bg-white bg-opacity-20 rounded-lg;
+}
+
+/* Iconos en botones */
+.btn-icon {
+  @apply flex items-center space-x-2;
+}
+
+/* Botones con gradiente */
+.btn-gradient {
+  @apply bg-gradient-to-r from-blue-600 to-blue-700 
+         hover:from-blue-700 hover:to-blue-800;
+}
+
+/* Botones outline */
+.btn-outline {
+  @apply border-2 border-blue-600 text-blue-600 bg-transparent 
+         hover:bg-blue-600 hover:text-white;
+}
+
+/* Estados de éxito y error */
+.form-success {
+  @apply border-green-300 focus:ring-green-500 focus:border-green-500;
+}
+
+.form-error {
+  @apply border-red-300 focus:ring-red-500 focus:border-red-500;
+}
+
+/* Mensajes de ayuda */
+.form-help {
+  @apply text-xs text-gray-500 mt-1;
+}
+
+.form-error-message {
+  @apply text-xs text-red-600 mt-1;
+}
+
+/* Contenedores de formulario */
+.form-container {
+  @apply bg-white border border-gray-200 rounded-lg p-6 shadow-sm;
+}
+
+.form-section {
+  @apply border-b border-gray-200 pb-4 mb-4 last:border-b-0 last:pb-0 last:mb-0;
+}
+
+.form-section-title {
+  @apply text-sm font-semibold text-gray-900 mb-3;
+}
+
+/* Tarjetas de formulario */
+.form-card {
+  @apply bg-white border border-gray-200 rounded-lg p-6 shadow-sm;
+}
+
+.form-card-header {
+  @apply flex justify-between items-center mb-4 pb-3 border-b border-gray-200;
+}
+
+.form-card-title {
+  @apply text-sm font-semibold text-gray-900;
+}
+
+.form-card-content {
+  @apply space-y-4;
+}
+
+.form-card-footer {
+  @apply flex justify-end items-center space-x-3 pt-4 mt-4 
+         border-t border-gray-200;
+}
+
+/* Resultados de prueba */
+.test-result {
+  @apply p-4 rounded-lg text-sm border;
+}
+
+.test-result-success {
+  @apply bg-green-50 text-green-800 border-green-200;
+}
+
+.test-result-error {
+  @apply bg-red-50 text-red-800 border-red-200;
+}
+
+.test-result-header {
+  @apply flex items-center space-x-2 mb-2;
+}
+
+.test-result-icon {
+  @apply w-4 h-4;
+}
+
+.test-result-title {
+  @apply font-semibold;
+}
+
+.test-result-message {
+  @apply text-sm;
+}
+
+/* Toggle switches */
+.toggle-switch {
+  @apply relative inline-flex h-5 w-9 items-center rounded-full transition-colors;
+}
+
+.toggle-switch-active {
+  @apply bg-blue-600;
+}
+
+.toggle-switch-inactive {
+  @apply bg-gray-300;
+}
+
+.toggle-switch-thumb {
+  @apply inline-block h-4 w-4 transform rounded-full bg-white transition-transform;
+}
+
+.toggle-switch-thumb-active {
+  @apply translate-x-4;
+}
+
+.toggle-switch-thumb-inactive {
+  @apply translate-x-0.5;
+}
+
+/* Checkboxes mejorados */
+.form-checkbox {
+  @apply flex items-center space-x-2 text-sm text-gray-700;
+}
+
+.form-checkbox input {
+  @apply w-4 h-4 text-blue-600 border-gray-300 rounded 
+         focus:ring-blue-500 focus:ring-2;
+}
+
+/* Progress bars */
+.progress-bar {
+  @apply w-full bg-gray-200 rounded-full h-2;
+}
+
+.progress-bar-fill {
+  @apply bg-blue-600 h-2 rounded-full transition-all duration-300;
+}
+
+/* Badges */
+.badge {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+}
+
+.badge-success {
+  @apply bg-green-100 text-green-800;
+}
+
+.badge-error {
+  @apply bg-red-100 text-red-800;
+}
+
+.badge-info {
+  @apply bg-blue-100 text-blue-800;
+}
+
+.badge-warning {
+  @apply bg-yellow-100 text-yellow-800;
+}

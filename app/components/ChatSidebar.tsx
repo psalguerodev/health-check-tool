@@ -28,7 +28,7 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
   const [saveToLocalStorage, setSaveToLocalStorage] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState('');
   const [activeTab, setActiveTab] = useState('api');
-  const [sidebarWidth, setSidebarWidth] = useState(384); // 384px = w-96
+  const [sidebarWidth, setSidebarWidth] = useState(480); // 480px = más ancho por defecto
   const [isResizing, setIsResizing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -487,12 +487,12 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                                 </ul>
                               ),
                               ol: ({ children }) => (
-                                <ol className="list-decimal list-inside mb-2">
+                                <ol className="list-decimal list-outside mb-2 space-y-1 pl-4">
                                   {children}
                                 </ol>
                               ),
                               li: ({ children }) => (
-                                <li className="mb-1">{children}</li>
+                                <li className="leading-relaxed">{children}</li>
                               ),
                               strong: ({ children }) => (
                                 <strong className="font-semibold">
@@ -596,21 +596,24 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder="Escribe tu mensaje..."
-              className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-              rows={2}
+              className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none transition-colors duration-200 h-10"
+              rows={1}
               disabled={isLoading}
             />
             <button
               onClick={sendMessage}
               disabled={!inputMessage.trim() || isLoading}
-              className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-1"
+              className="w-10 h-10 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 flex items-center justify-center"
             >
               {isLoading ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                <Send className="w-3 h-3" />
+                <Send className="w-4 h-4" />
               )}
             </button>
+          </div>
+          <div className="mt-2 text-xs text-gray-500 text-center">
+            GPT-4 • La IA puede cometer errores
           </div>
         </div>
 

@@ -1,57 +1,53 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Container,
-  Terminal,
-  Play,
-  Square,
-  History,
-  Settings,
+  Search,
+  Filter,
+  GitBranch,
   Activity,
+  History,
   MessageCircle,
+  Settings,
+  Database,
+  Server,
+  Globe,
+  Terminal,
+  Wifi,
+  MessageSquare,
 } from 'lucide-react';
-import KernelKubernetesCard from '../components/KernelKubernetesCard';
+import CamelRepositoriesTable from '../components/CamelRepositoriesTable';
 import HistorySidebar from '../components/HistorySidebar';
 import ChatSidebar from '../components/ChatSidebar';
-import ParameterStoreModule from '../components/ParameterStoreModule';
-import ServerInfoCard from '../components/ServerInfoCard';
-import VersionInfo from '../components/VersionInfo';
+import BitbucketConfigModule from '../components/BitbucketConfigModule';
 import PageHeader from '../components/PageHeader';
 import { TestHistoryProvider } from '../context/TestHistoryContext';
 
-export default function KernelPage() {
+export default function CamelPage() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
 
   return (
-    <TestHistoryProvider historyKey="kernelHistory">
+    <TestHistoryProvider historyKey="camelHistory">
       <div className="min-h-screen bg-white">
         {/* Header */}
         <PageHeader
-          icon={Terminal}
+          icon={Container}
           iconColor="text-blue-600"
-          title="Kernel - Kubernetes Management"
-          description="Conecta y administra clusters de Kubernetes de AWS"
+          title="Análisis de Dependencias Apache Camel"
+          description="Gestión y análisis de repositorios con servicios Camel"
           onHistoryOpen={() => setIsHistoryOpen(true)}
           onChatOpen={() => setIsChatOpen(true)}
-          currentPage="kernel"
+          currentPage="camel"
           showSectionFilter={true}
         />
 
         {/* Contenido principal */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="mb-6">
-            {/* Información del servidor */}
-            <div className="flex justify-center">
-              <ServerInfoCard />
-            </div>
-          </div>
-
-          {/* Contenido principal */}
           <div className="bg-white border border-gray-300 rounded-lg">
             <div className="p-6">
-              <KernelKubernetesCard />
+              <CamelRepositoriesTable />
             </div>
           </div>
         </div>
@@ -60,15 +56,15 @@ export default function KernelPage() {
         <HistorySidebar
           isOpen={isHistoryOpen}
           onClose={() => setIsHistoryOpen(false)}
-          historyKey="kernelHistory"
+          historyKey="camelHistory"
           showSectionFilter={true}
         />
 
         {/* Sidebar de Chat IA */}
         <ChatSidebar isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
 
-        {/* Módulo flotante de Parameter Store */}
-        <ParameterStoreModule />
+        {/* Módulo flotante de configuración Bitbucket */}
+        <BitbucketConfigModule />
       </div>
     </TestHistoryProvider>
   );

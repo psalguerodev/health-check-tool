@@ -13,8 +13,13 @@ import {
   Server,
   Globe,
   MessageSquare,
+  Activity,
+  Terminal,
+  Container,
+  Filter,
 } from 'lucide-react';
 import { useTestHistoryContext } from '../context/TestHistoryContext';
+import { useGlobalHistory } from '../context/GlobalHistoryContext';
 import { TestHistoryItem } from '../hooks/useTestHistory';
 import { useEffect } from 'react';
 
@@ -22,21 +27,29 @@ interface HistorySidebarProps {
   isOpen: boolean;
   onClose: () => void;
   historyKey?: string;
+  showSectionFilter?: boolean;
 }
 
 export default function HistorySidebar({
   isOpen,
   onClose,
   historyKey = 'healthCheckHistory',
+  showSectionFilter = false,
 }: HistorySidebarProps) {
   const { history, clearHistory, exportToCSV, refreshHistory } =
     useTestHistoryContext();
+  const { allHistory, refreshAllHistory, clearAllHistory, exportAllHistory } =
+    useGlobalHistory();
   const [filter, setFilter] = useState<'all' | 'success' | 'error'>('all');
+  const [sectionFilter, setSectionFilter] = useState<
+    'all' | 'health' | 'kernel' | 'camel'
+  >('all');
 
   // Refrescar historial cuando se abra el sidebar
   useEffect(() => {
     if (isOpen) {
       refreshHistory();
+      refreshAllHistory();
     }
   }, [isOpen]); // Removido refreshHistory de las dependencias
 
@@ -56,9 +69,20 @@ export default function HistorySidebar({
     }
   };
 
-  const filteredHistory = history.filter((item) => {
-    if (filter === 'success') return item.success;
-    if (filter === 'error') return !item.success;
+  // Usar historial global si showSectionFilter está activado, sino usar historial local
+  const currentHistory = showSectionFilter ? allHistory : history;
+
+  const filteredHistory = currentHistory.filter((item) => {
+    // Filtro por estado (success/error)
+    if (filter === 'success' && !item.success) return false;
+    if (filter === 'error' && item.success) return false;
+
+    // Filtro por sección
+    if (showSectionFilter && sectionFilter !== 'all') {
+      const itemSection = item.section || 'health'; // Por defecto health si no tiene sección
+      if (sectionFilter !== itemSection) return false;
+    }
+
     return true;
   });
 
@@ -103,7 +127,7 @@ export default function HistorySidebar({
                     : 'bg-gray-100 text-gray-600'
                 }`}
               >
-                Todas ({history.length})
+                Todas ({currentHistory.length})
               </button>
               <button
                 onClick={() => setFilter('success')}
@@ -114,7 +138,7 @@ export default function HistorySidebar({
                 }`}
               >
                 <CheckCircle className="w-3 h-3 inline mr-1" />
-                Éxito ({history.filter((h) => h.success).length})
+                Éxito ({currentHistory.filter((h) => h.success).length})
               </button>
               <button
                 onClick={() => setFilter('error')}
@@ -125,22 +149,74 @@ export default function HistorySidebar({
                 }`}
               >
                 <XCircle className="w-3 h-3 inline mr-1" />
-                Error ({history.filter((h) => !h.success).length})
+                Error ({currentHistory.filter((h) => !h.success).length})
               </button>
             </div>
 
+            {/* Filtro por sección */}
+            {showSectionFilter && (
+              <div className="flex items-center space-x-2">
+                <Filter className="w-4 h-4 text-gray-500" />
+                <div className="flex space-x-1">
+                  <button
+                    onClick={() => setSectionFilter('all')}
+                    className={`flex items-center space-x-1 px-3 py-1 text-xs rounded ${
+                      sectionFilter === 'all'
+                        ? 'bg-gray-200 text-gray-800'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    <span>Todos</span>
+                  </button>
+                  <button
+                    onClick={() => setSectionFilter('health')}
+                    className={`flex items-center space-x-1 px-3 py-1 text-xs rounded ${
+                      sectionFilter === 'health'
+                        ? 'bg-green-200 text-green-800'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    <Activity className="w-3 h-3" />
+                    <span>Health</span>
+                  </button>
+                  <button
+                    onClick={() => setSectionFilter('kernel')}
+                    className={`flex items-center space-x-1 px-3 py-1 text-xs rounded ${
+                      sectionFilter === 'kernel'
+                        ? 'bg-purple-200 text-purple-800'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    <Terminal className="w-3 h-3" />
+                    <span>Kernel</span>
+                  </button>
+                  <button
+                    onClick={() => setSectionFilter('camel')}
+                    className={`flex items-center space-x-1 px-3 py-1 text-xs rounded ${
+                      sectionFilter === 'camel'
+                        ? 'bg-orange-200 text-orange-800'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    <Container className="w-3 h-3" />
+                    <span>Camel</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="flex space-x-2">
               <button
-                onClick={exportToCSV}
-                disabled={history.length === 0}
+                onClick={showSectionFilter ? exportAllHistory : exportToCSV}
+                disabled={currentHistory.length === 0}
                 className="flex items-center space-x-1 px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Download className="w-3 h-3" />
                 <span>Exportar CSV</span>
               </button>
               <button
-                onClick={clearHistory}
-                disabled={history.length === 0}
+                onClick={showSectionFilter ? clearAllHistory : clearHistory}
+                disabled={currentHistory.length === 0}
                 className="flex items-center space-x-1 px-3 py-1 text-xs text-gray-500 hover:text-gray-700 underline disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Trash2 className="w-3 h-3" />

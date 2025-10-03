@@ -224,11 +224,13 @@ export async function testHTTPConnection(
     });
 
     const duration = Date.now() - startTime;
+
     return {
       success: true,
       message: `HTTP ${config.method} exitoso en ${duration}ms - Status: ${response.status}`,
       duration,
       timestamp: new Date(),
+      response: response.data,
     };
   } catch (error: any) {
     return {

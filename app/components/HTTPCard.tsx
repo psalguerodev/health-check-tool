@@ -1,10 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { CheckCircle, XCircle } from 'lucide-react';
-import ResultActions from './ResultActions';
+import { Globe } from 'lucide-react';
 import { useTestHistory } from '../hooks/useTestHistory';
 import ParameterSelectorLink from './ParameterSelectorLink';
+import TestResultCard from './TestResultCard';
 import { Parameter } from '../context/ParameterStoreContext';
 
 export default function HTTPCard() {
@@ -26,6 +26,25 @@ export default function HTTPCard() {
   );
   const { addTestResult } = useTestHistory('healthCheckHistory');
 
+  const parseHeaders = (headersString: string): Record<string, string> => {
+    const headers: Record<string, string> = {};
+
+    if (!headersString.trim()) return headers;
+
+    const lines = headersString.split('\n').filter((line) => line.trim());
+
+    lines.forEach((line) => {
+      const colonIndex = line.indexOf(':');
+      if (colonIndex > 0) {
+        const key = line.substring(0, colonIndex).trim();
+        const value = line.substring(colonIndex + 1).trim();
+        headers[key] = value;
+      }
+    });
+
+    return headers;
+  };
+
   const resetForm = () => {
     setUrl('');
     setMethod('GET');
@@ -39,111 +58,80 @@ export default function HTTPCard() {
 
   const parseCurlCommand = (curl: string) => {
     try {
-      // Limpiar el comando cURL - manejar mejor los saltos de línea con \
-      const cleanCurl = curl
-        .trim()
-        .replace(/\\\s*\n\s*/g, ' ') // Reemplazar \ seguido de salto de línea
-        .replace(/\s+/g, ' ') // Normalizar espacios múltiples
-        .trim();
-
-      console.log('cURL limpio:', cleanCurl); // Debug
-
-      // Prueba con el ejemplo específico de Postman
-      if (cleanCurl.includes('api.clickup.com')) {
-        console.log(
-          'Detectado comando de ClickUp - aplicando parsing especial'
-        );
-      }
-
-      // Extraer URL - buscar la URL después de curl o al final
-      const urlPatterns = [
-        /curl\s+--location\s+['"]([^'"]+)['"]/,
-        /curl\s+['"]([^'"]+)['"]/,
-        /curl\s+([^\s]+)/,
-        /['"](https?:\/\/[^'"]+)['"]/,
-        /(https?:\/\/[^\s]+)/,
-      ];
-
-      let extractedUrl = '';
-      for (const pattern of urlPatterns) {
-        const match = cleanCurl.match(pattern);
-        if (match) {
-          extractedUrl = match[1];
-          break;
-        }
-      }
-
-      if (!extractedUrl)
-        throw new Error('No se encontró URL en el comando cURL');
-      setUrl(extractedUrl);
+      // Limpiar el comando cURL
+      const cleanCurl = curl.trim();
 
       // Extraer método HTTP
-      const methodMatch = cleanCurl.match(/-X\s+['"]?(\w+)['"]?/i);
-      const extractedMethod = methodMatch
-        ? methodMatch[1].toUpperCase()
-        : 'GET';
-      setMethod(extractedMethod);
-
-      // Extraer headers - mejorar el parsing para manejar múltiples headers
-      const headerPatterns = [
-        /-H\s+['"]([^'"]+)['"]/g,
-        /--header\s+['"]([^'"]+)['"]/g,
-      ];
-
-      const allHeaders: string[] = [];
-      headerPatterns.forEach((pattern) => {
-        let match;
-        while ((match = pattern.exec(cleanCurl)) !== null) {
-          const header = match[1];
-          allHeaders.push(header);
-        }
-      });
-
-      // Parsing adicional para casos complejos como el de Postman
-      // Buscar patrones como: --header 'Authorization: token' --header 'Accept: application/json'
-      const complexHeaderPattern = /--header\s+['"]([^'"]+)['"]/g;
-      let complexMatch;
-      while ((complexMatch = complexHeaderPattern.exec(cleanCurl)) !== null) {
-        const header = complexMatch[1];
-        if (!allHeaders.includes(header)) {
-          allHeaders.push(header);
-        }
+      const methodMatch = cleanCurl.match(/-X\s+(\w+)/i);
+      if (methodMatch && methodMatch[1]) {
+        setMethod(methodMatch[1].toUpperCase());
       }
 
-      console.log('Headers encontrados:', allHeaders); // Debug
-
-      if (allHeaders.length > 0) {
-        setHeaders(allHeaders.join('\n'));
+      // Extraer URL - buscar diferentes patrones
+      let urlMatch = cleanCurl.match(/curl\s+--location\s+['"]([^'"]+)['"]/);
+      if (!urlMatch) {
+        urlMatch = cleanCurl.match(/curl\s+['"]([^'"]+)['"]/);
+      }
+      if (!urlMatch) {
+        // Buscar URL después de -X METHOD
+        urlMatch = cleanCurl.match(/-X\s+\w+\s+['"]([^'"]+)['"]/);
+      }
+      if (!urlMatch) {
+        // Buscar URL después de -X METHOD sin comillas
+        urlMatch = cleanCurl.match(/-X\s+\w+\s+([^\s]+)/);
+      }
+      if (!urlMatch) {
+        // Buscar URL simple al final
+        urlMatch = cleanCurl.match(/curl\s+([^\s]+)/);
       }
 
-      // Extraer body/data - manejar -d, --data, --data-raw, --data-binary
-      const dataPatterns = [
-        /-d\s+['"]([^'"]+)['"]/,
-        /--data\s+['"]([^'"]+)['"]/,
-        /--data-raw\s+['"]([^'"]+)['"]/,
-        /--data-binary\s+['"]([^'"]+)['"]/,
-      ];
+      if (urlMatch && urlMatch[1]) {
+        setUrl(urlMatch[1]);
+      }
 
-      let extractedBody = '';
-      for (const pattern of dataPatterns) {
-        const match = cleanCurl.match(pattern);
-        if (match) {
-          extractedBody = match[1];
-          break;
+      // Extraer headers - buscar diferentes patrones
+      const headerMatches =
+        cleanCurl.match(/--header\s+['"]([^'"]+)['"]/g) ||
+        cleanCurl.match(/-H\s+['"]([^'"]+)['"]/g);
+
+      if (headerMatches && headerMatches.length > 0) {
+        const headerPairs = headerMatches
+          .map((header) => {
+            // Remover --header o -H del inicio
+            const cleanHeader = header.replace(/^(--header\s+|-H\s+)/, '');
+            // Remover comillas
+            const unquotedHeader = cleanHeader.replace(/^['"]|['"]$/g, '');
+            return unquotedHeader;
+          })
+          .filter(Boolean);
+
+        if (headerPairs.length > 0) {
+          setHeaders(headerPairs.join('\n'));
         }
       }
 
-      if (extractedBody) {
-        setBody(extractedBody);
+      // Extraer body si existe
+      const bodyMatch =
+        cleanCurl.match(/--data\s+['"]([^'"]+)['"]/) ||
+        cleanCurl.match(/-d\s+['"]([^'"]+)['"]/);
+      if (bodyMatch && bodyMatch[1]) {
+        setBody(bodyMatch[1]);
+        // Si hay body, asegurar que el método sea POST
+        if (!methodMatch) {
+          setMethod('POST');
+        }
       }
 
       setShowCurlImport(false);
       setCurlCommand('');
     } catch (error) {
-      alert(
-        'Error al parsear el comando cURL: ' +
-          (error instanceof Error ? error.message : 'Error desconocido')
-      );
+      console.error('Error parsing cURL command:', error);
+      // Mostrar un mensaje de error al usuario
+      setResult({
+        success: false,
+        message: 'Error al parsear el comando cURL. Verifica el formato.',
+        duration: 0,
+      });
     }
   };
 
@@ -152,23 +140,17 @@ export default function HTTPCard() {
     setResult(null);
 
     try {
-      let parsedHeaders: Record<string, string> = {};
-      if (headers.trim()) {
-        const headerLines = headers.split('\n');
-        headerLines.forEach((line) => {
-          const [key, ...valueParts] = line.split(':');
-          if (key && valueParts.length > 0) {
-            parsedHeaders[key.trim()] = valueParts.join(':').trim();
-          }
-        });
-      }
-
       const response = await fetch('/api/test-connection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: 'HTTP',
-          config: { url, method, headers: parsedHeaders, body, timeout: 10000 },
+          config: {
+            url,
+            method,
+            headers: headers ? parseHeaders(headers) : {},
+            body: body || undefined,
+          },
         }),
       });
 
@@ -180,7 +162,6 @@ export default function HTTPCard() {
         type: 'HTTP',
         url: url,
         host: url,
-        endpoint: url,
         method: method,
         success: data.success,
         message: data.message,
@@ -200,7 +181,6 @@ export default function HTTPCard() {
         type: 'HTTP',
         url: url,
         host: url,
-        endpoint: url,
         method: method,
         success: false,
         message: errorResult.message,
@@ -215,10 +195,18 @@ export default function HTTPCard() {
   return (
     <div className="space-y-3">
       {/* Botón para importar cURL */}
-      <div className="flex justify-between items-center">
-        <span className="text-xs font-medium text-gray-700">
-          Configuración HTTP
-        </span>
+      <div className="flex justify-between items-center mb-4">
+        <div className="flex items-center space-x-3">
+          <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+            <Globe className="w-4 h-4 text-blue-600" />
+          </div>
+          <h3 className="text-sm font-semibold text-gray-900 relative">
+            <span className="bg-gradient-to-r from-blue-800 to-blue-600 bg-clip-text text-transparent">
+              Configuración HTTP
+            </span>
+            <div className="absolute -bottom-1 left-0 w-6 h-0.5 bg-gradient-to-r from-blue-500 to-blue-400 rounded-full"></div>
+          </h3>
+        </div>
         <div className="flex space-x-2">
           <button
             onClick={() => setShowCurlImport(!showCurlImport)}
@@ -249,8 +237,8 @@ export default function HTTPCard() {
           <textarea
             value={curlCommand}
             onChange={(e) => setCurlCommand(e.target.value)}
-            placeholder="curl -X POST https://api.example.com/data -H 'Content-Type: application/json' -d '{&quot;key&quot;: &quot;value&quot;}'"
-            className="w-full px-2 py-1 text-xs border border-gray-300 rounded mb-2"
+            placeholder="curl -X POST https://api.example.com/data -H Content-Type: application/json -d {key: value}"
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded mb-2"
             rows={3}
           />
           <div className="flex space-x-2">
@@ -282,12 +270,11 @@ export default function HTTPCard() {
         onSelect={setSelectedUrlParam}
         className="w-full"
       />
-
       <div className="grid grid-cols-2 gap-2">
         <select
           value={method}
           onChange={(e) => setMethod(e.target.value)}
-          className="px-2 py-1 text-xs border border-gray-300 rounded"
+          className="px-3 py-2 text-sm border border-gray-300 rounded"
         >
           <option value="GET">GET</option>
           <option value="POST">POST</option>
@@ -303,7 +290,6 @@ export default function HTTPCard() {
           onSelect={setSelectedHeadersParam}
         />
       </div>
-
       {/* Body solo para POST */}
       {method === 'POST' && (
         <ParameterSelectorLink
@@ -313,56 +299,31 @@ export default function HTTPCard() {
           onChange={setBody}
           onSelect={setSelectedBodyParam}
           className="w-full"
-          multiline={true}
+          multiline
           rows={3}
         />
       )}
-
       <div className="flex justify-end items-center space-x-2">
         <button
           onClick={testConnection}
           disabled={isLoading || !url}
-          className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+          className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
         >
-          {isLoading ? 'Probando...' : 'Probar'}
+          {isLoading ? 'Probando...' : 'Probar Conexión'}
         </button>
         <button
           onClick={resetForm}
-          className="text-xs text-gray-500 hover:text-gray-700 underline"
+          className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors duration-200"
         >
           Resetear
         </button>
       </div>
-
       {result && (
-        <div
-          className={`p-2 rounded text-xs ${
-            result.success
-              ? 'bg-green-50 text-green-700'
-              : 'bg-red-50 text-red-700'
-          }`}
-        >
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center space-x-1">
-              {result.success ? (
-                <CheckCircle className="w-3 h-3" />
-              ) : (
-                <XCircle className="w-3 h-3" />
-              )}
-              <span className="font-medium">
-                {result.success ? 'Conexión exitosa' : 'Error de conexión'}
-              </span>
-              {result.duration && (
-                <span className="text-gray-500">({result.duration}ms)</span>
-              )}
-            </div>
-            <ResultActions
-              content={result.message}
-              filename={`http_${result.success ? 'success' : 'error'}`}
-            />
-          </div>
-          <p>{result.message}</p>
-        </div>
+        <TestResultCard
+          result={result}
+          showResponse={true}
+          responseTitle="Respuesta HTTP"
+        />
       )}
     </div>
   );

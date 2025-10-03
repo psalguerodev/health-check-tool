@@ -18,6 +18,7 @@ export interface TestHistoryItem {
   message: string;
   duration: number;
   timestamp: Date;
+  section?: string;
 }
 
 export function useTestHistory(historyKey: string = 'healthCheckHistory') {

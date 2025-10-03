@@ -13,6 +13,7 @@ import ChatSidebar from './components/ChatSidebar';
 import ParameterStoreModule from './components/ParameterStoreModule';
 import ServerInfoCard from './components/ServerInfoCard';
 import VersionInfo from './components/VersionInfo';
+import PageHeader from './components/PageHeader';
 // import LocalStorageDebug from './components/LocalStorageDebug';
 import { TestHistoryProvider } from './context/TestHistoryContext';
 import {
@@ -24,6 +25,8 @@ import {
   Terminal,
   Wifi,
   MessageCircle,
+  Container,
+  Activity,
 } from 'lucide-react';
 
 export default function Home() {
@@ -56,85 +59,56 @@ export default function Home() {
   return (
     <TestHistoryProvider historyKey="healthCheckHistory">
       <div className="min-h-screen bg-white">
-        {/* Contenido principal */}
-        <div className="max-w-4xl mx-auto px-4 py-8">
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <div className="flex items-center space-x-3 mb-1">
-                  <h1 className="text-xl font-semibold text-gray-900 relative">
-                    <span className="bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
-                      Health Check Tool
-                    </span>
-                    <div className="absolute -bottom-1 left-0 w-12 h-0.5 bg-gradient-to-r from-blue-500 to-blue-300 rounded-full"></div>
-                  </h1>
-                  <div className="flex items-center">
-                    <VersionInfo />
-                  </div>
-                </div>
-                <p className="text-sm text-gray-600 max-w-xl">
-                  Ingrese los datos de conexión y pruebe la conectividad
-                  inmediatamente. Las pruebas se guardan en el historial.
-                </p>
-              </div>
-              <div className="flex items-center space-x-2">
-                <a
-                  href="/kernel"
-                  className="flex items-center space-x-1.5 px-2.5 py-1.5 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
-                >
-                  <Terminal className="w-3.5 h-3.5" />
-                  <span>Kernel</span>
-                </a>
-                <button
-                  onClick={() => setIsHistoryOpen(true)}
-                  className="flex items-center space-x-1.5 px-2.5 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-                >
-                  <History className="w-3.5 h-3.5" />
-                  <span>Historial</span>
-                </button>
-                <button
-                  onClick={() => setIsChatOpen(true)}
-                  className="flex items-center space-x-1.5 px-2.5 py-1.5 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
-                  title="Chat IA"
-                >
-                  <MessageCircle className="w-3.5 h-3.5" />
-                  <span>Chat</span>
-                </button>
-              </div>
-            </div>
+        {/* Header */}
+        <PageHeader
+          icon={Activity}
+          iconColor="text-blue-600"
+          title="Health Check Tool"
+          description="Pruebas de conectividad y monitoreo de servicios"
+          onHistoryOpen={() => setIsHistoryOpen(true)}
+          onChatOpen={() => setIsChatOpen(true)}
+          currentPage="health"
+          showSectionFilter={true}
+        />
 
+        {/* Contenido principal */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="mb-6">
             {/* Información del servidor */}
             <div className="flex justify-center">
               <ServerInfoCard />
             </div>
           </div>
 
-          {/* Tabs */}
-          <div className="border-b border-gray-200 mb-6">
-            <nav className="-mb-px flex space-x-8">
-              {tabs.map((tab) => {
-                const Icon = tab.icon;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
-                      activeTab === tab.id
-                        ? 'border-blue-500 text-blue-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    <span>{tab.name}</span>
-                  </button>
-                );
-              })}
-            </nav>
-          </div>
+          {/* Layout con tabs verticales */}
+          <div className="flex gap-6">
+            {/* Tabs verticales */}
+            <div className="w-64 flex-shrink-0">
+              <nav className="space-y-1">
+                {tabs.map((tab) => {
+                  const Icon = tab.icon;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`w-full text-left px-3 py-2 rounded-md text-sm font-medium flex items-center space-x-3 ${
+                        activeTab === tab.id
+                          ? 'bg-blue-100 text-blue-700 border-r-2 border-blue-500'
+                          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" />
+                      <span>{tab.name}</span>
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
 
-          {/* Contenido del Tab Activo */}
-          <div className="bg-white border border-gray-300 rounded-lg">
-            <div className="p-6">{ActiveComponent && <ActiveComponent />}</div>
+            {/* Contenido */}
+            <div className="flex-1">
+              {ActiveComponent && <ActiveComponent />}
+            </div>
           </div>
         </div>
 
@@ -143,6 +117,7 @@ export default function Home() {
           isOpen={isHistoryOpen}
           onClose={() => setIsHistoryOpen(false)}
           historyKey="healthCheckHistory"
+          showSectionFilter={true}
         />
 
         {/* Sidebar de Chat IA */}
