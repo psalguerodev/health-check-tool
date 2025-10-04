@@ -32,8 +32,8 @@ export default function KernelPage() {
         <PageHeader
           icon={Terminal}
           iconColor="text-blue-600"
-          title="Kernel - Kubernetes Management"
-          description="Conecta y administra clusters de Kubernetes de AWS"
+          title="Kernel - Terminal Web"
+          description="Accede a un terminal web y administra recursos con kubectl, shell, etc."
           onHistoryOpen={() => setIsHistoryOpen(true)}
           onChatOpen={() => setIsChatOpen(true)}
           currentPage="kernel"
