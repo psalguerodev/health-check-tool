@@ -51,8 +51,5 @@ RUN npm run build
 # Exponer puerto 8081
 EXPOSE 8081
 
-# Asegurar que se ejecute como root
-USER root
-
 # Comando para ejecutar la aplicación
 CMD ["npm", "start"]

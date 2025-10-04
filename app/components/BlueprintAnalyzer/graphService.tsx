@@ -2,11 +2,13 @@ import React from 'react';
 import { Node, Edge } from 'reactflow';
 import { BlueprintAnalysis } from './types';
 
+interface GraphData {
+  nodes: Node[];
+  edges: Edge[];
+}
+
 export class GraphService {
-  static generateGraphData(analysis: BlueprintAnalysis): {
-    nodes: Node[];
-    edges: Edge[];
-  } {
+  static generateGraphData(analysis: BlueprintAnalysis): GraphData {
     const nodes: Node[] = [];
     const edges: Edge[] = [];
 
