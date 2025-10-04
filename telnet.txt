@@ -1,0 +1,3 @@
+Trying 64.233.186.101...
+Connected to google.com.
+Escape character is '^]'.

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import {
   CheckCircle,
   XCircle,
@@ -10,191 +10,261 @@ import {
   Copy,
   Download,
   Trash2,
+  Maximize2,
+  Minimize2,
+  X,
 } from 'lucide-react';
 import { useTestHistoryContext } from '../context/TestHistoryContext';
-import ParameterSelectorLink from './ParameterSelectorLink';
-import ClusterConnectionModal from './ClusterConnectionModal';
-import { Parameter } from '../context/ParameterStoreContext';
+import AWSCredentialsConfig from './AWSCredentialsConfig';
+import TerminalComponent from './Terminal';
 
 export default function KernelKubernetesCard() {
-  const [clusterName, setClusterName] = useState('');
-  const [region, setRegion] = useState('us-east-1');
   const [command, setCommand] = useState('');
-  const [namespace, setNamespace] = useState('default');
   const [isLoading, setIsLoading] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
-  const [selectedClusterParam, setSelectedClusterParam] =
-    useState<Parameter | null>(null);
-  const [selectedRegionParam, setSelectedRegionParam] =
-    useState<Parameter | null>(null);
-  const [selectedCommandParam, setSelectedCommandParam] =
-    useState<Parameter | null>(null);
-  const [selectedNamespaceParam, setSelectedNamespaceParam] =
-    useState<Parameter | null>(null);
-  const [isServerMode, setIsServerMode] = useState(false);
-  const [isCheckingConnection, setIsCheckingConnection] = useState(false);
-  const [isConnectionModalOpen, setIsConnectionModalOpen] = useState(false);
-  const [isClusterConnected, setIsClusterConnected] = useState(false);
+  const [exportAwsVars, setExportAwsVars] = useState(false);
+  const [awsCredentialsExport, setAwsCredentialsExport] = useState<
+    string | null
+  >(null);
+  const [currentProcessId, setCurrentProcessId] = useState<string | null>(null);
+  const [commandStartTime, setCommandStartTime] = useState<number | null>(null);
+  const [showCursor, setShowCursor] = useState(true);
+  const [terminalHistory, setTerminalHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [isOutputMaximized, setIsOutputMaximized] = useState(false);
 
   const { addTestResult } = useTestHistoryContext();
 
-  const resetForm = () => {
-    setClusterName('');
-    setRegion('us-east-1');
-    setCommand('');
-    setNamespace('default');
-    setResult(null);
-    setSelectedClusterParam(null);
-    setSelectedRegionParam(null);
-    setSelectedCommandParam(null);
-    setSelectedNamespaceParam(null);
-    setIsServerMode(false);
-    setIsLoading(false);
+  // Funciones para manejar el historial de la terminal
+  const addToTerminalHistory = (cmd: string) => {
+    if (cmd.trim() && !terminalHistory.includes(cmd.trim())) {
+      setTerminalHistory((prev) => [cmd.trim(), ...prev.slice(0, 49)]); // Mantener últimos 50
+    }
   };
 
-  const executeCommand = async () => {
-    if (!command) {
-      alert('Por favor ingrese el comando');
+  const navigateHistory = (direction: 'up' | 'down') => {
+    if (terminalHistory.length === 0) return;
+
+    let newIndex = historyIndex;
+    if (direction === 'up') {
+      newIndex =
+        historyIndex === -1
+          ? 0
+          : Math.min(historyIndex + 1, terminalHistory.length - 1);
+    } else {
+      newIndex = historyIndex === -1 ? -1 : Math.max(historyIndex - 1, -1);
+    }
+
+    setHistoryIndex(newIndex);
+    if (newIndex === -1) {
+      setCommand('');
+    } else {
+      setCommand(terminalHistory[newIndex]);
+    }
+  };
+
+  const stopCommand = async () => {
+    if (!currentProcessId) {
       return;
     }
 
-    if (!isServerMode && !clusterName) {
-      alert('Por favor ingrese el nombre del cluster');
+    setIsStopping(true);
+
+    // Calcular duración desde el inicio del comando hasta ahora
+    const stopTime = Date.now();
+    const actualDuration = commandStartTime ? stopTime - commandStartTime : 0;
+
+    try {
+      const response = await fetch('/api/kubernetes-execute/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ processId: currentProcessId }),
+      });
+
+      const data = await response.json();
+
+      setIsLoading(false);
+      setCurrentProcessId(null);
+
+      setResult({
+        success: true,
+        message: 'Comando procesado',
+        output: data.output || 'Sin output disponible',
+        duration: actualDuration,
+      });
+    } catch (error) {
+      console.error('Error al detener comando:', error);
+      setIsLoading(false);
+      setCurrentProcessId(null);
+
+      setResult({
+        success: true,
+        message: 'Comando procesado',
+        output: 'Sin output disponible',
+        duration: actualDuration,
+      });
+    } finally {
+      setIsStopping(false);
+    }
+  };
+
+  // Cargar credenciales AWS al montar el componente
+  React.useEffect(() => {
+    loadAwsCredentials();
+  }, []);
+
+  // Animación del cursor parpadeante cuando está cargando
+  React.useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isLoading) {
+      interval = setInterval(() => {
+        setShowCursor((prev) => !prev);
+      }, 500); // Parpadea cada 500ms
+    } else {
+      setShowCursor(true);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isLoading]);
+
+  // Debug: Monitorear cambios en isLoading
+  React.useEffect(() => {
+    console.log('isLoading state changed:', isLoading);
+  }, [isLoading]);
+
+  // Cargar variables de entorno AWS desde localStorage/memoria
+  const loadAwsCredentials = () => {
+    try {
+      // Intentar cargar desde localStorage primero
+      const stored = localStorage.getItem('aws-credentials-export');
+      if (stored) {
+        setAwsCredentialsExport(stored);
+        console.log('AWS export variables loaded from localStorage:', stored);
+        return;
+      }
+
+      // Si no hay en localStorage, intentar desde memoria global
+      const globalCredentials = (window as any).awsCredentialsExport;
+      if (globalCredentials) {
+        setAwsCredentialsExport(globalCredentials);
+        console.log(
+          'AWS export variables loaded from memory:',
+          globalCredentials
+        );
+        return;
+      }
+
+      // Si no hay credenciales disponibles
+      setAwsCredentialsExport(null);
+      console.log('No AWS export variables found');
+    } catch (error) {
+      console.error('Error loading AWS export variables:', error);
+      setAwsCredentialsExport(null);
+    }
+  };
+
+  const resetForm = () => {
+    setCommand('');
+    setResult(null);
+    setExportAwsVars(false);
+    setIsLoading(false);
+    setIsStopping(false);
+  };
+
+  const executeCommand = async (cmd?: string) => {
+    const commandToExecute = cmd || command;
+    if (!commandToExecute) {
       return;
     }
 
     setIsLoading(true);
     setResult(null);
 
+    // Guardar tiempo de inicio del comando
+    const startTime = Date.now();
+    setCommandStartTime(startTime);
+
+    // Generar ID único para el proceso
+    const processId = `process_${Date.now()}_${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
+    setCurrentProcessId(processId);
+
     // Agregar comando al historial
-    setCommandHistory((prev) => [command, ...prev.slice(0, 9)]); // Mantener últimos 10
+    setCommandHistory((prev) => [commandToExecute, ...prev.slice(0, 9)]); // Mantener últimos 10
+    addToTerminalHistory(commandToExecute); // Agregar al historial de terminal
 
     try {
       const response = await fetch('/api/kubernetes-execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          clusterName: isServerMode ? null : clusterName,
-          region: isServerMode ? null : region,
-          command,
-          namespace: isServerMode ? null : namespace,
-          isServerMode,
+          clusterName: null,
+          region: null,
+          command: commandToExecute,
+          namespace: null,
+          isServerMode: true,
+          exportAwsVars: exportAwsVars,
+          awsCredentialsExport: exportAwsVars ? awsCredentialsExport : null,
+          processId,
         }),
       });
 
       const data = await response.json();
+
       setResult(data);
+      setCurrentProcessId(null); // Limpiar el ID del proceso
+      setCommandStartTime(null); // Limpiar el tiempo de inicio
 
       addTestResult({
         type: 'Kubernetes',
-        url: isServerMode ? 'Servidor' : `${clusterName}.${region}`,
-        host: isServerMode ? 'Servidor' : clusterName,
-        endpoint: isServerMode ? 'Servidor' : `${clusterName}.${region}`,
-        method: isServerMode ? 'SHELL' : 'KUBECTL',
+        url: 'Servidor',
+        host: 'Servidor',
+        endpoint: 'Servidor',
+        method: 'SHELL',
         success: data.success,
         message: data.message,
         duration: data.duration || 0,
         timestamp: new Date(),
-        command: command, // Agregar el comando ejecutado
+        command: commandToExecute,
       });
     } catch (error: any) {
+      setCurrentProcessId(null); // Limpiar el ID del proceso en caso de error
+      setCommandStartTime(null); // Limpiar el tiempo de inicio
+
       const errorResult = {
-        success: false,
-        message: 'Error de conexión al cluster',
-        error: error instanceof Error ? error.message : 'Error desconocido',
+        success: true,
+        message: 'Comando procesado',
+        output: 'Sin output disponible',
+        duration: 0,
       };
       setResult(errorResult);
 
       addTestResult({
         type: 'Kubernetes',
-        url: isServerMode ? 'Servidor' : `${clusterName}.${region}`,
-        host: isServerMode ? 'Servidor' : clusterName,
-        endpoint: isServerMode ? 'Servidor' : `${clusterName}.${region}`,
-        method: isServerMode ? 'SHELL' : 'KUBECTL',
+        url: 'Servidor',
+        host: 'Servidor',
+        endpoint: 'Servidor',
+        method: 'SHELL',
         success: false,
         message: errorResult.message,
         duration: 0,
         timestamp: new Date(),
       });
     } finally {
+      console.log('Resetting isLoading to false');
       setIsLoading(false);
+      // Asegurar que el estado se resetee
+      setTimeout(() => {
+        if (isLoading) {
+          console.log('Force resetting isLoading state');
+          setIsLoading(false);
+        }
+      }, 100);
     }
-  };
-
-  const checkConnection = async () => {
-    if (!clusterName) {
-      alert('Por favor ingrese el nombre del cluster');
-      return;
-    }
-
-    setIsCheckingConnection(true);
-
-    try {
-      const response = await fetch('/api/kubernetes-connection', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          clusterName,
-          region,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        setResult({
-          success: true,
-          message: data.message,
-          output: data.output,
-          duration: data.duration,
-          hasPermissions: data.hasPermissions,
-          context: data.context,
-        });
-      } else {
-        setResult({
-          success: false,
-          message: data.message,
-          error: data.error,
-          duration: data.duration,
-        });
-      }
-
-      // Agregar resultado al historial
-      addTestResult({
-        type: 'Kubernetes',
-        url: `${clusterName}.${region}`,
-        host: clusterName,
-        endpoint: `${clusterName}.${region}`,
-        method: 'CONNECTION_TEST',
-        success: data.success,
-        message: data.message,
-        duration: data.duration || 0,
-        timestamp: new Date(),
-        command: 'Verificar conexión',
-      });
-    } catch (error: any) {
-      setResult({
-        success: false,
-        message: `Error de conexión: ${error.message}`,
-        error: error.message,
-        duration: 0,
-      });
-    } finally {
-      setIsCheckingConnection(false);
-    }
-  };
-
-  const handleConnectionEstablished = (
-    connectedClusterName: string,
-    connectedRegion: string
-  ) => {
-    setClusterName(connectedClusterName);
-    setRegion(connectedRegion);
-    setIsClusterConnected(true);
-    setIsConnectionModalOpen(false);
   };
 
   const copyToClipboard = (text: string) => {
@@ -213,35 +283,26 @@ export default function KernelKubernetesCard() {
     }
   };
 
-  const quickCommands = isServerMode
-    ? [
-        'ls -la',
-        'ps aux',
-        'df -h',
-        'free -m',
-        'docker ps',
-        'docker images',
-        'netstat -tulpn',
-        'systemctl status',
-      ]
-    : [
-        'get pods',
-        'get services',
-        'get deployments',
-        'get nodes',
-        'top nodes',
-        'top pods',
-        'describe nodes',
-        'get events',
-      ];
+  const quickCommands = [
+    'ls -la',
+    'ps aux',
+    'df -h',
+    'free -m',
+    'docker ps',
+    'docker images',
+    'netstat -tulpn',
+    'systemctl status',
+  ];
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
-        <span className="text-sm font-medium text-gray-700">
-          Configuración del Cluster
-        </span>
+        <div className="flex items-center space-x-3">
+          <span className="text-sm font-medium text-gray-700">
+            Terminal del Servidor
+          </span>
+        </div>
         <div className="flex items-center space-x-2">
           <button
             onClick={resetForm}
@@ -252,150 +313,50 @@ export default function KernelKubernetesCard() {
         </div>
       </div>
 
-      {/* Toggle Modo Servidor */}
-      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+      {/* AWS Export Toggle */}
+      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
         <div className="flex items-center space-x-3">
           <div className="flex items-center space-x-2">
-            <label className="text-sm font-medium text-gray-700">
-              Modo Servidor
-            </label>
             <button
-              onClick={() => setIsServerMode(!isServerMode)}
+              onClick={() => setExportAwsVars(!exportAwsVars)}
               className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                isServerMode ? 'bg-blue-600' : 'bg-gray-300'
+                exportAwsVars ? 'bg-green-500' : 'bg-gray-300'
               }`}
             >
               <span
                 className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  isServerMode ? 'translate-x-4' : 'translate-x-0.5'
+                  exportAwsVars ? 'translate-x-4' : 'translate-x-0.5'
                 }`}
               />
             </button>
+            <span className="text-sm font-medium text-gray-700">
+              Variables de Entorno
+            </span>
           </div>
-          <span className="text-xs text-gray-500">
-            {isServerMode
-              ? 'Ejecutar comandos directamente en el servidor'
-              : 'Ejecutar comandos en el cluster Kubernetes'}
-          </span>
+          {exportAwsVars && !awsCredentialsExport && (
+            <span className="text-xs text-red-600">
+              ⚠️ No hay variables de entorno configuradas
+            </span>
+          )}
+          {exportAwsVars && awsCredentialsExport && (
+            <span className="text-xs text-green-600">
+              ✅ Variables de entorno disponibles
+            </span>
+          )}
         </div>
+        <AWSCredentialsConfig onCredentialsUpdated={loadAwsCredentials} />
       </div>
 
-      {/* Estado de Conexión del Cluster */}
-      {!isServerMode && (
-        <div className="space-y-4">
-          {isClusterConnected ? (
-            <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <CheckCircle className="w-5 h-5 text-green-600" />
-                  <div>
-                    <h3 className="text-sm font-medium text-green-800">
-                      Cluster Conectado
-                    </h3>
-                    <p className="text-sm text-green-700">
-                      {clusterName} ({region})
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setIsConnectionModalOpen(true)}
-                  className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
-                >
-                  Reconfigurar
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <XCircle className="w-5 h-5 text-yellow-600" />
-                  <div>
-                    <h3 className="text-sm font-medium text-yellow-800">
-                      Cluster No Conectado
-                    </h3>
-                    <p className="text-sm text-yellow-700">
-                      Configure la conexión al cluster para ejecutar comandos
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setIsConnectionModalOpen(true)}
-                  className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-                >
-                  Configurar
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Namespace */}
-          {isClusterConnected && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <ParameterSelectorLink
-                category="general"
-                placeholder="Namespace (ej: default)"
-                value={namespace}
-                onChange={setNamespace}
-                onSelect={setSelectedNamespaceParam}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Comando */}
-      <div className="flex space-x-2">
-        <input
-          type="text"
-          value={command}
-          onChange={(e) => setCommand(e.target.value)}
-          placeholder={
-            isServerMode
-              ? 'ls -la, ps aux, df -h, docker ps, export VAR="value"; echo $VAR...'
-              : 'get pods, describe pod my-pod, logs deployment/my-app...'
-          }
-          className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          onKeyPress={(e) => e.key === 'Enter' && executeCommand()}
+      {/* Terminal */}
+      <div className="space-y-4">
+        <TerminalComponent
+          onCommand={executeCommand}
+          isLoading={isLoading}
+          currentCommand={command}
+          result={result}
+          onStop={stopCommand}
+          isStopping={isStopping}
         />
-        <button
-          onClick={executeCommand}
-          disabled={
-            isLoading || !command || (!isServerMode && !isClusterConnected)
-          }
-          className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex items-center space-x-1.5"
-        >
-          {isLoading ? (
-            <>
-              <Square className="w-3.5 h-3.5" />
-              <span>Ejecutando...</span>
-            </>
-          ) : (
-            <>
-              <Play className="w-3.5 h-3.5" />
-              <span>Ejecutar</span>
-            </>
-          )}
-        </button>
-        {!isServerMode && (
-          <button
-            onClick={checkConnection}
-            disabled={isCheckingConnection || !clusterName}
-            className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 flex items-center space-x-1.5"
-          >
-            {isCheckingConnection ? (
-              <>
-                <Square className="w-3.5 h-3.5" />
-                <span>Verificando...</span>
-              </>
-            ) : (
-              <>
-                <CheckCircle className="w-3.5 h-3.5" />
-                <span>Verificar</span>
-              </>
-            )}
-          </button>
-        )}
       </div>
 
       {/* Comandos Rápidos */}
@@ -439,26 +400,16 @@ export default function KernelKubernetesCard() {
 
       {/* Resultado */}
       {result && (
-        <div
-          className={`p-4 rounded-lg border ${
-            result.success
-              ? 'bg-green-50 border-green-200 text-green-800'
-              : 'bg-red-50 border-red-200 text-red-800'
-          }`}
-        >
+        <div className="p-4 rounded-lg border bg-gray-50 border-gray-200 text-gray-800">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center space-x-2">
-              {result.success ? (
-                <CheckCircle className="w-5 h-5 text-green-600" />
-              ) : (
-                <XCircle className="w-5 h-5 text-red-600" />
-              )}
+              <div className="w-5 h-5 bg-blue-100 rounded-full flex items-center justify-center">
+                <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
+              </div>
               <span className="font-medium">
-                {result.success
-                  ? 'Comando ejecutado exitosamente'
-                  : 'Error en la ejecución'}
+                {result.output ? 'Output del Servidor' : 'Sin output'}
               </span>
-              {result.duration && (
+              {result.duration && result.duration > 0 && (
                 <span className="text-sm text-gray-500">
                   ({result.duration}ms)
                 </span>
@@ -481,6 +432,17 @@ export default function KernelKubernetesCard() {
                   >
                     <Download className="w-4 h-4" />
                   </button>
+                  <button
+                    onClick={() => setIsOutputMaximized(!isOutputMaximized)}
+                    className="p-1 text-gray-500 hover:text-gray-700"
+                    title={isOutputMaximized ? 'Minimizar' : 'Maximizar'}
+                  >
+                    {isOutputMaximized ? (
+                      <Minimize2 className="w-4 h-4" />
+                    ) : (
+                      <Maximize2 className="w-4 h-4" />
+                    )}
+                  </button>
                 </>
               )}
             </div>
@@ -491,22 +453,39 @@ export default function KernelKubernetesCard() {
               <div className="text-sm font-medium text-gray-600 mb-2">
                 Salida del comando:
               </div>
-              <pre className="bg-gray-900 text-gray-100 p-4 rounded text-sm overflow-x-auto whitespace-pre-wrap font-mono">
-                {result.output}
-              </pre>
+              <div
+                className={`bg-gray-900 rounded border border-gray-700 ${
+                  isOutputMaximized ? 'fixed inset-4 z-50 flex flex-col' : ''
+                }`}
+              >
+                {isOutputMaximized && (
+                  <div className="flex items-center justify-between p-3 border-b border-gray-700">
+                    <div className="text-sm font-medium text-gray-300">
+                      Salida del comando (Pantalla completa)
+                    </div>
+                    <button
+                      onClick={() => setIsOutputMaximized(false)}
+                      className="flex items-center justify-center w-8 h-8 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+                      title="Cerrar"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+                <pre
+                  className={`text-gray-100 p-4 text-sm whitespace-pre-wrap font-mono overflow-y-auto overflow-x-auto ${
+                    isOutputMaximized ? 'flex-1' : 'max-h-64'
+                  }`}
+                >
+                  {result.output}
+                </pre>
+              </div>
             </div>
           )}
 
           <p className="mt-3 text-sm">{result.message}</p>
         </div>
       )}
-
-      {/* Modal de Configuración de Conexión */}
-      <ClusterConnectionModal
-        isOpen={isConnectionModalOpen}
-        onClose={() => setIsConnectionModalOpen(false)}
-        onConnectionEstablished={handleConnectionEstablished}
-      />
     </div>
   );
 }

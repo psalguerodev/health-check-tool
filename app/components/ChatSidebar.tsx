@@ -1,9 +1,19 @@
 'use client';
 
-import { Bot, Loader2, Send, Settings, User, X } from 'lucide-react';
+import {
+  Bot,
+  Loader2,
+  Send,
+  Settings,
+  User,
+  X,
+  Copy,
+  Check,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+// Removed heavy syntax highlighter for lighter chat implementation
 
 interface Message {
   id: string;
@@ -28,18 +38,84 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
   const [saveToLocalStorage, setSaveToLocalStorage] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState('');
   const [activeTab, setActiveTab] = useState('api');
-  const [sidebarWidth, setSidebarWidth] = useState(480); // 480px = más ancho por defecto
+  const [sidebarWidth, setSidebarWidth] = useState(600); // 600px = más ancho por defecto
   const [isResizing, setIsResizing] = useState(false);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [clickCount, setClickCount] = useState(0);
+  const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedCode(text);
+      setTimeout(() => setCopiedCode(null), 2000);
+    } catch (err) {
+      console.error('Error al copiar:', err);
+    }
+  };
+
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Focus en el input cuando se abre el sidebar
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      // Pequeño delay para asegurar que el sidebar esté completamente renderizado
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
+    }
+  }, [isOpen]);
+
+  // Manejar clicks fuera del sidebar
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        isOpen &&
+        sidebarRef.current &&
+        !sidebarRef.current.contains(event.target as Node)
+      ) {
+        // Limpiar timeout anterior
+        if (clickTimeoutRef.current) {
+          clearTimeout(clickTimeoutRef.current);
+        }
+
+        setClickCount((prev) => prev + 1);
+
+        // Reiniciar contador después de 2 segundos
+        clickTimeoutRef.current = setTimeout(() => {
+          setClickCount(0);
+        }, 2000);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      if (clickTimeoutRef.current) {
+        clearTimeout(clickTimeoutRef.current);
+      }
+    };
+  }, [isOpen]);
+
+  // Cerrar después de 2 clicks
+  useEffect(() => {
+    if (clickCount >= 2) {
+      onClose();
+      setClickCount(0);
+    }
+  }, [clickCount, onClose]);
 
   // Removido: No cerrar al hacer clic fuera del modal
 
@@ -464,6 +540,7 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                     style={{
                       wordBreak: 'break-word',
                       overflowWrap: 'anywhere',
+                      maxWidth: '100%',
                     }}
                   >
                     <div className="flex items-start space-x-1">
@@ -502,16 +579,92 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                               em: ({ children }) => (
                                 <em className="italic">{children}</em>
                               ),
-                              code: ({ children }) => (
-                                <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">
-                                  {children}
-                                </code>
-                              ),
-                              pre: ({ children }) => (
-                                <pre className="bg-gray-100 p-2 rounded text-xs overflow-x-auto">
-                                  {children}
-                                </pre>
-                              ),
+                              code: ({ children }) => {
+                                const inlineCodeText =
+                                  typeof children === 'string'
+                                    ? children
+                                    : Array.isArray(children)
+                                    ? children.join('')
+                                    : String(children);
+
+                                return (
+                                  <code
+                                    className="bg-gray-200 px-1 py-0.5 rounded text-xs break-all whitespace-pre-wrap cursor-pointer hover:bg-gray-300 transition-colors relative group"
+                                    onClick={() =>
+                                      copyToClipboard(inlineCodeText)
+                                    }
+                                    title="Hacer clic para copiar"
+                                  >
+                                    {children}
+                                    <span className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+                                      {copiedCode === inlineCodeText
+                                        ? 'Copiado!'
+                                        : 'Copiar'}
+                                    </span>
+                                  </code>
+                                );
+                              },
+                              pre: ({ children }) => {
+                                // Extraer texto correctamente de los children
+                                const extractText = (node: any): string => {
+                                  if (typeof node === 'string') return node;
+                                  if (typeof node === 'number')
+                                    return String(node);
+                                  if (Array.isArray(node)) {
+                                    return node.map(extractText).join('');
+                                  }
+                                  if (
+                                    node &&
+                                    typeof node === 'object' &&
+                                    node.props
+                                  ) {
+                                    return extractText(node.props.children);
+                                  }
+                                  return '';
+                                };
+
+                                const codeText = extractText(children);
+
+                                return (
+                                  <div
+                                    className="rounded-lg my-2 overflow-hidden border border-gray-200"
+                                    style={{ maxWidth: '100%' }}
+                                  >
+                                    <div className="flex items-center justify-between bg-gray-100 px-3 py-2 border-b border-gray-200">
+                                      <span className="text-xs text-gray-600 font-medium truncate">
+                                        Código
+                                      </span>
+                                      <button
+                                        onClick={() =>
+                                          copyToClipboard(codeText)
+                                        }
+                                        className="flex items-center space-x-1 text-xs text-gray-600 hover:text-gray-800 transition-colors flex-shrink-0"
+                                      >
+                                        {copiedCode === codeText ? (
+                                          <>
+                                            <Check className="w-3 h-3" />
+                                            <span className="hidden sm:inline">
+                                              Copiado
+                                            </span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Copy className="w-3 h-3" />
+                                            <span className="hidden sm:inline">
+                                              Copiar
+                                            </span>
+                                          </>
+                                        )}
+                                      </button>
+                                    </div>
+                                    <div className="bg-gray-50 p-3 rounded-b-lg">
+                                      <pre className="text-xs text-gray-800 font-mono leading-relaxed whitespace-pre-wrap break-words overflow-x-auto">
+                                        {codeText}
+                                      </pre>
+                                    </div>
+                                  </div>
+                                );
+                              },
                               h1: ({ children }) => (
                                 <h1 className="text-sm font-bold mb-2">
                                   {children}
@@ -528,34 +681,32 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                                 </h3>
                               ),
                               table: ({ children }) => (
-                                <div className="overflow-x-auto mb-4 border border-gray-300 rounded-lg shadow-sm bg-white">
+                                <div className="overflow-x-auto mb-2 border border-gray-200 rounded text-xs bg-white">
                                   <table className="min-w-full text-xs border-collapse">
                                     {children}
                                   </table>
                                 </div>
                               ),
                               thead: ({ children }) => (
-                                <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
-                                  {children}
-                                </thead>
+                                <thead className="bg-gray-50">{children}</thead>
                               ),
                               tbody: ({ children }) => (
-                                <tbody className="bg-white divide-y divide-gray-200">
+                                <tbody className="bg-white divide-y divide-gray-100">
                                   {children}
                                 </tbody>
                               ),
                               tr: ({ children }) => (
-                                <tr className="hover:bg-blue-50 transition-colors duration-200">
+                                <tr className="hover:bg-gray-50 transition-colors duration-150">
                                   {children}
                                 </tr>
                               ),
                               th: ({ children }) => (
-                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-800 uppercase tracking-wider border-b-2 border-gray-400 bg-gray-100 whitespace-nowrap">
+                                <th className="px-2 py-1.5 text-left text-xs font-semibold text-gray-700 bg-gray-50 whitespace-nowrap">
                                   {children}
                                 </th>
                               ),
                               td: ({ children }) => (
-                                <td className="px-4 py-3 text-xs text-gray-900 border-b border-gray-200 align-top leading-relaxed">
+                                <td className="px-2 py-1.5 text-xs text-gray-600 whitespace-nowrap">
                                   {children}
                                 </td>
                               ),
@@ -592,6 +743,7 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
         <div className="border-t border-gray-200 p-3">
           <div className="flex space-x-2">
             <textarea
+              ref={inputRef}
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyPress={handleKeyPress}
