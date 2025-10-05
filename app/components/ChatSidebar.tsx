@@ -41,7 +41,7 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
   const [configMode, setConfigMode] = useState<'prompt' | 'assistant'>(
     'prompt'
   );
-  const [sidebarWidth, setSidebarWidth] = useState(600); // 600px = más ancho por defecto
+  const [sidebarWidth, setSidebarWidth] = useState(800); // 800px = ancho máximo por defecto
   const [isResizing, setIsResizing] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [clickCount, setClickCount] = useState(0);
@@ -52,6 +52,7 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
   const [isClearingChat, setIsClearingChat] = useState(false);
   const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -80,8 +81,16 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
   // Focus en el input y scroll instantáneo cuando se abre el sidebar
   useEffect(() => {
     if (isOpen) {
-      // Scroll instantáneo al abrir
-      scrollToBottom(true);
+      // Siempre mostrar el chat cuando se abre el sidebar
+      setShowConfig(false);
+
+      // Establecer scroll al final de forma instantánea e invisible
+      requestAnimationFrame(() => {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop =
+            messagesContainerRef.current.scrollHeight;
+        }
+      });
 
       // Focus en el input
       if (inputRef.current) {
@@ -146,6 +155,7 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
 
     if (savedApiKey) {
       setApiKey(savedApiKey);
+      setSaveToLocalStorage(true); // Marcar el checkbox si hay credenciales guardadas
     }
 
     if (savedAssistantId) {
@@ -756,7 +766,10 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3">
+            <div
+              ref={messagesContainerRef}
+              className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-4 space-y-3"
+            >
               {messages.length === 0 ? (
                 <div className="text-center text-gray-500 py-6">
                   {isInitializing ? (
@@ -838,10 +851,10 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                       }`}
                     >
                       <div
-                        className={`max-w-[85%] rounded-lg p-2 ${
+                        className={`max-w-[65%] rounded-lg p-3 shadow-sm ${
                           message.role === 'user'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-gray-100 text-gray-900'
+                            ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white'
+                            : 'bg-gradient-to-br from-gray-50 to-gray-100 text-gray-900 border border-gray-200'
                         }`}
                         style={{
                           wordBreak: 'break-word',
@@ -849,15 +862,15 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                           maxWidth: '100%',
                         }}
                       >
-                        <div className="flex items-start space-x-1">
+                        <div className="flex items-start space-x-2">
                           {message.role === 'assistant' && (
-                            <Bot className="w-3 h-3 text-blue-600 mt-0.5 flex-shrink-0" />
+                            <Bot className="w-4 h-4 text-blue-600 mt-1 flex-shrink-0" />
                           )}
                           {message.role === 'user' && (
-                            <User className="w-3 h-3 text-white mt-0.5 flex-shrink-0" />
+                            <User className="w-4 h-4 text-white mt-1 flex-shrink-0" />
                           )}
                           <div className="flex-1">
-                            <div className="text-xs break-words overflow-wrap-anywhere prose prose-sm max-w-none">
+                            <div className="text-sm break-words overflow-wrap-anywhere prose prose-base max-w-none">
                               {message.role === 'user' ? (
                                 <div className="whitespace-pre-wrap">
                                   {message.content}
@@ -867,27 +880,42 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                                   options={{
                                     overrides: {
                                       p: ({ children }) => (
-                                        <p className="mb-2 last:mb-0">
+                                        <p className="mb-3 last:mb-0 leading-relaxed text-sm">
                                           {children}
                                         </p>
                                       ),
                                       ul: ({ children }) => (
-                                        <ul className="list-disc list-inside mb-2">
+                                        <ul
+                                          className="list-disc mb-3 space-y-1.5 text-sm"
+                                          style={{
+                                            paddingLeft: '1.25rem',
+                                            listStylePosition: 'outside',
+                                          }}
+                                        >
                                           {children}
                                         </ul>
                                       ),
                                       ol: ({ children }) => (
-                                        <ol className="list-decimal list-outside mb-2 space-y-1 pl-4">
+                                        <ol
+                                          className="list-decimal mb-3 space-y-1.5 text-sm"
+                                          style={{
+                                            paddingLeft: '1.25rem',
+                                            listStylePosition: 'outside',
+                                          }}
+                                        >
                                           {children}
                                         </ol>
                                       ),
                                       li: ({ children }) => (
-                                        <li className="leading-relaxed">
+                                        <li
+                                          className="leading-relaxed"
+                                          style={{ paddingLeft: '0.25rem' }}
+                                        >
                                           {children}
                                         </li>
                                       ),
                                       strong: ({ children }) => (
-                                        <strong className="font-semibold">
+                                        <strong className="font-bold text-gray-900">
                                           {children}
                                         </strong>
                                       ),
@@ -904,7 +932,7 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
 
                                         return (
                                           <code
-                                            className="bg-gray-200 px-1 py-0.5 rounded text-xs break-all whitespace-pre-wrap cursor-pointer hover:bg-gray-300 inline-block"
+                                            className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded text-[13px] font-mono break-all whitespace-pre-wrap cursor-pointer hover:bg-blue-100 inline-block border border-blue-200"
                                             onClick={(e) => {
                                               e.preventDefault();
                                               e.stopPropagation();
@@ -945,11 +973,11 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
 
                                         return (
                                           <div
-                                            className="rounded-lg my-2 overflow-hidden border border-gray-200"
+                                            className="rounded-lg my-2 overflow-hidden border border-gray-300 shadow-sm"
                                             style={{ maxWidth: '100%' }}
                                           >
-                                            <div className="flex items-center justify-between bg-gray-100 px-3 py-2 border-b border-gray-200">
-                                              <span className="text-xs text-gray-600 font-medium truncate">
+                                            <div className="flex items-center justify-between bg-gradient-to-r from-blue-50 to-blue-100 px-2.5 py-1.5 border-b border-blue-200">
+                                              <span className="text-xs text-blue-900 font-semibold truncate">
                                                 Código
                                               </span>
                                               <button
@@ -958,7 +986,7 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                                                   e.stopPropagation();
                                                   copyToClipboard(codeText);
                                                 }}
-                                                className="flex items-center space-x-1 text-xs text-gray-600 hover:text-gray-800 transition-colors flex-shrink-0"
+                                                className="flex items-center space-x-1 text-xs text-blue-700 hover:text-blue-900 transition-colors flex-shrink-0 hover:bg-white rounded px-1.5 py-0.5"
                                               >
                                                 {copiedCode === codeText ? (
                                                   <>
@@ -977,8 +1005,8 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                                                 )}
                                               </button>
                                             </div>
-                                            <div className="bg-gray-50 p-3 rounded-b-lg">
-                                              <pre className="text-xs text-gray-800 font-mono leading-relaxed whitespace-pre-wrap break-words overflow-x-auto">
+                                            <div className="bg-gray-50 p-2.5 rounded-b-lg">
+                                              <pre className="text-[13px] text-gray-800 font-mono leading-snug whitespace-pre-wrap break-words overflow-x-auto">
                                                 {codeText}
                                               </pre>
                                             </div>
@@ -986,19 +1014,34 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                                         );
                                       },
                                       h1: ({ children }) => (
-                                        <h1 className="text-sm font-bold mb-2">
+                                        <h1 className="text-2xl font-extrabold mb-4 mt-5 text-gray-900 border-b-2 border-blue-600 pb-2 leading-tight">
                                           {children}
                                         </h1>
                                       ),
                                       h2: ({ children }) => (
-                                        <h2 className="text-sm font-bold mb-2">
+                                        <h2 className="text-xl font-bold mb-3 mt-4 text-gray-900 leading-tight">
                                           {children}
                                         </h2>
                                       ),
                                       h3: ({ children }) => (
-                                        <h3 className="text-sm font-bold mb-2">
+                                        <h3 className="text-lg font-bold mb-2 mt-3 text-gray-800 leading-tight">
                                           {children}
                                         </h3>
+                                      ),
+                                      h4: ({ children }) => (
+                                        <h4 className="text-base font-bold mb-2 mt-3 text-gray-800 leading-tight">
+                                          {children}
+                                        </h4>
+                                      ),
+                                      h5: ({ children }) => (
+                                        <h5 className="text-base font-semibold mb-2 mt-2 text-gray-700 leading-tight">
+                                          {children}
+                                        </h5>
+                                      ),
+                                      h6: ({ children }) => (
+                                        <h6 className="text-sm font-semibold mb-2 mt-2 text-gray-700 uppercase tracking-wide leading-tight">
+                                          {children}
+                                        </h6>
                                       ),
                                       table: ({ children }) => {
                                         const tableContent = children;
@@ -1093,12 +1136,19 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                                             color: '#1f2937',
                                             borderRight: '1px solid #e5e7eb',
                                             maxWidth: '400px',
-                                            whiteSpace: 'normal',
-                                            wordWrap: 'break-word',
                                             lineHeight: '1.6',
+                                            verticalAlign: 'top',
                                           }}
                                         >
-                                          {children}
+                                          <div
+                                            style={{
+                                              whiteSpace: 'normal',
+                                              wordWrap: 'break-word',
+                                              overflowWrap: 'break-word',
+                                            }}
+                                          >
+                                            {children}
+                                          </div>
                                         </td>
                                       ),
                                     },
@@ -1108,9 +1158,36 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                                 </Markdown>
                               )}
                             </div>
-                            <p className="text-xs opacity-70 mt-1">
-                              {new Date(message.timestamp).toLocaleTimeString()}
-                            </p>
+                            <div className="flex items-center justify-between mt-1.5">
+                              <p className="text-xs opacity-60">
+                                {new Date(
+                                  message.timestamp
+                                ).toLocaleTimeString()}
+                              </p>
+                              {message.role === 'assistant' && (
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    copyToClipboard(message.content);
+                                  }}
+                                  className="text-xs opacity-60 hover:opacity-100 transition-opacity flex items-center space-x-1"
+                                  title="Copiar mensaje"
+                                >
+                                  {copiedCode === message.content ? (
+                                    <>
+                                      <Check className="w-3 h-3" />
+                                      <span>Copiado</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3 h-3" />
+                                      <span>Copiar</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -1120,13 +1197,23 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
               )}
               {isLoading && (
                 <div className="flex justify-start">
-                  <div className="bg-gray-100 rounded-lg p-2">
-                    <div className="flex items-center space-x-1">
-                      <Bot className="w-3 h-3 text-blue-600" />
-                      <Loader2 className="w-3 h-3 animate-spin text-blue-600" />
-                      <span className="text-xs text-gray-600">
-                        Escribiendo...
-                      </span>
+                  <div className="bg-gray-100 rounded-lg p-3">
+                    <div className="flex items-center space-x-2">
+                      <Bot className="w-4 h-4 text-blue-600" />
+                      <div className="flex space-x-1">
+                        <div
+                          className="w-2 h-2 bg-blue-600 rounded-full animate-bounce"
+                          style={{ animationDelay: '0ms' }}
+                        ></div>
+                        <div
+                          className="w-2 h-2 bg-blue-600 rounded-full animate-bounce"
+                          style={{ animationDelay: '150ms' }}
+                        ></div>
+                        <div
+                          className="w-2 h-2 bg-blue-600 rounded-full animate-bounce"
+                          style={{ animationDelay: '300ms' }}
+                        ></div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1135,7 +1222,7 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
             </div>
 
             {/* Input */}
-            <div className="border-t border-gray-200 p-3">
+            <div className="border-t border-gray-200 p-3 bg-gray-50">
               <div className="flex space-x-2">
                 <textarea
                   ref={inputRef}
@@ -1143,14 +1230,14 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                   onChange={(e) => setInputMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
                   placeholder="Escribe tu mensaje..."
-                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none transition-colors duration-200 h-10"
+                  className="flex-1 px-3 py-2 text-sm bg-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none transition-all duration-200 h-10 shadow-sm"
                   rows={1}
                   disabled={isLoading}
                 />
                 <button
                   onClick={sendMessage}
                   disabled={!inputMessage.trim() || isLoading}
-                  className="w-10 h-10 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 flex items-center justify-center"
+                  className="w-10 h-10 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 flex items-center justify-center shadow-sm"
                 >
                   {isLoading ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
