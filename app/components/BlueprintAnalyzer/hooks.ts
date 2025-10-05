@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { BlueprintAnalysis } from './types';
 import { BlueprintAnalysisService } from './analysisService';
 import { countMatches, copyToClipboard } from './utils';
+import { XmlOptimizationOptions } from './xmlOptimizer';
 
 export const useBlueprintAnalysis = (serviceName: string) => {
   const [analysis, setAnalysis] = useState<BlueprintAnalysis | null>(null);
@@ -130,7 +131,10 @@ export const useSummary = (analysis: BlueprintAnalysis | null) => {
     'detailed'
   );
 
-  const generateSummary = async (additionalInstructions?: string) => {
+  const generateSummary = async (
+    additionalInstructions?: string,
+    xmlOptimization?: XmlOptimizationOptions
+  ) => {
     if (!analysis) return;
 
     setSummaryLoading(true);
@@ -141,7 +145,8 @@ export const useSummary = (analysis: BlueprintAnalysis | null) => {
       const result = await SummaryService.generateSummary(
         analysis,
         summaryType,
-        additionalInstructions
+        additionalInstructions,
+        xmlOptimization
       );
       setSummary(result);
     } catch (error) {

@@ -1,10 +1,12 @@
 import { BlueprintAnalysis } from './types';
+import { XmlOptimizer, XmlOptimizationOptions } from './xmlOptimizer';
 
 export class SummaryService {
   static async generateSummary(
     analysis: BlueprintAnalysis,
     summaryType: 'detailed' | 'compact',
-    additionalInstructions?: string
+    additionalInstructions?: string,
+    xmlOptimization?: XmlOptimizationOptions
   ): Promise<string> {
     const apiKey = localStorage.getItem('openai_api_key');
     const systemPrompt =
@@ -22,7 +24,29 @@ export class SummaryService {
     if (!xmlResponse.ok) {
       throw new Error('Failed to fetch blueprint XML');
     }
-    const blueprintXml = await xmlResponse.text();
+    const fullBlueprintXml = await xmlResponse.text();
+
+    // Optimizar el XML según las opciones del usuario
+    const optimizationOptions =
+      xmlOptimization || XmlOptimizer.getDefaultOptions();
+    const blueprintXml = XmlOptimizer.extractImportantData(
+      fullBlueprintXml,
+      analysis,
+      optimizationOptions
+    );
+
+    // Calcular tokens estimados
+    const estimatedTokens = XmlOptimizer.estimateTokenCount(blueprintXml);
+    console.log(
+      `XML optimizado: ${blueprintXml.length} caracteres (~${estimatedTokens} tokens)`
+    );
+
+    // Extraer datos estructurados según las opciones
+    const structuredData = XmlOptimizer.extractStructuredData(
+      analysis,
+      optimizationOptions
+    );
+    console.log(`Datos estructurados: ${structuredData.length} caracteres`);
 
     // Prompts base
     const basePrompts = {
@@ -36,6 +60,11 @@ export class SummaryService {
       additionalInstructions,
       blueprintXml
     );
+
+    // Combinar prompt con datos estructurados si están disponibles
+    const combinedPrompt = structuredData
+      ? `${finalPrompt}\n\n=== DATOS ESTRUCTURADOS DEL ANÁLISIS ===\n${structuredData}`
+      : finalPrompt;
 
     // Llamar a OpenAI
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -53,7 +82,7 @@ export class SummaryService {
           },
           {
             role: 'user',
-            content: finalPrompt,
+            content: combinedPrompt,
           },
         ],
         max_tokens: 4000,

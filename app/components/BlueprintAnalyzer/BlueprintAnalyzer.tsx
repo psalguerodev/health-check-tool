@@ -42,6 +42,7 @@ import {
 } from './hooks';
 import { highlightXML } from './utils';
 import { GraphService } from './graphService';
+import { XmlOptimizer, XmlOptimizationOptions } from './xmlOptimizer';
 import { TABS, PROPERTY_LABELS } from './constants';
 
 export default function BlueprintAnalyzer({
@@ -61,6 +62,14 @@ export default function BlueprintAnalyzer({
   const [additionalInstructions, setAdditionalInstructions] = useState('');
   const [selectedFormat, setSelectedFormat] = useState('');
 
+  // Estados para optimización XML
+  const [xmlOptimizationMode, setXmlOptimizationMode] = useState<
+    'default' | 'full' | 'minimal' | 'custom'
+  >('default');
+  const [xmlOptimizationOptions, setXmlOptimizationOptions] =
+    useState<XmlOptimizationOptions>(XmlOptimizer.getDefaultOptions());
+  const [showXmlOptimization, setShowXmlOptimization] = useState(false);
+
   const { copiedItem, copyToClipboardWithFeedback } = useClipboard();
   const {
     summary,
@@ -71,6 +80,45 @@ export default function BlueprintAnalyzer({
     generateSummary,
     clearSummaryError,
   } = useSummary(analysis);
+
+  // Funciones para manejar optimización XML
+  const handleXmlOptimizationModeChange = (
+    mode: 'default' | 'full' | 'minimal' | 'custom'
+  ) => {
+    setXmlOptimizationMode(mode);
+
+    switch (mode) {
+      case 'default':
+        setXmlOptimizationOptions(XmlOptimizer.getDefaultOptions());
+        break;
+      case 'full':
+        setXmlOptimizationOptions(XmlOptimizer.getFullProcessingOptions());
+        break;
+      case 'minimal':
+        setXmlOptimizationOptions(XmlOptimizer.getMinimalProcessingOptions());
+        break;
+      case 'custom':
+        // Mantener las opciones actuales
+        break;
+    }
+  };
+
+  const handleCustomOptimizationChange = (
+    option: keyof XmlOptimizationOptions,
+    value: boolean | number
+  ) => {
+    setXmlOptimizationOptions((prev) => ({
+      ...prev,
+      [option]: value,
+    }));
+  };
+
+  const handleGenerateSummaryWithOptimization = () => {
+    const finalInstructions = selectedFormat
+      ? selectedFormat
+      : additionalInstructions;
+    generateSummary(finalInstructions, xmlOptimizationOptions);
+  };
 
   const {
     xmlSearchTerm,
@@ -922,6 +970,215 @@ export default function BlueprintAnalyzer({
                       )}
                     </div>
 
+                    {/* Optimización XML */}
+                    <div className="mb-4">
+                      <label className="flex items-center space-x-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={showXmlOptimization}
+                          onChange={(e) =>
+                            setShowXmlOptimization(e.target.checked)
+                          }
+                          className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+                        />
+                        <span className="text-xs font-medium text-gray-700">
+                          Optimizar procesamiento XML
+                        </span>
+                      </label>
+
+                      {showXmlOptimization && (
+                        <div className="mt-3 space-y-3">
+                          {/* Modo de optimización */}
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-2">
+                              Modo de procesamiento:
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                onClick={() =>
+                                  handleXmlOptimizationModeChange('default')
+                                }
+                                className={`px-3 py-2 text-xs rounded border ${
+                                  xmlOptimizationMode === 'default'
+                                    ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                    : 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100'
+                                }`}
+                              >
+                                Por defecto
+                              </button>
+                              <button
+                                onClick={() =>
+                                  handleXmlOptimizationModeChange('minimal')
+                                }
+                                className={`px-3 py-2 text-xs rounded border ${
+                                  xmlOptimizationMode === 'minimal'
+                                    ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                    : 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100'
+                                }`}
+                              >
+                                Mínimo
+                              </button>
+                              <button
+                                onClick={() =>
+                                  handleXmlOptimizationModeChange('full')
+                                }
+                                className={`px-3 py-2 text-xs rounded border ${
+                                  xmlOptimizationMode === 'full'
+                                    ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                    : 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100'
+                                }`}
+                              >
+                                Completo
+                              </button>
+                              <button
+                                onClick={() =>
+                                  handleXmlOptimizationModeChange('custom')
+                                }
+                                className={`px-3 py-2 text-xs rounded border ${
+                                  xmlOptimizationMode === 'custom'
+                                    ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                    : 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100'
+                                }`}
+                              >
+                                Personalizado
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Opciones personalizadas */}
+                          {xmlOptimizationMode === 'custom' && (
+                            <div className="space-y-2">
+                              <div className="text-xs font-medium text-gray-700 mb-2">
+                                Incluir en el análisis:
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <label className="flex items-center space-x-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      xmlOptimizationOptions.includeRoutes
+                                    }
+                                    onChange={(e) =>
+                                      handleCustomOptimizationChange(
+                                        'includeRoutes',
+                                        e.target.checked
+                                      )
+                                    }
+                                    className="w-3 h-3 text-blue-600"
+                                  />
+                                  <span className="text-xs text-gray-600">
+                                    Rutas
+                                  </span>
+                                </label>
+                                <label className="flex items-center space-x-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      xmlOptimizationOptions.includeDataSources
+                                    }
+                                    onChange={(e) =>
+                                      handleCustomOptimizationChange(
+                                        'includeDataSources',
+                                        e.target.checked
+                                      )
+                                    }
+                                    className="w-3 h-3 text-blue-600"
+                                  />
+                                  <span className="text-xs text-gray-600">
+                                    Data Sources
+                                  </span>
+                                </label>
+                                <label className="flex items-center space-x-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      xmlOptimizationOptions.includeExternalServices
+                                    }
+                                    onChange={(e) =>
+                                      handleCustomOptimizationChange(
+                                        'includeExternalServices',
+                                        e.target.checked
+                                      )
+                                    }
+                                    className="w-3 h-3 text-blue-600"
+                                  />
+                                  <span className="text-xs text-gray-600">
+                                    Servicios Externos
+                                  </span>
+                                </label>
+                                <label className="flex items-center space-x-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      xmlOptimizationOptions.includeConfiguration
+                                    }
+                                    onChange={(e) =>
+                                      handleCustomOptimizationChange(
+                                        'includeConfiguration',
+                                        e.target.checked
+                                      )
+                                    }
+                                    className="w-3 h-3 text-blue-600"
+                                  />
+                                  <span className="text-xs text-gray-600">
+                                    Configuración
+                                  </span>
+                                </label>
+                                <label className="flex items-center space-x-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      xmlOptimizationOptions.includeDependencies
+                                    }
+                                    onChange={(e) =>
+                                      handleCustomOptimizationChange(
+                                        'includeDependencies',
+                                        e.target.checked
+                                      )
+                                    }
+                                    className="w-3 h-3 text-blue-600"
+                                  />
+                                  <span className="text-xs text-gray-600">
+                                    Dependencias
+                                  </span>
+                                </label>
+                                <label className="flex items-center space-x-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      xmlOptimizationOptions.includeFullXml
+                                    }
+                                    onChange={(e) =>
+                                      handleCustomOptimizationChange(
+                                        'includeFullXml',
+                                        e.target.checked
+                                      )
+                                    }
+                                    className="w-3 h-3 text-blue-600"
+                                  />
+                                  <span className="text-xs text-gray-600">
+                                    XML Completo
+                                  </span>
+                                </label>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Información de tokens */}
+                          <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+                            {xmlOptimizationMode === 'minimal' &&
+                              '~3,750 tokens (procesamiento rápido)'}
+                            {xmlOptimizationMode === 'default' &&
+                              '~7,500 tokens (equilibrado)'}
+                            {xmlOptimizationMode === 'full' &&
+                              '~12,500 tokens (análisis completo)'}
+                            {xmlOptimizationMode === 'custom' &&
+                              'Configuración personalizada'}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="flex space-x-3 mb-4">
                       <label className="cursor-pointer flex-1">
                         <input
@@ -1146,9 +1403,7 @@ export default function BlueprintAnalyzer({
                       </div>
                       <div className="flex justify-center">
                         <button
-                          onClick={() =>
-                            generateSummary(additionalInstructions)
-                          }
+                          onClick={handleGenerateSummaryWithOptimization}
                           disabled={summaryLoading}
                           className="flex items-center space-x-2 px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
                         >

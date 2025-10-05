@@ -9,11 +9,10 @@ import {
   X,
   Copy,
   Check,
+  Maximize2,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-// Removed heavy syntax highlighter for lighter chat implementation
+import Markdown from 'markdown-to-jsx';
 
 interface Message {
   id: string;
@@ -42,13 +41,20 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
   const [isResizing, setIsResizing] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [clickCount, setClickCount] = useState(0);
+  const [expandedTable, setExpandedTable] = useState<React.ReactNode | null>(
+    null
+  );
   const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const scrollToBottom = (instant = false) => {
+    if (instant) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   };
 
   const copyToClipboard = async (text: string) => {
@@ -65,13 +71,18 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
     scrollToBottom();
   }, [messages]);
 
-  // Focus en el input cuando se abre el sidebar
+  // Focus en el input y scroll instantáneo cuando se abre el sidebar
   useEffect(() => {
-    if (isOpen && inputRef.current) {
-      // Pequeño delay para asegurar que el sidebar esté completamente renderizado
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 100);
+    if (isOpen) {
+      // Scroll instantáneo al abrir
+      scrollToBottom(true);
+
+      // Focus en el input
+      if (inputRef.current) {
+        setTimeout(() => {
+          inputRef.current?.focus();
+        }, 100);
+      }
     }
   }, [isOpen]);
 
@@ -452,7 +463,7 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3">
           {messages.length === 0 ? (
             <div className="text-center text-gray-500 py-6">
               {isInitializing ? (
@@ -552,168 +563,244 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
                       )}
                       <div className="flex-1">
                         <div className="text-xs break-words overflow-wrap-anywhere prose prose-sm max-w-none">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              p: ({ children }) => (
-                                <p className="mb-2 last:mb-0">{children}</p>
-                              ),
-                              ul: ({ children }) => (
-                                <ul className="list-disc list-inside mb-2">
-                                  {children}
-                                </ul>
-                              ),
-                              ol: ({ children }) => (
-                                <ol className="list-decimal list-outside mb-2 space-y-1 pl-4">
-                                  {children}
-                                </ol>
-                              ),
-                              li: ({ children }) => (
-                                <li className="leading-relaxed">{children}</li>
-                              ),
-                              strong: ({ children }) => (
-                                <strong className="font-semibold">
-                                  {children}
-                                </strong>
-                              ),
-                              em: ({ children }) => (
-                                <em className="italic">{children}</em>
-                              ),
-                              code: ({ children }) => {
-                                const inlineCodeText =
-                                  typeof children === 'string'
-                                    ? children
-                                    : Array.isArray(children)
-                                    ? children.join('')
-                                    : String(children);
+                          {message.role === 'user' ? (
+                            <div className="whitespace-pre-wrap">
+                              {message.content}
+                            </div>
+                          ) : (
+                            <Markdown
+                              options={{
+                                overrides: {
+                                  p: ({ children }) => (
+                                    <p className="mb-2 last:mb-0">{children}</p>
+                                  ),
+                                  ul: ({ children }) => (
+                                    <ul className="list-disc list-inside mb-2">
+                                      {children}
+                                    </ul>
+                                  ),
+                                  ol: ({ children }) => (
+                                    <ol className="list-decimal list-outside mb-2 space-y-1 pl-4">
+                                      {children}
+                                    </ol>
+                                  ),
+                                  li: ({ children }) => (
+                                    <li className="leading-relaxed">
+                                      {children}
+                                    </li>
+                                  ),
+                                  strong: ({ children }) => (
+                                    <strong className="font-semibold">
+                                      {children}
+                                    </strong>
+                                  ),
+                                  em: ({ children }) => (
+                                    <em className="italic">{children}</em>
+                                  ),
+                                  code: ({ children }) => {
+                                    const inlineCodeText =
+                                      typeof children === 'string'
+                                        ? children
+                                        : Array.isArray(children)
+                                        ? children.join('')
+                                        : String(children);
 
-                                return (
-                                  <code
-                                    className="bg-gray-200 px-1 py-0.5 rounded text-xs break-all whitespace-pre-wrap cursor-pointer hover:bg-gray-300 transition-colors relative group"
-                                    onClick={() =>
-                                      copyToClipboard(inlineCodeText)
-                                    }
-                                    title="Hacer clic para copiar"
-                                  >
-                                    {children}
-                                    <span className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
-                                      {copiedCode === inlineCodeText
-                                        ? 'Copiado!'
-                                        : 'Copiar'}
-                                    </span>
-                                  </code>
-                                );
-                              },
-                              pre: ({ children }) => {
-                                // Extraer texto correctamente de los children
-                                const extractText = (node: any): string => {
-                                  if (typeof node === 'string') return node;
-                                  if (typeof node === 'number')
-                                    return String(node);
-                                  if (Array.isArray(node)) {
-                                    return node.map(extractText).join('');
-                                  }
-                                  if (
-                                    node &&
-                                    typeof node === 'object' &&
-                                    node.props
-                                  ) {
-                                    return extractText(node.props.children);
-                                  }
-                                  return '';
-                                };
-
-                                const codeText = extractText(children);
-
-                                return (
-                                  <div
-                                    className="rounded-lg my-2 overflow-hidden border border-gray-200"
-                                    style={{ maxWidth: '100%' }}
-                                  >
-                                    <div className="flex items-center justify-between bg-gray-100 px-3 py-2 border-b border-gray-200">
-                                      <span className="text-xs text-gray-600 font-medium truncate">
-                                        Código
-                                      </span>
-                                      <button
-                                        onClick={() =>
-                                          copyToClipboard(codeText)
-                                        }
-                                        className="flex items-center space-x-1 text-xs text-gray-600 hover:text-gray-800 transition-colors flex-shrink-0"
+                                    return (
+                                      <code
+                                        className="bg-gray-200 px-1 py-0.5 rounded text-xs break-all whitespace-pre-wrap cursor-pointer hover:bg-gray-300 inline-block"
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          copyToClipboard(inlineCodeText);
+                                        }}
+                                        title="Copiar"
                                       >
-                                        {copiedCode === codeText ? (
-                                          <>
-                                            <Check className="w-3 h-3" />
-                                            <span className="hidden sm:inline">
-                                              Copiado
-                                            </span>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <Copy className="w-3 h-3" />
-                                            <span className="hidden sm:inline">
-                                              Copiar
-                                            </span>
-                                          </>
-                                        )}
-                                      </button>
-                                    </div>
-                                    <div className="bg-gray-50 p-3 rounded-b-lg">
-                                      <pre className="text-xs text-gray-800 font-mono leading-relaxed whitespace-pre-wrap break-words overflow-x-auto">
-                                        {codeText}
-                                      </pre>
-                                    </div>
-                                  </div>
-                                );
-                              },
-                              h1: ({ children }) => (
-                                <h1 className="text-sm font-bold mb-2">
-                                  {children}
-                                </h1>
-                              ),
-                              h2: ({ children }) => (
-                                <h2 className="text-sm font-bold mb-2">
-                                  {children}
-                                </h2>
-                              ),
-                              h3: ({ children }) => (
-                                <h3 className="text-sm font-bold mb-2">
-                                  {children}
-                                </h3>
-                              ),
-                              table: ({ children }) => (
-                                <div className="overflow-x-auto mb-2 border border-gray-200 rounded text-xs bg-white">
-                                  <table className="min-w-full text-xs border-collapse">
-                                    {children}
-                                  </table>
-                                </div>
-                              ),
-                              thead: ({ children }) => (
-                                <thead className="bg-gray-50">{children}</thead>
-                              ),
-                              tbody: ({ children }) => (
-                                <tbody className="bg-white divide-y divide-gray-100">
-                                  {children}
-                                </tbody>
-                              ),
-                              tr: ({ children }) => (
-                                <tr className="hover:bg-gray-50 transition-colors duration-150">
-                                  {children}
-                                </tr>
-                              ),
-                              th: ({ children }) => (
-                                <th className="px-2 py-1.5 text-left text-xs font-semibold text-gray-700 bg-gray-50 whitespace-nowrap">
-                                  {children}
-                                </th>
-                              ),
-                              td: ({ children }) => (
-                                <td className="px-2 py-1.5 text-xs text-gray-600 whitespace-nowrap">
-                                  {children}
-                                </td>
-                              ),
-                            }}
-                          >
-                            {message.content}
-                          </ReactMarkdown>
+                                        {children}
+                                      </code>
+                                    );
+                                  },
+                                  pre: ({ children }) => {
+                                    const extractText = (node: any): string => {
+                                      if (typeof node === 'string') return node;
+                                      if (typeof node === 'number')
+                                        return String(node);
+                                      if (Array.isArray(node)) {
+                                        return node.map(extractText).join('');
+                                      }
+                                      if (
+                                        node &&
+                                        typeof node === 'object' &&
+                                        node.props
+                                      ) {
+                                        return extractText(node.props.children);
+                                      }
+                                      return '';
+                                    };
+
+                                    const codeText = extractText(children);
+
+                                    return (
+                                      <div
+                                        className="rounded-lg my-2 overflow-hidden border border-gray-200"
+                                        style={{ maxWidth: '100%' }}
+                                      >
+                                        <div className="flex items-center justify-between bg-gray-100 px-3 py-2 border-b border-gray-200">
+                                          <span className="text-xs text-gray-600 font-medium truncate">
+                                            Código
+                                          </span>
+                                          <button
+                                            onClick={(e) => {
+                                              e.preventDefault();
+                                              e.stopPropagation();
+                                              copyToClipboard(codeText);
+                                            }}
+                                            className="flex items-center space-x-1 text-xs text-gray-600 hover:text-gray-800 transition-colors flex-shrink-0"
+                                          >
+                                            {copiedCode === codeText ? (
+                                              <>
+                                                <Check className="w-3 h-3" />
+                                                <span className="hidden sm:inline">
+                                                  Copiado
+                                                </span>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Copy className="w-3 h-3" />
+                                                <span className="hidden sm:inline">
+                                                  Copiar
+                                                </span>
+                                              </>
+                                            )}
+                                          </button>
+                                        </div>
+                                        <div className="bg-gray-50 p-3 rounded-b-lg">
+                                          <pre className="text-xs text-gray-800 font-mono leading-relaxed whitespace-pre-wrap break-words overflow-x-auto">
+                                            {codeText}
+                                          </pre>
+                                        </div>
+                                      </div>
+                                    );
+                                  },
+                                  h1: ({ children }) => (
+                                    <h1 className="text-sm font-bold mb-2">
+                                      {children}
+                                    </h1>
+                                  ),
+                                  h2: ({ children }) => (
+                                    <h2 className="text-sm font-bold mb-2">
+                                      {children}
+                                    </h2>
+                                  ),
+                                  h3: ({ children }) => (
+                                    <h3 className="text-sm font-bold mb-2">
+                                      {children}
+                                    </h3>
+                                  ),
+                                  table: ({ children }) => {
+                                    const tableContent = children;
+
+                                    return (
+                                      <div className="my-3 relative">
+                                        <button
+                                          onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            setExpandedTable(tableContent);
+                                          }}
+                                          className="absolute top-2 right-2 z-20 bg-white border border-gray-300 rounded p-1.5 hover:bg-gray-100 shadow-sm"
+                                          title="Expandir tabla"
+                                        >
+                                          <Maximize2 className="w-4 h-4 text-gray-600" />
+                                        </button>
+                                        <div
+                                          className="border border-gray-300 rounded bg-white chat-table-scroll"
+                                          style={{
+                                            maxHeight: '400px',
+                                            overflowX: 'scroll',
+                                            overflowY: 'scroll',
+                                            display: 'block',
+                                            width: '100%',
+                                          }}
+                                        >
+                                          <table
+                                            style={{
+                                              borderCollapse: 'collapse',
+                                              width: '100%',
+                                              tableLayout: 'auto',
+                                              display: 'table',
+                                            }}
+                                          >
+                                            {tableContent}
+                                          </table>
+                                        </div>
+                                      </div>
+                                    );
+                                  },
+                                  thead: ({ children }) => (
+                                    <thead
+                                      style={{
+                                        position: 'sticky',
+                                        top: 0,
+                                        backgroundColor: '#f3f4f6',
+                                        zIndex: 10,
+                                      }}
+                                    >
+                                      {children}
+                                    </thead>
+                                  ),
+                                  tbody: ({ children }) => (
+                                    <tbody style={{ backgroundColor: 'white' }}>
+                                      {children}
+                                    </tbody>
+                                  ),
+                                  tr: ({ children }) => (
+                                    <tr
+                                      style={{
+                                        borderBottom: '1px solid #e5e7eb',
+                                      }}
+                                    >
+                                      {children}
+                                    </tr>
+                                  ),
+                                  th: ({ children }) => (
+                                    <th
+                                      style={{
+                                        padding: '12px 14px',
+                                        textAlign: 'left',
+                                        fontSize: '13px',
+                                        fontWeight: 600,
+                                        color: '#111827',
+                                        borderRight: '1px solid #d1d5db',
+                                        backgroundColor: '#f3f4f6',
+                                        whiteSpace: 'nowrap',
+                                        lineHeight: '1.5',
+                                      }}
+                                    >
+                                      {children}
+                                    </th>
+                                  ),
+                                  td: ({ children }) => (
+                                    <td
+                                      style={{
+                                        padding: '12px 14px',
+                                        fontSize: '13px',
+                                        color: '#1f2937',
+                                        borderRight: '1px solid #e5e7eb',
+                                        maxWidth: '400px',
+                                        whiteSpace: 'normal',
+                                        wordWrap: 'break-word',
+                                        lineHeight: '1.6',
+                                      }}
+                                    >
+                                      {children}
+                                    </td>
+                                  ),
+                                },
+                              }}
+                            >
+                              {message.content}
+                            </Markdown>
+                          )}
                         </div>
                         <p className="text-xs opacity-70 mt-1">
                           {new Date(message.timestamp).toLocaleTimeString()}
@@ -776,6 +863,43 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
           title="Arrastra para redimensionar"
         />
       </div>
+
+      {/* Modal de Tabla Expandida */}
+      {expandedTable && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-2xl w-full h-full max-w-7xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Tabla expandida
+              </h3>
+              <button
+                onClick={() => setExpandedTable(null)}
+                className="p-1 hover:bg-gray-100 rounded"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div
+              className="flex-1 overflow-auto p-4 chat-table-scroll"
+              style={{
+                overflowX: 'scroll',
+                overflowY: 'scroll',
+              }}
+            >
+              <table
+                style={{
+                  borderCollapse: 'collapse',
+                  width: '100%',
+                  tableLayout: 'auto',
+                  display: 'table',
+                }}
+              >
+                {expandedTable}
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Configuración */}
       {showConfig && (
