@@ -217,8 +217,7 @@ export default function HTTPCard() {
             </button>
             <button
               onClick={() => {
-                const testCurl = `curl --location 'https://api.clickup.com/api/v2/list/901108308144/task' \\
---header 'Authorization: pk_75423518_Q07Z5P9KCN7G9HCKKR3SUV2D4PH8NBMD' \\
+                const testCurl = `curl --location 'https://jsonplaceholder.typicode.com/todos/1' \\
 --header 'Accept: application/json'`;
                 parseCurlCommand(testCurl);
               }}
