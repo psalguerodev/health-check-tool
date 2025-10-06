@@ -137,6 +137,9 @@ export const useSummary = (analysis: BlueprintAnalysis | null) => {
   ) => {
     if (!analysis) return;
 
+    console.log(`Generando resumen con tipo: ${summaryType}`);
+    console.log(`Opciones de optimización:`, xmlOptimization);
+
     setSummaryLoading(true);
     setSummaryError('');
 

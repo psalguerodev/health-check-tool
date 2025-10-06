@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -21,6 +21,21 @@ import {
   ChevronUp,
   ChevronDown,
   Maximize2,
+  GitBranch,
+  Calendar,
+  HardDrive,
+  Lock,
+  Unlock,
+  Code,
+  Check,
+  Route,
+  Package,
+  Server,
+  Save,
+  Eye,
+  EyeOff,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import PageHeader from '../PageHeader';
 import Breadcrumbs from '../Breadcrumbs';
@@ -45,6 +60,22 @@ import { GraphService } from './graphService';
 import { XmlOptimizer, XmlOptimizationOptions } from './xmlOptimizer';
 import { TABS, PROPERTY_LABELS } from './constants';
 
+interface RepositoryInfo {
+  workspace: string;
+  project_key: string;
+  repo_slug: string;
+  repo_name: string;
+  is_private: boolean;
+  main_branch: string;
+  language: string;
+  created_on: string;
+  updated_on: string;
+  size_bytes: number;
+  html_url: string;
+  https_url: string;
+  ssh_url: string;
+}
+
 export default function BlueprintAnalyzer({
   serviceName,
   onBack,
@@ -61,14 +92,43 @@ export default function BlueprintAnalyzer({
     useState(false);
   const [additionalInstructions, setAdditionalInstructions] = useState('');
   const [selectedFormat, setSelectedFormat] = useState('');
+  const [repositoryInfo, setRepositoryInfo] = useState<RepositoryInfo | null>(
+    null
+  );
+  const [repoLoading, setRepoLoading] = useState(false);
+  const [bitbucketAccounts, setBitbucketAccounts] = useState<any[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('');
+  const [branches, setBranches] = useState<any[]>([]);
+  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [branchesError, setBranchesError] = useState<string | null>(null);
+  const [selectedBranch, setSelectedBranch] = useState<string>('');
+  const [lastCommit, setLastCommit] = useState<any>(null);
+  const [commitLoading, setCommitLoading] = useState(false);
+  const [commitError, setCommitError] = useState<string | null>(null);
+  const [customRepoSlug, setCustomRepoSlug] = useState<string>('');
+  const [isBitbucketConfigOpen, setIsBitbucketConfigOpen] = useState(false);
 
-  // Estados para optimización XML
-  const [xmlOptimizationMode, setXmlOptimizationMode] = useState<
-    'default' | 'full' | 'minimal' | 'custom'
-  >('default');
-  const [xmlOptimizationOptions, setXmlOptimizationOptions] =
-    useState<XmlOptimizationOptions>(XmlOptimizer.getDefaultOptions());
-  const [showXmlOptimization, setShowXmlOptimization] = useState(false);
+  // Estados para el modal de configuración de Bitbucket
+  const [currentBitbucketAccount, setCurrentBitbucketAccount] = useState({
+    id: '',
+    name: '',
+    workspace: '',
+    email: '',
+    apiToken: '',
+  });
+  const [showToken, setShowToken] = useState(false);
+  const [saveToLocalStorage, setSaveToLocalStorage] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [showSaveNotification, setShowSaveNotification] = useState(false);
+
+  // Estados para estimación de tokens
+  const [estimatedTokens, setEstimatedTokens] = useState<number | null>(null);
+
+  // Estados para modal de ampliación
+  const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
+
+  // Estados para mensajes de progreso interactivos
+  const [loadingMessage, setLoadingMessage] = useState('');
 
   const { copiedItem, copyToClipboardWithFeedback } = useClipboard();
   const {
@@ -81,43 +141,212 @@ export default function BlueprintAnalyzer({
     clearSummaryError,
   } = useSummary(analysis);
 
-  // Funciones para manejar optimización XML
-  const handleXmlOptimizationModeChange = (
-    mode: 'default' | 'full' | 'minimal' | 'custom'
-  ) => {
-    setXmlOptimizationMode(mode);
-
-    switch (mode) {
-      case 'default':
-        setXmlOptimizationOptions(XmlOptimizer.getDefaultOptions());
-        break;
-      case 'full':
-        setXmlOptimizationOptions(XmlOptimizer.getFullProcessingOptions());
-        break;
-      case 'minimal':
-        setXmlOptimizationOptions(XmlOptimizer.getMinimalProcessingOptions());
-        break;
-      case 'custom':
-        // Mantener las opciones actuales
-        break;
-    }
-  };
-
-  const handleCustomOptimizationChange = (
-    option: keyof XmlOptimizationOptions,
-    value: boolean | number
-  ) => {
-    setXmlOptimizationOptions((prev) => ({
-      ...prev,
-      [option]: value,
-    }));
-  };
-
   const handleGenerateSummaryWithOptimization = () => {
     const finalInstructions = selectedFormat
       ? selectedFormat
       : additionalInstructions;
-    generateSummary(finalInstructions, xmlOptimizationOptions);
+
+    // Usar opciones específicas para cada modo
+    const optionsToUse =
+      summaryType === 'detailed'
+        ? XmlOptimizer.getFullProcessingOptions()
+        : XmlOptimizer.getCompactOptions();
+
+    // Iniciar mensajes de progreso interactivos
+    startLoadingProgress();
+
+    generateSummary(finalInstructions, optionsToUse);
+  };
+
+  const startLoadingProgress = () => {
+    const messages = [
+      'Analizando blueprint XML...',
+      'Extrayendo rutas y dependencias...',
+      'Identificando servicios externos...',
+      'Procesando configuración...',
+      'Generando análisis con IA...',
+      'Finalizando resumen...',
+    ];
+
+    let currentIndex = 0;
+    setLoadingMessage(messages[0]);
+
+    const interval = setInterval(() => {
+      currentIndex = (currentIndex + 1) % messages.length;
+      setLoadingMessage(messages[currentIndex]);
+    }, 2000); // Cambiar mensaje cada 2 segundos de forma cíclica
+
+    // Limpiar cuando termine la carga
+    const cleanup = () => {
+      clearInterval(interval);
+      setLoadingMessage('');
+    };
+
+    // Limpiar después de 15 segundos como máximo
+    setTimeout(cleanup, 15000);
+
+    return cleanup;
+  };
+
+  // Calcular tokens estimados cuando cambien las opciones
+  useEffect(() => {
+    const calculateEstimatedTokens = async () => {
+      if (!analysis) {
+        setEstimatedTokens(null);
+        return;
+      }
+
+      try {
+        // Obtener el XML del blueprint
+        const xmlResponse = await fetch(`/api/blueprint-xml/${serviceName}`);
+        if (!xmlResponse.ok) {
+          setEstimatedTokens(null);
+          return;
+        }
+        const fullBlueprintXml = await xmlResponse.text();
+
+        // Determinar qué opciones usar - simplificado
+        const optionsToUse =
+          summaryType === 'detailed'
+            ? XmlOptimizer.getFullProcessingOptions()
+            : XmlOptimizer.getCompactOptions();
+
+        // Extraer XML optimizado
+        const blueprintXml = XmlOptimizer.extractImportantData(
+          fullBlueprintXml,
+          analysis,
+          optionsToUse
+        );
+
+        // Extraer datos estructurados
+        const structuredData = XmlOptimizer.extractStructuredData(
+          analysis,
+          optionsToUse
+        );
+
+        // Calcular tokens
+        let tokens = XmlOptimizer.estimateTokenCount(blueprintXml);
+        tokens += XmlOptimizer.estimateTokenCount(structuredData);
+        tokens += 2000; // Prompt y system message
+        tokens += 2500; // Tokens de respuesta
+
+        setEstimatedTokens(tokens);
+      } catch (error) {
+        console.error('Error calculando tokens:', error);
+        setEstimatedTokens(null);
+      }
+    };
+
+    calculateEstimatedTokens();
+  }, [analysis, serviceName, summaryType]);
+
+  // Limpiar mensajes de progreso cuando termine la carga
+  useEffect(() => {
+    if (!summaryLoading && loadingMessage) {
+      setLoadingMessage('');
+    }
+  }, [summaryLoading, loadingMessage]);
+
+  // Funciones para el modal de configuración de Bitbucket
+  const handleSaveBitbucketAccount = () => {
+    if (
+      !currentBitbucketAccount.name ||
+      !currentBitbucketAccount.workspace ||
+      !currentBitbucketAccount.email ||
+      !currentBitbucketAccount.apiToken
+    ) {
+      alert('Por favor completa todos los campos');
+      return;
+    }
+
+    let updatedAccounts: any[];
+
+    if (editingId) {
+      // Actualizar cuenta existente
+      updatedAccounts = bitbucketAccounts.map((acc) =>
+        acc.id === editingId
+          ? { ...currentBitbucketAccount, id: editingId }
+          : acc
+      );
+    } else {
+      // Agregar nueva cuenta
+      const newAccount = {
+        ...currentBitbucketAccount,
+        id: Date.now().toString(),
+      };
+      updatedAccounts = [...bitbucketAccounts, newAccount];
+    }
+
+    setBitbucketAccounts(updatedAccounts);
+
+    if (saveToLocalStorage) {
+      localStorage.setItem(
+        'bitbucket_accounts',
+        JSON.stringify(updatedAccounts)
+      );
+    }
+
+    // Mostrar notificación
+    setShowSaveNotification(true);
+    setTimeout(() => setShowSaveNotification(false), 2000);
+
+    // Limpiar formulario
+    setCurrentBitbucketAccount({
+      id: '',
+      name: '',
+      workspace: '',
+      email: '',
+      apiToken: '',
+    });
+    setEditingId(null);
+  };
+
+  const handleEditBitbucketAccount = (account: any) => {
+    setCurrentBitbucketAccount(account);
+    setEditingId(account.id);
+  };
+
+  const handleDeleteBitbucketAccount = (id: string) => {
+    const updatedAccounts = bitbucketAccounts.filter((acc) => acc.id !== id);
+    setBitbucketAccounts(updatedAccounts);
+
+    if (saveToLocalStorage) {
+      localStorage.setItem(
+        'bitbucket_accounts',
+        JSON.stringify(updatedAccounts)
+      );
+    }
+  };
+
+  const handleClearBitbucketForm = () => {
+    setCurrentBitbucketAccount({
+      id: '',
+      name: '',
+      workspace: '',
+      email: '',
+      apiToken: '',
+    });
+    setEditingId(null);
+  };
+
+  const handleClearAllBitbucketAccounts = () => {
+    if (confirm('¿Estás seguro de que deseas eliminar todas las cuentas?')) {
+      setBitbucketAccounts([]);
+      localStorage.removeItem('bitbucket_accounts');
+      setSaveToLocalStorage(false);
+    }
+  };
+
+  const handleSaveToLocalStorageChange = (checked: boolean) => {
+    setSaveToLocalStorage(checked);
+    if (checked && bitbucketAccounts.length > 0) {
+      localStorage.setItem(
+        'bitbucket_accounts',
+        JSON.stringify(bitbucketAccounts)
+      );
+    } else if (!checked) {
+      localStorage.removeItem('bitbucket_accounts');
+    }
   };
 
   const {
@@ -130,6 +359,203 @@ export default function BlueprintAnalyzer({
     goToPreviousMatch,
     handleKeyDown,
   } = useXmlSearch(rawXml);
+
+  // Cargar cuentas de Bitbucket desde localStorage
+  useEffect(() => {
+    const savedAccounts = localStorage.getItem('bitbucket_accounts');
+    if (savedAccounts) {
+      try {
+        const parsedAccounts = JSON.parse(savedAccounts);
+        setBitbucketAccounts(parsedAccounts);
+        if (parsedAccounts.length > 0) {
+          setSelectedAccountId(parsedAccounts[0].id);
+        }
+      } catch (error) {
+        console.error('Error al cargar cuentas de Bitbucket:', error);
+      }
+    }
+  }, []);
+
+  // Cargar información del repositorio desde el CSV
+  useEffect(() => {
+    const loadRepositoryInfo = async () => {
+      setRepoLoading(true);
+      try {
+        const response = await fetch('/data/bitbucket-repositorios.csv');
+        const text = await response.text();
+        const lines = text.trim().split('\n');
+        const headers = lines[0].split(',').map((h) => h.replace(/"/g, ''));
+
+        // Buscar el repositorio por slug
+        for (let i = 1; i < lines.length; i++) {
+          const values = lines[i].split(',').map((v) => v.replace(/"/g, ''));
+          if (values[2] === serviceName) {
+            // values[2] es repo_slug
+            setRepositoryInfo({
+              workspace: values[0],
+              project_key: values[1],
+              repo_slug: values[2],
+              repo_name: values[3],
+              is_private: values[4] === 'true',
+              main_branch: values[5],
+              language: values[6],
+              created_on: values[7],
+              updated_on: values[8],
+              size_bytes: parseInt(values[9]) || 0,
+              html_url: values[10],
+              https_url: values[11],
+              ssh_url: values[12],
+            });
+            break;
+          }
+        }
+      } catch (error) {
+        console.error('Error al cargar información del repositorio:', error);
+      } finally {
+        setRepoLoading(false);
+      }
+    };
+
+    loadRepositoryInfo();
+  }, [serviceName]);
+
+  // Cargar branches cuando se selecciona una cuenta
+  useEffect(() => {
+    const loadBranches = async () => {
+      if (!selectedAccountId || !repositoryInfo) return;
+
+      const account = bitbucketAccounts.find(
+        (acc) => acc.id === selectedAccountId
+      );
+      if (!account) return;
+
+      // Si no es ARKHO y no hay customRepoSlug, no cargar branches aún
+      if (
+        account.workspace.toUpperCase() !== 'ARKHO' &&
+        !customRepoSlug.trim()
+      ) {
+        setBranches([]);
+        setBranchesError(null);
+        return;
+      }
+
+      setBranchesLoading(true);
+      setBranchesError(null);
+
+      try {
+        const auth = btoa(`${account.email}:${account.apiToken}`);
+        // Usar customRepoSlug si está disponible, sino usar el del CSV
+        const repoSlug =
+          account.workspace.toUpperCase() !== 'ARKHO' && customRepoSlug.trim()
+            ? customRepoSlug.trim()
+            : repositoryInfo.repo_slug;
+        const url = `https://api.bitbucket.org/2.0/repositories/${account.workspace}/${repoSlug}/refs/branches`;
+
+        const response = await fetch(url, {
+          headers: {
+            Authorization: `Basic ${auth}`,
+            Accept: 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Error ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const branchesData = data.values || [];
+        setBranches(branchesData);
+
+        // Seleccionar automáticamente la rama principal si existe
+        if (branchesData.length > 0 && repositoryInfo.main_branch) {
+          const mainBranch = branchesData.find(
+            (b: any) => b.name === repositoryInfo.main_branch
+          );
+          if (mainBranch) {
+            setSelectedBranch(mainBranch.name);
+          } else {
+            setSelectedBranch(branchesData[0].name);
+          }
+        }
+      } catch (error: any) {
+        console.error('Error al cargar branches:', error);
+        setBranchesError(error.message || 'Error al cargar las ramas');
+        setBranches([]);
+      } finally {
+        setBranchesLoading(false);
+      }
+    };
+
+    loadBranches();
+  }, [selectedAccountId, repositoryInfo, bitbucketAccounts, customRepoSlug]);
+
+  // Cargar último commit cuando se selecciona una rama
+  useEffect(() => {
+    const loadLastCommit = async () => {
+      if (!selectedBranch || !selectedAccountId || !repositoryInfo) return;
+
+      const account = bitbucketAccounts.find(
+        (acc) => acc.id === selectedAccountId
+      );
+      if (!account) return;
+
+      // Si no es ARKHO y no hay customRepoSlug, no cargar commit
+      if (
+        account.workspace.toUpperCase() !== 'ARKHO' &&
+        !customRepoSlug.trim()
+      ) {
+        setLastCommit(null);
+        setCommitError(null);
+        return;
+      }
+
+      setCommitLoading(true);
+      setCommitError(null);
+
+      try {
+        const auth = btoa(`${account.email}:${account.apiToken}`);
+        // Usar customRepoSlug si está disponible, sino usar el del CSV
+        const repoSlug =
+          account.workspace.toUpperCase() !== 'ARKHO' && customRepoSlug.trim()
+            ? customRepoSlug.trim()
+            : repositoryInfo.repo_slug;
+        const url = `https://api.bitbucket.org/2.0/repositories/${account.workspace}/${repoSlug}/commits/${selectedBranch}`;
+
+        const response = await fetch(url, {
+          headers: {
+            Authorization: `Basic ${auth}`,
+            Accept: 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Error ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        // El API devuelve una lista de commits, tomamos el primero (más reciente)
+        if (data.values && data.values.length > 0) {
+          setLastCommit(data.values[0]);
+        } else {
+          setLastCommit(null);
+        }
+      } catch (error: any) {
+        console.error('Error al cargar último commit:', error);
+        setCommitError(error.message || 'Error al cargar el commit');
+        setLastCommit(null);
+      } finally {
+        setCommitLoading(false);
+      }
+    };
+
+    loadLastCommit();
+  }, [
+    selectedBranch,
+    selectedAccountId,
+    repositoryInfo,
+    bitbucketAccounts,
+    customRepoSlug,
+  ]);
 
   const handleTabChange = async (tabId: string) => {
     setActiveTab(tabId);
@@ -268,14 +694,20 @@ export default function BlueprintAnalyzer({
                   <button
                     key={tab.id}
                     onClick={() => handleTabChange(tab.id)}
-                    className={`w-full text-left px-3 py-2 rounded-md text-sm font-medium flex items-center space-x-3 ${
+                    className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium flex items-center space-x-3 transition-all duration-200 ${
                       activeTab === tab.id
-                        ? 'bg-blue-100 text-blue-700 border-r-2 border-blue-500'
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                        ? 'bg-gradient-to-r from-blue-500 to-blue-600 !text-white shadow-md shadow-blue-200 scale-[1.02]'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 hover:scale-[1.01]'
                     }`}
                   >
-                    <Icon className="w-4 h-4" />
-                    <span>{tab.label}</span>
+                    <Icon
+                      className={`w-4 h-4 ${
+                        activeTab === tab.id ? 'animate-pulse !text-white' : ''
+                      }`}
+                    />
+                    <span className={activeTab === tab.id ? '!text-white' : ''}>
+                      {tab.label}
+                    </span>
                   </button>
                 );
               })}
@@ -284,12 +716,405 @@ export default function BlueprintAnalyzer({
 
           {/* Contenido del tab activo */}
           <div className="flex-1 w-full max-w-4xl">
+            {activeTab === 'repository' && (
+              <div className="bg-white rounded-lg shadow-sm border p-6 w-full h-[600px] flex flex-col">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-2">
+                    <div className="relative group">
+                      <GitBranch className="w-5 h-5 text-blue-600" />
+                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
+                        Información del repositorio de Bitbucket
+                      </div>
+                    </div>
+                    <h2 className="text-lg font-semibold text-gray-900">
+                      Información del Repositorio
+                    </h2>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setIsBitbucketConfigOpen(true)}
+                      className="flex items-center space-x-1 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                      title="Configurar cuentas de Bitbucket"
+                    >
+                      <Settings className="w-3 h-3" />
+                      <span>Config</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        // Recargar cuentas desde localStorage
+                        const savedAccounts =
+                          localStorage.getItem('bitbucket_accounts');
+                        if (savedAccounts) {
+                          try {
+                            const parsedAccounts = JSON.parse(savedAccounts);
+                            setBitbucketAccounts(parsedAccounts);
+                            if (parsedAccounts.length > 0) {
+                              // Seleccionar la primera cuenta o mantener la actual si existe
+                              const currentAccountExists = parsedAccounts.find(
+                                (acc: any) => acc.id === selectedAccountId
+                              );
+                              if (!currentAccountExists) {
+                                setSelectedAccountId(parsedAccounts[0].id);
+                              }
+                            } else {
+                              // No hay cuentas, limpiar todo
+                              setSelectedAccountId('');
+                              setBranches([]);
+                              setSelectedBranch('');
+                              setLastCommit(null);
+                            }
+                          } catch (error) {
+                            console.error('Error al recargar cuentas:', error);
+                          }
+                        } else {
+                          // No hay cuentas guardadas, limpiar todo
+                          setBitbucketAccounts([]);
+                          setSelectedAccountId('');
+                          setBranches([]);
+                          setSelectedBranch('');
+                          setLastCommit(null);
+                        }
+
+                        // Limpiar y forzar recarga de información
+                        setCustomRepoSlug('');
+                        setBranches([]);
+                        setSelectedBranch('');
+                        setLastCommit(null);
+                        setBranchesError(null);
+                        setCommitError(null);
+                      }}
+                      className="p-1.5 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                      title="Recargar credenciales y actualizar"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                    </button>
+                    {repositoryInfo && (
+                      <a
+                        href={repositoryInfo.html_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center space-x-1 text-xs text-blue-600 hover:text-blue-700 transition-colors"
+                      >
+                        <span>Ver en Bitbucket</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-auto">
+                  {repoLoading ? (
+                    <div className="flex items-center justify-center h-full">
+                      <RefreshCw className="w-8 h-8 text-blue-600 animate-spin" />
+                    </div>
+                  ) : repositoryInfo ? (
+                    <div className="space-y-2">
+                      {/* Card principal ultra compacto - inline */}
+                      <div className="bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-200 rounded p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <h3 className="text-sm font-bold text-gray-900 truncate">
+                              {repositoryInfo.repo_name}
+                            </h3>
+                            {repositoryInfo.is_private ? (
+                              <span className="flex items-center gap-1 px-1.5 py-0.5 bg-red-100 text-red-700 text-xs rounded-full flex-shrink-0">
+                                <Lock className="w-2.5 h-2.5" />
+                                <span>Privado</span>
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1 px-1.5 py-0.5 bg-green-100 text-green-700 text-xs rounded-full flex-shrink-0">
+                                <Unlock className="w-2.5 h-2.5" />
+                                <span>Público</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Información general - Grid compacto inline 2x2 */}
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <div className="bg-gray-50 border border-gray-200 rounded px-2 py-1">
+                          <div className="flex items-center gap-1">
+                            <Database className="w-2.5 h-2.5 text-gray-500 flex-shrink-0" />
+                            <span className="text-xs text-gray-600">WS:</span>
+                            <p className="text-xs font-medium text-gray-900 truncate">
+                              {repositoryInfo.workspace}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="bg-gray-50 border border-gray-200 rounded px-2 py-1">
+                          <div className="flex items-center gap-1">
+                            <Container className="w-2.5 h-2.5 text-gray-500 flex-shrink-0" />
+                            <span className="text-xs text-gray-600">Proy:</span>
+                            <p className="text-xs font-medium text-gray-900 truncate">
+                              {repositoryInfo.project_key}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="bg-gray-50 border border-gray-200 rounded px-2 py-1">
+                          <div className="flex items-center gap-1">
+                            <GitBranch className="w-2.5 h-2.5 text-gray-500 flex-shrink-0" />
+                            <span className="text-xs text-gray-600">Rama:</span>
+                            <p className="text-xs font-medium text-gray-900 font-mono truncate">
+                              {repositoryInfo.main_branch}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="bg-gray-50 border border-gray-200 rounded px-2 py-1">
+                          <div className="flex items-center gap-1">
+                            <HardDrive className="w-2.5 h-2.5 text-gray-500 flex-shrink-0" />
+                            <span className="text-xs text-gray-600">
+                              Tamaño:
+                            </span>
+                            <p className="text-xs font-medium text-gray-900">
+                              {(
+                                repositoryInfo.size_bytes /
+                                1024 /
+                                1024
+                              ).toFixed(1)}{' '}
+                              MB
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Secciones de información en línea */}
+                      <div className="border-t border-gray-200 pt-2 space-y-2">
+                        {/* Selector de cuenta de Bitbucket */}
+                        {bitbucketAccounts.length > 0 ? (
+                          <>
+                            <div className="bg-gray-50 border border-gray-200 rounded p-2">
+                              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                Cuenta Bitbucket
+                              </label>
+                              <select
+                                value={selectedAccountId}
+                                onChange={(e) => {
+                                  setSelectedAccountId(e.target.value);
+                                  setCustomRepoSlug('');
+                                }}
+                                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              >
+                                {bitbucketAccounts.map((account) => (
+                                  <option key={account.id} value={account.id}>
+                                    {account.name} ({account.workspace})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Campo para nombre del repositorio (solo si no es ARKHO) */}
+                            {selectedAccountId &&
+                              bitbucketAccounts
+                                .find((acc) => acc.id === selectedAccountId)
+                                ?.workspace.toUpperCase() !== 'ARKHO' && (
+                                <div className="bg-blue-50 border border-blue-300 rounded p-2">
+                                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                    Repo Slug
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={customRepoSlug}
+                                    onChange={(e) =>
+                                      setCustomRepoSlug(e.target.value)
+                                    }
+                                    placeholder="mi-repositorio"
+                                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                  />
+                                  <p className="text-xs text-gray-600 mt-1">
+                                    Workspace no-ARKHO: ingresar slug del repo
+                                  </p>
+                                </div>
+                              )}
+                          </>
+                        ) : (
+                          <div className="bg-yellow-50 border border-yellow-200 rounded p-2">
+                            <p className="text-xs text-yellow-800">
+                              Configura cuenta Bitbucket para ver info en línea
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Sección de branches - Compacta */}
+                        {bitbucketAccounts.length > 0 && (
+                          <div className="bg-white border border-gray-200 rounded p-2">
+                            <div className="flex items-center gap-1.5 mb-2">
+                              <GitBranch className="w-3.5 h-3.5 text-blue-600" />
+                              <h4 className="text-xs font-semibold text-gray-900">
+                                Ramas
+                              </h4>
+                              {branchesLoading && (
+                                <RefreshCw className="w-3 h-3 text-blue-600 animate-spin" />
+                              )}
+                            </div>
+
+                            {branchesLoading ? (
+                              <div className="text-center py-2">
+                                <p className="text-xs text-gray-600">
+                                  Cargando...
+                                </p>
+                              </div>
+                            ) : branchesError ? (
+                              <div className="bg-red-50 border border-red-200 rounded p-1.5">
+                                <p className="text-xs text-red-700">
+                                  {branchesError}
+                                </p>
+                              </div>
+                            ) : branches.length > 0 ? (
+                              <div className="space-y-0.5 max-h-32 overflow-y-auto">
+                                {branches.map((branch) => (
+                                  <button
+                                    key={branch.name}
+                                    onClick={() =>
+                                      setSelectedBranch(branch.name)
+                                    }
+                                    className={`w-full flex items-center justify-between px-2 py-1 rounded border transition-all ${
+                                      selectedBranch === branch.name
+                                        ? 'bg-blue-50 border-blue-300'
+                                        : 'bg-white border-gray-100 hover:bg-gray-50'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                      <GitBranch
+                                        className={`w-2.5 h-2.5 flex-shrink-0 ${
+                                          selectedBranch === branch.name
+                                            ? 'text-blue-600'
+                                            : 'text-gray-400'
+                                        }`}
+                                      />
+                                      <span
+                                        className={`text-xs font-medium truncate ${
+                                          selectedBranch === branch.name
+                                            ? 'text-blue-900'
+                                            : 'text-gray-900'
+                                        }`}
+                                      >
+                                        {branch.name}
+                                      </span>
+                                      {branch.name ===
+                                        repositoryInfo?.main_branch && (
+                                        <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full flex-shrink-0">
+                                          Main
+                                        </span>
+                                      )}
+                                    </div>
+                                    {selectedBranch === branch.name && (
+                                      <Check className="w-2.5 h-2.5 text-blue-600 flex-shrink-0" />
+                                    )}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-gray-600">
+                                No hay ramas
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Sección de último commit - Compacta */}
+                        {bitbucketAccounts.length > 0 && selectedBranch && (
+                          <div className="bg-white border border-gray-200 rounded p-2">
+                            <div className="flex items-center gap-1.5 mb-2">
+                              <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                              <h4 className="text-xs font-semibold text-gray-900">
+                                Último Commit
+                              </h4>
+                              {commitLoading && (
+                                <RefreshCw className="w-3 h-3 text-blue-600 animate-spin" />
+                              )}
+                            </div>
+
+                            {commitLoading ? (
+                              <div className="text-center py-2">
+                                <p className="text-xs text-gray-600">
+                                  Cargando...
+                                </p>
+                              </div>
+                            ) : commitError ? (
+                              <div className="bg-red-50 border border-red-200 rounded p-1.5">
+                                <p className="text-xs text-red-700">
+                                  {commitError}
+                                </p>
+                              </div>
+                            ) : lastCommit ? (
+                              <div className="space-y-1.5">
+                                {/* Hash y link */}
+                                <div className="flex items-center gap-1.5">
+                                  <code className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-900">
+                                    {lastCommit.hash?.substring(0, 7)}
+                                  </code>
+                                  <a
+                                    href={lastCommit.links?.html?.href}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-600 hover:text-blue-700"
+                                  >
+                                    <ExternalLink className="w-2.5 h-2.5" />
+                                  </a>
+                                </div>
+
+                                {/* Mensaje del commit */}
+                                <div className="bg-gray-50 border border-gray-200 rounded p-1.5">
+                                  <p className="text-xs text-gray-900 font-medium line-clamp-2">
+                                    {lastCommit.message?.split('\n')[0]}
+                                  </p>
+                                </div>
+
+                                {/* Autor y fecha - inline */}
+                                <div className="flex items-center justify-between text-xs text-gray-600">
+                                  <span className="truncate">
+                                    {lastCommit.author?.user?.display_name ||
+                                      lastCommit.author?.raw
+                                        ?.split('<')[0]
+                                        .trim()}
+                                  </span>
+                                  <span className="text-xs flex-shrink-0 ml-2">
+                                    {lastCommit.date
+                                      ? new Date(
+                                          lastCommit.date
+                                        ).toLocaleDateString('es-ES', {
+                                          day: 'numeric',
+                                          month: 'short',
+                                        })
+                                      : 'N/A'}
+                                  </span>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-gray-600">
+                                No hay información
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12 text-gray-500">
+                      <GitBranch className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                      <p className="text-lg font-medium mb-2">
+                        No se encontró información
+                      </p>
+                      <p className="text-sm">
+                        No se pudo cargar la información del repositorio desde
+                        el CSV.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {activeTab === 'routes' && (
               <div className="bg-white rounded-lg shadow-sm border p-6 w-full h-[600px] flex flex-col">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center space-x-2">
                     <div className="relative group">
-                      <Globe className="w-5 h-5 text-blue-600" />
+                      <Route className="w-5 h-5 text-blue-600" />
                       <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
                         Endpoints REST y servicios expuestos
                       </div>
@@ -320,7 +1145,7 @@ export default function BlueprintAnalyzer({
                 <div className="space-y-3 overflow-y-auto flex-1">
                   {analysis.routes.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                      <Globe className="w-12 h-12 text-blue-300 mb-4" />
+                      <Route className="w-12 h-12 text-blue-300 mb-4" />
                       <p className="text-lg font-medium">
                         No hay rutas expuestas
                       </p>
@@ -522,7 +1347,7 @@ export default function BlueprintAnalyzer({
               <div className="bg-white rounded-lg shadow-sm border p-6 w-full h-[600px] flex flex-col">
                 <div className="flex items-center space-x-2 mb-4">
                   <div className="relative group">
-                    <Database className="w-5 h-5 text-blue-600" />
+                    <Package className="w-5 h-5 text-blue-600" />
                     <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
                       Beans y servicios internos del sistema
                     </div>
@@ -534,7 +1359,7 @@ export default function BlueprintAnalyzer({
                 <div className="space-y-3 overflow-y-auto flex-1">
                   {analysis.dependencies.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                      <Database className="w-12 h-12 text-blue-300 mb-4" />
+                      <Package className="w-12 h-12 text-blue-300 mb-4" />
                       <p className="text-lg font-medium">No hay dependencias</p>
                       <p className="text-sm">
                         Este servicio no tiene dependencias internas
@@ -544,7 +1369,7 @@ export default function BlueprintAnalyzer({
                     analysis.dependencies.map((dep, index) => (
                       <div key={index} className="border rounded-lg p-4">
                         <div className="flex items-center space-x-2 mb-2">
-                          <Database className="w-4 h-4 text-blue-600" />
+                          <Package className="w-4 h-4 text-blue-600" />
                           <span className="font-medium text-gray-900">
                             {dep.name}
                           </span>
@@ -605,7 +1430,7 @@ export default function BlueprintAnalyzer({
               <div className="bg-white rounded-lg shadow-sm border p-6 w-full h-[600px] flex flex-col">
                 <div className="flex items-center space-x-2 mb-4">
                   <div className="relative group">
-                    <Database className="w-5 h-5 text-blue-600" />
+                    <Server className="w-5 h-5 text-blue-600" />
                     <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
                       Configuración de bases de datos
                     </div>
@@ -617,7 +1442,7 @@ export default function BlueprintAnalyzer({
                 <div className="space-y-3 overflow-y-auto flex-1">
                   {analysis.dataSources.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                      <Database className="w-12 h-12 text-blue-300 mb-4" />
+                      <Server className="w-12 h-12 text-blue-300 mb-4" />
                       <p className="text-lg font-medium">No hay data sources</p>
                       <p className="text-sm">
                         Este servicio no tiene fuentes de datos configuradas
@@ -627,7 +1452,7 @@ export default function BlueprintAnalyzer({
                     analysis.dataSources.map((ds, index) => (
                       <div key={index} className="border rounded-lg p-4">
                         <div className="flex items-center space-x-2 mb-2">
-                          <Database className="w-4 h-4 text-blue-600" />
+                          <Server className="w-4 h-4 text-blue-600" />
                           <span className="font-medium text-gray-900">
                             {ds.name}
                           </span>
@@ -871,16 +1696,37 @@ export default function BlueprintAnalyzer({
                       Resumir con IA
                     </h2>
                   </div>
+                  {estimatedTokens !== null && (
+                    <div className="text-xs text-gray-500">
+                      ~{estimatedTokens.toLocaleString()} / 10,000 tokens
+                    </div>
+                  )}
                   {summary && (
-                    <div className="relative group">
+                    <div className="flex items-center space-x-2">
                       <button
-                        onClick={() => copyToClipboardWithFeedback(summary)}
-                        className="flex items-center justify-center w-6 h-6 text-gray-500 hover:text-gray-700 transition-colors duration-200"
+                        onClick={() => {
+                          // Resetear el resumen y volver al estado inicial
+                          clearSummaryError();
+                          setSummaryType('detailed');
+                          setAdditionalInstructions('');
+                          setSelectedFormat('');
+                          setShowAdditionalInstructions(false);
+                        }}
+                        className="flex items-center space-x-1.5 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
                       >
-                        <Copy className="w-4 h-4" />
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span className="font-medium">Nuevo Análisis</span>
                       </button>
-                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
-                        Copiar resumen
+                      <div className="relative group">
+                        <button
+                          onClick={() => copyToClipboardWithFeedback(summary)}
+                          className="flex items-center justify-center w-6 h-6 text-gray-500 hover:text-gray-700 transition-colors duration-200"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
+                          Copiar resumen
+                        </div>
                       </div>
                     </div>
                   )}
@@ -888,25 +1734,63 @@ export default function BlueprintAnalyzer({
 
                 {/* Controles de resumen */}
                 {!summary && (
-                  <div className="mb-6">
+                  <div className="mb-4 space-y-3">
+                    {/* Card con instrucciones y CTA principal - Compacto */}
+                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center space-x-3 flex-1 min-w-0">
+                          <div className="flex-shrink-0">
+                            <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center">
+                              <Bot className="w-5 h-5 text-white" />
+                            </div>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-sm font-bold text-gray-900 mb-0.5">
+                              Análisis Inteligente con IA
+                            </h3>
+                            <p className="text-xs text-gray-600">
+                              Blueprint completo: rutas, dependencias e
+                              integraciones
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={handleGenerateSummaryWithOptimization}
+                          disabled={summaryLoading}
+                          className="flex items-center space-x-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-sm hover:shadow-md flex-shrink-0"
+                        >
+                          {summaryLoading ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Zap className="w-4 h-4" />
+                          )}
+                          <span className="font-medium">
+                            {summaryLoading ? 'Analizando...' : 'Analizar'}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+
                     {/* Toggle para instrucciones adicionales */}
-                    <div className="mb-4">
-                      <label className="flex items-center space-x-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={showAdditionalInstructions}
-                          onChange={(e) =>
-                            setShowAdditionalInstructions(e.target.checked)
-                          }
-                          className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+                    <div>
+                      <button
+                        onClick={() =>
+                          setShowAdditionalInstructions(
+                            !showAdditionalInstructions
+                          )
+                        }
+                        className="flex items-center space-x-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors"
+                      >
+                        <ChevronDown
+                          className={`w-3.5 h-3.5 transition-transform ${
+                            showAdditionalInstructions ? 'rotate-180' : ''
+                          }`}
                         />
-                        <span className="text-xs font-medium text-gray-700">
-                          Agregar instrucciones adicionales
-                        </span>
-                      </label>
+                        <span>Opciones avanzadas</span>
+                      </button>
 
                       {showAdditionalInstructions && (
-                        <div className="mt-3 space-y-3">
+                        <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-2.5">
                           {/* Selector de formato predefinido */}
                           <div>
                             <label className="block text-xs font-medium text-gray-700 mb-2">
@@ -965,215 +1849,6 @@ export default function BlueprintAnalyzer({
                               className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
                               rows={3}
                             />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Optimización XML */}
-                    <div className="mb-4">
-                      <label className="flex items-center space-x-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={showXmlOptimization}
-                          onChange={(e) =>
-                            setShowXmlOptimization(e.target.checked)
-                          }
-                          className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
-                        />
-                        <span className="text-xs font-medium text-gray-700">
-                          Optimizar procesamiento XML
-                        </span>
-                      </label>
-
-                      {showXmlOptimization && (
-                        <div className="mt-3 space-y-3">
-                          {/* Modo de optimización */}
-                          <div>
-                            <label className="block text-xs font-medium text-gray-700 mb-2">
-                              Modo de procesamiento:
-                            </label>
-                            <div className="grid grid-cols-2 gap-2">
-                              <button
-                                onClick={() =>
-                                  handleXmlOptimizationModeChange('default')
-                                }
-                                className={`px-3 py-2 text-xs rounded border ${
-                                  xmlOptimizationMode === 'default'
-                                    ? 'bg-blue-50 border-blue-300 text-blue-700'
-                                    : 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100'
-                                }`}
-                              >
-                                Por defecto
-                              </button>
-                              <button
-                                onClick={() =>
-                                  handleXmlOptimizationModeChange('minimal')
-                                }
-                                className={`px-3 py-2 text-xs rounded border ${
-                                  xmlOptimizationMode === 'minimal'
-                                    ? 'bg-blue-50 border-blue-300 text-blue-700'
-                                    : 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100'
-                                }`}
-                              >
-                                Mínimo
-                              </button>
-                              <button
-                                onClick={() =>
-                                  handleXmlOptimizationModeChange('full')
-                                }
-                                className={`px-3 py-2 text-xs rounded border ${
-                                  xmlOptimizationMode === 'full'
-                                    ? 'bg-blue-50 border-blue-300 text-blue-700'
-                                    : 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100'
-                                }`}
-                              >
-                                Completo
-                              </button>
-                              <button
-                                onClick={() =>
-                                  handleXmlOptimizationModeChange('custom')
-                                }
-                                className={`px-3 py-2 text-xs rounded border ${
-                                  xmlOptimizationMode === 'custom'
-                                    ? 'bg-blue-50 border-blue-300 text-blue-700'
-                                    : 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100'
-                                }`}
-                              >
-                                Personalizado
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Opciones personalizadas */}
-                          {xmlOptimizationMode === 'custom' && (
-                            <div className="space-y-2">
-                              <div className="text-xs font-medium text-gray-700 mb-2">
-                                Incluir en el análisis:
-                              </div>
-                              <div className="grid grid-cols-2 gap-2">
-                                <label className="flex items-center space-x-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={
-                                      xmlOptimizationOptions.includeRoutes
-                                    }
-                                    onChange={(e) =>
-                                      handleCustomOptimizationChange(
-                                        'includeRoutes',
-                                        e.target.checked
-                                      )
-                                    }
-                                    className="w-3 h-3 text-blue-600"
-                                  />
-                                  <span className="text-xs text-gray-600">
-                                    Rutas
-                                  </span>
-                                </label>
-                                <label className="flex items-center space-x-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={
-                                      xmlOptimizationOptions.includeDataSources
-                                    }
-                                    onChange={(e) =>
-                                      handleCustomOptimizationChange(
-                                        'includeDataSources',
-                                        e.target.checked
-                                      )
-                                    }
-                                    className="w-3 h-3 text-blue-600"
-                                  />
-                                  <span className="text-xs text-gray-600">
-                                    Data Sources
-                                  </span>
-                                </label>
-                                <label className="flex items-center space-x-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={
-                                      xmlOptimizationOptions.includeExternalServices
-                                    }
-                                    onChange={(e) =>
-                                      handleCustomOptimizationChange(
-                                        'includeExternalServices',
-                                        e.target.checked
-                                      )
-                                    }
-                                    className="w-3 h-3 text-blue-600"
-                                  />
-                                  <span className="text-xs text-gray-600">
-                                    Servicios Externos
-                                  </span>
-                                </label>
-                                <label className="flex items-center space-x-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={
-                                      xmlOptimizationOptions.includeConfiguration
-                                    }
-                                    onChange={(e) =>
-                                      handleCustomOptimizationChange(
-                                        'includeConfiguration',
-                                        e.target.checked
-                                      )
-                                    }
-                                    className="w-3 h-3 text-blue-600"
-                                  />
-                                  <span className="text-xs text-gray-600">
-                                    Configuración
-                                  </span>
-                                </label>
-                                <label className="flex items-center space-x-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={
-                                      xmlOptimizationOptions.includeDependencies
-                                    }
-                                    onChange={(e) =>
-                                      handleCustomOptimizationChange(
-                                        'includeDependencies',
-                                        e.target.checked
-                                      )
-                                    }
-                                    className="w-3 h-3 text-blue-600"
-                                  />
-                                  <span className="text-xs text-gray-600">
-                                    Dependencias
-                                  </span>
-                                </label>
-                                <label className="flex items-center space-x-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={
-                                      xmlOptimizationOptions.includeFullXml
-                                    }
-                                    onChange={(e) =>
-                                      handleCustomOptimizationChange(
-                                        'includeFullXml',
-                                        e.target.checked
-                                      )
-                                    }
-                                    className="w-3 h-3 text-blue-600"
-                                  />
-                                  <span className="text-xs text-gray-600">
-                                    XML Completo
-                                  </span>
-                                </label>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Información de tokens */}
-                          <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
-                            {xmlOptimizationMode === 'minimal' &&
-                              '~3,750 tokens (procesamiento rápido)'}
-                            {xmlOptimizationMode === 'default' &&
-                              '~7,500 tokens (equilibrado)'}
-                            {xmlOptimizationMode === 'full' &&
-                              '~12,500 tokens (análisis completo)'}
-                            {xmlOptimizationMode === 'custom' &&
-                              'Configuración personalizada'}
                           </div>
                         </div>
                       )}
@@ -1248,7 +1923,67 @@ export default function BlueprintAnalyzer({
 
                 {/* Contenido del resumen */}
                 <div className="flex-1 overflow-y-auto">
-                  {summaryError ? (
+                  {summaryLoading ? (
+                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                      {/* Header del estado de carga */}
+                      <div className="flex items-center justify-between p-4 border-b border-gray-100">
+                        <div className="flex items-center space-x-2">
+                          <div className="relative">
+                            <div className="w-5 h-5 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                            <Bot className="w-3 h-3 text-blue-600 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2" />
+                          </div>
+                          <h3 className="text-sm font-medium text-gray-900">
+                            Generando Análisis
+                          </h3>
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {summaryType === 'detailed'
+                            ? 'Análisis Detallado'
+                            : 'Resumen Compacto'}
+                        </div>
+                      </div>
+
+                      {/* Contenido del estado de carga */}
+                      <div className="p-6">
+                        <div className="flex flex-col items-center space-y-4">
+                          {/* Icono principal de carga */}
+                          <div className="flex items-center justify-center w-16 h-16 bg-blue-50 rounded-full">
+                            <Bot className="w-8 h-8 text-blue-600 animate-pulse" />
+                          </div>
+
+                          {/* Mensaje dinámico */}
+                          <div className="text-center">
+                            <p className="text-sm font-medium text-gray-700">
+                              {loadingMessage}
+                            </p>
+                          </div>
+
+                          {/* Información de tokens */}
+                          {estimatedTokens && (
+                            <div className="text-center">
+                              <p className="text-xs text-gray-500">
+                                Procesando ~{estimatedTokens.toLocaleString()}{' '}
+                                tokens
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Indicador de progreso visual */}
+                          <div className="flex justify-center space-x-1">
+                            <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce"></div>
+                            <div
+                              className="w-2 h-2 bg-blue-600 rounded-full animate-bounce"
+                              style={{ animationDelay: '0.1s' }}
+                            ></div>
+                            <div
+                              className="w-2 h-2 bg-blue-600 rounded-full animate-bounce"
+                              style={{ animationDelay: '0.2s' }}
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : summaryError ? (
                     <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                       <div className="flex items-start">
                         <div className="flex-shrink-0">
@@ -1293,132 +2028,173 @@ export default function BlueprintAnalyzer({
                       </div>
                     </div>
                   ) : summary ? (
-                    <div className="bg-gray-25 rounded-lg p-4 border border-gray-200">
-                      <div className="prose prose-xs max-w-none">
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={{
-                            h1: ({ children }) => (
-                              <h1 className="text-lg font-semibold text-gray-800 mb-2 mt-3 first:mt-0">
-                                {children}
-                              </h1>
-                            ),
-                            h2: ({ children }) => (
-                              <h2 className="text-base font-medium text-gray-800 mb-2 mt-2 first:mt-0">
-                                {children}
-                              </h2>
-                            ),
-                            h3: ({ children }) => (
-                              <h3 className="text-sm font-medium text-gray-800 mb-1 mt-2 first:mt-0">
-                                {children}
-                              </h3>
-                            ),
-                            p: ({ children }) => (
-                              <p className="mb-2 text-sm text-gray-600 leading-snug">
-                                {children}
-                              </p>
-                            ),
-                            ul: ({ children }) => (
-                              <ul className="mb-2 space-y-0.5 text-sm text-gray-600">
-                                {children}
-                              </ul>
-                            ),
-                            ol: ({ children }) => (
-                              <ol className="mb-2 space-y-0.5 text-sm text-gray-600">
-                                {children}
-                              </ol>
-                            ),
-                            li: ({ children }) => (
-                              <li className="flex items-start leading-snug">
-                                <span className="mr-2 text-gray-400">•</span>
-                                <span className="flex-1">{children}</span>
-                              </li>
-                            ),
-                            code: ({ children }) => (
-                              <code className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono text-gray-700">
-                                {children}
-                              </code>
-                            ),
-                            pre: ({ children }) => (
-                              <pre className="bg-gray-100 p-2 rounded border overflow-x-auto text-xs font-mono text-gray-700 mb-2 whitespace-pre-wrap break-words">
-                                {children}
-                              </pre>
-                            ),
-                            strong: ({ children }) => (
-                              <strong className="font-medium text-gray-800">
-                                {children}
-                              </strong>
-                            ),
-                            table: ({ children }) => (
-                              <div className="overflow-x-auto mb-3">
-                                <table className="min-w-full text-xs border-collapse border border-gray-200">
-                                  {children}
-                                </table>
-                              </div>
-                            ),
-                            thead: ({ children }) => (
-                              <thead className="bg-gray-50">{children}</thead>
-                            ),
-                            tbody: ({ children }) => (
-                              <tbody className="bg-white">{children}</tbody>
-                            ),
-                            tr: ({ children }) => (
-                              <tr className="border-b border-gray-200">
-                                {children}
-                              </tr>
-                            ),
-                            th: ({ children }) => (
-                              <th className="px-2 py-1.5 text-left font-medium text-gray-700 border-r border-gray-200">
-                                {children}
-                              </th>
-                            ),
-                            td: ({ children }) => (
-                              <td className="px-2 py-1.5 text-gray-600 border-r border-gray-200">
-                                {children}
-                              </td>
-                            ),
-                          }}
+                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                      {/* Header del resumen con botón de ampliar */}
+                      <div className="flex items-center justify-between p-4 border-b border-gray-100">
+                        <div className="flex items-center space-x-2">
+                          <Bot className="w-5 h-5 text-blue-600" />
+                          <h3 className="text-sm font-semibold text-gray-900">
+                            Resumen Generado
+                          </h3>
+                        </div>
+                        <button
+                          onClick={() => setIsSummaryModalOpen(true)}
+                          className="flex items-center space-x-1.5 px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors duration-200"
+                          title="Ampliar resumen"
                         >
-                          {summary}
-                        </ReactMarkdown>
+                          <Maximize2 className="w-3.5 h-3.5" />
+                          <span>Ampliar</span>
+                        </button>
+                      </div>
+
+                      {/* Contenido del resumen con mejor estilo */}
+                      <div className="p-4">
+                        <div className="prose prose-sm max-w-none">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              h1: ({ children }) => (
+                                <h1 className="text-xl font-bold text-gray-900 mb-3 mt-4 first:mt-0 border-b border-gray-200 pb-2">
+                                  {children}
+                                </h1>
+                              ),
+                              h2: ({ children }) => (
+                                <h2 className="text-lg font-semibold text-gray-800 mb-2 mt-4 first:mt-0">
+                                  {children}
+                                </h2>
+                              ),
+                              h3: ({ children }) => (
+                                <h3 className="text-base font-medium text-gray-800 mb-2 mt-3 first:mt-0">
+                                  {children}
+                                </h3>
+                              ),
+                              p: ({ children }) => (
+                                <p className="mb-3 text-sm text-gray-700 leading-relaxed">
+                                  {children}
+                                </p>
+                              ),
+                              ul: ({ children }) => (
+                                <ul
+                                  className="mb-3 space-y-1 text-sm text-gray-700"
+                                  style={{
+                                    listStylePosition: 'outside',
+                                    paddingLeft: '1.25rem',
+                                  }}
+                                >
+                                  {children}
+                                </ul>
+                              ),
+                              ol: ({ children }) => (
+                                <ol
+                                  className="mb-3 space-y-1 text-sm text-gray-700"
+                                  style={{
+                                    listStylePosition: 'outside',
+                                    paddingLeft: '1.25rem',
+                                  }}
+                                >
+                                  {children}
+                                </ol>
+                              ),
+                              li: ({ children }) => (
+                                <li
+                                  className="flex items-start leading-relaxed"
+                                  style={{ paddingLeft: '0.25rem' }}
+                                >
+                                  <span className="flex-1">{children}</span>
+                                </li>
+                              ),
+                              code: ({ children }) => {
+                                const inlineCodeText =
+                                  typeof children === 'string'
+                                    ? children
+                                    : Array.isArray(children)
+                                    ? children.join('')
+                                    : String(children);
+
+                                return (
+                                  <code
+                                    className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded text-[13px] font-mono break-all whitespace-pre-wrap cursor-pointer hover:bg-blue-100 inline-block border border-blue-200"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      copyToClipboardWithFeedback(
+                                        inlineCodeText
+                                      );
+                                    }}
+                                    title="Copiar"
+                                  >
+                                    {children}
+                                  </code>
+                                );
+                              },
+                              pre: ({ children }) => (
+                                <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg border overflow-x-auto text-sm font-mono mb-3 whitespace-pre-wrap break-words shadow-sm">
+                                  {children}
+                                </pre>
+                              ),
+                              strong: ({ children }) => (
+                                <strong className="font-bold text-gray-900">
+                                  {children}
+                                </strong>
+                              ),
+                              table: ({ children }) => (
+                                <div className="overflow-x-auto mb-4 shadow-sm rounded-lg border border-gray-200">
+                                  <table className="min-w-full text-sm border-collapse">
+                                    {children}
+                                  </table>
+                                </div>
+                              ),
+                              thead: ({ children }) => (
+                                <thead className="bg-gray-50">{children}</thead>
+                              ),
+                              tbody: ({ children }) => (
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                  {children}
+                                </tbody>
+                              ),
+                              tr: ({ children }) => (
+                                <tr className="hover:bg-gray-50 transition-colors">
+                                  {children}
+                                </tr>
+                              ),
+                              th: ({ children }) => (
+                                <th className="px-4 py-3 text-left font-semibold text-gray-900 border-r border-gray-200">
+                                  {children}
+                                </th>
+                              ),
+                              td: ({ children }) => (
+                                <td
+                                  className="px-4 py-3 text-gray-700 border-r border-gray-200"
+                                  style={{ verticalAlign: 'top' }}
+                                >
+                                  <div
+                                    style={{
+                                      whiteSpace: 'normal',
+                                      wordWrap: 'break-word',
+                                      overflowWrap: 'break-word',
+                                    }}
+                                  >
+                                    {children}
+                                  </div>
+                                </td>
+                              ),
+                            }}
+                          >
+                            {summary}
+                          </ReactMarkdown>
+                        </div>
                       </div>
                     </div>
                   ) : (
-                    <div className="flex flex-col items-center justify-start h-full text-gray-500 pt-8">
-                      <Bot className="w-12 h-12 text-blue-300 mb-4" />
-                      <p className="text-lg font-medium mb-2">
-                        Genera un resumen inteligente
+                    <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                      <Bot className="w-16 h-16 text-blue-300 mb-4" />
+                      <p className="text-base font-medium mb-2">
+                        Esperando análisis
                       </p>
-                      <p className="text-sm text-center max-w-md mb-4">
-                        Selecciona el tipo de resumen y haz clic en "Generar
-                        Resumen" para obtener un análisis inteligente del
-                        blueprint.
+                      <p className="text-sm text-center max-w-md text-gray-500">
+                        Haz clic en <strong>"Analizar"</strong> para generar un
+                        resumen inteligente del blueprint
                       </p>
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 max-w-md mb-4">
-                        <p className="text-xs text-blue-800 text-center">
-                          <strong>Nota:</strong> Asegúrate de configurar tus
-                          credenciales de OpenAI en el sidebar del Chat para
-                          usar esta funcionalidad.
-                        </p>
-                      </div>
-                      <div className="flex justify-center">
-                        <button
-                          onClick={handleGenerateSummaryWithOptimization}
-                          disabled={summaryLoading}
-                          className="flex items-center space-x-2 px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
-                        >
-                          {summaryLoading ? (
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Bot className="w-4 h-4" />
-                          )}
-                          <span className="font-medium">
-                            {summaryLoading
-                              ? 'Generando...'
-                              : 'Generar Resumen'}
-                          </span>
-                        </button>
-                      </div>
                     </div>
                   )}
                 </div>
@@ -1669,6 +2445,427 @@ export default function BlueprintAnalyzer({
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de configuración de Bitbucket */}
+      {isBitbucketConfigOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center space-x-3">
+                <Settings className="w-6 h-6 text-blue-600" />
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Configuración Bitbucket Cloud
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsBitbucketConfigOpen(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Contenido */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Formulario */}
+                <div className="space-y-4">
+                  <h4 className="text-sm font-semibold text-gray-900 mb-3">
+                    {editingId ? 'Editar Cuenta' : 'Nueva Cuenta'}
+                  </h4>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Nombre de la Cuenta
+                    </label>
+                    <input
+                      type="text"
+                      value={currentBitbucketAccount.name}
+                      onChange={(e) =>
+                        setCurrentBitbucketAccount({
+                          ...currentBitbucketAccount,
+                          name: e.target.value,
+                        })
+                      }
+                      placeholder="Ej: Cuenta Principal"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Workspace
+                    </label>
+                    <input
+                      type="text"
+                      value={currentBitbucketAccount.workspace}
+                      onChange={(e) =>
+                        setCurrentBitbucketAccount({
+                          ...currentBitbucketAccount,
+                          workspace: e.target.value,
+                        })
+                      }
+                      placeholder="arkho"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Correo Electrónico
+                    </label>
+                    <input
+                      type="email"
+                      value={currentBitbucketAccount.email}
+                      onChange={(e) =>
+                        setCurrentBitbucketAccount({
+                          ...currentBitbucketAccount,
+                          email: e.target.value,
+                        })
+                      }
+                      placeholder="tu-email@ejemplo.com"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      API Token
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showToken ? 'text' : 'password'}
+                        value={currentBitbucketAccount.apiToken}
+                        onChange={(e) =>
+                          setCurrentBitbucketAccount({
+                            ...currentBitbucketAccount,
+                            apiToken: e.target.value,
+                          })
+                        }
+                        placeholder="tu-api-token"
+                        className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowToken(!showToken)}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showToken ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <p className="text-xs text-blue-800">
+                      <strong>Nota:</strong> Necesitas crear un API Token en
+                      Bitbucket con permisos de lectura para repositorios.
+                    </p>
+                  </div>
+
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={handleSaveBitbucketAccount}
+                      className="flex-1 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2"
+                    >
+                      <Save className="w-4 h-4" />
+                      <span>{editingId ? 'Actualizar' : 'Agregar'}</span>
+                    </button>
+                    {(editingId || currentBitbucketAccount.name) && (
+                      <button
+                        onClick={handleClearBitbucketForm}
+                        className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded-lg transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Lista de cuentas guardadas */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-gray-900">
+                      Cuentas Guardadas ({bitbucketAccounts.length})
+                    </h4>
+                    {bitbucketAccounts.length > 0 && (
+                      <button
+                        onClick={handleClearAllBitbucketAccounts}
+                        className="text-xs text-red-600 hover:text-red-700 transition-colors"
+                      >
+                        Eliminar todas
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                    {bitbucketAccounts.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        <Settings className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                        <p className="text-sm">No hay cuentas guardadas</p>
+                      </div>
+                    ) : (
+                      bitbucketAccounts.map((account) => (
+                        <div
+                          key={account.id}
+                          className="bg-gray-50 border border-gray-200 rounded-lg p-3 hover:bg-gray-100 transition-colors"
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-gray-900 truncate">
+                                {account.name}
+                              </p>
+                              <p className="text-xs text-gray-600 truncate">
+                                {account.workspace} • {account.email}
+                              </p>
+                            </div>
+                            <div className="flex space-x-1 ml-2">
+                              <button
+                                onClick={() =>
+                                  handleEditBitbucketAccount(account)
+                                }
+                                className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                title="Editar"
+                              >
+                                <Settings className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() =>
+                                  handleDeleteBitbucketAccount(account.id)
+                                }
+                                className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                title="Eliminar"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 border-t border-gray-200 bg-gray-50">
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={saveToLocalStorage}
+                  onChange={(e) =>
+                    handleSaveToLocalStorageChange(e.target.checked)
+                  }
+                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700">
+                  Guardar en navegador (localStorage)
+                </span>
+              </label>
+            </div>
+
+            {/* Notificación de guardado */}
+            {showSaveNotification && (
+              <div className="absolute top-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center space-x-2 animate-fade-in">
+                <Check className="w-4 h-4" />
+                <span className="text-sm font-medium">
+                  Guardado correctamente
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal de ampliación del resumen */}
+      {isSummaryModalOpen && summary && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+            {/* Header del modal */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center space-x-3">
+                <Bot className="w-6 h-6 text-blue-600" />
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Resumen Completo - {serviceName}
+                </h2>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => copyToClipboardWithFeedback(summary)}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors duration-200"
+                  title="Copiar resumen"
+                >
+                  <Copy className="w-4 h-4" />
+                  <span>Copiar</span>
+                </button>
+                <button
+                  onClick={() => setIsSummaryModalOpen(false)}
+                  className="flex items-center justify-center w-8 h-8 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors duration-200"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Contenido del modal */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="prose prose-lg max-w-none">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    h1: ({ children }) => (
+                      <h1 className="text-2xl font-bold text-gray-900 mb-4 mt-6 first:mt-0 border-b border-gray-200 pb-3">
+                        {children}
+                      </h1>
+                    ),
+                    h2: ({ children }) => (
+                      <h2 className="text-xl font-semibold text-gray-800 mb-3 mt-5 first:mt-0">
+                        {children}
+                      </h2>
+                    ),
+                    h3: ({ children }) => (
+                      <h3 className="text-lg font-medium text-gray-800 mb-2 mt-4 first:mt-0">
+                        {children}
+                      </h3>
+                    ),
+                    p: ({ children }) => (
+                      <p className="mb-4 text-base text-gray-700 leading-relaxed">
+                        {children}
+                      </p>
+                    ),
+                    ul: ({ children }) => (
+                      <ul
+                        className="mb-4 space-y-2 text-base text-gray-700"
+                        style={{
+                          listStylePosition: 'outside',
+                          paddingLeft: '1.5rem',
+                        }}
+                      >
+                        {children}
+                      </ul>
+                    ),
+                    ol: ({ children }) => (
+                      <ol
+                        className="mb-4 space-y-2 text-base text-gray-700"
+                        style={{
+                          listStylePosition: 'outside',
+                          paddingLeft: '1.5rem',
+                        }}
+                      >
+                        {children}
+                      </ol>
+                    ),
+                    li: ({ children }) => (
+                      <li
+                        className="flex items-start leading-relaxed"
+                        style={{ paddingLeft: '0.5rem' }}
+                      >
+                        <span className="flex-1">{children}</span>
+                      </li>
+                    ),
+                    code: ({ children }) => {
+                      const inlineCodeText =
+                        typeof children === 'string'
+                          ? children
+                          : Array.isArray(children)
+                          ? children.join('')
+                          : String(children);
+
+                      return (
+                        <code
+                          className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded text-[13px] font-mono break-all whitespace-pre-wrap cursor-pointer hover:bg-blue-100 inline-block border border-blue-200"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            copyToClipboardWithFeedback(inlineCodeText);
+                          }}
+                          title="Copiar"
+                        >
+                          {children}
+                        </code>
+                      );
+                    },
+                    pre: ({ children }) => (
+                      <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg border overflow-x-auto text-base font-mono mb-4 whitespace-pre-wrap break-words shadow-sm">
+                        {children}
+                      </pre>
+                    ),
+                    strong: ({ children }) => (
+                      <strong className="font-bold text-gray-900">
+                        {children}
+                      </strong>
+                    ),
+                    table: ({ children }) => (
+                      <div className="overflow-x-auto mb-6 shadow-sm rounded-lg border border-gray-200">
+                        <table className="min-w-full text-base border-collapse">
+                          {children}
+                        </table>
+                      </div>
+                    ),
+                    thead: ({ children }) => (
+                      <thead className="bg-gray-50">{children}</thead>
+                    ),
+                    tbody: ({ children }) => (
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {children}
+                      </tbody>
+                    ),
+                    tr: ({ children }) => (
+                      <tr className="hover:bg-gray-50 transition-colors">
+                        {children}
+                      </tr>
+                    ),
+                    th: ({ children }) => (
+                      <th className="px-6 py-4 text-left font-semibold text-gray-900 border-r border-gray-200">
+                        {children}
+                      </th>
+                    ),
+                    td: ({ children }) => (
+                      <td
+                        className="px-6 py-4 text-gray-700 border-r border-gray-200"
+                        style={{ verticalAlign: 'top' }}
+                      >
+                        <div
+                          style={{
+                            whiteSpace: 'normal',
+                            wordWrap: 'break-word',
+                            overflowWrap: 'break-word',
+                          }}
+                        >
+                          {children}
+                        </div>
+                      </td>
+                    ),
+                  }}
+                >
+                  {summary}
+                </ReactMarkdown>
+              </div>
+            </div>
+
+            {/* Footer del modal */}
+            <div className="flex items-center justify-between p-6 border-t border-gray-200 bg-gray-50">
+              <div className="text-sm text-gray-500">
+                Resumen generado con IA -{' '}
+                {summaryType === 'detailed'
+                  ? 'Análisis Detallado'
+                  : 'Resumen Compacto'}
+              </div>
+              <button
+                onClick={() => setIsSummaryModalOpen(false)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>

@@ -377,7 +377,7 @@ export class XmlOptimizer {
   }
 
   /**
-   * Obtiene opciones por defecto para optimización
+   * Obtiene opciones por defecto para optimización (MEJORADAS)
    */
   static getDefaultOptions(): XmlOptimizationOptions {
     return {
@@ -386,23 +386,42 @@ export class XmlOptimizer {
       includeDataSources: true,
       includeExternalServices: true,
       includeConfiguration: true,
-      includeDependencies: false,
-      maxLength: 30000, // ~7,500 tokens
+      includeDependencies: true, // Cambiado a true para más contexto
+      maxLength: 40000, // Aumentado a ~10,000 tokens para más información
     };
   }
 
   /**
-   * Obtiene opciones para procesamiento completo
+   * Obtiene opciones para modo Compacto (OPTIMIZADO PARA MENOS TOKENS)
+   * Incluye XML completo pero con límite conservador de tokens
    */
-  static getFullProcessingOptions(): XmlOptimizationOptions {
+  static getCompactOptions(): XmlOptimizationOptions {
     return {
-      includeFullXml: true,
+      includeFullXml: true, // Incluir XML completo para análisis completo
       includeRoutes: true,
       includeDataSources: true,
       includeExternalServices: true,
       includeConfiguration: true,
       includeDependencies: true,
-      maxLength: 50000, // ~12,500 tokens
+      maxLength: 20000, // ~5,000 tokens - Conservador para modo compacto
+    };
+  }
+
+  /**
+   * Obtiene opciones para procesamiento completo (OPTIMIZADO PARA ANÁLISIS DETALLADO)
+   * Con límites ajustados para evitar rate limits de OpenAI
+   */
+  static getFullProcessingOptions(): XmlOptimizationOptions {
+    return {
+      includeFullXml: true, // ¡INCLUIR XML COMPLETO!
+      includeRoutes: true,
+      includeDataSources: true,
+      includeExternalServices: true,
+      includeConfiguration: true,
+      includeDependencies: true,
+      maxLength: 100000, // ~25,000 tokens - Suficiente para XML completo
+      // Para análisis detallado, priorizamos el XML completo sobre el límite de tokens
+      // El sistema de reducción automática manejará casos extremos
     };
   }
 

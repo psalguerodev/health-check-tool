@@ -1,3 +1,41 @@
+## [0.1.39] - 2025-10-06
+
+### Added
+
+- Nueva sección "Repositorio" en el detalle de servicios Camel
+- Integración completa con Bitbucket Cloud API v2.0
+- Sistema de gestión de múltiples cuentas de Bitbucket
+- Visualización de ramas del repositorio en tiempo real
+- Información del último commit por rama seleccionada
+- Selector de cuenta de Bitbucket con workspace
+- Soporte para repositorios en workspaces diferentes a ARKHO
+- Campo de entrada de slug de repositorio para workspaces no-ARKHO
+- Carga automática de información desde CSV de repositorios de Bitbucket
+- Autenticación Basic con API tokens de Bitbucket
+- Links directos a Bitbucket para repositorios y commits
+
+### Changed
+
+- Interfaz ultra compacta en sección de repositorio (reducción ~40% de espacio)
+- Diseño optimizado sin necesidad de scroll
+- Grid de información general de 4 columnas a 2x2
+- Labels abreviados: "WS:", "Proy:", "Rama:", "Tamaño:"
+- Ramas seleccionables con indicador visual
+- Altura máxima de lista de ramas reducida a 32 unidades
+- Información de commits en formato compacto inline
+- Fecha de commits simplificada (solo día y mes)
+- Badge "Principal" cambiado a "Main"
+- Todos los paddings y espaciados optimizados
+- Iconos reducidos de 3px a 2.5px
+- Títulos de secciones más concisos
+
+### Fixed
+
+- Detección automática de workspace ARKHO vs otros workspaces
+- Validación de slug de repositorio para workspaces externos
+- Limpieza de estado al cambiar de cuenta de Bitbucket
+- Carga condicional de ramas y commits según workspace
+
 ## [0.1.38] - 2025-10-05
 
 ### Changed
