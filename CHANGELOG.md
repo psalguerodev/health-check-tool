@@ -1,3 +1,17 @@
+## [0.1.38] - 2025-10-05
+
+### Changed
+
+- Carga dinámica de blueprints disponibles desde CSV en lugar de lista hardcodeada
+- Tabla de repositorios Camel ahora lee blueprints desde `/data/blueprints/lista-repositorios-blueprints.csv`
+- Reducción de código de 217 líneas a 10 líneas en CamelRepositoriesTable
+- Mejor mantenibilidad: agregar/quitar blueprints solo requiere actualizar el CSV
+
+### Fixed
+
+- Corrección del parseo del CSV de blueprints (ahora salta header y toma solo la primera columna)
+- Repositorios con blueprints disponibles ahora se detectan correctamente en la tabla
+
 ## [0.1.36] - 2025-10-05
 
 ### Added

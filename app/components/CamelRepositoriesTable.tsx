@@ -121,7 +121,8 @@ export default function CamelRepositoriesTable() {
         const blueprintsList = blueprintsText
           .trim()
           .split('\n')
-          .map((line) => line.replace(/,/g, '').trim())
+          .slice(1) // Saltar el header
+          .map((line) => line.split(',')[0].trim()) // Tomar solo la primera columna
           .filter((line) => line.length > 0);
 
         // Verificar blueprints para cada repositorio
