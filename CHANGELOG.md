@@ -1,3 +1,61 @@
+## [0.1.42] - 2025-01-15
+
+### Added
+
+- **Filtros Múltiples**: Selectores múltiples con checkboxes para filtrar por grupos y subgrupos
+- **Exportación Filtrada**: La exportación de Excel respeta los filtros aplicados
+- **Dropdowns Elegantes**: Filtros con dropdowns que se abren al hacer hover
+- **Contadores Visuales**: Muestra cuántos grupos/subgrupos están seleccionados
+
+### Changed
+
+- **Filtros Rediseñados**: Convertidos de inputs de texto a selectores múltiples con checkboxes
+- **Exportación Inteligente**: Solo exporta los datos filtrados, no todos los grupos
+- **Nombre de Archivo**: Incluye información de filtros en el nombre del archivo exportado
+- **CSV Limpio**: Exportación sin metadatos, solo datos puros
+
+### Fixed
+
+- **Validación de Exportación**: Verifica que haya datos filtrados antes de exportar
+- **Filtrado Combinado**: Filtros de grupos y subgrupos funcionan correctamente juntos
+- **TypeScript**: Corregidos todos los errores de tipos en el filtrado
+
+### Technical
+
+- **Estados de Filtrado**: `filterGroups` y `filterSubGroups` como arrays de strings
+- **Funciones de Manejo**: `handleGroupFilterChange` y `handleSubGroupFilterChange` para selección múltiple
+- **Filtrado Inteligente**: `getFilteredGroups()` con lógica de filtrado combinado
+- **Exportación Optimizada**: `exportToExcel()` usa `getFilteredGroups()` en lugar de todos los grupos
+
+## [0.1.41] - 2025-01-15
+
+### Added
+
+- **Release Planner - Pantalla Completa**: Botón de expansión para ver el Release Plan en pantalla completa
+- **Headers Clickeables**: Headers de grupos y subgrupos completamente clickeables para expandir/colapsar
+- **Export/Import Mejorado**: Incluye campos de asignado y comentarios en exportación e importación CSV
+- **Mejor UX**: Área clickeable más grande en headers para mejor usabilidad
+
+### Changed
+
+- **Release Planner UI**: Botón de expandir reposicionado a la derecha del icono de búsqueda
+- **Headers Interactivos**: Toda el área del nombre y contador de grupos/subgrupos es clickeable
+- **CSV Export**: Nuevas columnas ASIGNADO y COMENTARIOS en archivos exportados
+- **CSV Import**: Soporte para importar asignaciones y comentarios desde archivos CSV
+
+### Fixed
+
+- **Prevención de Conflictos**: `stopPropagation()` en botones de movimiento y edición para evitar colapsar headers
+- **Compatibilidad**: Importación mantiene compatibilidad con archivos CSV antiguos sin nuevos campos
+- **Valores Vacíos**: Manejo correcto de campos vacíos en asignado y comentarios
+
+### Technical
+
+- **Estado de Pantalla Completa**: `isFullscreen` state con toggle y escape key support
+- **Z-index Management**: `z-40` para overlay de pantalla completa
+- **CSV Parsing**: Actualizado para manejar nuevas columnas de asignado y comentarios
+- **Service Objects**: Incluye `assignedTo` y `comment` en estructura de servicios
+
 ## [0.1.40] - 2025-10-06
 
 ### Added

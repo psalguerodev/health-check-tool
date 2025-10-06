@@ -24,7 +24,11 @@ import {
   Search,
   Filter,
   ChevronUp as ChevronUpIcon,
+  MessageSquare,
+  User,
   ChevronDown as ChevronDownIcon2,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import PageHeader from '../../components/PageHeader';
 import Breadcrumbs from '../../components/Breadcrumbs';
@@ -39,6 +43,8 @@ interface Service {
   workspace: string;
   project_key: string;
   has_blueprint: boolean;
+  comment?: string;
+  assignedTo?: string;
 }
 
 interface Group {
@@ -66,28 +72,98 @@ export default function ReleasePlannerPage() {
     parentId?: string;
   } | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [editingService, setEditingService] = useState<{
+    id: string;
+    field: 'comment' | 'assignedTo';
+  } | null>(null);
+  const [editingValue, setEditingValue] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState<string>('');
   const [selectedSubGroupId, setSelectedSubGroupId] = useState<string>('');
   const [showImportModal, setShowImportModal] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [filterGroups, setFilterGroups] = useState<string[]>([]);
+  const [filterSubGroups, setFilterSubGroups] = useState<string[]>([]);
+
+  // Obtener grupos filtrados
+  const getFilteredGroups = (): Group[] => {
+    if (filterGroups.length === 0 && filterSubGroups.length === 0) {
+      return releasePlan.groups;
+    }
+
+    return releasePlan.groups
+      .map((group) => {
+        // Si hay filtro de grupos, verificar si el grupo está seleccionado
+        if (filterGroups.length > 0 && !filterGroups.includes(group.name)) {
+          return null; // No mostrar este grupo
+        }
+
+        // Si hay filtro de subgrupos, filtrar los subgrupos
+        if (filterSubGroups.length > 0 && group.subGroups) {
+          const filteredSubGroups = group.subGroups.filter((subGroup) =>
+            filterSubGroups.includes(subGroup.name)
+          );
+
+          // Si no hay subgrupos que coincidan, no mostrar el grupo
+          if (filteredSubGroups.length === 0) {
+            return null;
+          }
+
+          // Retornar el grupo con subgrupos filtrados
+          return {
+            ...group,
+            subGroups: filteredSubGroups,
+          };
+        }
+
+        return group;
+      })
+      .filter((group): group is Group => group !== null); // Type guard para remover null
+  };
+
+  // Limpiar filtros
+  const clearFilters = () => {
+    setFilterGroups([]);
+    setFilterSubGroups([]);
+  };
+
+  // Manejar selección múltiple de grupos
+  const handleGroupFilterChange = (groupName: string) => {
+    setFilterGroups((prev) =>
+      prev.includes(groupName)
+        ? prev.filter((name) => name !== groupName)
+        : [...prev, groupName]
+    );
+  };
+
+  // Manejar selección múltiple de subgrupos
+  const handleSubGroupFilterChange = (subGroupName: string) => {
+    setFilterSubGroups((prev) =>
+      prev.includes(subGroupName)
+        ? prev.filter((name) => name !== subGroupName)
+        : [...prev, subGroupName]
+    );
+  };
 
   // Cerrar modal con Escape
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && showSearchModal) {
-        setShowSearchModal(false);
-        setSearchTerm('');
-        setSelectedGroupId('');
-        setSelectedSubGroupId('');
+      if (e.key === 'Escape') {
+        if (showSearchModal) {
+          setShowSearchModal(false);
+          setSearchTerm('');
+          setSelectedGroupId('');
+          setSelectedSubGroupId('');
+        } else if (isFullscreen) {
+          setIsFullscreen(false);
+        }
       }
     };
 
-    if (showSearchModal) {
-      document.addEventListener('keydown', handleEscape);
-      return () => document.removeEventListener('keydown', handleEscape);
-    }
-  }, [showSearchModal]);
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [showSearchModal, isFullscreen]);
 
   // Cargar Release Plan desde localStorage
   useEffect(() => {
@@ -630,6 +706,46 @@ export default function ReleasePlannerPage() {
     setEditingName('');
   };
 
+  const startEditingService = (
+    serviceId: string,
+    field: 'comment' | 'assignedTo',
+    currentValue: string = ''
+  ) => {
+    setEditingService({ id: serviceId, field });
+    setEditingValue(currentValue);
+  };
+
+  const saveServiceField = () => {
+    if (!editingService) return;
+
+    setReleasePlan((prev) => ({
+      groups: prev.groups.map((group) => ({
+        ...group,
+        services: group.services.map((service) =>
+          service.id === editingService.id
+            ? { ...service, [editingService.field]: editingValue }
+            : service
+        ),
+        subGroups: group.subGroups?.map((subGroup) => ({
+          ...subGroup,
+          services: subGroup.services.map((service) =>
+            service.id === editingService.id
+              ? { ...service, [editingService.field]: editingValue }
+              : service
+          ),
+        })),
+      })),
+    }));
+
+    setEditingService(null);
+    setEditingValue('');
+  };
+
+  const cancelEditingService = () => {
+    setEditingService(null);
+    setEditingValue('');
+  };
+
   // Filtrar servicios disponibles
   const filteredAvailableServices = availableServices.filter((service) => {
     const isNotInUse = !releasePlan.groups.some(
@@ -725,8 +841,18 @@ export default function ReleasePlannerPage() {
           const values = parseCSVLine(line);
           if (values.length < 6) return; // Línea inválida
 
-          const [grupo, subgrupo, servicio, workspace, proyecto, blueprint] =
-            values;
+          const [
+            grupo,
+            subgrupo,
+            servicio,
+            workspace,
+            proyecto,
+            blueprint,
+            orden,
+            tipo,
+            asignado,
+            comentarios,
+          ] = values;
 
           if (!grupo || !servicio) return; // Datos requeridos faltantes
 
@@ -754,6 +880,8 @@ export default function ReleasePlannerPage() {
             has_blueprint:
               blueprint?.toLowerCase() === 'sí' ||
               blueprint?.toLowerCase() === 'si',
+            assignedTo: asignado || '',
+            comment: comentarios || '',
           };
 
           if (subgrupo && subgrupo.trim()) {
@@ -824,9 +952,11 @@ export default function ReleasePlannerPage() {
   };
 
   const exportToExcel = () => {
-    if (releasePlan.groups.length === 0) {
+    const filteredGroups = getFilteredGroups();
+
+    if (filteredGroups.length === 0) {
       alert(
-        'No hay grupos para exportar. Crea al menos un grupo antes de exportar.'
+        'No hay grupos filtrados para exportar. Ajusta los filtros o crea grupos.'
       );
       return;
     }
@@ -844,6 +974,8 @@ export default function ReleasePlannerPage() {
       BLUEPRINT: 'BLUEPRINT',
       ORDEN: 'ORDEN',
       TIPO: 'TIPO',
+      ASIGNADO: 'ASIGNADO',
+      COMENTARIOS: 'COMENTARIOS',
       FECHA_EXPORTACION: 'FECHA_EXPORTACION',
     });
 
@@ -851,7 +983,7 @@ export default function ReleasePlannerPage() {
 
     const fechaExportacion = new Date().toISOString().split('T')[0];
 
-    releasePlan.groups.forEach((group, groupIndex) => {
+    filteredGroups.forEach((group, groupIndex) => {
       // Agregar servicios del grupo principal
       if (group.services.length > 0) {
         group.services.forEach((service, serviceIndex) => {
@@ -864,6 +996,8 @@ export default function ReleasePlannerPage() {
             BLUEPRINT: service.has_blueprint ? 'Sí' : 'No',
             ORDEN: globalOrder++,
             TIPO: 'SERVICIO',
+            ASIGNADO: service.assignedTo || '',
+            COMENTARIOS: service.comment || '',
             FECHA_EXPORTACION: fechaExportacion,
           });
         });
@@ -884,6 +1018,8 @@ export default function ReleasePlannerPage() {
                 BLUEPRINT: service.has_blueprint ? 'Sí' : 'No',
                 ORDEN: globalOrder++,
                 TIPO: 'SERVICIO',
+                ASIGNADO: service.assignedTo || '',
+                COMENTARIOS: service.comment || '',
                 FECHA_EXPORTACION: fechaExportacion,
               });
             });
@@ -918,14 +1054,30 @@ export default function ReleasePlannerPage() {
       type: 'text/csv;charset=utf-8;',
     });
 
+    // Generar nombre de archivo con información de filtros
+    const generateFileName = () => {
+      const date = new Date().toISOString().split('T')[0];
+      const baseName = `Reporte-Servicios-Camel-${date}`;
+
+      if (filterGroups.length > 0 || filterSubGroups.length > 0) {
+        const filterInfo = [];
+        if (filterGroups.length > 0) {
+          filterInfo.push(`grupos-${filterGroups.length}`);
+        }
+        if (filterSubGroups.length > 0) {
+          filterInfo.push(`subgrupos-${filterSubGroups.length}`);
+        }
+        return `${baseName}-filtrado-${filterInfo.join('-')}.csv`;
+      }
+
+      return `${baseName}.csv`;
+    };
+
     // Descargar archivo con nombre más descriptivo
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    link.setAttribute(
-      'download',
-      `Reporte-Servicios-Camel-${new Date().toISOString().split('T')[0]}.csv`
-    );
+    link.setAttribute('download', generateFileName());
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -986,8 +1138,18 @@ export default function ReleasePlannerPage() {
         </div>
 
         {/* Contenido principal */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2">
-          <div className="bg-white border border-gray-300 rounded-lg h-[calc(100vh-200px)]">
+        <div
+          className={`${
+            isFullscreen
+              ? 'fixed inset-0 z-40 bg-white'
+              : 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2'
+          }`}
+        >
+          <div
+            className={`bg-white border border-gray-300 rounded-lg ${
+              isFullscreen ? 'h-full' : 'h-[calc(100vh-200px)]'
+            }`}
+          >
             <div className="p-4 h-full flex flex-col">
               {/* Header compacto */}
               <div className="flex items-center justify-between mb-4">
@@ -1029,6 +1191,23 @@ export default function ReleasePlannerPage() {
                     <Search className="w-5 h-5" />
                   </button>
 
+                  {/* Botón de pantalla completa */}
+                  <button
+                    onClick={() => setIsFullscreen(!isFullscreen)}
+                    className="p-2 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                    title={
+                      isFullscreen
+                        ? 'Salir de pantalla completa'
+                        : 'Ver en pantalla completa'
+                    }
+                  >
+                    {isFullscreen ? (
+                      <Minimize2 className="w-5 h-5" />
+                    ) : (
+                      <Maximize2 className="w-5 h-5" />
+                    )}
+                  </button>
+
                   <button
                     onClick={() => setShowImportModal(true)}
                     className="p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
@@ -1054,6 +1233,107 @@ export default function ReleasePlannerPage() {
                       <Trash2 className="w-5 h-5" />
                     </button>
                   )}
+
+                  {/* Filtros múltiples */}
+                  {releasePlan.groups.length > 0 && (
+                    <div className="flex items-center space-x-1 ml-2 pl-2 border-l border-gray-200">
+                      {/* Selector múltiple de grupos */}
+                      <div className="relative group">
+                        <button
+                          className="text-xs text-gray-500 hover:text-gray-700 focus:outline-none cursor-pointer flex items-center space-x-1"
+                          title="Filtrar por grupos"
+                        >
+                          <span>Grupos</span>
+                          <span className="text-xs text-gray-400">
+                            {filterGroups.length > 0
+                              ? `(${filterGroups.length})`
+                              : ''}
+                          </span>
+                          <Filter className="w-3 h-3" />
+                        </button>
+
+                        <div className="absolute top-full right-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
+                          <div className="p-2 max-h-40 overflow-y-auto">
+                            {releasePlan.groups.map((group) => (
+                              <label
+                                key={group.id}
+                                className="flex items-center space-x-2 text-xs cursor-pointer hover:bg-gray-50 p-1 rounded"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={filterGroups.includes(group.name)}
+                                  onChange={() =>
+                                    handleGroupFilterChange(group.name)
+                                  }
+                                  className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500"
+                                />
+                                <span className="text-gray-700">
+                                  {group.name}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Selector múltiple de subgrupos */}
+                      <div className="relative group">
+                        <button
+                          className="text-xs text-gray-500 hover:text-gray-700 focus:outline-none cursor-pointer flex items-center space-x-1"
+                          title="Filtrar por subgrupos"
+                        >
+                          <span>Subgrupos</span>
+                          <span className="text-xs text-gray-400">
+                            {filterSubGroups.length > 0
+                              ? `(${filterSubGroups.length})`
+                              : ''}
+                          </span>
+                          <Filter className="w-3 h-3" />
+                        </button>
+
+                        <div className="absolute top-full right-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
+                          <div className="p-2 max-h-40 overflow-y-auto">
+                            {releasePlan.groups.flatMap(
+                              (group) =>
+                                group.subGroups?.map((subGroup) => (
+                                  <label
+                                    key={subGroup.id}
+                                    className="flex items-center space-x-2 text-xs cursor-pointer hover:bg-gray-50 p-1 rounded"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={filterSubGroups.includes(
+                                        subGroup.name
+                                      )}
+                                      onChange={() =>
+                                        handleSubGroupFilterChange(
+                                          subGroup.name
+                                        )
+                                      }
+                                      className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500"
+                                    />
+                                    <span className="text-gray-700">
+                                      {subGroup.name}
+                                    </span>
+                                  </label>
+                                )) || []
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {(filterGroups.length > 0 ||
+                        filterSubGroups.length > 0) && (
+                        <button
+                          onClick={clearFilters}
+                          className="p-0.5 text-gray-400 hover:text-gray-600"
+                          title="Limpiar filtros"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1075,7 +1355,7 @@ export default function ReleasePlannerPage() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {releasePlan.groups.map((group, groupIndex) => (
+                    {getFilteredGroups().map((group, groupIndex) => (
                       <div key={group.id}>
                         <div className="border border-gray-200 rounded-lg">
                           {/* Header del grupo compacto */}
@@ -1084,7 +1364,10 @@ export default function ReleasePlannerPage() {
                               {/* Botones de movimiento para grupos */}
                               <div className="flex items-center space-x-0.5">
                                 <button
-                                  onClick={() => moveGroup(group.id, 'up')}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    moveGroup(group.id, 'up');
+                                  }}
                                   disabled={groupIndex === 0}
                                   className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
                                   title="Mover grupo arriba"
@@ -1092,7 +1375,10 @@ export default function ReleasePlannerPage() {
                                   <ChevronUp className="w-3 h-3" />
                                 </button>
                                 <button
-                                  onClick={() => moveGroup(group.id, 'down')}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    moveGroup(group.id, 'down');
+                                  }}
                                   disabled={
                                     groupIndex === releasePlan.groups.length - 1
                                   }
@@ -1102,65 +1388,74 @@ export default function ReleasePlannerPage() {
                                   <ChevronDown className="w-3 h-3" />
                                 </button>
                               </div>
+
+                              {/* Área clickeable del header */}
                               <button
                                 onClick={() => toggleGroupExpansion(group.id)}
-                                className="p-1 hover:bg-gray-200 rounded"
+                                className="flex items-center space-x-2 hover:bg-gray-200 rounded p-1 -m-1 flex-1"
                               >
                                 {group.isExpanded ? (
                                   <Minus className="w-4 h-4 text-gray-600" />
                                 ) : (
                                   <Plus className="w-4 h-4 text-gray-600" />
                                 )}
-                              </button>
 
-                              {group.isExpanded ? (
-                                <FolderOpen className="w-4 h-4 text-blue-600" />
-                              ) : (
-                                <Folder className="w-4 h-4 text-blue-600" />
-                              )}
+                                {group.isExpanded ? (
+                                  <FolderOpen className="w-4 h-4 text-blue-600" />
+                                ) : (
+                                  <Folder className="w-4 h-4 text-blue-600" />
+                                )}
 
-                              {editingGroup?.id === group.id &&
-                              editingGroup.type === 'group' ? (
-                                <div className="flex items-center space-x-1">
-                                  <input
-                                    type="text"
-                                    value={editingName}
-                                    onChange={(e) =>
-                                      setEditingName(e.target.value)
-                                    }
-                                    className="px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                    autoFocus
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') saveGroupName();
-                                      if (e.key === 'Escape')
+                                {editingGroup?.id === group.id &&
+                                editingGroup.type === 'group' ? (
+                                  <div className="flex items-center space-x-1">
+                                    <input
+                                      type="text"
+                                      value={editingName}
+                                      onChange={(e) =>
+                                        setEditingName(e.target.value)
+                                      }
+                                      className="px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                      autoFocus
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') saveGroupName();
+                                        if (e.key === 'Escape')
+                                          cancelEditingGroup();
+                                      }}
+                                    />
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        saveGroupName();
+                                      }}
+                                      className="p-1 text-green-600 hover:text-green-700"
+                                      title="Guardar"
+                                    >
+                                      <Check className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
                                         cancelEditingGroup();
-                                    }}
-                                  />
-                                  <button
-                                    onClick={saveGroupName}
-                                    className="p-1 text-green-600 hover:text-green-700"
-                                    title="Guardar"
-                                  >
-                                    <Check className="w-3 h-3" />
-                                  </button>
-                                  <button
-                                    onClick={cancelEditingGroup}
-                                    className="p-1 text-red-600 hover:text-red-700"
-                                    title="Cancelar"
-                                  >
-                                    <X className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              ) : (
-                                <>
-                                  <span className="font-medium text-gray-900 text-sm">
-                                    {group.name}
-                                  </span>
-                                  <span className="text-xs text-gray-500">
-                                    ({getTotalServicesInGroup(group)} servicios)
-                                  </span>
-                                </>
-                              )}
+                                      }}
+                                      className="p-1 text-red-600 hover:text-red-700"
+                                      title="Cancelar"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <span className="font-medium text-gray-900 text-sm">
+                                      {group.name}
+                                    </span>
+                                    <span className="text-xs text-gray-500">
+                                      ({getTotalServicesInGroup(group)}{' '}
+                                      servicios)
+                                    </span>
+                                  </>
+                                )}
+                              </button>
                             </div>
 
                             <div className="flex items-center space-x-1">
@@ -1255,6 +1550,55 @@ export default function ReleasePlannerPage() {
                                           </div>
 
                                           <div className="flex items-center space-x-1">
+                                            {/* Icono de comentario */}
+                                            <button
+                                              onClick={() =>
+                                                startEditingService(
+                                                  service.id,
+                                                  'comment',
+                                                  service.comment || ''
+                                                )
+                                              }
+                                              className={`p-0.5 rounded ${
+                                                service.comment
+                                                  ? 'text-blue-600 hover:text-blue-700'
+                                                  : 'text-gray-400 hover:text-blue-600'
+                                              }`}
+                                              title={
+                                                service.comment ||
+                                                'Agregar comentario'
+                                              }
+                                            >
+                                              <MessageSquare className="w-3 h-3" />
+                                            </button>
+
+                                            {/* Icono de persona asignada */}
+                                            <button
+                                              onClick={() =>
+                                                startEditingService(
+                                                  service.id,
+                                                  'assignedTo',
+                                                  service.assignedTo || ''
+                                                )
+                                              }
+                                              className={`p-0.5 rounded flex items-center space-x-1 ${
+                                                service.assignedTo
+                                                  ? 'text-green-600 hover:text-green-700'
+                                                  : 'text-gray-400 hover:text-green-600'
+                                              }`}
+                                              title={
+                                                service.assignedTo ||
+                                                'Asignar persona'
+                                              }
+                                            >
+                                              <User className="w-3 h-3" />
+                                              {service.assignedTo && (
+                                                <span className="text-xs text-gray-400">
+                                                  {service.assignedTo}
+                                                </span>
+                                              )}
+                                            </button>
+
                                             {/* Selector de subgrupo */}
                                             <select
                                               value=""
@@ -1329,13 +1673,14 @@ export default function ReleasePlannerPage() {
                                               {/* Botones de movimiento para subgrupos */}
                                               <div className="flex items-center space-x-0.5">
                                                 <button
-                                                  onClick={() =>
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
                                                     moveSubGroup(
                                                       group.id,
                                                       subGroup.id,
                                                       'up'
-                                                    )
-                                                  }
+                                                    );
+                                                  }}
                                                   disabled={subGroupIndex === 0}
                                                   className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
                                                   title="Mover subgrupo arriba"
@@ -1343,13 +1688,14 @@ export default function ReleasePlannerPage() {
                                                   <ChevronUp className="w-3 h-3" />
                                                 </button>
                                                 <button
-                                                  onClick={() =>
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
                                                     moveSubGroup(
                                                       group.id,
                                                       subGroup.id,
                                                       'down'
-                                                    )
-                                                  }
+                                                    );
+                                                  }}
                                                   disabled={
                                                     subGroupIndex ===
                                                     (group.subGroups?.length ||
@@ -1362,6 +1708,8 @@ export default function ReleasePlannerPage() {
                                                   <ChevronDown className="w-3 h-3" />
                                                 </button>
                                               </div>
+
+                                              {/* Área clickeable del header del subgrupo */}
                                               <button
                                                 onClick={() =>
                                                   toggleSubGroupExpansion(
@@ -1369,63 +1717,70 @@ export default function ReleasePlannerPage() {
                                                     subGroup.id
                                                   )
                                                 }
-                                                className="p-0.5 hover:bg-gray-200 rounded"
+                                                className="flex items-center space-x-1 hover:bg-gray-200 rounded p-0.5 -m-0.5 flex-1"
                                               >
                                                 {subGroup.isExpanded ? (
                                                   <Minus className="w-3 h-3 text-gray-600" />
                                                 ) : (
                                                   <Plus className="w-3 h-3 text-gray-600" />
                                                 )}
-                                              </button>
-                                              <Folder className="w-3 h-3 text-gray-600" />
-                                              {editingGroup?.id ===
-                                                subGroup.id &&
-                                              editingGroup.type ===
-                                                'subgroup' ? (
-                                                <div className="flex items-center space-x-1">
-                                                  <input
-                                                    type="text"
-                                                    value={editingName}
-                                                    onChange={(e) =>
-                                                      setEditingName(
-                                                        e.target.value
-                                                      )
-                                                    }
-                                                    className="px-1 py-0.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                                    autoFocus
-                                                    onKeyDown={(e) => {
-                                                      if (e.key === 'Enter')
+                                                <Folder className="w-3 h-3 text-gray-600" />
+                                                {editingGroup?.id ===
+                                                  subGroup.id &&
+                                                editingGroup.type ===
+                                                  'subgroup' ? (
+                                                  <div className="flex items-center space-x-1">
+                                                    <input
+                                                      type="text"
+                                                      value={editingName}
+                                                      onChange={(e) =>
+                                                        setEditingName(
+                                                          e.target.value
+                                                        )
+                                                      }
+                                                      className="px-1 py-0.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                      autoFocus
+                                                      onKeyDown={(e) => {
+                                                        if (e.key === 'Enter')
+                                                          saveGroupName();
+                                                        if (e.key === 'Escape')
+                                                          cancelEditingGroup();
+                                                      }}
+                                                    />
+                                                    <button
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
                                                         saveGroupName();
-                                                      if (e.key === 'Escape')
+                                                      }}
+                                                      className="p-0.5 text-green-600 hover:text-green-700"
+                                                      title="Guardar"
+                                                    >
+                                                      <Check className="w-3 h-3" />
+                                                    </button>
+                                                    <button
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
                                                         cancelEditingGroup();
-                                                    }}
-                                                  />
-                                                  <button
-                                                    onClick={saveGroupName}
-                                                    className="p-0.5 text-green-600 hover:text-green-700"
-                                                    title="Guardar"
-                                                  >
-                                                    <Check className="w-3 h-3" />
-                                                  </button>
-                                                  <button
-                                                    onClick={cancelEditingGroup}
-                                                    className="p-0.5 text-red-600 hover:text-red-700"
-                                                    title="Cancelar"
-                                                  >
-                                                    <X className="w-3 h-3" />
-                                                  </button>
-                                                </div>
-                                              ) : (
-                                                <>
-                                                  <span className="font-medium text-gray-900 text-xs">
-                                                    {subGroup.name}
-                                                  </span>
-                                                  <span className="text-xs text-gray-500">
-                                                    ({subGroup.services.length}{' '}
-                                                    servicios)
-                                                  </span>
-                                                </>
-                                              )}
+                                                      }}
+                                                      className="p-0.5 text-red-600 hover:text-red-700"
+                                                      title="Cancelar"
+                                                    >
+                                                      <X className="w-3 h-3" />
+                                                    </button>
+                                                  </div>
+                                                ) : (
+                                                  <>
+                                                    <span className="font-medium text-gray-900 text-xs">
+                                                      {subGroup.name}
+                                                    </span>
+                                                    <span className="text-xs text-gray-500">
+                                                      (
+                                                      {subGroup.services.length}{' '}
+                                                      servicios)
+                                                    </span>
+                                                  </>
+                                                )}
+                                              </button>
                                             </div>
 
                                             <div className="flex items-center space-x-1">
@@ -1523,6 +1878,59 @@ export default function ReleasePlannerPage() {
                                                       </div>
 
                                                       <div className="flex items-center space-x-1">
+                                                        {/* Icono de comentario */}
+                                                        <button
+                                                          onClick={() =>
+                                                            startEditingService(
+                                                              service.id,
+                                                              'comment',
+                                                              service.comment ||
+                                                                ''
+                                                            )
+                                                          }
+                                                          className={`p-0.5 rounded ${
+                                                            service.comment
+                                                              ? 'text-blue-600 hover:text-blue-700'
+                                                              : 'text-gray-400 hover:text-blue-600'
+                                                          }`}
+                                                          title={
+                                                            service.comment ||
+                                                            'Agregar comentario'
+                                                          }
+                                                        >
+                                                          <MessageSquare className="w-3 h-3" />
+                                                        </button>
+
+                                                        {/* Icono de persona asignada */}
+                                                        <button
+                                                          onClick={() =>
+                                                            startEditingService(
+                                                              service.id,
+                                                              'assignedTo',
+                                                              service.assignedTo ||
+                                                                ''
+                                                            )
+                                                          }
+                                                          className={`p-0.5 rounded flex items-center space-x-1 ${
+                                                            service.assignedTo
+                                                              ? 'text-green-600 hover:text-green-700'
+                                                              : 'text-gray-400 hover:text-green-600'
+                                                          }`}
+                                                          title={
+                                                            service.assignedTo ||
+                                                            'Asignar persona'
+                                                          }
+                                                        >
+                                                          <User className="w-3 h-3" />
+                                                          {service.assignedTo && (
+                                                            <span className="text-xs text-gray-400">
+                                                              {
+                                                                service.assignedTo
+                                                              }
+                                                            </span>
+                                                          )}
+                                                        </button>
+
                                                         {/* Selector de subgrupo */}
                                                         <select
                                                           value=""
@@ -1632,7 +2040,7 @@ export default function ReleasePlannerPage() {
                     className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
                   >
                     <option value="">Seleccionar grupo...</option>
-                    {releasePlan.groups.map((group) => (
+                    {getFilteredGroups().map((group) => (
                       <option key={group.id} value={group.id}>
                         {group.name}
                       </option>
@@ -1796,6 +2204,72 @@ export default function ReleasePlannerPage() {
           historyKey="camelHistory"
           showSectionFilter={true}
         />
+
+        {/* Modal de Edición de Servicio */}
+        {editingService && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-sm">
+              {/* Header del Modal */}
+              <div className="flex items-center justify-between p-3 border-b border-gray-200">
+                <h3 className="text-base font-semibold text-gray-900">
+                  {editingService.field === 'comment'
+                    ? 'Comentario'
+                    : 'Persona Asignada'}
+                </h3>
+                <button
+                  onClick={cancelEditingService}
+                  className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+                  title="Cerrar modal"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Contenido del Modal */}
+              <div className="p-3 space-y-3">
+                <div className="text-xs text-gray-600">
+                  {editingService.field === 'comment'
+                    ? 'Agrega un comentario para este servicio'
+                    : 'Asigna una persona responsable para este servicio'}
+                </div>
+
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={editingValue}
+                    onChange={(e) => setEditingValue(e.target.value)}
+                    placeholder={
+                      editingService.field === 'comment'
+                        ? 'Escribe un comentario...'
+                        : 'Nombre de la persona...'
+                    }
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') saveServiceField();
+                      if (e.key === 'Escape') cancelEditingService();
+                    }}
+                  />
+                </div>
+
+                <div className="flex items-center justify-end space-x-2">
+                  <button
+                    onClick={cancelEditingService}
+                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={saveServiceField}
+                    className="px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    Guardar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Sidebar de Chat IA */}
         <ChatSidebar isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
