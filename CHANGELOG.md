@@ -1,3 +1,42 @@
+## [0.1.40] - 2025-10-06
+
+### Added
+
+- Función de respaldo `extractAdditionalContent` para capturar contenido adicional del XML
+- Búsqueda en cascada para extracción de rutas (camel:route → elementos camel → cualquier camel:\*)
+- Múltiples patrones de búsqueda para servicios externos (CXF, REST, HTTP, beans de servicios)
+- Detección automática de contenido insuficiente en extracción de XML
+- Lógica de respaldo automática cuando hay menos de 3 secciones extraídas
+
+### Changed
+
+- **Funciones de extracción de XML completamente mejoradas**:
+  - `extractRoutes`: Aumentado de 10 a 15 rutas máximo, búsqueda en cascada
+  - `extractExternalServices`: Aumentado de 8 a 12 servicios máximo, 5 tipos de búsqueda
+  - `extractConfiguration`: Aumentado de 10 a 15 configuraciones máximo, 4 tipos de búsqueda
+  - `extractDependencies`: Aumentado de 15 a 20 dependencias máximo, 4 tipos de búsqueda
+  - `extractDataSources`: Aumentado de 5 a 8 data sources máximo, 4 tipos de búsqueda
+- **Prompts de análisis simplificados y enfocados**:
+  - Prompt detallado: Solo 5 secciones (Resumen, Rutas, Dependencias, Beans, Configuración)
+  - Prompt compacto: Solo 3 secciones (Resumen, Dependencias, Rutas)
+  - Eliminadas secciones no deseadas: Monitoreo, Observabilidad, Análisis de complejidad, Estrategia de migración
+- **Instrucciones explícitas** para evitar secciones no deseadas en análisis de IA
+- **Estructura obligatoria** definida para análisis detallado
+
+### Fixed
+
+- **Problema de "información insuficiente"** en análisis detallado
+- **Extracción limitada** de elementos del XML
+- **Análisis genéricos** por falta de contenido específico
+- **Secciones no deseadas** en respuestas de IA (Monitoreo, Observabilidad, etc.)
+
+### Technical
+
+- Mejorados patrones de regex para capturar más tipos de elementos XML
+- Implementada lógica de respaldo automática para garantizar contenido suficiente
+- Optimizada extracción de beans, rutas, servicios externos y configuraciones
+- Aumentados límites de extracción para capturar más información del XML
+
 ## [0.1.39] - 2025-10-06
 
 ### Added

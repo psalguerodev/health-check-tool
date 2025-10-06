@@ -82,6 +82,15 @@ export class XmlOptimizer {
       extractedSections.push(xmlFooter);
     }
 
+    // Si no hay suficientes elementos extraídos, agregar más contenido del XML
+    if (extractedSections.length < 3) {
+      const additionalContent = this.extractAdditionalContent(fullXml);
+      if (additionalContent.length > 0) {
+        extractedSections.push('<!-- CONTENIDO ADICIONAL -->');
+        extractedSections.push(...additionalContent);
+      }
+    }
+
     const optimizedXml = extractedSections.join('\n\n');
     return this.truncateIfNeeded(optimizedXml, options.maxLength);
   }
@@ -273,79 +282,187 @@ export class XmlOptimizer {
    * Extrae las rutas principales del blueprint
    */
   private static extractRoutes(xml: string): string[] {
-    const routeRegex = /<camel:route[^>]*>[\s\S]*?<\/camel:route>/g;
     const routes: string[] = [];
-    let match;
 
+    // Buscar rutas camel:route
+    const routeRegex = /<camel:route[^>]*>[\s\S]*?<\/camel:route>/g;
+    let match;
     while ((match = routeRegex.exec(xml)) !== null) {
       routes.push(match[0]);
     }
 
-    return routes.slice(0, 10); // Máximo 10 rutas
+    // Si no hay rutas camel:route, buscar otros elementos de ruta
+    if (routes.length === 0) {
+      // Buscar elementos camel:from, camel:to, camel:process
+      const camelElementsRegex =
+        /<(?:camel:from|camel:to|camel:process|camel:choice|camel:when|camel:otherwise)[^>]*>[\s\S]*?<\/(?:camel:from|camel:to|camel:process|camel:choice|camel:when|camel:otherwise)>/g;
+      while ((match = camelElementsRegex.exec(xml)) !== null) {
+        routes.push(match[0]);
+      }
+    }
+
+    // Si aún no hay rutas, buscar cualquier elemento camel:
+    if (routes.length === 0) {
+      const anyCamelRegex = /<camel:[^>]*>[\s\S]*?<\/camel:[^>]*>/g;
+      while ((match = anyCamelRegex.exec(xml)) !== null) {
+        routes.push(match[0]);
+      }
+    }
+
+    return routes.slice(0, 15); // Aumentado a 15 rutas
   }
 
   /**
    * Extrae data sources (beans de conexión a BD)
    */
   private static extractDataSources(xml: string): string[] {
+    const dataSources: string[] = [];
+
+    // Buscar beans de DataSource
     const dataSourceRegex =
       /<bean[^>]*class="[^"]*(?:DataSource|Connection|Pool)[^"]*"[^>]*>[\s\S]*?<\/bean>/g;
-    const dataSources: string[] = [];
     let match;
-
     while ((match = dataSourceRegex.exec(xml)) !== null) {
       dataSources.push(match[0]);
     }
 
-    return dataSources.slice(0, 5); // Máximo 5 data sources
+    // Buscar beans con propiedades de conexión
+    const connectionBeanRegex =
+      /<bean[^>]*>[\s\S]*?<property[^>]*(?:url|jdbc|database|host|port|username|password)[^>]*>[\s\S]*?<\/property>[\s\S]*?<\/bean>/g;
+    while ((match = connectionBeanRegex.exec(xml)) !== null) {
+      dataSources.push(match[0]);
+    }
+
+    // Buscar beans con IDs relacionados a BD
+    const dbBeanRegex =
+      /<bean[^>]*id="[^"]*(?:dataSource|database|db|connection|jdbc)[^"]*"[^>]*>[\s\S]*?<\/bean>/g;
+    while ((match = dbBeanRegex.exec(xml)) !== null) {
+      dataSources.push(match[0]);
+    }
+
+    // Buscar elementos camel con URIs de BD
+    const dbUriRegex =
+      /<(?:camel:to|camel:from)[^>]*uri="[^"]*(?:sql|jdbc|database)[^"]*"[^>]*>/g;
+    while ((match = dbUriRegex.exec(xml)) !== null) {
+      dataSources.push(match[0]);
+    }
+
+    return dataSources.slice(0, 8); // Aumentado a 8 data sources
   }
 
   /**
    * Extrae servicios externos (CXF, REST, etc.)
    */
   private static extractExternalServices(xml: string): string[] {
-    const externalServiceRegex =
-      /<(?:camelcxf:|rest:|camel:to[^>]*uri="[^"]*(?:http|https|soap)[^"]*"[^>]*>[\s\S]*?<\/camel:to>)/g;
     const services: string[] = [];
-    let match;
 
-    while ((match = externalServiceRegex.exec(xml)) !== null) {
+    // Buscar servicios CXF
+    const cxfRegex = /<camelcxf:[^>]*>[\s\S]*?<\/camelcxf:[^>]*>/g;
+    let match;
+    while ((match = cxfRegex.exec(xml)) !== null) {
       services.push(match[0]);
     }
 
-    return services.slice(0, 8); // Máximo 8 servicios externos
+    // Buscar servicios REST
+    const restRegex = /<rest:[^>]*>[\s\S]*?<\/rest:[^>]*>/g;
+    while ((match = restRegex.exec(xml)) !== null) {
+      services.push(match[0]);
+    }
+
+    // Buscar elementos camel:to con URIs HTTP/HTTPS/SOAP
+    const httpToRegex =
+      /<camel:to[^>]*uri="[^"]*(?:http|https|soap)[^"]*"[^>]*>[\s\S]*?<\/camel:to>/g;
+    while ((match = httpToRegex.exec(xml)) !== null) {
+      services.push(match[0]);
+    }
+
+    // Buscar elementos camel:from con URIs HTTP/HTTPS/SOAP
+    const httpFromRegex =
+      /<camel:from[^>]*uri="[^"]*(?:http|https|soap)[^"]*"[^>]*>[\s\S]*?<\/camel:from>/g;
+    while ((match = httpFromRegex.exec(xml)) !== null) {
+      services.push(match[0]);
+    }
+
+    // Buscar beans con clases relacionadas a servicios web
+    const webServiceBeanRegex =
+      /<bean[^>]*class="[^"]*(?:Service|Client|Proxy|Endpoint)[^"]*"[^>]*>[\s\S]*?<\/bean>/g;
+    while ((match = webServiceBeanRegex.exec(xml)) !== null) {
+      services.push(match[0]);
+    }
+
+    return services.slice(0, 12); // Aumentado a 12 servicios externos
   }
 
   /**
    * Extrae configuración (properties, beans de configuración)
    */
   private static extractConfiguration(xml: string): string[] {
-    const configRegex =
-      /<(?:property[^>]*>[\s\S]*?<\/property>|<bean[^>]*id="[^"]*config[^"]*"[^>]*>[\s\S]*?<\/bean>)/g;
     const configs: string[] = [];
-    let match;
 
-    while ((match = configRegex.exec(xml)) !== null) {
+    // Buscar properties
+    const propertyRegex = /<property[^>]*>[\s\S]*?<\/property>/g;
+    let match;
+    while ((match = propertyRegex.exec(xml)) !== null) {
       configs.push(match[0]);
     }
 
-    return configs.slice(0, 10); // Máximo 10 configuraciones
+    // Buscar beans de configuración
+    const configBeanRegex =
+      /<bean[^>]*id="[^"]*(?:config|Config|configuration|Configuration)[^"]*"[^>]*>[\s\S]*?<\/bean>/g;
+    while ((match = configBeanRegex.exec(xml)) !== null) {
+      configs.push(match[0]);
+    }
+
+    // Buscar beans con propiedades de configuración
+    const propertyBeanRegex =
+      /<bean[^>]*>[\s\S]*?<property[^>]*>[\s\S]*?<\/property>[\s\S]*?<\/bean>/g;
+    while ((match = propertyBeanRegex.exec(xml)) !== null) {
+      configs.push(match[0]);
+    }
+
+    // Buscar elementos con atributos de configuración
+    const configAttrRegex =
+      /<(?:bean|camel:route|camel:from|camel:to)[^>]*(?:url|endpoint|address|host|port|timeout|connectionTimeout|readTimeout)[^>]*>/g;
+    while ((match = configAttrRegex.exec(xml)) !== null) {
+      configs.push(match[0]);
+    }
+
+    return configs.slice(0, 15); // Aumentado a 15 configuraciones
   }
 
   /**
    * Extrae dependencias (beans, imports)
    */
   private static extractDependencies(xml: string): string[] {
-    const dependencyRegex =
-      /<(?:import[^>]*>|<bean[^>]*id="[^"]*"[^>]*>[\s\S]*?<\/bean>)/g;
     const dependencies: string[] = [];
-    let match;
 
-    while ((match = dependencyRegex.exec(xml)) !== null) {
+    // Buscar todos los beans
+    const beanRegex = /<bean[^>]*>[\s\S]*?<\/bean>/g;
+    let match;
+    while ((match = beanRegex.exec(xml)) !== null) {
       dependencies.push(match[0]);
     }
 
-    return dependencies.slice(0, 15); // Máximo 15 dependencias
+    // Buscar imports
+    const importRegex = /<import[^>]*>[\s\S]*?<\/import>/g;
+    while ((match = importRegex.exec(xml)) !== null) {
+      dependencies.push(match[0]);
+    }
+
+    // Buscar referencias a beans
+    const beanRefRegex = /<ref[^>]*bean="[^"]*"[^>]*>/g;
+    while ((match = beanRefRegex.exec(xml)) !== null) {
+      dependencies.push(match[0]);
+    }
+
+    // Buscar elementos con dependencias
+    const dependencyAttrRegex =
+      /<(?:camel:to|camel:from|camel:process)[^>]*(?:ref|bean)[^>]*>/g;
+    while ((match = dependencyAttrRegex.exec(xml)) !== null) {
+      dependencies.push(match[0]);
+    }
+
+    return dependencies.slice(0, 20); // Aumentado a 20 dependencias
   }
 
   /**
@@ -354,6 +471,36 @@ export class XmlOptimizer {
   private static extractXmlFooter(xml: string): string | null {
     const footerMatch = xml.match(/<\/blueprint>/);
     return footerMatch ? footerMatch[0] : null;
+  }
+
+  /**
+   * Extrae contenido adicional cuando no hay suficientes elementos específicos
+   */
+  private static extractAdditionalContent(xml: string): string[] {
+    const additionalContent: string[] = [];
+
+    // Buscar todos los beans que no se capturaron antes
+    const allBeansRegex = /<bean[^>]*>[\s\S]*?<\/bean>/g;
+    let match;
+    while ((match = allBeansRegex.exec(xml)) !== null) {
+      additionalContent.push(match[0]);
+    }
+
+    // Buscar elementos XML importantes que no se capturaron
+    const importantElementsRegex =
+      /<(?:camel:|rest:|camelcxf:)[^>]*>[\s\S]*?<\/(?:camel:|rest:|camelcxf:)[^>]*>/g;
+    while ((match = importantElementsRegex.exec(xml)) !== null) {
+      additionalContent.push(match[0]);
+    }
+
+    // Buscar elementos con atributos importantes
+    const importantAttrsRegex =
+      /<(?:bean|camel:route|camel:from|camel:to)[^>]*(?:id|class|uri|endpoint|address)[^>]*>/g;
+    while ((match = importantAttrsRegex.exec(xml)) !== null) {
+      additionalContent.push(match[0]);
+    }
+
+    return additionalContent.slice(0, 10); // Máximo 10 elementos adicionales
   }
 
   /**

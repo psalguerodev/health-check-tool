@@ -377,36 +377,55 @@ IMPORTANTE: El XML completo del blueprint se proporciona a continuación en este
 Genera un análisis técnico detallado en formato Markdown enfocándote SOLO en:
 
 ## RESUMEN EJECUTIVO
-- **Propósito del Servicio**: Problema de negocio que resuelve y función principal
-- **Arquitectura General**: Cómo está estructurado y organizado el servicio
-- **Tecnologías Utilizadas**: Stack tecnológico y frameworks identificados
+- **Propósito del Servicio**: ¿Qué función cumple este servicio?
+- **Tipo de Servicio**: REST, SOAP, Batch, etc.
+- **Tecnologías Principales**: Apache Camel, CXF, ActiveMQ, etc.
 
-## SERVICIOS EXTERNOS Y DEPENDENCIAS
-### Tabla de Servicios Externos
-| Servicio | Protocolo | Endpoint/Config | Propósito | Criticidad | Autenticación |
-|----------|-----------|-----------------|-----------|------------|---------------|
-| [Nombre específico] | [REST/SOAP/HTTP] | [URL/Propiedad real] | [Descripción detallada] | [Alta/Media/Baja] | [Sí/No/Tipo] |
+## RUTAS PRINCIPALES
+### Tabla de Rutas
+| ID de Ruta | Tipo | Endpoint/URI | Propósito | Operaciones |
+|------------|------|--------------|-----------|-------------|
+| [ID real] | [REST/SOAP/JMS] | [URI real] | [Descripción] | [Operaciones] |
 
-### Análisis de Dependencias
-- **Servicios REST**: Endpoints, métodos HTTP, operaciones, autenticación
-- **Servicios SOAP**: Beans, WSDL, configuración, propiedades
-- **Bases de Datos**: DataSources, conexiones, pools, drivers
-- **Colas y Mensajería**: JMS, AMQP, Kafka, SQS
-- **Sistemas de Archivos**: FTP, SFTP, S3, local
+### Detalle de Rutas
+Para cada ruta principal, describe:
+- **Flujo de procesamiento**: Entrada → Transformación → Salida
+- **Transformaciones de datos**: JSON, XML, etc.
+- **Validaciones**: Reglas de negocio aplicadas
 
-## CONFIGURACIÓN TÉCNICA
-### Propiedades de Configuración
-- **Endpoints**: URLs, puertos, contextos
-- **Timeouts**: Conectividad, lectura, escritura
-- **Retry Policies**: Reintentos, backoff, circuit breakers
-- **Seguridad**: Certificados, autenticación, autorización
-- **Performance**: Pool de conexiones, cache, optimizaciones
+## DEPENDENCIAS EXTERNAS
+### Servicios Externos
+| Servicio | Protocolo | Endpoint/Config | Propósito |
+|----------|-----------|-----------------|-----------|
+| [Nombre] | [REST/SOAP/HTTP] | [URL/Propiedad] | [Descripción] |
 
-### Beans y Componentes
-- **Beans Personalizados**: Clases Java, utilidades, helpers
-- **Procesadores**: Transformaciones, validaciones, enriquecimientos
-- **Interceptores**: Logging, monitoreo, auditoría
-- **Validadores**: Reglas de negocio, esquemas, formatos
+### Bases de Datos
+| DataSource | Driver | URL | Propósito |
+|------------|--------|-----|-----------|
+| [ID] | [Driver] | [URL] | [Descripción] |
+
+### Colas y Mensajería
+| Componente | Tipo | Configuración | Propósito |
+|------------|------|---------------|-----------|
+| [ID] | [JMS/AMQP] | [Config] | [Descripción] |
+
+## BEANS Y COMPONENTES
+### Beans Principales
+| Bean ID | Clase | Propósito | Configuración |
+|---------|-------|-----------|---------------|
+| [ID] | [Clase] | [Descripción] | [Props] |
+
+### Endpoints
+| Endpoint ID | Tipo | Address/URI | Service Class |
+|-------------|------|-------------|---------------|
+| [ID] | [REST/SOAP] | [URI] | [Clase] |
+
+## CONFIGURACIÓN
+### Propiedades Importantes
+- **Endpoints**: URLs y puertos principales
+- **Timeouts**: Configuraciones de tiempo
+- **Pool de conexiones**: Configuraciones de BD
+- **Autenticación**: Configuraciones de seguridad básica
 
 ## FLUJOS DE PROCESAMIENTO
 ### Rutas Principales
@@ -479,17 +498,19 @@ Genera un análisis técnico detallado en formato Markdown enfocándote SOLO en:
 - **Datos**: Integridad, consistencia, migración de configuraciones
 
 IMPORTANTE: 
-- Responde en formato Markdown con estructura visual rica
-- Usa títulos (# ## ###) para jerarquía clara
-- Crea tablas detalladas con | para datos estructurados
-- Usa listas con - y * para elementos
-- Incluye bloques de código para configuraciones XML
-- Usa negrita para términos importantes
-- Usa código para nombres técnicos
-- Para cada sección, proporciona información detallada y específica
-- No uses frases genéricas
-- Incluye ejemplos concretos, nombres específicos de endpoints, propiedades de configuración reales
-- El análisis debe ser exhaustivo y útil para la migración
+- Extrae información REAL del XML proporcionado
+- No uses placeholders genéricos
+- Enfócate SOLO en la funcionalidad del servicio
+- NO incluyas las siguientes secciones: Monitoreo, Observabilidad, Análisis de complejidad, Estrategia de migración, Seguridad, Riesgos
+- Solo describe qué hace el servicio y cómo lo hace
+- Si una información no está en el XML, NO la menciones
+
+ESTRUCTURA OBLIGATORIA - NO agregues secciones adicionales:
+1. RESUMEN EJECUTIVO
+2. RUTAS PRINCIPALES  
+3. DEPENDENCIAS EXTERNAS
+4. BEANS Y COMPONENTES
+5. CONFIGURACIÓN
 
 EJEMPLO DE TABLA CORRECTA:
 || Servicio | Tipo | Endpoint | Bean ID |
