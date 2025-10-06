@@ -1,3 +1,48 @@
+## [0.1.36] - 2025-10-05
+
+### Added
+
+- Sistema completo de configuración para chat KORA con dos modos: System Prompt y Assistant ID
+- Integración con OpenAI Assistants API v2
+- Botón de copiar en cada mensaje de respuesta de la IA
+- Indicador de escritura con animación de bolitas (typing indicator)
+- Modal expandible para visualizar tablas completas
+- Tooltips instantáneos CSS para elementos de código inline
+- Persistencia automática de configuración en localStorage
+- Limpieza automática de threads cuando se usa Assistant ID
+- Notificación visual al guardar configuración
+- Checkbox que refleja el estado de credenciales guardadas
+- Soporte completo para jerarquía de títulos H1-H6 en Markdown
+- Ancho máximo del sidebar (800px) al abrir el chat
+
+### Changed
+
+- Rediseño completo de las burbujas de mensaje con gradientes atractivos
+- Mensajes de usuario: gradiente azul (blue-500 a blue-600)
+- Mensajes de IA: gradiente gris claro con borde sutil
+- Ancho máximo de burbujas reducido a 65% para mejor legibilidad
+- Padding horizontal aumentado en contenedor de mensajes (24px)
+- Bloques de código multilínea más compactos con header azul
+- Títulos con mejor jerarquía visual y tamaños diferenciados (H1: 24px, H2: 20px, H3: 18px)
+- Negritas más prominentes con color negro
+- Tablas con texto y columnas más legibles (13px)
+- Input de mensaje con diseño más limpio y sin doble borde
+- Listas numeradas y con bullets correctamente alineadas (texto al lado del marcador)
+- Scrollbars personalizados en tablas del chat
+- Scroll instantáneo e invisible al abrir el chat (sin efecto de "bajada")
+- Chat siempre se abre en vista principal, no en configuración
+- Nombre del asistente cambiado a "KORA"
+- Mensaje de bienvenida: "¡Hola! Soy Kora"
+
+### Fixed
+
+- Corrección del scroll horizontal en tablas dentro de burbujas
+- Eliminación del scroll al hacer clic en tooltips de código
+- Problema de números y texto en celdas de tablas (ahora lado a lado)
+- Alineación vertical de contenido en celdas de tablas
+- Comportamiento de listas dentro de tablas
+- Efecto de scroll visible al abrir el sidebar
+
 ## [0.1.35] - 2025-10-04
 
 ### Added
