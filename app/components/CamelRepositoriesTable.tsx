@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search, GitBranch, RefreshCw } from 'lucide-react';
+import { Search, GitBranch, RefreshCw, Calendar } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 interface Repository {
@@ -37,6 +37,10 @@ export default function CamelRepositoriesTable() {
     if (hasBlueprint) {
       router.push(`/camel/${repoSlug}`);
     }
+  };
+
+  const handleReleasePlannerClick = () => {
+    router.push('/camel/release-planner');
   };
 
   // Cargar datos del CSV
@@ -196,6 +200,14 @@ export default function CamelRepositoriesTable() {
             {filteredRepositories.length} de {repositories.length} repositorios
           </p>
         </div>
+
+        <button
+          onClick={handleReleasePlannerClick}
+          className="flex items-center space-x-1.5 px-2 py-1 text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
+        >
+          <Calendar className="w-3.5 h-3.5" />
+          <span>Release Planner</span>
+        </button>
       </div>
 
       {/* Búsqueda y Filtros */}
