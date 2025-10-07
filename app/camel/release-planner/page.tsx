@@ -137,6 +137,13 @@ export default function ReleasePlannerPage() {
   const [newPlanName, setNewPlanName] = useState('');
   const [availablePlans, setAvailablePlans] = useState<string[]>([]);
   const [isLoadingPlans, setIsLoadingPlans] = useState(false);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+  const [serviceToDelete, setServiceToDelete] = useState<{
+    groupId: string;
+    subGroupId?: string;
+    serviceId: string;
+    serviceName: string;
+  } | null>(null);
 
   // Estados para credenciales
   const [bitbucketUsername, setBitbucketUsername] = useState('');
@@ -848,27 +855,30 @@ export default function ReleasePlannerPage() {
     });
   };
 
-  const moveServiceToSubGroup = (
-    groupId: string,
+  const moveServiceToGroup = (
+    sourceGroupId: string,
     serviceId: string,
+    targetGroupId: string,
     targetSubGroupId: string | null
   ) => {
     setReleasePlan((prev) => {
-      const group = prev.groups.find((g) => g.id === groupId);
-      if (!group) return prev;
-
-      // Encontrar el servicio en el grupo o subgrupo actual
+      // Encontrar el servicio en el grupo origen
       let service: Service | null = null;
       let sourceSubGroupId: string | null = null;
 
+      const sourceGroup = prev.groups.find((g) => g.id === sourceGroupId);
+      if (!sourceGroup) return prev;
+
       // Buscar en servicios del grupo principal
-      const serviceIndex = group.services.findIndex((s) => s.id === serviceId);
+      const serviceIndex = sourceGroup.services.findIndex(
+        (s) => s.id === serviceId
+      );
       if (serviceIndex !== -1) {
-        service = group.services[serviceIndex];
+        service = sourceGroup.services[serviceIndex];
         sourceSubGroupId = null;
       } else {
         // Buscar en subgrupos
-        for (const subGroup of group.subGroups || []) {
+        for (const subGroup of sourceGroup.subGroups || []) {
           const subServiceIndex = subGroup.services.findIndex(
             (s) => s.id === serviceId
           );
@@ -882,12 +892,16 @@ export default function ReleasePlannerPage() {
 
       if (!service) return prev;
 
-      // Si ya está en el subgrupo destino, no hacer nada
-      if (sourceSubGroupId === targetSubGroupId) return prev;
+      // Si ya está en el mismo grupo y subgrupo, no hacer nada
+      if (
+        sourceGroupId === targetGroupId &&
+        sourceSubGroupId === targetSubGroupId
+      )
+        return prev;
 
       // Remover el servicio de su ubicación actual
-      const newGroups = prev.groups.map((g) => {
-        if (g.id === groupId) {
+      const groupsAfterRemoval = prev.groups.map((g) => {
+        if (g.id === sourceGroupId) {
           if (sourceSubGroupId === null) {
             // Remover de servicios del grupo principal
             return {
@@ -913,8 +927,8 @@ export default function ReleasePlannerPage() {
       });
 
       // Agregar el servicio al destino
-      const finalGroups = newGroups.map((g) => {
-        if (g.id === groupId) {
+      const finalGroups = groupsAfterRemoval.map((g) => {
+        if (g.id === targetGroupId) {
           if (targetSubGroupId === null) {
             // Agregar a servicios del grupo principal
             return {
@@ -1006,17 +1020,69 @@ export default function ReleasePlannerPage() {
     }));
   };
 
-  const removeServiceFromGroup = (groupId: string, serviceId: string) => {
+  const removeServiceFromGroup = (
+    groupId: string,
+    serviceId: string,
+    subGroupId?: string
+  ) => {
     setReleasePlan((prev) => ({
-      groups: prev.groups.map((group) =>
-        group.id === groupId
-          ? {
+      groups: prev.groups.map((group) => {
+        if (group.id === groupId) {
+          if (subGroupId) {
+            // Remover de subgrupo
+            return {
+              ...group,
+              subGroups: group.subGroups?.map((sg) =>
+                sg.id === subGroupId
+                  ? {
+                      ...sg,
+                      services: sg.services.filter((s) => s.id !== serviceId),
+                    }
+                  : sg
+              ),
+            };
+          } else {
+            // Remover de grupo principal
+            return {
               ...group,
               services: group.services.filter((s) => s.id !== serviceId),
-            }
-          : group
-      ),
+            };
+          }
+        }
+        return group;
+      }),
     }));
+  };
+
+  const confirmDeleteService = (
+    groupId: string,
+    serviceId: string,
+    serviceName: string,
+    subGroupId?: string
+  ) => {
+    setServiceToDelete({
+      groupId,
+      subGroupId,
+      serviceId,
+      serviceName,
+    });
+    setShowDeleteConfirmModal(true);
+  };
+
+  const executeDeleteService = () => {
+    if (serviceToDelete) {
+      removeServiceFromGroup(
+        serviceToDelete.groupId,
+        serviceToDelete.serviceId,
+        serviceToDelete.subGroupId
+      );
+      setShowDeleteConfirmModal(false);
+      setServiceToDelete(null);
+      addToast(
+        'success',
+        `Servicio "${serviceToDelete.serviceName}" eliminado correctamente`
+      );
+    }
   };
 
   const startEditingGroup = (
@@ -2693,46 +2759,63 @@ export default function ReleasePlannerPage() {
                                               )}
                                             </button>
 
-                                            {/* Selector de subgrupo */}
+                                            {/* Selector de grupo/subgrupo */}
                                             <select
                                               value=""
                                               onChange={(e) => {
-                                                const targetSubGroupId =
-                                                  e.target.value === 'main'
+                                                const [
+                                                  targetGroupId,
+                                                  targetSubGroupId,
+                                                ] = e.target.value.split('|');
+                                                const subGroupId =
+                                                  targetSubGroupId === 'main'
                                                     ? null
-                                                    : e.target.value;
-                                                moveServiceToSubGroup(
+                                                    : targetSubGroupId;
+                                                moveServiceToGroup(
                                                   group.id,
                                                   service.id,
-                                                  targetSubGroupId
+                                                  targetGroupId,
+                                                  subGroupId
                                                 );
                                                 e.target.value = ''; // Reset selection
                                               }}
                                               className="text-xs border border-gray-300 rounded px-1 py-0.5 bg-white hover:border-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                              title="Mover a subgrupo"
+                                              title="Mover a grupo/subgrupo"
                                             >
                                               <option value="">
                                                 Mover a...
                                               </option>
-                                              <option value="main">
-                                                Grupo Principal
-                                              </option>
-                                              {group.subGroups?.map(
-                                                (subGroup) => (
-                                                  <option
-                                                    key={subGroup.id}
-                                                    value={subGroup.id}
+                                              {releasePlan.groups.map(
+                                                (targetGroup) => (
+                                                  <optgroup
+                                                    key={targetGroup.id}
+                                                    label={targetGroup.name}
                                                   >
-                                                    {subGroup.name}
-                                                  </option>
+                                                    <option
+                                                      value={`${targetGroup.id}|main`}
+                                                    >
+                                                      Grupo Principal
+                                                    </option>
+                                                    {targetGroup.subGroups?.map(
+                                                      (subGroup) => (
+                                                        <option
+                                                          key={subGroup.id}
+                                                          value={`${targetGroup.id}|${subGroup.id}`}
+                                                        >
+                                                          {subGroup.name}
+                                                        </option>
+                                                      )
+                                                    )}
+                                                  </optgroup>
                                                 )
                                               )}
                                             </select>
                                             <button
                                               onClick={() =>
-                                                removeServiceFromGroup(
+                                                confirmDeleteService(
                                                   group.id,
-                                                  service.id
+                                                  service.id,
+                                                  service.name
                                                 )
                                               }
                                               className="p-0.5 text-gray-400 hover:text-red-600"
@@ -3077,49 +3160,80 @@ export default function ReleasePlannerPage() {
                                                           )}
                                                         </button>
 
-                                                        {/* Selector de subgrupo */}
+                                                        {/* Selector de grupo/subgrupo */}
                                                         <select
                                                           value=""
                                                           onChange={(e) => {
-                                                            const targetSubGroupId =
-                                                              e.target.value ===
+                                                            const [
+                                                              targetGroupId,
+                                                              targetSubGroupId,
+                                                            ] =
+                                                              e.target.value.split(
+                                                                '|'
+                                                              );
+                                                            const subGroupId =
+                                                              targetSubGroupId ===
                                                               'main'
                                                                 ? null
-                                                                : e.target
-                                                                    .value;
-                                                            moveServiceToSubGroup(
+                                                                : targetSubGroupId;
+                                                            moveServiceToGroup(
                                                               group.id,
                                                               service.id,
-                                                              targetSubGroupId
+                                                              targetGroupId,
+                                                              subGroupId
                                                             );
                                                             e.target.value = ''; // Reset selection
                                                           }}
                                                           className="text-xs border border-gray-300 rounded px-1 py-0.5 bg-white hover:border-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                                          title="Mover a subgrupo"
+                                                          title="Mover a grupo/subgrupo"
                                                         >
                                                           <option value="">
                                                             Mover a...
                                                           </option>
-                                                          <option value="main">
-                                                            Grupo Principal
-                                                          </option>
-                                                          {group.subGroups?.map(
-                                                            (sg) => (
-                                                              <option
-                                                                key={sg.id}
-                                                                value={sg.id}
+                                                          {releasePlan.groups.map(
+                                                            (targetGroup) => (
+                                                              <optgroup
+                                                                key={
+                                                                  targetGroup.id
+                                                                }
+                                                                label={
+                                                                  targetGroup.name
+                                                                }
                                                               >
-                                                                {sg.name}
-                                                              </option>
+                                                                <option
+                                                                  value={`${targetGroup.id}|main`}
+                                                                >
+                                                                  Grupo
+                                                                  Principal
+                                                                </option>
+                                                                {targetGroup.subGroups?.map(
+                                                                  (
+                                                                    subGroup
+                                                                  ) => (
+                                                                    <option
+                                                                      key={
+                                                                        subGroup.id
+                                                                      }
+                                                                      value={`${targetGroup.id}|${subGroup.id}`}
+                                                                    >
+                                                                      {
+                                                                        subGroup.name
+                                                                      }
+                                                                    </option>
+                                                                  )
+                                                                )}
+                                                              </optgroup>
                                                             )
                                                           )}
                                                         </select>
 
                                                         <button
                                                           onClick={() =>
-                                                            removeServiceFromGroup(
-                                                              subGroup.id,
-                                                              service.id
+                                                            confirmDeleteService(
+                                                              group.id,
+                                                              service.id,
+                                                              service.name,
+                                                              subGroup.id
                                                             )
                                                           }
                                                           className="p-0.5 text-gray-400 hover:text-red-600"
@@ -3686,6 +3800,46 @@ export default function ReleasePlannerPage() {
                     className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
                   >
                     Crear Plan
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de confirmación de eliminación de servicio */}
+        {showDeleteConfirmModal && serviceToDelete && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                Confirmar Eliminación
+              </h3>
+              <div className="space-y-4">
+                <p className="text-gray-700">
+                  ¿Estás seguro de que quieres eliminar el servicio{' '}
+                  <span className="font-semibold text-gray-900">
+                    "{serviceToDelete.serviceName}"
+                  </span>{' '}
+                  {serviceToDelete.subGroupId ? 'del subgrupo' : 'del grupo'}?
+                </p>
+                <p className="text-sm text-gray-500">
+                  Esta acción no se puede deshacer.
+                </p>
+                <div className="flex justify-end space-x-2">
+                  <button
+                    onClick={() => {
+                      setShowDeleteConfirmModal(false);
+                      setServiceToDelete(null);
+                    }}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={executeDeleteService}
+                    className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
+                  >
+                    Eliminar
                   </button>
                 </div>
               </div>
