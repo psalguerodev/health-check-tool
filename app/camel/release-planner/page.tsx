@@ -29,6 +29,7 @@ import {
   ChevronDown as ChevronDownIcon2,
   Maximize2,
   Minimize2,
+  GitBranch,
 } from 'lucide-react';
 import PageHeader from '../../components/PageHeader';
 import Breadcrumbs from '../../components/Breadcrumbs';
@@ -45,6 +46,7 @@ interface Service {
   has_blueprint: boolean;
   comment?: string;
   assignedTo?: string;
+  dependencies?: string[]; // IDs de servicios de los que depende
 }
 
 interface Group {
@@ -74,9 +76,11 @@ export default function ReleasePlannerPage() {
   const [editingName, setEditingName] = useState('');
   const [editingService, setEditingService] = useState<{
     id: string;
-    field: 'comment' | 'assignedTo';
+    field: 'comment' | 'assignedTo' | 'dependencies';
   } | null>(null);
   const [editingValue, setEditingValue] = useState('');
+  const [showDependenciesModal, setShowDependenciesModal] = useState(false);
+  const [dependenciesSearchTerm, setDependenciesSearchTerm] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState<string>('');
@@ -144,6 +148,109 @@ export default function ReleasePlannerPage() {
         ? prev.filter((name) => name !== subGroupName)
         : [...prev, subGroupName]
     );
+  };
+
+  // Obtener todos los servicios disponibles para dependencias (todos los 277 servicios)
+  const getAllServices = (): Service[] => {
+    return availableServices;
+  };
+
+  // Obtener servicios del release plan actual
+  const getReleasePlanServices = (): Service[] => {
+    const allServices: Service[] = [];
+    releasePlan.groups.forEach((group) => {
+      allServices.push(...group.services);
+      group.subGroups?.forEach((subGroup) => {
+        allServices.push(...subGroup.services);
+      });
+    });
+    return allServices;
+  };
+
+  // Obtener servicios filtrados para el modal de dependencias
+  const getFilteredServicesForDependencies = (): Service[] => {
+    const allServices = getAllServices();
+    let filteredServices = allServices;
+
+    // Aplicar filtro de búsqueda si existe
+    if (dependenciesSearchTerm.trim()) {
+      const searchLower = dependenciesSearchTerm.toLowerCase();
+      filteredServices = allServices.filter(
+        (service) =>
+          service.name.toLowerCase().includes(searchLower) ||
+          service.workspace.toLowerCase().includes(searchLower) ||
+          service.project_key.toLowerCase().includes(searchLower)
+      );
+    }
+
+    // Ordenar: servicios seleccionados primero, luego el resto
+    if (editingService) {
+      const selectedDependencies =
+        getReleasePlanServices().find((s) => s.id === editingService.id)
+          ?.dependencies || [];
+
+      return filteredServices.sort((a, b) => {
+        const aIsSelected =
+          selectedDependencies.includes(a.id) ||
+          selectedDependencies.includes(a.name);
+        const bIsSelected =
+          selectedDependencies.includes(b.id) ||
+          selectedDependencies.includes(b.name);
+
+        // Si uno está seleccionado y el otro no, el seleccionado va primero
+        if (aIsSelected && !bIsSelected) return -1;
+        if (!aIsSelected && bIsSelected) return 1;
+
+        // Si ambos tienen el mismo estado, ordenar alfabéticamente por nombre
+        return a.name.localeCompare(b.name);
+      });
+    }
+
+    return filteredServices;
+  };
+
+  // Manejar dependencias de servicios
+  const handleDependencyToggle = (
+    serviceId: string,
+    dependencyIdOrName: string
+  ) => {
+    setReleasePlan((prev) => ({
+      ...prev,
+      groups: prev.groups.map((group) => ({
+        ...group,
+        services: group.services.map((service) =>
+          service.id === serviceId
+            ? {
+                ...service,
+                dependencies: (service.dependencies || []).includes(
+                  dependencyIdOrName
+                )
+                  ? (service.dependencies || []).filter(
+                      (dep) => dep !== dependencyIdOrName
+                    )
+                  : [...(service.dependencies || []), dependencyIdOrName],
+              }
+            : service
+        ),
+        subGroups: group.subGroups?.map((subGroup) => ({
+          ...subGroup,
+          services: subGroup.services.map((service) =>
+            service.id === serviceId
+              ? {
+                  ...service,
+                  dependencies: (service.dependencies || []).includes(
+                    dependencyIdOrName
+                  )
+                    ? (service.dependencies || []).filter(
+                        (dep) => dep !== dependencyIdOrName
+                      )
+                    : [...(service.dependencies || []), dependencyIdOrName],
+                }
+              : service
+          ),
+        })),
+      })),
+    }));
   };
 
   // Cerrar modal con Escape
@@ -715,6 +822,18 @@ export default function ReleasePlannerPage() {
     setEditingValue(currentValue);
   };
 
+  const startEditingDependencies = (serviceId: string) => {
+    setEditingService({ id: serviceId, field: 'dependencies' });
+    setDependenciesSearchTerm('');
+    setShowDependenciesModal(true);
+  };
+
+  const handleServiceDetailClick = (service: Service) => {
+    if (service.has_blueprint) {
+      router.push(`/camel/${service.repo_slug}`);
+    }
+  };
+
   const saveServiceField = () => {
     if (!editingService) return;
 
@@ -835,6 +954,7 @@ export default function ReleasePlannerPage() {
           string,
           { group: Group; subGroup: Group }
         >();
+        const serviceNameToIdMap = new Map<string, string>(); // Mapear nombres a IDs
 
         dataLines.forEach((line, index) => {
           // Parsear línea CSV (manejar comillas)
@@ -852,6 +972,7 @@ export default function ReleasePlannerPage() {
             tipo,
             asignado,
             comentarios,
+            dependencias,
           ] = values;
 
           if (!grupo || !servicio) return; // Datos requeridos faltantes
@@ -870,9 +991,10 @@ export default function ReleasePlannerPage() {
             importedGroups.push(group);
           }
 
-          // Crear servicio
+          // Crear servicio usando el nombre del repositorio como ID
+          const serviceId = servicio; // Usar el nombre del repositorio como ID
           const service = {
-            id: `service-${Date.now()}-${Math.random()}`,
+            id: serviceId,
             name: servicio,
             workspace: workspace || '',
             project_key: proyecto || '',
@@ -882,7 +1004,11 @@ export default function ReleasePlannerPage() {
               blueprint?.toLowerCase() === 'si',
             assignedTo: asignado || '',
             comment: comentarios || '',
+            dependencies: [], // Se resolverán después
           };
+
+          // Mapear nombre del servicio a su ID para resolver dependencias
+          serviceNameToIdMap.set(servicio, serviceId);
 
           if (subgrupo && subgrupo.trim()) {
             // Agregar a subgrupo
@@ -904,6 +1030,60 @@ export default function ReleasePlannerPage() {
             // Agregar al grupo principal
             group.services.push(service);
           }
+        });
+
+        // Resolver dependencias después de crear todos los servicios
+        dataLines.forEach((line, index) => {
+          const values = parseCSVLine(line);
+          if (values.length < 12) {
+            return; // Línea inválida o sin dependencias
+          }
+
+          const [
+            grupo,
+            subgrupo,
+            servicio,
+            workspace,
+            proyecto,
+            blueprint,
+            orden,
+            tipo,
+            asignado,
+            comentarios,
+            dependencias,
+            fechaExportacion,
+          ] = values;
+
+          if (!grupo || !servicio) return;
+
+          // Resolver dependencias solo si existen
+          let resolvedDependencies: string[] = [];
+          if (dependencias && dependencias.trim()) {
+            // Simplemente dividir las dependencias y usarlas tal cual
+            resolvedDependencies = dependencias
+              .split(';')
+              .map((dep) => dep.trim())
+              .filter((dep) => dep);
+          }
+
+          // Actualizar el servicio con las dependencias resueltas
+          importedGroups.forEach((group) => {
+            // Buscar en servicios del grupo principal
+            group.services.forEach((service) => {
+              if (service.id === servicio) {
+                service.dependencies = resolvedDependencies;
+              }
+            });
+
+            // Buscar en servicios de subgrupos
+            group.subGroups?.forEach((subGroup) => {
+              subGroup.services.forEach((service) => {
+                if (service.id === servicio) {
+                  service.dependencies = resolvedDependencies;
+                }
+              });
+            });
+          });
         });
 
         if (importedGroups.length > 0) {
@@ -976,6 +1156,7 @@ export default function ReleasePlannerPage() {
       TIPO: 'TIPO',
       ASIGNADO: 'ASIGNADO',
       COMENTARIOS: 'COMENTARIOS',
+      DEPENDENCIAS: 'DEPENDENCIAS',
       FECHA_EXPORTACION: 'FECHA_EXPORTACION',
     });
 
@@ -998,6 +1179,16 @@ export default function ReleasePlannerPage() {
             TIPO: 'SERVICIO',
             ASIGNADO: service.assignedTo || '',
             COMENTARIOS: service.comment || '',
+            DEPENDENCIAS: service.dependencies
+              ? service.dependencies
+                  .map((depId) => {
+                    const depService = getAllServices().find(
+                      (s) => s.id === depId
+                    );
+                    return depService ? depService.name : depId;
+                  })
+                  .join('; ')
+              : '',
             FECHA_EXPORTACION: fechaExportacion,
           });
         });
@@ -1020,6 +1211,16 @@ export default function ReleasePlannerPage() {
                 TIPO: 'SERVICIO',
                 ASIGNADO: service.assignedTo || '',
                 COMENTARIOS: service.comment || '',
+                DEPENDENCIAS: service.dependencies
+                  ? service.dependencies
+                      .map((depId) => {
+                        const depService = getAllServices().find(
+                          (s) => s.id === depId
+                        );
+                        return depService ? depService.name : depId;
+                      })
+                      .join('; ')
+                  : '',
                 FECHA_EXPORTACION: fechaExportacion,
               });
             });
@@ -1540,7 +1741,21 @@ export default function ReleasePlannerPage() {
                                             </div>
                                             <div className="min-w-0 flex-1">
                                               <div className="font-medium text-gray-900 truncate">
-                                                {service.name}
+                                                {service.has_blueprint ? (
+                                                  <button
+                                                    onClick={() =>
+                                                      handleServiceDetailClick(
+                                                        service
+                                                      )
+                                                    }
+                                                    className="text-blue-600 hover:text-blue-700 hover:underline transition-colors"
+                                                    title="Ver detalle del servicio"
+                                                  >
+                                                    {service.name}
+                                                  </button>
+                                                ) : (
+                                                  <span>{service.name}</span>
+                                                )}
                                               </div>
                                               <div className="text-gray-500 truncate">
                                                 {service.workspace} /{' '}
@@ -1550,6 +1765,39 @@ export default function ReleasePlannerPage() {
                                           </div>
 
                                           <div className="flex items-center space-x-1">
+                                            {/* Icono de dependencias */}
+                                            <button
+                                              onClick={() =>
+                                                startEditingDependencies(
+                                                  service.id
+                                                )
+                                              }
+                                              className={`p-0.5 rounded flex items-center space-x-1 ${
+                                                service.dependencies &&
+                                                service.dependencies.length > 0
+                                                  ? 'text-blue-600 hover:text-blue-700'
+                                                  : 'text-gray-400 hover:text-blue-600'
+                                              }`}
+                                              title={
+                                                service.dependencies &&
+                                                service.dependencies.length > 0
+                                                  ? `${service.dependencies.length} dependencias`
+                                                  : 'Gestionar dependencias'
+                                              }
+                                            >
+                                              <GitBranch className="w-3 h-3" />
+                                              {service.dependencies &&
+                                                service.dependencies.length >
+                                                  0 && (
+                                                  <span className="text-xs text-gray-400">
+                                                    {
+                                                      service.dependencies
+                                                        .length
+                                                    }
+                                                  </span>
+                                                )}
+                                            </button>
+
                                             {/* Icono de comentario */}
                                             <button
                                               onClick={() =>
@@ -1865,7 +2113,23 @@ export default function ReleasePlannerPage() {
                                                         </div>
                                                         <div className="min-w-0 flex-1">
                                                           <div className="font-medium text-gray-900 truncate">
-                                                            {service.name}
+                                                            {service.has_blueprint ? (
+                                                              <button
+                                                                onClick={() =>
+                                                                  handleServiceDetailClick(
+                                                                    service
+                                                                  )
+                                                                }
+                                                                className="text-blue-600 hover:text-blue-700 hover:underline transition-colors"
+                                                                title="Ver detalle del servicio"
+                                                              >
+                                                                {service.name}
+                                                              </button>
+                                                            ) : (
+                                                              <span>
+                                                                {service.name}
+                                                              </span>
+                                                            )}
                                                           </div>
                                                           <div className="text-gray-500 truncate">
                                                             {service.workspace}{' '}
@@ -1878,6 +2142,42 @@ export default function ReleasePlannerPage() {
                                                       </div>
 
                                                       <div className="flex items-center space-x-1">
+                                                        {/* Icono de dependencias */}
+                                                        <button
+                                                          onClick={() =>
+                                                            startEditingDependencies(
+                                                              service.id
+                                                            )
+                                                          }
+                                                          className={`p-0.5 rounded flex items-center space-x-1 ${
+                                                            service.dependencies &&
+                                                            service.dependencies
+                                                              .length > 0
+                                                              ? 'text-blue-600 hover:text-blue-700'
+                                                              : 'text-gray-400 hover:text-blue-600'
+                                                          }`}
+                                                          title={
+                                                            service.dependencies &&
+                                                            service.dependencies
+                                                              .length > 0
+                                                              ? `${service.dependencies.length} dependencias`
+                                                              : 'Gestionar dependencias'
+                                                          }
+                                                        >
+                                                          <GitBranch className="w-3 h-3" />
+                                                          {service.dependencies &&
+                                                            service.dependencies
+                                                              .length > 0 && (
+                                                              <span className="text-xs text-gray-400">
+                                                                {
+                                                                  service
+                                                                    .dependencies
+                                                                    .length
+                                                                }
+                                                              </span>
+                                                            )}
+                                                        </button>
+
                                                         {/* Icono de comentario */}
                                                         <button
                                                           onClick={() =>
@@ -1968,6 +2268,7 @@ export default function ReleasePlannerPage() {
                                                             )
                                                           )}
                                                         </select>
+
                                                         <button
                                                           onClick={() =>
                                                             removeServiceFromGroup(
@@ -2190,7 +2491,199 @@ export default function ReleasePlannerPage() {
                 <div className="text-xs text-gray-500">
                   <strong>Formato:</strong> CSV con columnas GRUPO, SUBGRUPO,
                   SERVICIO, WORKSPACE, PROYECTO, BLUEPRINT, ORDEN, TIPO,
-                  FECHA_EXPORTACION
+                  ASIGNADO, COMENTARIOS, DEPENDENCIAS, FECHA_EXPORTACION
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de Dependencias */}
+        {showDependenciesModal && editingService && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+              {/* Header del Modal */}
+              <div className="flex items-center justify-between p-3 border-b border-gray-200">
+                <div>
+                  <h3 className="text-base font-semibold text-gray-900">
+                    Gestionar Dependencias
+                  </h3>
+                  {editingService && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      {getReleasePlanServices().find(
+                        (s) => s.id === editingService.id
+                      )?.dependencies?.length || 0}{' '}
+                      dependencias seleccionadas
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setShowDependenciesModal(false);
+                    setEditingService(null);
+                  }}
+                  className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+                  title="Cerrar modal"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Contenido del Modal */}
+              <div className="p-3 space-y-3">
+                <div className="text-xs text-gray-600">
+                  Selecciona los servicios de los que depende este servicio.
+                </div>
+
+                {/* Buscador minimalista */}
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar servicios..."
+                    value={dependenciesSearchTerm}
+                    onChange={(e) => setDependenciesSearchTerm(e.target.value)}
+                    className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="max-h-60 overflow-y-auto space-y-2">
+                  {(() => {
+                    const filteredServices =
+                      getFilteredServicesForDependencies().filter(
+                        (service) => service.id !== editingService.id
+                      );
+
+                    const selectedDependencies = editingService
+                      ? getReleasePlanServices().find(
+                          (s) => s.id === editingService.id
+                        )?.dependencies || []
+                      : [];
+
+                    const selectedServices = filteredServices.filter(
+                      (service) =>
+                        selectedDependencies.includes(service.id) ||
+                        selectedDependencies.includes(service.name)
+                    );
+                    const unselectedServices = filteredServices.filter(
+                      (service) =>
+                        !selectedDependencies.includes(service.id) &&
+                        !selectedDependencies.includes(service.name)
+                    );
+
+                    return (
+                      <>
+                        {/* Servicios seleccionados */}
+                        {selectedServices.length > 0 && (
+                          <>
+                            <div className="text-xs font-medium text-blue-700 bg-blue-50 px-2 py-1 rounded">
+                              Dependencias Seleccionadas (
+                              {selectedServices.length})
+                            </div>
+                            {selectedServices.map((service) => {
+                              const isSelected = true; // Ya sabemos que están seleccionados
+                              return (
+                                <label
+                                  key={service.id}
+                                  className="flex items-center space-x-2 text-xs cursor-pointer p-2 rounded transition-colors bg-blue-50 border border-blue-200"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => {
+                                      if (editingService) {
+                                        handleDependencyToggle(
+                                          editingService.id,
+                                          service.id
+                                        );
+                                      }
+                                    }}
+                                    className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500"
+                                  />
+                                  <div className="flex-1">
+                                    <div className="font-medium text-blue-900">
+                                      {service.name}
+                                    </div>
+                                  </div>
+                                  <div className="text-blue-600 text-xs font-medium">
+                                    ✓ Seleccionado
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </>
+                        )}
+
+                        {/* Separador si hay servicios seleccionados y no seleccionados */}
+                        {selectedServices.length > 0 &&
+                          unselectedServices.length > 0 && (
+                            <div className="border-t border-gray-200 my-2"></div>
+                          )}
+
+                        {/* Servicios no seleccionados */}
+                        {unselectedServices.length > 0 && (
+                          <>
+                            {selectedServices.length > 0 && (
+                              <div className="text-xs font-medium text-gray-600 bg-gray-50 px-2 py-1 rounded">
+                                Otros Servicios Disponibles
+                              </div>
+                            )}
+                            {unselectedServices.map((service) => {
+                              const isSelected = false; // Ya sabemos que no están seleccionados
+                              return (
+                                <label
+                                  key={service.id}
+                                  className="flex items-center space-x-2 text-xs cursor-pointer p-2 rounded transition-colors hover:bg-gray-50"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => {
+                                      if (editingService) {
+                                        handleDependencyToggle(
+                                          editingService.id,
+                                          service.id
+                                        );
+                                      }
+                                    }}
+                                    className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500"
+                                  />
+                                  <div className="flex-1">
+                                    <div className="font-medium text-gray-900">
+                                      {service.name}
+                                    </div>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
+
+                  {/* Mensaje cuando no hay resultados */}
+                  {getFilteredServicesForDependencies().filter(
+                    (service) => service.id !== editingService.id
+                  ).length === 0 && (
+                    <div className="text-center py-4 text-gray-500 text-xs">
+                      {dependenciesSearchTerm.trim()
+                        ? 'No se encontraron servicios con ese criterio'
+                        : 'No hay servicios disponibles'}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-end space-x-2 pt-2 border-t border-gray-200">
+                  <button
+                    onClick={() => {
+                      setShowDependenciesModal(false);
+                      setEditingService(null);
+                    }}
+                    className="px-3 py-1 text-xs font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200 transition-colors"
+                  >
+                    Cerrar
+                  </button>
                 </div>
               </div>
             </div>
@@ -2206,7 +2699,7 @@ export default function ReleasePlannerPage() {
         />
 
         {/* Modal de Edición de Servicio */}
-        {editingService && (
+        {editingService && editingService.field !== 'dependencies' && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-sm">
               {/* Header del Modal */}
