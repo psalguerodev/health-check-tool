@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+        
+    <cm:property-placeholder id="wsrequerimientooficio" persistent-id="wsrequerimientooficio"
+        placeholder-prefix="{{" placeholder-suffix="}}" update-strategy="reload"/>
+       
+       
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.wsrequerimientooficio.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="cl.coopeuch.integracion.wsrequerimientooficio.exception.ErrorExcepcionInterceptor" id="ErrorExcepcionInterceptor"/>
+    
+    
+    <bean id="jsonProvider" class="com.fasterxml.jackson.jaxrs.json.JacksonJsonProvider" />
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="cxfJsonProvider">
+        <property name="dropRootElement" value="true"/>
+        <property name="supportUnwrapped" value="true"/>
+    </bean>
+    
+    <camelcxf:cxfEndpoint address="/crm/WSRequerimientoOficio"
+        id="endpointWSRequerimientoOficio"
+        serviceClass="cl.coopeuch.integracion.wsrequerimientooficio.wsdl.WsRequerimientoOficioSOAPPortType" wsdlURL="etc/wsdl/WsRequerimientoOficio.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+	<camelcxf:rsServer address="/crm/RSRequerimientoOficio"
+        id="endpointRSRequerimientoOficio" serviceClass="cl.coopeuch.integracion.wsrequerimientooficio.wsdl.WsRequerimientoOficioSOAPPortType">
+	    <camelcxf:inInterceptors>
+	       <ref component-id="ErrorExcepcionInterceptor"/>
+	   	</camelcxf:inInterceptors>
+    </camelcxf:rsServer>
+        
+        
+        
+        
+    <camelcxf:rsClient address="{{wsrequerimientoOficio.url.crm}}" 
+        id="toEnpointCRMRequerimientoOficio" loggingFeatureEnabled="true">
+	     <camelcxf:providers>
+	         <ref component-id="cxfJsonProvider"/>
+	     </camelcxf:providers>
+     </camelcxf:rsClient>
+    
+    <camelContext id="servicio-wsrequerimientooficio" xmlns="http://camel.apache.org/schema/blueprint">
+		<route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSRequerimientoOficio"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSRequerimientoOficio"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+			<from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionCrear">
+                        <simple>${header.operationName} == 'crear'</simple>
+                        <to id="toCrear" uri="direct:crear"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <handled>
+		                <constant>true</constant>
+		            </handled>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty propertyName="descripcionError">
+                        <simple>${exception.message}</simple>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="crear" streamCache="true">
+            <from id="crearFrom" uri="direct:crear"/>
+            <doTry id="crearTry">
+                <marshal id="crearMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsrequerimientooficio.wsdl" />
+                </marshal>
+                <bean method="validacionRequestROficioCRM" ref="beanRouteFacade"/>
+                <bean method="requestROficioCRM" ref="beanRouteFacade"/>
+                <marshal>
+                    <json library="Jackson" />
+                </marshal>
+                <convertBodyTo type="java.lang.String"/>
+                <removeHeaders pattern="*"/>
+                 <setHeader headerName="Content-Type">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="Exchange.HTTP_METHOD">
+                    <constant>POST</constant>
+                </setHeader>
+                <log message="REQUEST:WSREQOFICIO:::(${body})"/>
+                <to uri="cxfrs:bean:toEnpointCRMRequerimientoOficio?throwExceptionOnFailure=false"/>
+                <log message="RESPONSE:WSREQOFICIO:::(${body})"/>
+                <unmarshal>
+                    <json library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsrequerimientooficio.model.CrearRequerimientoOficioResponseCRM"/>
+                </unmarshal>
+                <choice>
+                    <when>
+                        <simple>${header.CamelHttpResponseCode} == '201' || ${header.CamelHttpResponseCode} == '200'</simple>
+                        <bean id="ROficioResponse" method="responseROficioCRM" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise>
+                    	<throwException exceptionType="cl.coopeuch.integracion.wsrequerimientooficio.exception.ErrorRequerimientoOficioException" message="${body.getCrearRequerimientoOficioResponse().getDescripcion()}"/>
+                    </otherwise>
+                </choice>
+                <stop/>
+                <doCatch id="crearDoCatchAMQ">
+                    <exception>cl.coopeuch.integracion.wsrequerimientooficio.exception.ErrorRequerimientoOficioException</exception>
+                    <handled>
+		                <constant>true</constant>
+		            </handled>
+                    <setProperty propertyName="codigoError">
+                        <constant>400</constant>
+                    </setProperty>
+                    <setProperty propertyName="descripcionError">
+                        <simple>${exception.message}</simple>
+                    </setProperty>
+                    <to  uri="direct:excepcion"/>
+                </doCatch>
+				<doCatch id="crearDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <handled>
+		                <constant>true</constant>
+		            </handled>
+                    <setProperty id="crearCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <setProperty propertyName="descripcionError">
+                        <simple>${exception.message}</simple>
+                    </setProperty>
+                    <to id="toCrearExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="crearDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <handled>
+		                <constant>true</constant>
+		            </handled>
+		            <setProperty propertyName="descripcionError">
+                        <simple>${exception.message}</simple>
+                    </setProperty>
+					<setProperty id="crearCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="crearToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <handled>
+		                <constant>true</constant>
+		            </handled>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>{"codigoError": "400", "descripcionError": "${exception.message}"}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

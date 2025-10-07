@@ -1,0 +1,288 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+           xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+           xmlns:http="http://cxf.apache.org/transports/http/configuration"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+                             placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <!--    <cm:property-placeholder id="propertyLocal"
+    persistent-id="wsadministracionconveniopauta" placeholder-prefix="[{"
+    placeholder-suffix="}]" update-strategy="reload"/>-->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.entidad.servicio.administracionconveniopauta.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSAdministracionConvenioPauta"
+                          id="endpointWSAdministracionConvenioPauta"
+                          serviceClass="cl.coopeuch.integracion.entidad.servicio.administracionconveniopauta.wsdl.WSAdministracionConvenioPautaSOAPPortType" wsdlURL="etc/wsdl/WSAdministracionConvenioPauta.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSAdministracionConvenioPauta"
+                       id="WSAdministracionConvenioPautaREST"
+                       serviceClass="cl.coopeuch.integracion.entidad.servicio.administracionconveniopauta.wsdl.WSAdministracionConvenioPautaSOAPPortType">
+        <camelcxf:providers>
+            <bean id="jsonProvider" class="org.apache.cxf.jaxrs.provider.json.JSONProvider">
+                <property name="serializeAsArray" value="true"/>
+                <property name="arrayKeys">
+                    <list>
+                        <value>listado</value>
+                    </list>
+                </property>
+                <property name="ignoreEmptyArrayValues" value="true"/>
+            </bean>
+        </camelcxf:providers>
+    </camelcxf:rsServer>
+    <camelContext id="servicio-administracionconveniopauta" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSAdministracionConvenioPauta"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:WSAdministracionConvenioPautaREST"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionListar">
+                        <simple>${header.operationName} == 'listarConveniosPauta'</simple>
+                        <to id="toListar" uri="direct:listarConveniosPauta"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'listarConveniosSector'</simple>
+                        <to id="toConsultar" uri="direct:listarConveniosSector"/>
+                    </when>
+                    <when id="inicioWhenOperacionCrear">
+                        <simple>${header.operationName} == 'listarConveniosGenerales'</simple>
+                        <to id="toCrear" uri="direct:listarConveniosGenerales"/>
+                    </when>
+                    <when id="inicioWhenOperacionModificar">
+                        <simple>${header.operationName} == 'consultarCantidadConvenios'</simple>
+                        <to id="toModificar" uri="direct:consultarCantidadConvenios"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="listarConveniosPauta">
+            <from id="listarConveniosPautaFrom" uri="direct:listarConveniosPauta"/>
+            <doTry id="listarConveniosPautaTry">
+                <marshal id="listarConveniosPautaMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.servicio.administracionconveniopauta.wsdl"/>
+                </marshal>
+                <convertBodyTo id="listarConveniosPautaConvertBodyToString" type="java.lang.String"/>
+                <bean id="listarConveniosPautaUUID"
+                      method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="listarConveniosPautaToXSLTrama" uri="xslt://etc/xsl/request/IOC008601I_listarConveniosPauta.xsl"/>
+                <log id="listarConveniosPautaTrama" loggingLevel="INFO" message="Trama generada = ${body}"/>
+                <to id="listarConveniosPautaToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="listarConveniosPautaTramaResponse"
+                     loggingLevel="INFO" message="Trama recibida = ${body}"/>
+                <transform id="listarConveniosPautaTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="listarConveniosPautaToXSLSOAP" uri="xslt://etc/xsl/response/IOC008601O_listarConveniosPauta.xsl?saxon=true"/>
+                <log id="listarConveniosPautaSalida" message="salida: ${body}"/>
+                <unmarshal id="listarConveniosPautaUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.servicio.administracionconveniopauta.wsdl" encoding="UTF-8"/>
+                </unmarshal>
+                <removeHeaders id="listarConveniosPauta_removeHeaders_JMS" pattern="JMS*"/>
+                <removeHeaders id="listarConveniosPauta_removeHeaders_Transfer" pattern="Transfer*"/>
+                <setProperty id="listarConveniosPauta_HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="listarConveniosPauta_CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="listarConveniosPauta_CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="listarConveniosPauta_CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <doCatch id="listarConveniosPautaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="listarConveniosPautaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+ 
+        <route id="listarConveniosSector">
+            <from id="listarConveniosSectorFrom" uri="direct:listarConveniosSector"/>
+            <doTry id="listarConveniosSectorTry">
+                <marshal id="listarConveniosSectorMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.servicio.administracionconveniopauta.wsdl"/>
+                </marshal>
+                <convertBodyTo id="listarConveniosSectorConvertBodyToString" type="java.lang.String"/>
+                <bean id="listarConveniosSectorDarFormato"
+                      method="darFormatoConveniosPautas" ref="beanRouteFacade"/>
+                <bean id="listarConveniosSectorUUID"
+                      method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="listarConveniosSectorToXSLTrama" uri="xslt://etc/xsl/request/IOC008602I_listarConveniosSector.xsl"/>
+                <log id="listarConveniosSectorTrama" loggingLevel="INFO" message="Trama generada = ${body}"/>
+                <to id="listarConveniosSectorToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="listarConveniosSectorTramaResponse"
+                     loggingLevel="INFO" message="Trama recibida = ${body}"/>
+                <transform id="listarConveniosSectorTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="listarConveniosSectorToXSLSOAP" uri="xslt://etc/xsl/response/IOC008601O_listarConveniosSector.xsl?saxon=true"/>
+                <log id="listarConveniosSectorSalida" message="salida: ${body}"/>
+                <unmarshal id="listarConveniosSectorUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.servicio.administracionconveniopauta.wsdl" encoding="UTF-8"/>
+                </unmarshal>
+                <removeHeaders id="listarConveniosSector_removeHeaders_JMS" pattern="JMS*"/>
+                <removeHeaders id="listarConveniosSector_removeHeaders_Transfer" pattern="Transfer*"/>
+                <setProperty id="listarConveniosSector_HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="listarConveniosSector_CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="listarConveniosSector_CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="listarConveniosSector_CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <doCatch id="listarConveniosSectorDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="listarConveniosSectorExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+            
+        <route id="listarConveniosGenerales">
+            <from id="listarConveniosGeneralesFrom" uri="direct:listarConveniosGenerales"/>
+            <doTry id="listarConveniosGeneralesTry">
+                <marshal id="listarConveniosGeneralesMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.servicio.administracionconveniopauta.wsdl"/>
+                </marshal>
+                <convertBodyTo id="listarConveniosGeneralesConvertBodyToString" type="java.lang.String"/>
+                <bean id="listarConveniosGeneralesDarFormato"
+                      method="darFormatoConveniosGenerales" ref="beanRouteFacade"/>
+                <bean id="listarConveniosGeneralesUUID"
+                      method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="listarConveniosGeneralesToXSLTrama" uri="xslt://etc/xsl/request/IOC008603I_listarConveniosGenerales.xsl"/>
+                <log id="listarConveniosGeneralesTrama" loggingLevel="INFO" message="Trama generada = ${body}"/>
+                <to id="listarConveniosGeneralesToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="listarConveniosGeneralesTramaResponse"
+                     loggingLevel="INFO" message="Trama recibida = ${body}"/>
+                <transform id="listarConveniosGeneralesTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="listarConveniosGeneralesToXSLSOAP" uri="xslt://etc/xsl/response/IOC008601O_listarConveniosGenerales.xsl?saxon=true"/>
+                <log id="listarConveniosGeneralesSalida" message="salida: ${body}"/>
+                <unmarshal id="listarConveniosGeneralesUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.servicio.administracionconveniopauta.wsdl" encoding="UTF-8"/>
+                </unmarshal>
+                <removeHeaders id="listarConveniosGenerales_removeHeaders_JMS" pattern="JMS*"/>
+                <removeHeaders id="listarConveniosGenerales_removeHeaders_Transfer" pattern="Transfer*"/>
+                <setProperty id="listarConveniosGenerales_HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="listarConveniosGenerales_CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="listarConveniosGenerales_CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="listarConveniosGenerales_CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <doCatch id="listarConveniosGeneralesDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="listarConveniosGeneralesExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="consultarCantidadConvenios">
+            <from id="consultarCantidadConveniosFrom" uri="direct:consultarCantidadConvenios"/>
+            <doTry id="consultarCantidadConveniosTry">
+                <marshal id="consultarCantidadConveniosMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.servicio.administracionconveniopauta.wsdl"/>
+                </marshal>
+                <convertBodyTo id="consultarCantidadConveniosConvertBodyToString" type="java.lang.String"/>
+                <bean id="consultarCantidadConveniosDarFormato"
+                      method="darFormatoCantidadConvenios" ref="beanRouteFacade"/>
+                <bean id="consultarCantidadConveniosUUID"
+                      method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultarCantidadConveniosToXSLTrama" uri="xslt://etc/xsl/request/IOC008604I_consultarCantidadConvenios.xsl"/>
+                <log id="consultarCantidadConveniosTrama" loggingLevel="INFO" message="Trama generada = ${body}"/>
+                <to id="consultarCantidadConveniosToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="consultarCantidadConveniosTramaResponse"
+                     loggingLevel="INFO" message="Trama recibida = ${body}"/>
+                <transform id="consultarCantidadConveniosTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarCantidadConveniosToXSLSOAP" uri="xslt://etc/xsl/response/IOC008602O_consultarCantidadConvenios.xsl?saxon=true"/>
+                <log id="consultarCantidadConveniosSalida" message="salida: ${body}"/>
+                <unmarshal id="consultarCantidadConveniosUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.servicio.administracionconveniopauta.wsdl" encoding="UTF-8"/>
+                </unmarshal>
+                <removeHeaders id="consultarCantidadConvenios_removeHeaders_JMS" pattern="JMS*"/>
+                <removeHeaders id="consultarCantidadConvenios_removeHeaders_Transfer" pattern="Transfer*"/>
+                <setProperty id="consultarCantidadConvenios_HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="consultarCantidadConvenios_CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="consultarCantidadConvenios_CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="consultarCantidadConvenios_CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <doCatch id="consultarCantidadConveniosDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="consultarCantidadConveniosExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="excepcionBeanExcepcion" method="excepcionCrear" ref="beanRouteFacade"/>
+                <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido el siguiente error en la operación: ${exception.stacktrace}"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                </doCatch>
+            </doTry>
+        </route>
+        
+    </camelContext>
+</blueprint>

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.0.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:ext="http://aries.apache.org/blueprint/xmlns/blueprint-ext/v1.0.0"
+    xmlns:soap="http://cxf.apache.org/blueprint/bindings/soap"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder persistent-id="wscampanamigraciontd"/>
+    <bean class="cl.coopeuch.crm.wscampanamigraciontd.util.RouteFacade" id="beanRouteFacade"/>
+    <cxf:cxfEndpoint address="/WSCampanaMigracionTD12"
+        id="fromCampanasEndPoint12"
+        serviceClass="cl.coopeuch.crm.wscampanamigraciontd.WSCampanaMigracionTDSoap" wsdlURL="wsdl/WSCampanaMigracionTD12.wsdl"/>
+    <cxf:cxfEndpoint address="/WSCampanaMigracionTD"
+        id="fromCampanasEndPoint"
+        serviceClass="cl.coopeuch.crm.wscampanamigraciontd.WSCampanaMigracionTDSoap" wsdlURL="wsdl/WSCampanaMigracionTD11.wsdl"/>
+    <cxf:cxfEndpoint
+        address="{{http-proxy.wscampanamigraciontd.url.to}}"
+        id="toCampanasEndPoint"
+        serviceClass="cl.coopeuch.crm.wscampanamigraciontd.WSCampanaMigracionTDSoap" wsdlURL="{{http-proxy.wscampanamigraciontd.url.to}}?wsdl"/>
+    <cxf:rsServer address="/RSCampanaMigracionTD"
+        id="fromRSCampanasEndPoint" loggingFeatureEnabled="true" serviceClass="cl.coopeuch.crm.wscampanamigraciontd.rest.CampanasRest"/>
+    <camelContext id="servicio-campana-migraciontd-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="campanas" streamCache="true">
+            <from id="campanasFrom" uri="cxf:bean:fromCampanasEndPoint?dataFormat=MESSAGE"/>
+            <removeHeaders id="removeHeadersCampanas" pattern="CamelHttp*"/>
+            <to id="campanasTo" uri="cxf:bean:toCampanasEndPoint?dataFormat=MESSAGE"/>
+        </route>
+        <route id="campanas12" streamCache="true">
+            <from id="campanasFrom12" uri="cxf:bean:fromCampanasEndPoint12?dataFormat=MESSAGE"/>
+            <removeHeaders id="removeHeadersCampanas12" pattern="CamelHttp*"/>
+            <to id="campanasTo12" uri="cxf:bean:toCampanasEndPoint?dataFormat=MESSAGE"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:fromRSCampanasEndPoint"/>
+            <choice id="fromOperation">
+                <when id="whencampagnasvigentes">
+                    <simple>${header.operationName} == 'consultarCampanasGestionadas'</simple>
+                    <unmarshal id="unmarshalconsultarCampanasGestionadas">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wscampanamigraciontd.ConsultarCampanasGestionadas"/>
+                    </unmarshal>
+                    <bean id="consultarCampanasGestionadasRequest"
+                        method="consultarCampanasGestionadasRest" ref="beanRouteFacade"/>
+                    <to id="consultarCampanasGestionadasTo" uri="cxf:bean:toCampanasEndPoint?loggingFeatureEnabled=true"/>
+                    <marshal id="marshalconsultarCampanasGestionadasResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wscampanamigraciontd.ConsultarCampanasGestionadasResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenactualizarEstado">
+                    <simple>${header.operationName} == 'actualizarEstado'</simple>
+                    <unmarshal id="unmarshalactualizarEstado">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wscampanamigraciontd.ActualizarEstado"/>
+                    </unmarshal>
+                    <bean id="actualizarEstadoRequest"
+                        method="actualizarEstadoRest" ref="beanRouteFacade"/>
+                    <to id="actualizarEstadoTo" uri="cxf:bean:toCampanasEndPoint?loggingFeatureEnabled=true"/>
+                    <marshal id="marshalactualizarEstadoResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wscampanamigraciontd.ActualizarEstadoResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenconsultarCampanasSitio">
+                    <simple>${header.operationName} == 'consultarCampanasSitio'</simple>
+                    <unmarshal id="unmarshalconsultarCampanasSitio">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wscampanamigraciontd.ConsultarCampanasSitio"/>
+                    </unmarshal>
+                    <bean id="consultarCampanasSitioRequest"
+                        method="consultarCampanasSitioRest" ref="beanRouteFacade"/>
+                    <to id="consultarCampanasSitioTo" uri="cxf:bean:toCampanasEndPoint?loggingFeatureEnabled=true"/>
+                    <marshal id="marshalconsultarCampanasSitioResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wscampanamigraciontd.ConsultarCampanasSitioResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+    </camelContext>
+</blueprint>

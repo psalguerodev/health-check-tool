@@ -1,0 +1,457 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyGlobal"
+        persistent-id="globalmq" placeholder-prefix="{["
+        placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="property-placeholder"
+        persistent-id="serviceProperties" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioEnvioEmail"
+        id="servicioEnvioEmailEndpoint" serviceClass="cl.coopeuch.core.envioemail.envioemail.EnvioEmailPortType"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Configure IBM WebSphere MQ connection factory -->
+    <bean class="com.ibm.mq.jms.MQConnectionFactory" id="websphereConnectionFactory">
+        <property name="transportType" value="1"/>
+        <property name="hostName" value="{[ibm.mq.host]}"/>
+        <property name="port" value="{[ibm.mq.port]}"/>
+        <property name="queueManager" value="{[ibm.qm.name]}"/>
+        <property name="useConnectionPooling" value="true"/>
+        <property name="channel" value="{[ibm.qm.channel]}"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="websphereConfig">
+        <property name="connectionFactory" ref="websphereConnectionFactory"/>
+        <property name="concurrentConsumers" value="${ibm.mq.concurrentConsumers.envioemail}"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsComponent" id="websphere">
+        <property name="configuration" ref="websphereConfig"/>
+    </bean>
+    <bean class="cl.coopeuch.aggregation.PropagadorCabeceras" id="PropagadorCabeceras"/>
+    <camelContext id="servicio-envio-email" xmlns="http://camel.apache.org/schema/blueprint">
+        <!-- Ingreso al servicio por SOAP -->
+        <route id="cx-RuteoOperaciones">
+            <from id="EndpointListener" uri="cxf:bean:servicioEnvioEmailEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <to id="_to1" uri="xslt://transformations/in/xml2xml_In_envioEmail.xsl?saxon=true"/>
+                <bean beanType="cl.coopeuch.aggregation.RespaldarCuerpo"
+                    id="respaldarCuerpo" method="respaldoCuerpo"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaenviaEmailRequest">
+                        <simple>${body} contains 'enviaEmailRequest'</simple>
+                        <to id="enviaEmailRequestTo" uri="direct:enviaEmailRequest"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.aggregation.RespaldarCuerpo"
+                        id="ruteoOperacionesRestaurarCuerpo" method="restaurarCuerpo"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.ObtenerError"
+                        id="ruteoOperacionesBodyError" method="ponerError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ingreso por WebSphere MQ -->
+        <route id="mq-RuteoOperaciones">
+            <from id="_from1" uri="websphere:queue:{{ibm.queueEnvioEmail.in}}?disableReplyTo=true"/>
+            <doTry id="mqRuteoOperacionesTry">
+                <!-- Convierte la trama que se encuentra en la cola del AS400 en string. -->
+                <!-- Valida que dentro de la trama de entrada se encuentre el campo entrada. -->
+                <convertBodyTo id="mqRuteoOperacionesBodyTo" type="java.lang.String"/>
+                <to id="_to2" uri="xslt://transformations/in/xml2xml_In_envioEmail.xsl?saxon=true"/>
+                <bean beanType="cl.coopeuch.aggregation.RespaldarCuerpo"
+                    id="mqRespaldarCuerpo" method="respaldoCuerpo"/>
+                <choice id="mqRuteoOperaciones">
+                    <when id="mqRutaenviaEmailRequest">
+                        <simple>${body} contains 'entrada'</simple>
+                        <!-- Realiza la llamada a ruta que escucha la cola. -->
+                        <to id="mqEnviaEmailRequestTo" uri="direct:mqEnviaEmailRequest"/>
+                    </when>
+                </choice>
+                <doCatch id="mqRuteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.aggregation.RespaldarCuerpo"
+                        id="mqRuteoOperacionesRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="mqRuteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="mqRuteoOperacionesFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.ObtenerError"
+                        id="mqRuteoOperacionesBodyError" method="ponerError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Logica para la transformacion del mensaje y enviar el correo por SOAP -->
+        <route id="enviaEmailRequest">
+            <from id="enviaEmailRequestFrom" uri="direct:enviaEmailRequest"/>
+            <doTry id="enviaEmailRequestTry">
+                <!-- Inicio: Se colocan en la cabecera valores de entrada de la operacion envio Email. -->
+                <setHeader headerName="from" id="enviaEmailRequestHeaderFrom">
+                    <xpath resultType="String">normalize-space(//from/text())</xpath>
+                </setHeader>
+                <setHeader headerName="to" id="enviaEmailRequestHeaderTo">
+                    <xpath resultType="String">//to</xpath>
+                </setHeader>
+                <setHeader headerName="subject" id="enviaEmailRequestHeaderSubject">
+                    <xpath resultType="String">normalize-space(//subject/text())</xpath>
+                </setHeader>
+                <!-- Inicio: Se colocan en la cabecera valores de entrada de la operacion envio Email. -->
+                <setHeader headerName="nomPlantilla" id="enviaEmailRequestHeaderNomPlantilla">
+                    <xpath resultType="String">//nomPlantilla</xpath>
+                </setHeader>
+                <!-- Inicio: Valida que los campos de entrada contenga informacion. -->
+                <setHeader headerName="canal" id="enviaEmailRequestHeaderCanal">
+                    <xpath resultType="String">//canal</xpath>
+                </setHeader>
+                <!-- Fin: Valida que los campos de entrada contenga informacion. -->
+                <!-- XSLT envia errores en la salida de la operación. -->
+                <setHeader headerName="contentType" id="enviaEmailRequestHeaderContentType">
+                    <constant>text/html; charset=utf-8</constant>
+                </setHeader>
+                <setHeader headerName="valor1" id="enviaEmailRequestHeaderValor1">
+                    <xpath resultType="String">//brkopc1</xpath>
+                </setHeader>
+                <setHeader headerName="valor2" id="enviaEmailRequestHeaderValor2">
+                    <xpath resultType="String">//brkopc2</xpath>
+                </setHeader>
+                <setHeader headerName="valor3" id="enviaEmailRequestHeaderValor3">
+                    <xpath resultType="String">//brkopc3</xpath>
+                </setHeader>
+                <setHeader headerName="valor4" id="enviaEmailRequestHeaderValor4">
+                    <xpath resultType="String">//brkopc4</xpath>
+                </setHeader>
+                <setHeader headerName="valor5" id="enviaEmailRequestHeaderValor5">
+                    <xpath resultType="String">//brkopc5</xpath>
+                </setHeader>
+                <setHeader headerName="valor6" id="enviaEmailRequestHeaderValor6">
+                    <xpath resultType="String">//brkopc6</xpath>
+                </setHeader>
+                <setHeader headerName="valor7" id="enviaEmailRequestHeaderValor7">
+                    <xpath resultType="String">//brkopc7</xpath>
+                </setHeader>
+                <setHeader headerName="valor8" id="enviaEmailRequestHeaderValor8">
+                    <xpath resultType="String">//brkopc8</xpath>
+                </setHeader>
+                <setHeader headerName="valor9" id="enviaEmailRequestHeaderValor9">
+                    <xpath resultType="String">//brkopc9</xpath>
+                </setHeader>
+                <setHeader headerName="valor10" id="enviaEmailRequestHeaderValor10">
+                    <xpath resultType="String">//brkopc10</xpath>
+                </setHeader>
+                <log id="_log2" message="xxxx1: ${headers.subject}"/>
+                <bean id="enviaEmailRequestBean"
+                    method="ponerDatosHeader" ref="PropagadorCabeceras"/>
+                <choice id="_choice1">
+                    <when id="_when1">
+                        <simple>${headers.nomPlantilla} == ''</simple>
+                        <transform id="enviaEmailRequestTransform002">
+                            <simple>&lt;resultado&gt;Sin nombre plantilla&lt;/resultado&gt;</simple>
+                        </transform>
+                    </when>
+                    <when id="_when2s">
+                        <simple>${headers.from} == ''</simple>
+                        <transform id="enviaEmailRequestTransform0x0040">
+                            <simple>&lt;resultado&gt;Sin origen&lt;/resultado&gt;</simple>
+                        </transform>
+                    </when>
+                    <when id="_when2">
+                        <simple>${headers.to} == ''</simple>
+                        <transform id="enviaEmailRequestTransform00040">
+                            <simple>&lt;resultado&gt;Sin destinatario&lt;/resultado&gt;</simple>
+                        </transform>
+                    </when>
+                    <when id="_when4">
+                        <simple>${headers.from} contains ' '</simple>
+                        <transform id="_transform2">
+                            <simple>&lt;resultado&gt;Sin origen&lt;/resultado&gt;</simple>
+                        </transform>
+                    </when>
+                    <when id="_whenhhj2">
+                        <simple>${headers.to} contains ' '</simple>
+                        <transform id="enviaEmailRequestTransform00dfd040">
+                            <simple>&lt;resultado&gt;Sin destinatario&lt;/resultado&gt;</simple>
+                        </transform>
+                    </when>
+                    <when id="_when2xx">
+                        <simple>${headers.subject} == '' </simple>
+                        <transform id="enviaEmailRequestTransform00001">
+                            <simple>&lt;resultado&gt;Sin asunto&lt;/resultado&gt;</simple>
+                        </transform>
+                        <log id="_log3" message="xxxx: ${body}"/>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <!-- Inicio: Realiza la busqueda del la plantilla en el Filesystem. -->
+                        <!-- Fin: Realiza la busqueda del la plantilla en el Filesystem. -->
+                        <pollEnrich id="enviaEmailRequestPollEnrich"
+                            ignoreInvalidEndpoint="true"
+                            strategyMethodAllowNull="true" timeout="2000">
+                            <simple id="enviaEmailRequestTraerPlantilla" resultType="String">file:{{file.path.plantillasEmail}}?fileName=${header.nomPlantilla}.txt&amp;noop=true&amp;idempotent=false&amp;delay=5</simple>
+                        </pollEnrich>
+                        <choice id="enviaEmailRequestResultado">
+                            <when id="enviaEmailRequestError">
+                                <simple>${body} == null</simple>
+                                <transform id="enviaEmailRequestTransform0000000">
+                                    <simple>&lt;resultado&gt;Sin plantilla&lt;/resultado&gt;</simple>
+                                </transform>
+                            </when>
+                            <otherwise id="enviaEmailRequestOk">
+                                <!-- Recupera los Headers propagados -->
+                                <!-- Inicio: Reemplaza los datos de la entrada qe contengan la siguiente nomeclatura "brkopcN" del servicio por su valor dinamico.  -->
+                                <!-- Fin: Reemplaza los datos de la entrada qe contengan la siguiente nomeclatura "brkopcN" del servicio por su valor dinamico.  -->
+                                <!-- Se conecta con el servidor SMTP. -->
+                                <bean id="enviaEmailRequestBean"
+                                    method="obtenerDatosHeader" ref="PropagadorCabeceras"/>
+                                <!-- XSLT de respuesta del servicio. -->
+                                <convertBodyTo
+                                    id="enviaEmailRequestBodyTo" type="java.lang.String"/>
+                                <!-- Guarda información en el LOG. -->
+                                <transform id="enviaEmailRequestTransform11">
+                                    <simple>${body.replaceAll('brkopc1', '${headers.valor1}')}</simple>
+                                </transform>
+                                <transform id="enviaEmailRequestTransform12">
+                                    <simple>${body.replaceAll('brkopc2', '${headers.valor2}')}</simple>
+                                </transform>
+                                <transform id="enviaEmailRequestTransform13">
+                                    <simple>${body.replaceAll('brkopc3', '${headers.valor3}')}</simple>
+                                </transform>
+                                <transform id="enviaEmailRequestTransform14">
+                                    <simple>${body.replaceAll('brkopc4', '${headers.valor4}')}</simple>
+                                </transform>
+                                <transform id="enviaEmailRequestTransform15">
+                                    <simple>${body.replaceAll('brkopc5', '${headers.valor5}')}</simple>
+                                </transform>
+                                <transform id="enviaEmailRequestTransform16">
+                                    <simple>${body.replaceAll('brkopc6', '${headers.valor6}')}</simple>
+                                </transform>
+                                <transform id="enviaEmailRequestTransform17">
+                                    <simple>${body.replaceAll('brkopc7', '${headers.valor7}')}</simple>
+                                </transform>
+                                <transform id="enviaEmailRequestTransform18">
+                                    <simple>${body.replaceAll('brkopc8', '${headers.valor8}')}</simple>
+                                </transform>
+                                <transform id="enviaEmailRequestTransform19">
+                                    <simple>${body.replaceAll('brkopc9', '${headers.valor9}')}</simple>
+                                </transform>
+                                <transform id="enviaEmailRequestTransform20">
+                                    <simple>${body.replaceAll('brkopc10', '${headers.valor10}')}</simple>
+                                </transform>
+                                <to id="enviaEmailRequestSMTP" uri="smtp://{{endpoint.envioemail.url}}?connectionTimeout=5000&amp;contentType=text/plain; charset=utf-8"/>
+                                <transform id="enviaEmailRequestBodyTemporal1">
+                                    <simple>&lt;tmp&gt; ############### Body Temporal ############### &lt;/tmp&gt;</simple>
+                                </transform>
+                                <setHeader headerName="CamelFileName" id="_setHeader1">
+                                    <simple>Log_Email_${date:now:yyyyMMdd}.txt</simple>
+                                </setHeader>
+                                <to id="xml2xmlout_envioEmail" uri="xslt://transformations/out/xml2xmlout_envioEmailLog.xsl?saxon=true"/>
+                                <to id="enviaEmailRequestFileLog" uri="file://{{file.path.LogEmail}}?fileExist=Append"/>
+                                <transform id="enviaEmailRequestBodyTemporal2">
+                                    <simple>&lt;resultado&gt;Email enviado&lt;/resultado&gt;</simple>
+                                </transform>
+                            </otherwise>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <to id="xml2xmlout_envioEmail" uri="xslt://transformations/out/xml2xmlout_envioEmail.xsl?saxon=true"/>
+                <doCatch id="enviaEmailRequestCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.aggregation.RespaldarCuerpo"
+                        id="enviaEmailRequestRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="enviaEmailRequestSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="enviaEmailRequestFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.ObtenerError"
+                        id="enviaEmailRequestBodyError" method="ponerError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Logica para la transformacion del mensaje y enviar el correo por WepSphere 
+			MQ -->
+        <route id="mqEnviaEmailRequest">
+            <from id="mqEnviaEmailRequestFrom" uri="direct:mqEnviaEmailRequest"/>
+            <doTry id="mqEnviaEmailRequestTry">
+                <!-- Inicio: Se colocan en la cabecera valores de entrada de la operacion envio Email. -->
+                <setHeader headerName="from" id="mqEnviaEmailRequestHeaderFrom">
+                    <xpath resultType="String">normalize-space(//from/text())</xpath>
+                </setHeader>
+                <setHeader headerName="to" id="mqEnviaEmailRequestHeaderTo">
+                    <xpath resultType="String">//to</xpath>
+                </setHeader>
+                <setHeader headerName="subject" id="mqEnviaEmailRequestHeaderSubject">
+                    <xpath resultType="String">normalize-space(//subject/text())</xpath>
+                </setHeader>
+                <!-- Fin: Se colocan en la cabecera valores de entrada de la operacion envio Email. -->
+                <setHeader headerName="nomPlantilla" id="mqEnviaEmailRequestHeaderNomPlantilla">
+                    <xpath resultType="String">//nomPlantilla</xpath>
+                </setHeader>
+                <!-- Inicio: Valida que los campos de entrada contenga informacion. -->
+                <setHeader headerName="canal" id="mqEnviaEmailRequestHeaderCanal">
+                    <xpath resultType="String">//canal</xpath>
+                </setHeader>
+                <!-- Fin: Valida que los campos de entrada contenga informacion. -->
+                <setHeader headerName="contentType" id="mqEnviaEmailRequestHeaderContentType">
+                    <constant>text/html; charset=utf-8</constant>
+                </setHeader>
+                <setHeader headerName="valor1" id="mqEnviaEmailRequestHeaderValor1">
+                    <xpath resultType="String">//brkopc1</xpath>
+                </setHeader>
+                <setHeader headerName="valor2" id="mqEnviaEmailRequestHeaderValor2">
+                    <xpath resultType="String">//brkopc2</xpath>
+                </setHeader>
+                <setHeader headerName="valor3" id="mqEnviaEmailRequestHeaderValor3">
+                    <xpath resultType="String">//brkopc3</xpath>
+                </setHeader>
+                <setHeader headerName="valor4" id="mqEnviaEmailRequestHeaderValor4">
+                    <xpath resultType="String">//brkopc4</xpath>
+                </setHeader>
+                <setHeader headerName="valor5" id="mqEnviaEmailRequestHeaderValor5">
+                    <xpath resultType="String">//brkopc5</xpath>
+                </setHeader>
+                <setHeader headerName="valor6" id="mqEnviaEmailRequestHeaderValor6">
+                    <xpath resultType="String">//brkopc6</xpath>
+                </setHeader>
+                <setHeader headerName="valor7" id="mqEnviaEmailRequestHeaderValor7">
+                    <xpath resultType="String">//brkopc7</xpath>
+                </setHeader>
+                <setHeader headerName="valor8" id="mqEnviaEmailRequestHeaderValor8">
+                    <xpath resultType="String">//brkopc8</xpath>
+                </setHeader>
+                <setHeader headerName="valor9" id="mqEnviaEmailRequestHeaderValor9">
+                    <xpath resultType="String">//brkopc9</xpath>
+                </setHeader>
+                <setHeader headerName="valor10" id="mqEnviaEmailRequestHeaderValor10">
+                    <xpath resultType="String">//brkopc10</xpath>
+                </setHeader>
+                <bean id="mqEnviaEmailRequestBean"
+                    method="ponerDatosHeader" ref="PropagadorCabeceras"/>
+                <choice id="_choice2">
+                    <when id="_when22">
+                        <simple>${headers.nomPlantilla} == ''</simple>
+                        <transform id="enviaEmailRequestTransform0">
+                            <simple>&lt;resultado&gt;Sin nombre plantilla&lt;/resultado&gt;</simple>
+                        </transform>
+                    </when>
+                    <when id="_when3">
+                        <simple>${headers.from} == ''</simple>
+                        <transform id="_transform1">
+                            <simple>&lt;resultado&gt;Sin origen&lt;/resultado&gt;</simple>
+                        </transform>
+                    </when>
+                    <when id="_when5">
+                        <simple>${headers.from} contains ' '</simple>
+                        <transform id="_transform3">
+                            <simple>&lt;resultado&gt;Sin origen&lt;/resultado&gt;</simple>
+                        </transform>
+                    </when>
+                    <when id="_when23">
+                        <simple>${headers.to} == ''</simple>
+                        <transform id="enviaEmailRequestTransform00">
+                            <simple>&lt;resultado&gt;Sin destinatario&lt;/resultado&gt;</simple>
+                        </transform>
+                    </when>
+                    <otherwise id="_otherwise222">
+                        <pollEnrich id="mqEnviaEmailRequestPollEnrich"
+                            ignoreInvalidEndpoint="true"
+                            strategyMethodAllowNull="true" timeout="2000">
+                            <simple
+                                id="mqEnviaEmailRequestTraerPlantilla" resultType="String">file:{{file.path.plantillasEmail}}?fileName=${header.nomPlantilla}.txt&amp;noop=true&amp;idempotent=false&amp;delay=5</simple>
+                        </pollEnrich>
+                        <choice id="mqEnviaEmailRequestResultado">
+                            <when id="mqEnviaEmailRequestError">
+                                <simple>${body} == null</simple>
+                                <transform id="mqEnviaEmailRequestTransform000">
+                                    <simple>&lt;resultado&gt;Sin plantilla&lt;/resultado&gt;</simple>
+                                </transform>
+                            </when>
+                            <otherwise id="mqEnviaEmailRequestOk">
+                                <!-- Recupera los Headers propagados -->
+                                <!-- Inicio: Reemplaza los datos de la entrada qe contengan la siguiente nomeclatura "brkopcN" del servicio por su valor dinamico.  -->
+                                <!-- Fin: Reemplaza los datos de la entrada qe contengan la siguiente nomeclatura "brkopcN" del servicio por su valor dinamico.  -->
+                                <!-- Se conecta con el servidor SMTP. -->
+                                <bean id="mqEnviaEmailRequestBean"
+                                    method="obtenerDatosHeader" ref="PropagadorCabeceras"/>
+                                <!-- XSLT de respuesta del servicio. -->
+                                <convertBodyTo
+                                    id="mqEnviaEmailRequestBodyTo" type="java.lang.String"/>
+                                <!-- Guarda información en el LOG. -->
+                                <transform id="mqEnviaEmailRequestTransform1">
+                                    <simple>${body.replaceAll('brkopc1', '${headers.valor1}')}</simple>
+                                </transform>
+                                <transform id="mqEnviaEmailRequestTransform2">
+                                    <simple>${body.replaceAll('brkopc2', '${headers.valor2}')}</simple>
+                                </transform>
+                                <transform id="mqEnviaEmailRequestTransform3">
+                                    <simple>${body.replaceAll('brkopc3', '${headers.valor3}')}</simple>
+                                </transform>
+                                <transform id="mqEnviaEmailRequestTransform4">
+                                    <simple>${body.replaceAll('brkopc4', '${headers.valor4}')}</simple>
+                                </transform>
+                                <transform id="mqEnviaEmailRequestTransform5">
+                                    <simple>${body.replaceAll('brkopc5', '${headers.valor5}')}</simple>
+                                </transform>
+                                <transform id="mqEnviaEmailRequestTransform6">
+                                    <simple>${body.replaceAll('brkopc6', '${headers.valor6}')}</simple>
+                                </transform>
+                                <transform id="mqEnviaEmailRequestTransform7">
+                                    <simple>${body.replaceAll('brkopc7', '${headers.valor7}')}</simple>
+                                </transform>
+                                <transform id="mqEnviaEmailRequestTransform8">
+                                    <simple>${body.replaceAll('brkopc8', '${headers.valor8}')}</simple>
+                                </transform>
+                                <transform id="mqEnviaEmailRequestTransform9">
+                                    <simple>${body.replaceAll('brkopc9', '${headers.valor9}')}</simple>
+                                </transform>
+                                <transform id="mqEnviaEmailRequestTransform10">
+                                    <simple>${body.replaceAll('brkopc10', '${headers.valor10}')}</simple>
+                                </transform>
+                                <to id="mqEnviaEmailRequestSMTP" uri="smtp://{{endpoint.envioemail.url}}?connectionTimeout=5000&amp;contentType=text/plain; charset=utf-8"/>
+                                <transform id="mqEnviaEmailRequestBodyTemporal1">
+                                    <simple>&lt;tmp&gt; ############### Body Temporal ############### &lt;/tmp&gt;</simple>
+                                </transform>
+                                <setHeader headerName="CamelFileName" id="_setHeader2">
+                                    <simple>Log_Email_${date:now:yyyyMMdd}.txt</simple>
+                                </setHeader>
+                                <to id="xml2xmlout_mqEnvioEmail" uri="xslt://transformations/out/xml2xmlout_envioEmailLog.xsl?saxon=true"/>
+                                <to id="mqEnviaEmailRequestFileLog" uri="file://{{file.path.LogEmail}}?fileExist=Append"/>
+                                <transform id="mqEnviaEmailRequestBodyTemporal2">
+                                    <simple>&lt;resultado&gt;Email enviado&lt;/resultado&gt;</simple>
+                                </transform>
+                            </otherwise>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <to id="xml2xmlout_mqEnvioEmail" uri="xslt://transformations/out/xml2xmlout_mqEnvioEmail.xsl?saxon=true"/>
+                <doCatch id="mqEnviaEmailRequestCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.aggregation.RespaldarCuerpo"
+                        id="mqEnviaEmailRequestRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="mqEnviaEmailRequestSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="mqEnviaEmailRequestFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.ObtenerError"
+                        id="mqEnviaEmailRequestBodyError" method="ponerError"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

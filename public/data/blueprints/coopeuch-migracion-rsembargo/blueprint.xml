@@ -1,0 +1,720 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsembargo" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <!--Active MQ-->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!--Servidores-->
+    <!--SOAP-->
+    <camelcxf:cxfEndpoint address="/WSEmbargo" id="embargoSOAP"
+        loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.embargo.wsdl.WSEmbargoSOAPPortType" wsdlURL="etc/wsdl/public/WSEmbargo.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <!--Rest-->
+    <camelcxf:rsServer address="/RSEmbargo" id="embargoREST"
+        loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.embargo.wsdl.WSEmbargoSOAPPortType">
+        <camelcxf:inInterceptors>
+            <ref component-id="ErrorExcepcionInterceptor"/>
+        </camelcxf:inInterceptors>
+    </camelcxf:rsServer>
+    <!--Clientes-->
+    <camelcxf:cxfEndpoint address="[{wsnotificaciones.endpoint}]"
+        id="endpointWSNotificaciones" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.embargo.wsdl.client.wsnotificaciones.WSNotificacionesSOAPPortType" wsdlURL="etc/wsdl/client/WSNotificaciones.wsdl"/>
+    <camelcxf:cxfEndpoint address="[{wsnotificacionescrm.endpoint}]"
+        id="endpointWSNotificacionesCrm" loggingFeatureEnabled="true" wsdlURL="etc/wsdl/client/WSRequerimientosEmbargoCrm.wsdl"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="dropRootElement" value="true"/>
+    </bean>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <bean class="cl.coopeuch.integracion.embargo.util.RouteFacade" id="beanRouteFacade"/>
+    <bean
+        class="cl.coopeuch.integracion.embargo.util.RouteExcepcionFacade" id="beanRouteExcepcionFacade"/>
+    <bean
+        class="cl.coopeuch.integracion.embargo.util.exception.ErrorExcepcionInterceptor" id="ErrorExcepcionInterceptor"/>
+    <camelContext id="servicio-embargo" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml id="solicitarEmbargoRequestType" unmarshalTypeName="cl.coopeuch.integracion.embargo.wsdl.SolicitarEmbargoRequest"/>
+        </dataFormats>
+        <route id="soap-inicio">
+            <from id="inicioSoapFrom" uri="cxf:bean:embargoSOAP"/>
+            <to id="soapToInicio" uri="direct:inicioEmbargo"/>
+            <removeHeaders id="_removeHeaders2" pattern="*"/>
+        </route>
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:embargoREST"/>
+            <to id="restToInicio" uri="direct:inicioEmbargo"/>
+            <removeHeaders id="_removeHeaders3" pattern="*"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:inicioEmbargo"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body[0]}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setProperty id="inicioSetCodigoErrorDefault" propertyName="codigoError">
+                    <constant>0</constant>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionSolicitarEmbargo">
+                        <simple>${header.operationName} == 'solicitarEmbargo'</simple>
+                        <setBody id="_setBody1">
+                            <simple>${body[0]}</simple>
+                        </setBody>
+                        <to id="_to1" uri="validator:etc/wsdl/public/EmbargoType.xsd"/>
+                        <bean id="validarEmailId"
+                            method="validarEmailEmbargo" ref="beanRouteFacade"/>
+                        <bean id="aproximarDecimalesMontoEmbargoId"
+                            method="validarAproximarDecimalesMontoEmbargo" ref="beanRouteFacade"/>
+                        <wireTap id="toSolicitarEmbargo" uri="direct:solicitarEmbargo"/>
+                        <bean id="solicitarEmbargoResponse"
+                            method="transformSolicitarEmbargoToSolicitarEmbargoResponse" ref="beanRouteFacade"/>
+                    </when>
+                    <when id="inicioWhenOperacionSolicitarAlzamiento">
+                        <simple>${header.operationName} == 'solicitarAlzamiento'</simple>
+                        <setBody id="_setBody2">
+                            <simple>${body[0]}</simple>
+                        </setBody>
+                        <setProperty id="_setProperty1" propertyName="tipoSolicitud">
+                            <xpath resultType="String">//tipoSolicitud</xpath>
+                        </setProperty>
+                        <to id="_to2" uri="validator:etc/wsdl/public/EmbargoType.xsd"/>
+                        <bean id="validarEmailId1"
+                            method="validarEmailAlzamiento" ref="beanRouteFacade"/>
+                        <wireTap id="toSolicitarAlzamiento" uri="direct:solicitarEmbargo"/>
+                        <bean id="solicitarAlzamientoResponse"
+                            method="transformSolicitarAlzamientoToSolicitarAlzamientoResponse" ref="beanRouteFacade"/>
+                    </when>
+                    <when id="inicioWhenOperacionReemitir">
+                        <simple>${header.operationName} == 'reemitir'</simple>
+                        <setBody id="_setBody2">
+                            <simple>${body[0]}</simple>
+                        </setBody>
+                        <to id="toReemitir" uri="direct:reemitir"/>
+                    </when>
+                    <otherwise id="otherwiseOperacion">
+                        <setProperty id="otherwiseOperacionCodigoError" propertyName="codigoError">
+                            <constant>405</constant>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion request es invalida"/>
+                    </otherwise>
+                </choice>
+                <removeHeaders id="inicioRemoveHeader" pattern="*"/>
+                <doCatch id="validationDoCatch">
+                    <exception>org.apache.camel.ValidationException</exception>
+                    <setProperty
+                        id="validationDoCatchOperacionCodigoError" propertyName="codigoError">
+                        <constant>4011</constant>
+                    </setProperty>
+                    <to id="_toValidationException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to5" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="formReemitir">
+            <from id="fromReemitir" uri="direct:reemitir"/>
+            <doTry id="reemitirTry">
+                <bean
+                    beanType="cl.coopeuch.integracion.embargo.util.jms.CorrelationId"
+                    id="createJMSCorrelationIdReemitir" method="createJMSCorrelationId24"/>
+                <bean id="_bean1" method="transformarXmltoIOC300801I" ref="beanRouteFacade"/>
+                <marshal id="_marshal14">
+                    <bindy
+                        classType="cl.coopeuch.integracion.embargo.model.IOC300801I" type="Fixed"/>
+                </marshal>
+                <log id="_log32" loggingLevel="INFO" message="IOC300801I REQUEST:: ${body}"/>
+                <to id="activeMQ-procesarReemision" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="_log33" loggingLevel="INFO" message="IOC300801O RESPONSE:: ${body}"/>
+                <choice id="_choice3">
+                    <when id="_when3">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_unmarshal1">
+                            <bindy
+                                classType="cl.coopeuch.integracion.embargo.model.IOCERROR" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="_bean2"
+                            method="transformarIocErrorRegistrar" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise3">
+                        <unmarshal id="_unmarshal2">
+                            <bindy
+                                classType="cl.coopeuch.integracion.embargo.model.IOC300801O" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="_bean3" method="transformarIoc038001O" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty2" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="_to3" uri="direct:excepcion"/>
+                </doCatch>
+                <doFinally id="_doFinally1">
+                    <removeHeaders id="_removeHeaders1" pattern="*"/>
+                </doFinally>
+            </doTry>
+        </route>
+        <route id="solicitarEmbargo">
+            <from id="solicitarEmbargoFrom" uri="direct:solicitarEmbargo"/>
+            <doTry id="solicitarEmbargoTry">
+                <to id="toProcesarEnvioEmbargo" uri="direct:procesarEnvioEmbargo"/>
+                <to id="toProcesarRespuestaEmbargo" uri="direct:procesarRespuestaEmbargo"/>
+                <to id="toBifurcacionRespuestaProcesoEmbargo" uri="direct:bifurcacionRespuestaProcesoEmbargo"/>
+                <doCatch id="solicitarEmbargoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="solicitarEmbargoCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toSolicitarEmbargoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="procesarEnvioEmbargo">
+            <from id="procesarEnvioEmbargoFrom" uri="direct:procesarEnvioEmbargo"/>
+            <doTry id="procesarEnvioEmbargoTry">
+                <marshal id="solicitarEmbargoMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.embargo.wsdl"/>
+                </marshal>
+                <convertBodyTo id="solicitarEmbargoConvertBodyToString" type="java.lang.String"/>
+                <to id="transferenciaEntreCuentasXml2trama" uri="xslt://etc//transformations/in/remoteCall_IOC_embargoIN.xsl"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.embargo.util.jms.CorrelationId"
+                    id="createJMSCorrelationId" method="createJMSCorrelationId24"/>
+                <log id="_log1" message="IOC REQUEST:: ${body}"/>
+                <to id="activeMQ-procesarEnvioEmbargo" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="_log2" message="IOC RESPONSE:: ${body}"/>
+                <doCatch id="procesarEnvioEmbargoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="procesarEnvioEmbargoCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toProcesarEnvioEmbargoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="procesarRespuestaEmbargo">
+            <from id="embargoTramaIOCOutFrom" uri="direct:procesarRespuestaEmbargo"/>
+            <doTry id="procesarRespuestaEmbargoTry">
+                <transform id="_transform1">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="procesarRespuestaEmbargo2Object" uri="xslt://etc//transformations/out/remoteCall_IOC_embargoOUT.xsl?saxon=true"/>
+                <log id="_log3" message="respuesta::${body}"/>
+                <choice id="choiceRespuestaIOC3000">
+                    <when id="whenRespuestaIOC3000">
+                        <simple>${body} contains 'IOC300001O'</simple>
+                        <setProperty id="setPropertyEmbargoCodigo" propertyName="respuestaEmbargoCodigoProp">
+                            <xpath resultType="java.lang.String">/IOC300001O/E02CODRES</xpath>
+                        </setProperty>
+                        <setProperty id="setPropertyEmbargoDescripcion" propertyName="respuestaEmbargoDescripcionProp">
+                            <xpath resultType="java.lang.String">/IOC300001O/E02DESRES</xpath>
+                        </setProperty>
+                    </when>
+                    <otherwise id="otherwiseRespuestaIOC3000">
+                        <setProperty id="setPropertyEmbargoCodigoError" propertyName="respuestaEmbargoCodigoProp">
+                            <xpath resultType="java.lang.String">/ECNLERR/error/errores/detalleError/codigo</xpath>
+                        </setProperty>
+                        <setProperty
+                            id="setPropertyEmbargoDescripcionError" propertyName="respuestaEmbargoDescripcionProp">
+                            <xpath resultType="java.lang.String">/ECNLERR/error/errores/detalleError/descripcion</xpath>
+                        </setProperty>
+                    </otherwise>
+                </choice>
+                <doCatch id="procesarRespuestaEmbargoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="procesarRespuestaEmbargoCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toProcesarRespuestaEmbargoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="bifurcacionRespuestaProcesoEmbargo">
+            <from id="bifurcacionRespuestaProcesoEmbargoFrom" uri="direct:bifurcacionRespuestaProcesoEmbargo"/>
+            <doTry id="bifurcacionRespuestaProcesoEmbargoTry">
+                <to id="toEmbargoProcesadoCorrectamente" uri="direct:embargoProcesadoCorrectamente"/>
+                <doCatch id="bifurcacionRespuestaProcesoEmbargoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="bifurcacionRespuestaProcesoEmbargoCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to
+                        id="toBifurcacionRespuestaProcesoEmbargoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="embargoProcesadoCorrectamente">
+            <from id="embargoProcesadoCorrectamenteFrom" uri="direct:embargoProcesadoCorrectamente"/>
+            <doTry id="embargoProcesadoCorrectamenteTry">
+                <choice id="choiceDeberiaEnviarNotificacionSocio">
+                    <when id="whenDeberiaEnviarNotificacionSocio">
+                        <simple>${exchangeProperty.emailValido} == 'valido'</simple>
+                        <to id="toEnviarNotificacionEmbargo" uri="direct:enviarNotificacionEmbargo"/>
+                    </when>
+                    <when id="whenDeberiaEmailVacio">
+                        <simple>${exchangeProperty.emailValido} == 'vacio'</simple>
+                        <setProperty
+                            id="setPropertyNotificacionEmailVacio" propertyName="respuestaNotificacionCodigoIOCProp">
+                            <constant>S</constant>
+                        </setProperty>
+                        <setProperty
+                            id="setPropertyNotifiacionDescripcionEmailVacio" propertyName="respuestaNotificacionDescripcionProp">
+                            <constant>Sin mail de Registro.</constant>
+                        </setProperty>
+                        <setProperty
+                            id="setPropertyWSNotificacionesEmailVacio" propertyName="respuestaWSNotificacionesCodigoProp">
+                            <constant>514</constant>
+                        </setProperty>
+                        <setProperty
+                            id="setPropertyWSNotifiacionesDescripcionEmailVacio" propertyName="respuestaWSNotificacionesDescripcionProp">
+                            <constant>Sin notificar, sin email</constant>
+                        </setProperty>
+                        <log id="_log8" message="No debe enviar notificacion socio: Email Vacio"/>
+                    </when>
+                    <otherwise id="otherWiseNoDeberiaEnviarNotificacionSocioEmailInvalido">
+                        <setProperty
+                            id="setPropertyNotificacionEmailInvalido" propertyName="respuestaNotificacionCodigoIOCProp">
+                            <constant>E</constant>
+                        </setProperty>
+                        <setProperty
+                            id="setPropertyNotifiacionDescripcionEmailInvalido" propertyName="respuestaNotificacionDescripcionProp">
+                            <constant>Error envio de Mail</constant>
+                        </setProperty>
+                        <setProperty
+                            id="setPropertyWSNotificacionesEmailInvalido" propertyName="respuestaWSNotificacionesCodigoProp">
+                            <constant>514</constant>
+                        </setProperty>
+                        <setProperty
+                            id="setPropertyWSNotifiacionesDescripcionEmailVacio" propertyName="respuestaWSNotificacionesDescripcionProp">
+                            <constant>Sin notificar, sin email</constant>
+                        </setProperty>
+                        <log id="_log9" message="No debe enviar notificacion socio: Email invalido"/>
+                    </otherwise>
+                </choice>
+                <to id="to_EnviarNotificacionEmbargoCrm" uri="direct:enviarNotificacionEmbargoCrm"/>
+                <to id="toProcesarEnvioNotificacionActualizacion" uri="direct:procesarEnvioNotificacionActualizacion"/>
+                <to id="toProcesarRespuestaActualizacionNotificacion" uri="direct:procesarRespuestaActualizacionNotificacion"/>
+                <to id="toEnviarNotificacionEmbargoBackoffice" uri="direct:enviarNotificacionEmbargoBackoffice"/>
+                <doCatch id="embargoProcesadoCorrectamenteDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="embargoProcesadoCorrectamenteCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toEmbargoProcesadoCorrectamenteExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <log id="_log10" message="Embargo Finalizado"/>
+            </doTry>
+        </route>
+        <route id="enviarNotificacionEmbargoBackoffice">
+            <from id="enviarNotificacionEmbargoBackofficeFrom" uri="direct:enviarNotificacionEmbargoBackoffice"/>
+            <choice id="ChoiceDeberiaEnviarNotificacionBackOffice">
+                <when id="whenDeberiaEnviarNotificacionBackofficeCod000">
+                    <simple>${exchangeProperty.respuestaEmbargoCodigoProp} == '0000'</simple>
+                    <log id="_log11" message="entra a notif backoffice"/>
+                    <setBody id="_setBody3">
+                        <simple>{{wsnotificaciones.backoffice.mail.list}}</simple>
+                    </setBody>
+                    <split id="_split1">
+                        <simple>${body}</simple>
+                        <doTry id="enviarNotificacionEmbargoBackofficeTry">
+                            <setProperty id="destinatarioProperty" propertyName="destinatario">
+                                <simple>${body}</simple>
+                            </setProperty>
+                            <setBody id="_setBody4">
+                                <simple>${exchangeProperty.requestEntrada}</simple>
+                            </setBody>
+                            <convertBodyTo
+                                id="enviarNotificacionEmbargoBackofficeBody" type="java.lang.String"/>
+                            <setProperty
+                                id="enviarNotificacionEmbargoBackofficeUserId" propertyName="enviarNotificacionEmbargoUserId">
+                                <simple>{{wsnotificaciones.userId}}</simple>
+                            </setProperty>
+                            <setProperty
+                                id="enviarNotificacionEmbargoBackofficeCanalLlamada" propertyName="enviarNotificacionEmbargoCanalLlamada">
+                                <simple>{{wsnotificaciones.canalLlamada}}</simple>
+                            </setProperty>
+                            <setProperty
+                                id="enviarNotificacionEmbargoBackofficeIdNotificacion" propertyName="enviarNotificacionEmbargoIdNotificacion">
+                                <simple>{{wsnotificaciones.IdNotificacion}}</simple>
+                            </setProperty>
+                            <setProperty
+                                id="enviarNotificacionEmbargoBackofficeNombrePlantilla" propertyName="enviarNotificacionEmbargoNombrePlantilla">
+                                <simple>{{wsnotificaciones.nombrePlantilla}}</simple>
+                            </setProperty>
+                            <choice id="_choice2">
+                                <when id="_when2">
+                                    <simple resultType="boolean">${exchangeProperty.emailValido} == 'valido' and ${exchangeProperty.tipo} contains 'FAMILIA'</simple>
+                                    <to
+                                    id="procesarInEnviarNotificacionBackofficeEmbargo" uri="xslt://etc//transformations/in/remoteCall_WS_notificacionesIN_backoffice.xsl"/>
+                                    <to
+                                    id="toEnviarNotificacionBackOffice" uri="direct:conectarWsNotificaciones"/>
+                                    <choice id="notificacionBackofficeChoice">
+                                    <when id="whenRespuestaNotificacionBackofficeOk">
+                                    <xpath resultType="String">//codigo = '200'</xpath>
+                                    <log id="_log12" message="Notificacion Embargo Backoffice OKs"/>
+                                    </when>
+                                    <when id="whenRespuestaNotificacionBackofficeNOK">
+                                    <xpath resultType="String">//codigo != '200'</xpath>
+                                    <log id="_log13" message="Notificacion Embargo Backoffice NOK"/>
+                                    </when>
+                                    <otherwise id="whenRespuestaNotificacionBackofficeError">
+                                    <log id="_log14" message="Error al procesar respuesta de solicitud de notificacion al socio/cliente"/>
+                                    </otherwise>
+                                    </choice>
+                                </when>
+                                <otherwise id="_otherwise2">
+                                    <log id="_log31" message="Motivo no pertenece a Familia"/>
+                                    <setProperty id="_setProperty3" propertyName="respuestaWSNotificacionesCodigoProp">
+                                    <constant>515</constant>
+                                    </setProperty>
+                                    <setProperty id="_setProperty4" propertyName="respuestaWSNotificacionesDescripcionProp">
+                                    <constant>Sin notificar, no es familia</constant>
+                                    </setProperty>
+                                </otherwise>
+                            </choice>
+                            <doCatch id="enviarNotificacionEmbargoBackofficeDoCatch">
+                                <exception>java.lang.Exception</exception>
+                                <setProperty
+                                    id="enviarNotificacionEmbargoBackofficeCodigoError" propertyName="codigoError">
+                                    <constant>500</constant>
+                                </setProperty>
+                                <to
+                                    id="toEnviarNotificacionEmbargoBackofficeExcepcion" uri="direct:excepcion"/>
+                            </doCatch>
+                        </doTry>
+                    </split>
+                </when>
+                <otherwise id="otherwiseDeberiaEnviarNotificacionBackofficeCod000">
+                    <log id="_log15" message="No debe enviar la notificacion a backoffice. Error en respuesta de IOC"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="enviarNotificacionEmbargo">
+            <from id="enviarNotificacionEmbargoFrom" uri="direct:enviarNotificacionEmbargo"/>
+            <log id="_log16" message="desde enviarNotificacionEmbargo -> respuestaEmbargoCodigoProp: ${exchangeProperty.respuestaEmbargoCodigoProp}"/>
+            <choice id="ChoiceDeberiaEnviarNotificacionSocio">
+                <when id="whenDeberiaEnviarNotificacionSocioCod000">
+                    <simple>${exchangeProperty.respuestaEmbargoCodigoProp} == '0000'</simple>
+                    <log id="_log17" message="entra a notif socio"/>
+                    <doTry id="enviarNotificacionEmbargoTry">
+                        <setBody id="_setBody5">
+                            <simple>${exchangeProperty.requestEntrada}</simple>
+                        </setBody>
+                        <convertBodyTo
+                            id="enviarNotificacionEmbargoBody" type="java.lang.String"/>
+                        <setProperty
+                            id="enviarNotificacionEmbargoUserId" propertyName="enviarNotificacionEmbargoUserId">
+                            <simple>{{wsnotificaciones.userId}}</simple>
+                        </setProperty>
+                        <setProperty
+                            id="enviarNotificacionEmbargoCanalLlamada" propertyName="enviarNotificacionEmbargoCanalLlamada">
+                            <simple>{{wsnotificaciones.canalLlamada}}</simple>
+                        </setProperty>
+                        <setProperty
+                            id="enviarNotificacionEmbargoIdNotificacion" propertyName="enviarNotificacionEmbargoIdNotificacion">
+                            <simple>{{wsnotificaciones.IdNotificacion}}</simple>
+                        </setProperty>
+                        <setProperty
+                            id="enviarNotificacionEmbargoNombrePlantilla" propertyName="enviarNotificacionEmbargoNombrePlantilla">
+                            <simple>{{wsnotificaciones.nombrePlantilla}}</simple>
+                        </setProperty>
+                        <choice id="_choice1">
+                            <when id="_when1">
+                                <xpath resultType="boolean">contains(upper-case(//causaOficio/motivos),'FAMILIA')</xpath>
+                                <to
+                                    id="procesarInEnviarNotificacionEmbargo" uri="xslt://etc//transformations/in/remoteCall_WS_notificacionesIN.xsl"/>
+                                <to id="toEnviarNotificacion" uri="direct:conectarWsNotificaciones"/>
+                                <choice id="notificacionChoice">
+                                    <when id="whenRespuestaNotificacionOk">
+                                    <xpath resultType="String">//codigo = '200'</xpath>
+                                    <log id="_log18" message="Notificacion Embargo Socio OK"/>
+                                    <setProperty
+                                    id="setPropertyNotificacionCodigo" propertyName="respuestaNotificacionCodigoProp">
+                                    <xpath resultType="java.lang.String">//codigo</xpath>
+                                    </setProperty>
+                                    <setProperty
+                                    id="setPropertyNotificacionCodigoIOC" propertyName="respuestaNotificacionCodigoIOCProp">
+                                    <constant>O</constant>
+                                    </setProperty>
+                                    <setProperty
+                                    id="setPropertyNotifiacionDescripcion" propertyName="respuestaNotificacionDescripcionProp">
+                                    <xpath resultType="java.lang.String">//descripcion</xpath>
+                                    </setProperty>
+                                    <setProperty
+                                    id="setPropertyWsNotifiacionesRespCodigo" propertyName="respuestaWSNotificacionesCodigoProp">
+                                    <xpath resultType="java.lang.String">//codigo</xpath>
+                                    </setProperty>
+                                    <setProperty
+                                    id="setPropertyWsNotifiacionesRespDescripcion" propertyName="respuestaWSNotificacionesDescripcionProp">
+                                    <xpath resultType="java.lang.String">//descripcion</xpath>
+                                    </setProperty>
+                                    </when>
+                                    <when id="whenRespuestaNotificacionNOK">
+                                    <xpath resultType="String">//codigo != '200'</xpath>
+                                    <log id="_log19" message="Notificacion Embargo NOK"/>
+                                    <setProperty
+                                    id="setPropertyNotificacionCodigo" propertyName="respuestaNotificacionCodigoProp">
+                                    <xpath resultType="java.lang.String">//error/errores/detalleError/codigo</xpath>
+                                    </setProperty>
+                                    <setProperty
+                                    id="setPropertyNotificacionCodigoIOC" propertyName="respuestaNotificacionCodigoIOCProp">
+                                    <constant>E</constant>
+                                    </setProperty>
+                                    <setProperty
+                                    id="setPropertyNotifiacionDescripcion" propertyName="respuestaNotificacionDescripcionProp">
+                                    <xpath resultType="java.lang.String">//error/errores/detalleError/descripcion</xpath>
+                                    </setProperty>
+                                    <setProperty
+                                    id="setPropertyWsNotifiacionesRespErrorCodigo" propertyName="respuestaWSNotificacionesCodigoProp">
+                                    <xpath resultType="java.lang.String">//error/errores/detalleError/codigo</xpath>
+                                    </setProperty>
+                                    <setProperty
+                                    id="setPropertyWsNotifiacionesRespErrorDescripcion" propertyName="respuestaWSNotificacionesDescripcionProp">
+                                    <xpath resultType="java.lang.String">//error/errores/detalleError/descripcion</xpath>
+                                    </setProperty>
+                                    </when>
+                                    <otherwise id="whenRespuestaNotificacionError">
+                                    <log id="_log30" message="Error al procesar respuesta de solicitud de notificacion al socio/cliente"/>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="_otherwise1">
+                                <log id="_log20" message="Motivo no pertenece a Familia"/>
+                                <setProperty id="_setProperty5" propertyName="respuestaWSNotificacionesCodigoProp">
+                                    <constant>515</constant>
+                                </setProperty>
+                                <setProperty id="_setProperty6" propertyName="respuestaWSNotificacionesDescripcionProp">
+                                    <constant>Sin notificar, no es familia</constant>
+                                </setProperty>
+                            </otherwise>
+                        </choice>
+                        <doCatch id="enviarNotificacionEmbargoDoCatch">
+                            <exception>java.lang.Exception</exception>
+                            <setProperty
+                                id="enviarNotificacionEmbargoCodigoError" propertyName="codigoError">
+                                <constant>500</constant>
+                            </setProperty>
+                            <to
+                                id="toEnviarNotificacionEmbargoExcepcion" uri="direct:excepcion"/>
+                        </doCatch>
+                    </doTry>
+                </when>
+                <otherwise id="otherwiseDeberiaEnviarNotificacionSocio000">
+                    <log id="_log21" message="No debe enviar notificacion al Socio. Error en respuesta de IOC"/>
+                    <setProperty id="setPropertyNotificacionErrorIOC" propertyName="respuestaNotificacionCodigoIOCProp">
+                        <constant>N</constant>
+                    </setProperty>
+                    <setProperty
+                        id="setPropertyNotifiacionDescripcionErrorIOC" propertyName="respuestaNotificacionDescripcionProp">
+                        <constant>No Aplica Envio de Correo</constant>
+                    </setProperty>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="procesarEnvioNotificacionActualizacion">
+            <from id="procesarEnvioNotificacionActualizacionFrom" uri="direct:procesarEnvioNotificacionActualizacion"/>
+            <doTry id="procesarEnvioNotificacionActualizacionTry">
+                <log id="_log22" message="desde ruta --> procesarEnvioNotificacionActualizacion"/>
+                <log id="_log23" message="desde ruta -->Codigo:: ${exchangeProperty.respuestaNotificacionCodigoIOCProp}"/>
+                <log id="_log24" message="desde ruta -->Descripcion:: ${exchangeProperty.respuestaNotificacionDescripcionProp}"/>
+                <setBody id="_setBody6">
+                    <simple>${exchangeProperty.requestEntrada}</simple>
+                </setBody>
+                <convertBodyTo
+                    id="procesarEnvioNotificacionActualizacionBody" type="java.lang.String"/>
+                <to id="procesarEnvioNotificacionActualizacionIOC" uri="xslt://etc//transformations/in/remoteCall_IOC_notificacionIN.xsl"/>
+                <log id="_log25" message="IOC IOC300201I ACTUALIZACION REQUEST-----> ${body}"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.embargo.util.jms.CorrelationId"
+                    id="createJMSCorrelationIdNotificacion" method="createJMSCorrelationId24"/>
+                <to id="activeMQ-procesarEnvioNotificacionActualizacion" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="_log26" message="IOC IOC300201I ACTUALIZACION RESPONSE--> ${body}"/>
+                <doCatch id="procesarEnvioNotificacionActualizacionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="procesarEnvioNotificacionActualizacionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to
+                        id="toProcesarEnvioNotificacionActualizacionExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="procesarRespuestaActualizacionNotificacion">
+            <from id="procesarRespuestaActualizacionNotificacionFrom" uri="direct:procesarRespuestaActualizacionNotificacion"/>
+            <doTry id="procesarRespuestaActualizacionNotificacionTry">
+                <log id="_log27" message="Codigo:: ${exchangeProperty.respuestaNotificacionCodigoProp}"/>
+                <log id="_log28" message="Descripcion:: ${exchangeProperty.respuestaNotificacionDescripcionProp}"/>
+                <transform id="_transform2">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="procesarRespuestaActualizacionNotificacionXSLT" uri="xslt://etc//transformations/out/remoteCall_IOC_notificacionOUT.xsl"/>
+                <log id="_log29" message="respuesta procesarRespuestaActualizacionNotificacionXSLT -->${body}"/>
+                <setProperty id="setPropertyNotificacionIOCCodigo" propertyName="respuestaNotificacionIOCCodigoProp">
+                    <xpath resultType="java.lang.String">/IOC300201O/E02CODRES</xpath>
+                </setProperty>
+                <setProperty id="setPropertyNotificacionIODesc" propertyName="respuestaNotificacionIOCDescripcionProp">
+                    <xpath resultType="java.lang.String">/IOC300201O/E02DESRES</xpath>
+                </setProperty>
+                <doCatch id="procesarRespuestaActualizacionNotificacionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="procesarRespuestaActualizacionNotificacionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to
+                        id="toProcesarRespuestaActualizacionNotificacionExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="enviarNotificacionEmbargoCrm">
+            <from id="enviarNotificacionEmbargoCrmFrom" uri="direct:enviarNotificacionEmbargoCrm"/>
+            <doTry id="enviarNotificacionEmbargoCrmTry">
+                <setBody id="_setBody7">
+                    <simple>${exchangeProperty.requestEntrada}</simple>
+                </setBody>
+                <convertBodyTo id="enviarNotificacionEmbargoCrmBody" type="java.lang.String"/>
+                <setProperty id="enviarNotificacionEmbargoCrmUserId" propertyName="enviarNotificacionEmbargoCrmUserId">
+                    <simple>{{wsnotificacionescrm.userId}}</simple>
+                </setProperty>
+                <setProperty
+                    id="enviarNotificacionEmbargoCrmCanalLlamada" propertyName="enviarNotificacionEmbargoCrmCanalLlamada">
+                    <simple>{{wsnotificacionescrm.canalLlamada}}</simple>
+                </setProperty>
+                <to id="procesarInEnviarNotificacionEmbargoCrm" uri="xslt://etc//transformations/in/remoteCall_WS_CRMNotificacionIN.xsl"/>
+                <to id="toEnviarNotificacionEmbargoCrm" uri="direct:conectarWsNotificacionEmbargoCrm"/>
+                <doCatch id="enviarNotificacionEmbargoCrmDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="enviarNotificacionEmbargoCrmCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toEnviarNotificacionEmbargoCrmExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="conectarWsNotificaciones">
+            <from id="conectarWsNotificacionesFrom" uri="direct:conectarWsNotificaciones"/>
+            <doTry id="conectarWsNotificacionesTry">
+                <removeHeaders id="wsRemoveHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="conectarWsNotificacionesSetHeaderOperationName">
+                    <simple>${exchangeProperty.soapOperation}</simple>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="wsNotificacionesSetHeaderoperationNamespace">
+                    <constant>http://integracion.coopeuch.cl/WSNotificaciones/</constant>
+                </setHeader>
+                <to id="soapEndpointWsNotificaciones" uri="cxf:bean:endpointWSNotificaciones?dataFormat=MESSAGE"/>
+                <convertBodyTo id="conectarWsNotificacionesResponse" type="java.lang.String"/>
+                <doCatch id="conectarWsNotificacionesDoCatchTimeOut">
+                    <exception>java.net.SocketTimeoutException</exception>
+                    <setProperty
+                        id="conectarWsNotificacionesPropertyCodigo" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to id="conectarWsNotificacionesToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarWsNotificacionesErrorStop"/>
+                </doCatch>
+                <doCatch id="conectarWsNotificacionesDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="conectarWsNotificacionesPropertyCodigo" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="conectarWsNotificacionesToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarWsNotificacionesErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="conectarWsNotificacionEmbargoCrm">
+            <from id="conectarWsNotificacionEmbargoCrmFrom" uri="direct:conectarWsNotificacionEmbargoCrm"/>
+            <doTry id="conectarWsNotificacionEmbargoCrmTry">
+                <removeHeaders
+                    id="conectarWsNotificacionEmbargoCrmRemoveHeaders" pattern="*"/>
+                <setHeader headerName="soapAction" id="soapActionId">
+                    <constant>crm.coopeuch.cl/WSRequerimientosEmbargo/actualizar</constant>
+                </setHeader>
+                <to id="soapEndpointWsNotificacionesCrm" uri="cxf:bean:endpointWSNotificacionesCrm?dataFormat=MESSAGE"/>
+                <convertBodyTo id="conectarWsNotificacionesCrmResponse" type="java.lang.String"/>
+                <doCatch id="conectarWsNotificacionEmbargoCrmDoCatchTimeOut">
+                    <exception>java.net.SocketTimeoutException</exception>
+                    <setProperty
+                        id="conectarWsNotificacionEmbargoCrmPropertyCodigo" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to
+                        id="conectarWsNotificacionEmbargoCrmToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarWsNotificacionEmbargoCrmErrorStop"/>
+                </doCatch>
+                <doCatch id="conectarWsNotificacionEmbargoCrmDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="conectarWsNotificacionEmbargoCrmPropertyCodigo" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to
+                        id="conectarWsNotificacionEmbargoCrmToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarWsNotificacionEmbargoCrmErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <log id="excepcionLog1" loggingLevel="ERROR" message="Error en la ejecucion del servicio:${exception} ${body}"/>
+                <wireTap id="excepcionSendColaError" uri="direct:envioColaError"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="procesaExcepcion" ref="beanRouteExcepcionFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="envioColaError">
+            <from id="envioColaErrorFrom" uri="direct:envioColaError"/>
+            <doTry id="envioColaErrorTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteExcepcionFacade"/>
+                <marshal id="envioColaErrorMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="envioColaErrorConvertTo" type="java.lang.String"/>
+                <to id="envioColaErrorToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <doCatch id="envioColaErrorDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="envioColaErrorLog" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del servicio: Request: ${body} Error: ${exception}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

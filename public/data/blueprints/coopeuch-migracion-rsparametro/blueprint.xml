@@ -1,0 +1,267 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="variablesGlobales"
+        persistent-id="global" placeholder-prefix="{["
+        placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="variablesLocales"
+        persistent-id="servicioparametro" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+                             persistent-id="globalDb2" placeholder-prefix="[[" placeholder-suffix="]]"
+                             update-strategy="reload" />
+    <cxf:cxfEndpoint address="/ServicioParametro"
+        id="servicioParametroEndpoint"
+        serviceClass="cl.coopeuch.integracion.parametro.wsdl.ParametroPortType" wsdlURL="wsdl/ServicioParametros.wsdl"/>
+    <cxf:rsServer address="/RSServicioParametro"
+        id="servicioParametroRest" serviceClass="cl.coopeuch.integracion.parametro.util.ServicioParametroRest"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.transferencias]]"/>
+        <property name="password" value="[[jdbc.db2.password.transferencias]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.parametro}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.parametro}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.parametro}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.parametro}]"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.parametro.util.RouteFacade" id="routeFacade"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <camelContext id="servicio-parametro" xmlns="http://camel.apache.org/schema/blueprint">
+        <!--    Ingreso por medio de SOAP -->
+        <route id="routeSOAP">
+            <from id="servicioParametroEndpointListener" uri="cxf:bean:servicioParametroEndpoint?DataFormat=MESSAGE"/>
+            <to id="toInicioFromSoap" uri="direct:inicio"/>
+        </route>
+        <!--	Ingreso por medio de JMS -->
+        <route id="routeAMQ">
+            <from id="fromAMQ" uri="AMQ:queue:{{colas.servicio.parametros.in.temp}}?preserveMessageQos=true"/>
+            <to id="toInicioFromAMQ" uri="direct:inicio"/>
+        </route>
+        <route id="routeREST">
+            <from id="fromRest" uri="cxfrs:bean:servicioParametroRest"/>
+            <doTry id="restTry">
+                <setProperty id="restSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="restSetTipoRequest" propertyName="tipoRequest">
+                    <simple>${header.operationName}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacionREST">
+                    <when id="inicioWhenOperacionConsultaParametrosREST">
+                        <simple>${header.operationName} == 'consultaParametros'</simple>
+                        <unmarshal id="consultaParametros_unmarshal">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.parametro.xsd.ConsultaParametrosRequest"/>
+                        </unmarshal>
+                        <bean id="consultaParametrosResquestRest"
+                            method="consultaParametrosResquestRest" ref="routeFacade"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarCierreBancarioREST">
+                        <simple>${header.operationName} == 'consultarCierreBancario'</simple>
+                        <unmarshal id="consultarCierreBancario_unmarshal">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.parametro.xsd.ConsultarCierreBancarioRequest"/>
+                        </unmarshal>
+                        <bean id="consultarCierreBancarioResquestRest"
+                            method="consultarCierreBancarioResquestRest" ref="routeFacade"/>
+                    </when>
+                </choice>
+                <marshal id="consultaParametrosMarshalRest">
+                    <jaxb contextPath="cl.coopeuch.integracion.parametro.xsd"/>
+                </marshal>
+                <to id="restToInicio" uri="direct:inicio"/>
+                <to id="restToSalidaRest" uri="direct:salidaRest"/>
+                <doCatch id="restDoCatchSchemaValidation">
+                    <exception>java.io.IOException</exception>
+                    <setProperty id="restSchemaValidationCodigoError" propertyName="codigoError">
+                        <constant>417</constant>
+                    </setProperty>
+                    <to id="restToExcepcionSchemaValidation" uri="direct:excepcion"/>
+                    <to id="restToExcepcionSalidaRest" uri="direct:salidaRest"/>
+                </doCatch>
+                <doCatch id="restDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="restexceptionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="restToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!--    Esta ruta dirige segun corresponda la entrada ya sea por soap o jms -->
+        <route id="routeInicio">
+            <from id="fromInicio" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="convertBodyToString" type="java.lang.String"/>
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaconsultaParametros">
+                        <simple>${body} contains 'consultaParametros'</simple>
+                        <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                            <constant>consultaParametros</constant>
+                        </setProperty>
+                        <to id="consultaParametrosValidator" uri="validator:xsd/soapParametros.xsd"/>
+                        <to id="consultaParametrosTo" uri="direct:consultaParametros"/>
+                    </when>
+                    <when id="rutaconsulta-ConsultarCierreBancario">
+                        <simple>${body} contains 'consultarCierreBancario'</simple>
+                        <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                            <constant>consultarCierreBancario</constant>
+                        </setProperty>
+                        <to id="consultarCierreBancarioValidator" uri="validator:xsd/soapParametros.xsd"/>
+                        <to id="consultarCierreBancarioTo" uri="direct:consultarCierreBancario"/>
+                    </when>
+                </choice>
+                <doCatch id="inicioDoCatchExchangeTimedOutException">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="setCodigoExchangeTimedOutException" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="inicioToExchangeTimedOutException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatchNetSocketException">
+                    <exception>java.net.SocketException</exception>
+                    <setProperty id="setCodigoNetSocketException" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <to id="inicioToNetSocketException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatchIllegalArgumentException">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="setCodigoIllegalArgumentException" propertyName="codigoError">
+                        <constant>111</constant>
+                    </setProperty>
+                    <to id="inicioToIllegalArgumentException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatchSchemaValidation">
+                    <exception>org.apache.camel.processor.validation.SchemaValidationException</exception>
+                    <setProperty
+                        id="exceptionSchemaValidationCodigoError" propertyName="codigoError">
+                        <constant>417</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcionSchemaValidation" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatchIBMSyntaxError">
+                    <exception>java.sql.SQLException</exception>
+                    <log message="xx::${body}"/>
+                    <choice>
+                    	<when>
+                    		 <simple>${body} contains 'consultaParametros'</simple>
+                    		 <bean id="consultaParametrosSinResultados"
+		                        method="consultaParametrosSinResultados" ref="routeFacade"/>
+		                     <marshal id="marshalErrorSyntax">
+		                        <jaxb contextPath="cl.coopeuch.integracion.parametro.xsd"/>
+		                     </marshal>
+                    	</when>
+                    	<when>
+                    		 <simple>${body} contains 'consultarCierreBancario'</simple>
+                    		 <bean id="consultarCierreBancarioSinResultados"
+		                        method="consultarCierreBancarioSinResultados" ref="routeFacade"/>
+		                     <marshal id="marshalErrorSyntax-consultarCierreBancario">
+		                        <jaxb contextPath="cl.coopeuch.integracion.parametro.xsd"/>
+		                     </marshal>
+                    	</when>
+                    </choice>
+                    
+                </doCatch>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="exceptionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!--    Ruta encargada de realizar la consulta a la base de datos -->
+        <route id="consultaParametros">
+            <from id="consultaParametrosFrom" uri="direct:consultaParametros"/>
+            <bean id="consultaParametrosEntrada"
+                method="consultaParametrosEntrada" ref="routeFacade"/>
+            <to id="consultarDetalle-To" uri="sql-stored:classpath:sql/PA_SEL_CONSULTAPARAMETROS_WS.sql?dataSource=dataSourceSqlDb2"/>
+            <bean id="consultaParametrosSalida"
+                method="consultaParametrosSalida" ref="routeFacade"/>
+            <marshal id="consultaParametrosMarshal">
+                <jaxb contextPath="cl.coopeuch.integracion.parametro.xsd"/>
+            </marshal>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="routeFacade"/>
+                <marshal id="exceptionMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.parametro.xsd"/>
+                </marshal>
+                <wireTap id="wiretapGuardarErrorColaAMQ" uri="direct:guardarErrorColaAMQ"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="guardarErrorColaAMQ">
+            <from id="guardarErrorColaAMQFrom" uri="direct:guardarErrorColaAMQ"/>
+            <setProperty id="setMensajeError" propertyName="mensajeError">
+                <xpath resultType="String">//descripcionError</xpath>
+            </setProperty>
+            <bean id="beanExceptionAmq" method="excepcionAmq" ref="routeFacade"/>
+            <marshal id="excepcionMarshalJson">
+                <json library="Jackson"/>
+            </marshal>
+            <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+            <to id="excepcionToAmqFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly&amp;timeToLive={{cola.error.tiempo}}&amp;deliveryMode=1"/>
+        </route>
+        <route id="salidaRest">
+            <from id="fromSalidaRest" uri="direct:salidaRest"/>
+            <unmarshal id="unmarshalErrorValidation">
+                <jaxb contextPath="cl.coopeuch.integracion.parametro.xsd"/>
+            </unmarshal>
+            <choice id="restChoiceMarshallError">
+                <when id="whenConsultaParametrosMarshall">
+                    <simple>${property.tipoRequest} == 'consultaParametros'</simple>
+                    <bean id="consultaParametrosResponseRest"
+                        method="consultaParametrosResponseRest" ref="routeFacade"/>
+                    <marshal id="consultaParametrosError_marshall">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.parametro.xsd.RespuestaConsultaParametros"/>
+                    </marshal>
+                </when>
+                <when id="consultarCierreBancarioMarshall">
+                    <simple>${property.tipoRequest} == 'consultarCierreBancario'</simple>
+                    <bean id="consultarCierreBancarioResponseRest"
+                        method="consultarCierreBancarioResponseRest" ref="routeFacade"/>
+                    <marshal id="consultaParametrosError_marshall">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.parametro.xsd.ConsultarCierreBancarioResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        
+        <!--    Ruta encargada de realizar la consulta a la base de datos de la operacion consultarCierreBancario -->
+        <route id="consultarCierreBancario">
+            <from id="consultarCierreBancarioFrom" uri="direct:consultarCierreBancario"/>
+            <bean id="consultarCierreBancarioEntrada"
+                method="consultarCierreBancarioEntrada" ref="routeFacade"/>
+            <to id="consultarCierreBancarioDetalle-To" uri="sql-stored:classpath:sql/PA_SEL_PARAMETRO_CONSULTARCIERREBANCARIO_WS.sql?dataSource=dataSourceSqlDb2"/>
+            <bean id="consultarCierreBancarioSalida"
+                method="consultarCierreBancarioSalida" ref="routeFacade"/>
+            <marshal id="consultarCierreBancarioMarshal">
+                <jaxb contextPath="cl.coopeuch.integracion.parametro.xsd"/>
+            </marshal>
+        </route>
+    </camelContext>
+</blueprint>

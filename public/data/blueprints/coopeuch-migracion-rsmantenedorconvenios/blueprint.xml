@@ -1,0 +1,649 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+           xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+           xmlns:http="http://cxf.apache.org/transports/http/configuration"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd
+        http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal"
+                                 persistent-id="global" placeholder-prefix="{[" placeholder-suffix="]}"
+                                 update-strategy="reload" />
+    <cm:property-placeholder id="propertyGlobal2" persistent-id="globalDb2"
+                                 placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>  
+    <cm:property-placeholder id="propertyLocal"
+                             persistent-id="wsmantenedorconvenios" placeholder-prefix="{{"
+                             placeholder-suffix="}}" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent"
+              id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}" />
+        <property name="userName" value="{[amq.username]}" />
+        <property name="password" value="{[amq.password]}" />
+        <property name="usePooledConnection" value="true" />
+
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+          destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[{jdbc.db2.url.servicio}]"/>
+        <property name="username" value="[{jdbc.db2.username.convenios}]"/>
+        <property name="password" value="[{jdbc.db2.password.convenios}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="{{jdbc.db2.timeBetweenEvictionRunsMillis.convenios}}"/>
+        <property name="numTestsPerEvictionRun" value="{{jdbc.db2.numTestsPerEvictionRun.convenios}}"/>
+        <property name="minEvictableIdleTimeMillis" value="{{jdbc.db2.minEvictableIdleTimeMillis.convenios}}"/>
+        <property name="maxActive" value="{{jdbc.db2.maxActive.convenios}}"/>
+    </bean>
+    <bean id="jsonProvider" class="com.fasterxml.jackson.jaxrs.json.JacksonJsonProvider" />
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="cxfJsonProvider">
+        <property name="dropRootElement" value="true"/>
+        <property name="supportUnwrapped" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.entidad.serviciomantenedorconvenios.util.RouteFacade"
+        id="beanRouteFacade" />
+    <camelcxf:cxfEndpoint address="/WSMantenedorConvenios"
+                              id="endpointWSMantenedorConvenios"
+                              serviceClass="cl.coopeuch.integracion.entidad.WSMantenedorConvenios.wsdl.WSMantenedorConveniosSOAPPortType"
+                              wsdlURL="etc/wsdl/WSMantenedorConvenios.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true" />
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+
+    <bean
+        class="cl.coopeuch.integracion.entidad.serviciomantenedorconvenios.util.ErrorExcepcionInterceptor"
+        id="ErrorExcepcionInterceptor" />
+
+
+    <camelcxf:rsServer address="/RSMantenedorConvenios"
+                           id="endpointRSMantenedorConvenios"
+                           serviceClass="cl.coopeuch.integracion.entidad.WSMantenedorConvenios.wsdl.WSMantenedorConveniosSOAPPortType">
+        <camelcxf:providers>
+            <bean id="jsonProvider" class="org.apache.cxf.jaxrs.provider.json.JSONProvider">
+                <property name="serializeAsArray" value="true"/>
+                <property name="arrayKeys">
+                    <list>
+                        <value>fondos</value>
+                        <value>solicitudes</value>
+                    </list>
+                </property>
+            </bean>
+        </camelcxf:providers>
+     </camelcxf:rsServer>
+
+    <camelcxf:rsClient
+        address="{{wsmantenedorconvenios.servicioexterno.solicitudapertura.endpoint}}"
+        id="endpointSolicitudApertura" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="cxfJsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+
+    <camelContext id="servicio-administracionconveniopauta"
+                      xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <xmljson id="xmljsonList" />
+            <json id="serializer" library="Jackson" />
+            <xmljson id="xmljson" />
+            <xmljson arrayName="tes" elementName="list"
+                                 expandableProperties="false" forceTopLevelObject="true"
+                                 id="xmljsonWithOptions" removeNamespacePrefixes="true" rootName="test"
+                                 skipNamespaces="true" trimSpaces="true" />
+            <jacksonxml id="jacksonxml" useList="true"
+                                    unmarshalTypeName="cl.coopeuch.integracion.entidad.WSMantenedorConvenios.wsdl.ConsultarRequest" />
+
+            <jacksonxml id="jacksonxmlmodficar" useList="true"
+                                    unmarshalTypeName="cl.coopeuch.integracion.entidad.WSMantenedorConvenios.wsdl.ModificarRequest" />
+        </dataFormats>
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSMantenedorConvenios" />
+
+            <to id="soapToInicioWs" uri="direct:cxf-inicio" />
+        </route>
+
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSMantenedorConvenios" />
+            <to uri="direct:cxf-inicio"></to>
+
+        </route>
+
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio" />
+            <doTry id="inicioTry">
+
+                <log loggingLevel="ERROR" message="****************  ${body}"></log>
+
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+
+
+                <choice id="inicioChoiceOperacion">
+                    <when>
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="toActualizar" uri="direct:consultar" />
+                    </when>
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'modificar'</simple>
+                        <to id="toConsultar" uri="direct:modificar" />
+                    </when>
+                    <when id="inicioWhenOperacionAperturar">
+                        <simple>${header.operationName} == 'aperturar'</simple>
+                        <to id="toAperturar" uri="direct:aperturar" />
+                    </when>
+                    <when id="inicioWhenOperacionListar">
+                        <simple>${header.operationName} == 'listar'</simple>
+                        <to id="toListar" uri="direct:listar" />
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException exceptionType="java.lang.Exception"
+                                                                id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida" />
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <simple resultType="Integer">500</simple>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion" />
+                </doCatch>
+            </doTry>
+        </route>
+
+
+        <route id="consultar">
+            <from id="crearFrom" uri="direct:consultar" />
+            <marshal ref="jacksonxml"></marshal>
+            <doTry>
+                <log loggingLevel="ERROR" message="Cuerpo XML = ${body}" />
+                <setHeader headerName="canalLlamada">
+                    <xpath resultType="String">//*[name() = 'canalLlamada']</xpath>
+                </setHeader>
+                <setHeader headerName="userId">
+                    <xpath resultType="String">//*[name() = 'userId']</xpath>
+                </setHeader>
+
+                <setHeader headerName="idPauta">
+                    <xpath resultType="Integer">//*[name() = 'idPauta']</xpath>
+                </setHeader>
+                <setHeader headerName="numeroSolicitud">
+                    <xpath resultType="String">//*[name() = 'numeroSolicitud']</xpath>
+                </setHeader>
+                <setHeader headerName="sectorRegla">
+                    <xpath resultType="String">//*[name() = 'sectorRegla']</xpath>
+                </setHeader>
+                <setHeader headerName="estado">
+                    <xpath resultType="String">//*[name() = 'estado']</xpath>
+                </setHeader>
+                <setHeader headerName="version">
+                    <xpath resultType="String">//*[name() = 'version']</xpath>
+                </setHeader>
+                <setHeader headerName="codConvenio">
+                    <xpath resultType="String">//*[name() = 'codConvenio']</xpath>
+                </setHeader>
+                <bean method="validarIngreso" ref="beanRouteFacade"></bean>
+                <log message="****************  ${headers.validacion}"></log>
+                <choice>
+                    <when>
+                        <simple>${headers.validacion}</simple>
+                        <setProperty propertyName="codigoError">
+                            <simple resultType="Integer">420</simple>
+                        </setProperty>
+                        <setProperty propertyName="exception.message">
+                            <simple>${headers.validacion}</simple>
+                        </setProperty>
+                        <to uri="direct:excepcion" />
+                        <stop />
+                    </when>
+                </choice>
+                <convertBodyTo type="java.lang.String" />
+                <bean method="crearJMSCorrelationId24" ref="beanRouteFacade" />
+                <to id="crearToXSLTrama" uri="xslt://etc/xsl/request/IOCXXXX01I_consular.xsl" />
+                <log loggingLevel="ERROR" message="Trama enviada = ${body}" />
+
+                <to
+                    uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut" />
+                <transform id="crearTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <log loggingLevel="ERROR" message="Trama XML = ${body}" />
+                <to id="crearToXSLSOAP"
+                                    uri="xslt://etc/xsl/response/IOCXXXX01O_consultar.xsl?saxon=true" />
+                <log loggingLevel="ERROR" message="Trama XML = ${body}" />
+                <setProperty propertyName="formato">
+                    <xpath resultType="String">//ConsultarResponse//formato/text()</xpath>
+                </setProperty>
+                <setProperty propertyName="numeroSolicitud">
+                    <xpath resultType="Integer">//ConsultarResponse//numeroSolicitud/text()
+                    </xpath>
+                </setProperty>
+                <setProperty propertyName="codConvenio">
+                    <xpath resultType="String">//ConsultarResponse//codConvenio/text()
+                    </xpath>
+                </setProperty>
+                <setProperty propertyName="nombreConvenio">
+                    <xpath resultType="String">//ConsultarResponse//nombreConvenio/text()
+                    </xpath>
+                </setProperty>
+                <setProperty propertyName="sectorRegla">
+                    <xpath resultType="String">//ConsultarResponse//sectorRegla/text()
+                    </xpath>
+                </setProperty>
+                <setProperty propertyName="NombresectorRegla">
+                    <xpath resultType="String">//ConsultarResponse//NombresectorRegla/text()
+                    </xpath>
+                </setProperty>
+                <setProperty propertyName="idPauta">
+                    <xpath resultType="Integer">//ConsultarResponse//idPauta/text()</xpath>
+                </setProperty>
+                <setProperty propertyName="estadoHabilitado">
+                    <xpath resultType="String">//ConsultarResponse//estadoHabilitado/text()
+                    </xpath>
+                </setProperty>
+                <setProperty propertyName="descEstadoHabilitado">
+                    <xpath resultType="String">//ConsultarResponse//descEstadoHabilitado/text()
+                    </xpath>
+                </setProperty>
+                <setProperty propertyName="estado">
+                    <xpath resultType="String">//ConsultarResponse//estado/text()</xpath>
+                </setProperty>
+                <setProperty propertyName="version">
+                    <xpath resultType="String">//ConsultarResponse//version/text()</xpath>
+                </setProperty>
+                <setProperty propertyName="fechaModificacion">
+                    <xpath resultType="String">//ConsultarResponse//fechaModificacion/text()
+                    </xpath>
+                </setProperty>
+                <setProperty propertyName="usuarioModificacion">
+                    <xpath resultType="String">//ConsultarResponse//usuarioModificacion/text()
+                    </xpath>
+                </setProperty>
+                <choice>
+                    <when>
+                        <simple>${body} contains 'error'</simple>
+                        <split>
+                            <xpath>//crearResponse/error/errores/detalleError</xpath>
+                            <log loggingLevel="ERROR" message="******Salida : ${body} "></log>
+
+                            <setProperty propertyName="codigo">
+                                <xpath resultType="Integer">//detalleError/codigo
+                                </xpath>
+                            </setProperty>
+                            <setProperty propertyName="descripcion">
+                                <xpath resultType="String">//detalleError/descripcion
+                                </xpath>
+                            </setProperty>
+                            <setProperty propertyName="origen">
+                                <xpath resultType="String">//detalleError/origen
+                                </xpath>
+                            </setProperty>
+                            <bean method="crearResponseErroIoc" ref="beanRouteFacade"></bean>
+                        </split>
+                    </when>
+                    <otherwise>
+                        <setProperty propertyName="formato">
+                            <xpath resultType="String">//ConsultarResponse//formato/text()
+                            </xpath>
+                        </setProperty>
+                        <setProperty propertyName="codigorespuesta">
+                            <xpath resultType="String">//ConsultarResponse//codigorespuesta/text()
+                            </xpath>
+                        </setProperty>
+                        <setProperty propertyName="descripcion">
+                            <xpath resultType="String">//ConsultarResponse//descripcion/text()
+                            </xpath>
+                        </setProperty>
+                    </otherwise>
+                </choice>
+                <bean method="responseConsultar" ref="beanRouteFacade"></bean>
+                <unmarshal id="unmarshalEliminar">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.WSMantenedorConvenios.wsdl" />
+                </unmarshal>
+
+                <doCatch id="crearDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty propertyName="codigoError">
+                        <simple resultType="Integer">502</simple>
+                    </setProperty>
+
+                    <to uri="direct:excepcion" />
+                </doCatch>
+                <doCatch>
+                    <exception>java.lang.Exception</exception>
+                    <setProperty propertyName="codigoError">
+                        <simple resultType="Integer">500</simple>
+                    </setProperty>
+                    <to uri="direct:excepcion" />
+                </doCatch>
+            </doTry>
+        </route>
+
+        <route>
+            <from uri="direct:modificar" />
+            <doTry>
+                <marshal ref="jacksonxmlmodficar"></marshal>
+                <setHeader headerName="canalLlamada">
+                    <xpath resultType="String">//*[name() = 'canalLlamada']</xpath>
+                </setHeader>
+
+                <setHeader headerName="userId">
+                    <xpath resultType="String">//*[name() = 'userId']</xpath>
+                </setHeader>
+
+                <setHeader headerName="idPauta">
+                    <xpath resultType="Integer">//*[name() = 'idPauta']</xpath>
+                </setHeader>
+
+                <setHeader headerName="numeroSolicitud">
+                    <xpath resultType="String">//*[name() = 'numeroSolicitud']</xpath>
+                </setHeader>
+
+                <setHeader headerName="sectorRegla">
+                    <xpath resultType="String">//*[name() = 'sectorRegla']</xpath>
+                </setHeader>
+
+                <setHeader headerName="estado">
+                    <xpath resultType="String">//*[name() = 'estado']</xpath>
+                </setHeader>
+
+                <setHeader headerName="version">
+                    <xpath resultType="String">//*[name() = 'version']</xpath>
+                </setHeader>
+
+                <setHeader headerName="tipomodificacion">
+                    <xpath resultType="String">//*[name() = 'tipomodificacion']</xpath>
+                </setHeader>
+
+                <setHeader headerName="codConvenio">
+                    <xpath resultType="String">//*[name() = 'codConvenio']</xpath>
+                </setHeader>
+
+                <setHeader headerName="versionanterior">
+                    <xpath resultType="String">//*[name() = 'versionanterior']</xpath>
+                </setHeader>
+
+                <bean method="validarIngresoModficar" ref="beanRouteFacade"></bean>
+                <choice>
+                    <when>
+                        <simple>${headers.validacion}</simple>
+                        <setProperty propertyName="codigoError">
+                            <simple resultType="Integer">420</simple>
+                        </setProperty>
+                        <setProperty propertyName="exception.message">
+                            <simple>${headers.validacion}</simple>
+                        </setProperty>
+                        <to uri="direct:excepcion" />
+                        <stop />
+                    </when>
+                </choice>
+                <convertBodyTo id="crearConvertBodyToString" type="java.lang.String" />
+                <bean method="crearJMSCorrelationId24" ref="beanRouteFacade" />
+                <setProperty propertyName="bodyModficar">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty propertyName="datosModificables">
+                    <xpath>//modificarRequest//datosModificables</xpath>
+                </setProperty>
+                <log message="Trama datos  = ${property.datosModificables}" />
+                <to uri="xslt://etc/xsl/request/IOCXXXX01I_modficar.xsl" />
+                <setProperty propertyName="modificarRequest">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setBody>
+                    <simple>${property.bodyModficar}</simple>
+                </setBody>
+                <to uri="xslt://etc/xsl/request/IOCXXXX01I_modficarversion.xsl" />
+                <log loggingLevel="ERROR" message=" ************* Datos modficables1  ${body}"></log>
+                <setProperty propertyName="modificarversion">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setBody>
+                    <simple>${property.datosModificables}</simple>
+                </setBody>
+                <to
+                    uri="xslt://etc/xsl/request/IOCXXXX01O_modificardatosmodifcables.xsl" />
+                <setProperty propertyName="Datosmodficable">
+                    <simple>${body}</simple>
+                </setProperty>
+                <log loggingLevel="ERROR" message=" ************* Datosmodficables2  ${body}"></log>
+
+                <setBody>
+                    <simple>${property.modificarRequest}${property.Datosmodficable}${property.modificarversion}
+                    </simple>
+                </setBody>
+                <log loggingLevel="ERROR" message="Trama XML = ${body}" />
+                <to
+                    uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut" />
+                <log loggingLevel="ERROR" message="**************  Saldia del JMS  ${body}"></log>
+                <transform>
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+
+                <to uri="xslt://etc/xsl/response/IOCXXXX01O_modificar.xsl?saxon=true"></to>
+                <log loggingLevel="ERROR" message="salida XML = ${body}" />
+                <choice>
+                    <when>
+                        <simple>${body} contains 'error'</simple>
+                        <split>
+                            <xpath>//crearResponse/error/errores/detalleError</xpath>
+                            <log loggingLevel="ERROR" message="******Salida : ${body} "></log>
+
+                            <setProperty propertyName="codigo">
+                                <xpath resultType="Integer">//detalleError/codigo
+                                </xpath>
+                            </setProperty>
+                            <setProperty propertyName="descripcion">
+                                <xpath resultType="String">//detalleError/descripcion
+                                </xpath>
+                            </setProperty>
+                            <setProperty propertyName="origen">
+                                <xpath resultType="String">//detalleError/origen
+                                </xpath>
+                            </setProperty>
+                            <bean method="crearResponseErroIoc" ref="beanRouteFacade"></bean>
+                        </split>
+                    </when>
+                    <otherwise>
+                        <setProperty propertyName="codconvenio">
+                            <xpath resultType="String">//ConsultarResponse//codconvenio/text()
+                            </xpath>
+                        </setProperty>
+                        <setProperty propertyName="codigorespuesta">
+                            <xpath resultType="Integer">//ConsultarResponse//codigorespuesta/text()
+                            </xpath>
+                        </setProperty>
+                        <setProperty propertyName="descripcion">
+                            <xpath resultType="String">//ConsultarResponse//descripcion/text()
+                            </xpath>
+                        </setProperty>
+                    </otherwise>
+                </choice>
+                <bean method="responseModificar" ref="beanRouteFacade"></bean>
+                <stop />
+
+                <doCatch>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty propertyName="codigoError">
+                        <simple resultType="Integer">502</simple>
+                    </setProperty>
+
+                    <to uri="direct:excepcion" />
+                </doCatch>
+                <doCatch>
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="crearCodigoError" propertyName="codigoError">
+                        <simple resultType="Integer">500</simple>
+                    </setProperty>
+                    <to uri="direct:excepcion" />
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="aperturar">
+            <from id="aperturarFrom" uri="direct:aperturar"/>
+            <doTry id="aperturarTry">
+                <setProperty id="aperturarSetUserId" propertyName="userId">
+                    <simple>$simple{body.userId}</simple>
+                </setProperty>
+                <setProperty id="aperturarSetCanalLlamada" propertyName="canalLlamada">
+                    <simple>$simple{body.canalLlamada}</simple>
+                </setProperty>
+                <setProperty id="aperturarSetAmbito" propertyName="ambito">
+                    <simple>$simple{body.ambito}</simple>
+                </setProperty>
+                <setProperty id="aperturarSetJefatura" propertyName="jefatura">
+                    <simple>$simple{body.jefatura}</simple>
+                </setProperty>
+                <setProperty id="aperturarSetGerencia" propertyName="gerencia">
+                    <simple>$simple{body.gerencia}</simple>
+                </setProperty>
+                <setProperty id="aperturarSetSucursal" propertyName="sucursal">
+                    <simple>$simple{body.sucursal}</simple>
+                </setProperty>
+                <setProperty id="aperturarSetNumeroSolicitud" propertyName="numeroSolicitud">
+                    <simple>$simple{body.numeroSolicitud}</simple>
+                </setProperty>
+                <setProperty id="aperturarSetNombreConvenio" propertyName="nombreConvenio">
+                    <simple>$simple{body.nombreConvenio}</simple>
+                </setProperty>
+                <setProperty id="aperturarSetCodigoConvenio" propertyName="codigoConvenio">
+                    <simple>$simple{body.codigoConvenio}</simple>
+                </setProperty>
+                <setProperty id="aperturarSetRutEmpleador" propertyName="rutEmpleador">
+                    <simple>$simple{body.rutEmpleador}</simple>
+                </setProperty>
+                <setProperty id="aperturarSetUsuario" propertyName="usuario">
+                    <simple>$simple{body.usuario}</simple>
+                </setProperty>
+                <setProperty id="aperturarSetTipoConvenio" propertyName="tipoConvenio">
+                    <simple>$simple{body.tipoConvenio}</simple>
+                </setProperty>
+                <bean method="requestSolicitudApertura" ref="beanRouteFacade"/>
+                <removeHeaders id="aperturarHeaderRemove" pattern="*"/>
+                <setHeader id="aperturarContentTypeSetHeader" headerName="Content-Type">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader id="aperturarMethodSetHeader" headerName="Exchange.HTTP_METHOD">
+                    <constant>POST</constant>
+                </setHeader>
+                <marshal>
+                    <json include="NON_NULL" library="Jackson"/>
+                </marshal>
+                <convertBodyTo type="java.lang.String"/>
+<!--                 <log message="Request:(((((((${body})))))))"/> -->
+                <to id="aperturarToServicioExterno" uri="cxfrs:bean:endpointSolicitudApertura"/>
+                <choice id="aperturarChoice">
+                    <when id="aperturarResponseSinError">
+                        <simple>"${header.CamelHttpResponseCode} == '200'"</simple>
+                        <unmarshal>
+                            <json library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.servicioexterno.solicitudapertura.SolicitudAperturaResponse"/>
+                        </unmarshal>
+                        <bean id="aperturarRespuesta" method="responseSolicitudApertura" ref="beanRouteFacade"/>
+                    </when>
+                </choice>
+                <doCatch id="aperturarServicioExternoDoCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <setProperty id="aperturarServicioExternoCodigoError" propertyName="codigoError">
+                        <simple resultType="Integer">504</simple>
+                    </setProperty>
+                    <setHeader id="mensajeExcepcionServicioExterno" headerName="validacion">
+                        <simple>Error en la comunicación con el servicio externo SolicitudApertura</simple>
+                    </setHeader>
+                    <to id="toAperturarServicioExternoExcepcion" uri="direct:excepcion"/>
+                    
+                </doCatch>
+                <doCatch id="aperturarValidacionTipoDatoDoCatch">
+                    <exception>java.io.IOException</exception>
+                    <setProperty id="aperturarCodigoErrorValidacionTipoDato" propertyName="codigoError">
+                        <simple resultType="Integer">400</simple>
+                    </setProperty>
+                    <to id="toAperturarExcepcionValidacionTipoDato" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="aperturarValidacionCamposDoCatch">
+                    <exception>java.lang.NullPointerException</exception>
+                    <setProperty id="aperturarCodigoErrorValidacionCampos" propertyName="codigoError">
+                        <simple resultType="Integer">409</simple>
+                    </setProperty>
+                    <to id="toAperturarExcepcionValidacionCampos" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="aperturarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="aperturarCodigoError" propertyName="codigoError">
+                        <simple resultType="Integer">500</simple>
+                    </setProperty>
+                    <to id="toAperturarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="listar">
+            <from id="listar" uri="direct:listar"/>
+            <doTry id="listarTry">
+                <setProperty propertyName="userId">
+                    <simple>$simple{body.userId}</simple>
+                </setProperty>
+                <setProperty propertyName="canalLlamada">
+                    <simple>$simple{body.canalLlamada}</simple>
+                </setProperty>
+                <bean id="validarRequestListar"  method="validarRequestListar" ref="beanRouteFacade"/>
+                <to id="listar-To" uri="sql-stored:classpath:etc/sql/PA_SEL_MANTENEDORCONVENIOS_LISTAR_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=listarPaResponse"/>
+                <bean method="generarResponseListar" ref="beanRouteFacade"/>
+                <unmarshal id="unmarshalListar">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.WSMantenedorConvenios.wsdl"/>
+                </unmarshal>
+                <doCatch id="validacionesListarDoCatchPa">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="validacionesListarToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="listarDBDoCatch">
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty id="listarDBCodigoError" propertyName="codigoError">
+                        <constant>505</constant>
+                    </setProperty>
+                    <log message="Error: ${exception.stacktrace}"/>
+                    <to id="listarToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="listarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="listarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="listarToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion" />
+            <doTry id="excepcionTry">
+                <!-- <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade" 
+                /> -->
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson" />
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String" />
+                <to id="excepcionToAmqFault"
+                                    uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly" />
+                <bean id="excepcionBeanExcepcion" method="excepcionCrear" ref="beanRouteFacade" />
+                <stop />
+                <doCatch id="excepcionDoCatch">
+
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR"
+                                             message="Ha ocurrido un error al escribir en la cola de errores o 
+				en la ejecucion del servicio: ${body}" />
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

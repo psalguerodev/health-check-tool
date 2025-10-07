@@ -1,0 +1,499 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+           xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+           xmlns:http="http://cxf.apache.org/transports/http/configuration"
+           xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+                             placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+                             persistent-id="wssofttoken" placeholder-prefix="[{"
+                             placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+          destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{softtoken.bd.url}];charset=iso_1"/>
+        <property name="username" value="[{softtoken.bd.username}]"/>
+        <property name="password" value="[{softtoken.bd.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{softtoken.bd.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{softtoken.bd.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{softtoken.bd.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{softtoken.bd.maxActive}]"/>
+    </bean>
+    <!--Servidores-->
+    <camelcxf:cxfEndpoint address="/WSSoftToken"
+                          id="softTokenSOAP"
+                          serviceClass="cl.coopeuch.integracion.softtoken.wsdl.WSSoftTokenSOAPPortType"
+                          loggingFeatureEnabled="true"
+                          wsdlURL="etc/wsdl/public/WSSoftToken.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSSoftToken"
+                       id="softTokenREST" loggingFeatureEnabled="true"
+                       serviceClass="cl.coopeuch.integracion.softtoken.wsdl.WSSoftTokenSOAPPortType"/>
+    <!--Clientes-->
+    <camelcxf:cxfEndpoint
+            address="[{safesigner.safesignerws.endpoint}]"
+            id="endpointWSSafesigner" loggingFeatureEnabled="false"
+            serviceClass="cl.coopeuch.integracion.softtoken.wsdl.client.safesigner.SafeSignerWs"
+            wsdlURL="etc/wsdl/client/SafeSignerWs.wsdl">
+        <camelcxf:inInterceptors>
+            <bean class="cl.coopeuch.integracion.softtoken.interceptor.CustomLoggingInInterceptor" />
+        </camelcxf:inInterceptors>
+        <camelcxf:outInterceptors>
+            <bean class="cl.coopeuch.integracion.softtoken.interceptor.CustomLoggingOutInterceptor" />
+        </camelcxf:outInterceptors> 
+    </camelcxf:cxfEndpoint>
+
+
+    <camelcxf:rsClient id="endpointRestMovilSafeSigner"
+                       address="[{safesigner.safesignerrest.mobile.endpoint}]"
+                       loggingFeatureEnabled="true"
+                       password="[{safesigner.safesignerrest.mobile.endpoint.clase}]"
+                       username="[{safesigner.safesignerrest.mobile.endpoint.usuario}]"
+                       serviceClass="cl.coopeuch.integracion.softtoken.wsdl.client.safesigner.movil.MobileApi">
+        <camelcxf:properties>
+            <entry key="supportUnwrapped" value="true"/>
+        </camelcxf:properties>
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="dropRootElement" value="true"/>
+    </bean>
+    <http-conf:conduit name="*.http-conduit">
+        <http-conf:client ConnectionTimeout="3000"
+                          ReceiveTimeout="3000"/>
+    </http-conf:conduit>
+
+    <bean class="cl.coopeuch.integracion.softtoken.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="cl.coopeuch.integracion.softtoken.util.RouteExcepcionFacade" id="beanRouteExcepcionFacade"/>
+
+    <bean class="cl.coopeuch.integracion.softtoken.util.LogIncidencias" id="beanLogIncidencias"/>
+
+	<bean id="logTraceIncidencias" class="org.slf4j.LoggerFactory" factory-method="getLogger">
+		<argument index="0" value="logSoftToken" />
+	</bean>
+
+    <camelContext id="servicio-softtoken" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="soap-inicio">
+            <from id="inicioSoapFrom" uri="cxf:bean:softTokenSOAP"/>
+            <to id="soapToInicio" uri="direct:inicioSoftToken"/>
+        </route>
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:softTokenREST"/>
+            <to id="restToInicio" uri="direct:inicioSoftToken"/>
+        </route>
+
+        <route id="cxf-Inicio">
+            <from id="inicioFromServicio" uri="direct:inicioSoftToken"/>
+            
+            <onCompletion>
+                <log id="logBodyFinal" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: SoftToken(mismo) || Type: Outbound || Body: ${body}" />
+            </onCompletion>
+            
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setProperty id="inicioSetCodigoErrorDefault" propertyName="codigoError">
+                    <constant>0</constant>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+
+                <bean id="generarIdflujoLog" method="generarIdFlujoLog" ref="beanLogIncidencias"/>
+                <log id="logBodyInicio" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: SoftToken(mismo)|| Type: Inbound || Body: ${body}" />
+                
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionGenerarDesafio">
+                        <simple>${header.operationName} == 'generar'</simple>
+                        <to id="toGenerar" uri="direct:generar"/>
+                        <wireTap id="toGenerarAuditoria" uri="direct:auditoriaDesafio"></wireTap>
+                    </when>
+                    <when id="inicioWhenOperacionValidar">
+                        <simple>${header.operationName} == 'validar'</simple>
+                        <to id="toValidar" uri="direct:validar"/>
+                        <wireTap id="toGenerarAuditoria" uri="direct:auditoriaDesafio"></wireTap>
+                    </when>
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="toConsultar" uri="direct:consultar"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarTransaccion">
+                        <simple>${header.operationName} == 'consultarTransaccion'</simple>
+                        <to id="toConsultarTransaccion" uri="direct:consultarTransaccion"/>
+                    </when>
+                    <when id="inicioWhenOperacionRegistrarRespuesta">
+                        <simple>${header.operationName} == 'registrarRespuesta'</simple>
+                        <to id="toRegistrarRespuesta" uri="direct:registrarRespuesta"/>
+                    </when>
+                    <otherwise id="otherwiseOperacion">
+                        <throwException
+                                exceptionType="java.lang.Exception"
+                                id="throwExceptionOperacionInvalida" message="La operacion request es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to5" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generar">
+            <from id="generarDesafioFrom" uri="direct:generar"/>
+            <doTry id="generarTry">
+                <bean id="wsSafeSignerGenerarRequestBean"
+                      method="transformGenerarRequestToGenerateChallengeRequest"
+                      ref="beanRouteFacade"/>
+                <setProperty id="soapOperationGenerar" propertyName="soapOperation">
+                    <constant>GenerateChallenge</constant>
+                </setProperty>
+                <to id="toWSSafeSignerGenerar" uri="direct:conectarSafeSigner"/>
+                <bean id="wsSafeSignerGenerarResponseBean"
+                      method="transformGenerateChallengeResponseToGenerarResponse"
+                      ref="beanRouteFacade"/>
+                <doCatch id="generarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="generarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="togenerarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validar">
+            <from id="validarFrom" uri="direct:validar"/>
+            <doTry id="validarTry">
+                <setProperty id="setPropertyCanales" propertyName="canalesConCodigoValidacion">
+                    <simple resultType="java.lang.String">{{wssofttoken.canales.validacion.directa}}</simple>
+                </setProperty>
+                <choice id="canalChoice">
+                    <when id="whenCodigoEnLineaChoice">
+                        <simple>${body.canalLlamada} not in ${exchangeProperty.canalesConCodigoValidacion}</simple>
+                        <to id="canalValidacionEnLinea" uri="direct:validacionEnLinea"/>
+                    </when>
+                    <when id="whenCodigoValidacion">
+                        <simple>${body.canalLlamada} in ${exchangeProperty.canalesConCodigoValidacion}</simple>
+                        <setProperty id="setPropertyCodigoAutorizacionValidacion"
+                                     propertyName="tokenCodigoAutorizacion">
+                            <simple>${body.codigoValidacion}</simple>
+                        </setProperty>
+                        <to id="canalCodigoValidacion" uri="direct:validacionCodigoRespuesta"/>
+                    </when>
+                    <otherwise id="otherWiseCanalChoice">
+                        <throwException
+                                exceptionType="java.lang.Exception"
+                                id="throwExceptionCanalChoice"
+                                message="Canal no corresponde a validación"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="validarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="validarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toValidarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validacionEnLinea">
+            <from id="validacionEnLineaFrom" uri="direct:validacionEnLinea"/>
+            <doTry id="validacionEnLineaTry">
+                <bean id="wsSafeSignerGetCodeRequestBean"
+                      method="transforValidaRequestToGetCodeRequest"
+                      ref="beanRouteFacade"/>
+                <to id="toWSSafeSignerValidarCodigoEnLinea" uri="direct:recibeCodigoEnLinea"/>
+                <choice id="codigoEnLineaChoiceStatusPendiente">
+                    <when id="whenStatusEnEspera">
+                        <simple>${body.response.status} == '25'</simple>
+                        <bean id="wsSafeSignerGetCodeResponseBean"
+                              method="transforGetCodeResponseToValidaResponse"
+                              ref="beanRouteFacade"/>
+                    </when>
+                    <when id="whenStatusConInconveninte">
+                        <simple>${body.response.status} != '0'</simple>
+                        <bean id="wsSafeSignerGetCodeResponseBean"
+                              method="transforGetCodeResponseToValidaResponse"
+                              ref="beanRouteFacade"/>
+                    </when>
+                    <when id="whenStatusCancelado">
+                        <simple>${body.response.status} == '0' and ${body.code} == '0000000'</simple>
+                        <bean id="wsSafeSignerGetCodeResponseBean"
+                              method="transforGetCodeResponseCancelacionToValidaResponse"
+                              ref="beanRouteFacade"/>
+                    </when>
+                    <when id="whenStatusCorrecto">
+                        <simple>${body.response.status} == '0' and ${body.code} != '0000000'</simple>
+                        <setProperty id="setPropertyCodigoAutorizacion" propertyName="tokenCodigoAutorizacion">
+                            <simple>$simple{body.code}</simple>
+                        </setProperty>
+                        <to id="codigoEnLineaValidacion" uri="direct:validacionCodigoRespuesta"/>
+                    </when>
+                    <otherwise id="otherwiseStatus">
+                        <throwException
+                                exceptionType="java.lang.Exception"
+                                id="throwExceptionOtherwiseStatusCodigoEnLinea" message="La respuesta obtenida para la validacion en
+                                    SafeSigner es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="validacionEnLineaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="validacionEnLineaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="tovalidacionEnLineaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validacionCodigoRespuesta">
+            <from id="validacionCodigoRespuestaFrom" uri="direct:validacionCodigoRespuesta"/>
+            <bean id="wsSafeSignerValidarRequestBean"
+                  method="transformValidarRequestToValidateTransactionRequest"
+                  ref="beanRouteFacade"/>
+            <setProperty id="soapOperationValidarDesafio" propertyName="soapOperation">
+                <constant>ValidateTransaction</constant>
+            </setProperty>
+            <to id="toWSSafeSignerValidar" uri="direct:conectarSafeSigner"/>
+            <bean id="wsSafeSignerValidarResponseBean"
+                  method="transformValidateTransactionResponseToValidarResponse"
+                  ref="beanRouteFacade"/>
+        </route>
+        <route id="consultar">
+            <from id="consultarFrom" uri="direct:consultar"/>
+            <doTry id="consultarTry">
+                <bean id="wsSafeSignerConsultarRequestBean" method="transformConsultarRequestToUserStatusRequest"
+                      ref="beanRouteFacade"/>
+                <setProperty id="soapOperationConsultar" propertyName="soapOperation">
+                    <constant>UserStatus</constant>
+                </setProperty>
+                <to id="toWSSafeSignerConsultar" uri="direct:conectarSafeSigner"/>
+                <bean id="wsSafeSignerConsultarResponseBean" method="transformUserStatusResponseToConsultarResponse"
+                      ref="beanRouteFacade"/>
+                <doCatch id="consultartoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toOperacionConsultarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="recibeCodigoEnLinea">
+            <from id="recibeCodigoEnLineaFrom" uri="direct:recibeCodigoEnLinea"/>
+            <doTry id="recibeCodigoEnLineaTry">
+                <setProperty id="restPathRecibeCodigoEnLinea" propertyName="restHttpPath">
+                    <constant>getOnlineCode</constant>
+                </setProperty>
+                <to id="toWSSafeSignerRecibeCodigoEnLinea" uri="direct:conectarSafeSignerMovil"/>
+                <bean id="wsSafeSignerRecibeCodigoEnLineaResponseBean"
+                      method="transformGetCodeResponse"
+                      ref="beanRouteFacade"/>
+                <doCatch id="recibeCodigoEnLineaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="recibeCodigoEnLineaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toRecibeCodigoEnLineaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarTransaccion">
+            <from id="consultarTransaccionFrom" uri="direct:consultarTransaccion"/>
+            <doTry id="consultarTransaccionTry">
+                <bean id="wsSafeSignerConsultarTransaccionRequestBean"
+                      method="transformConsultarTransaccionRequestToTransaccionEncRequest"
+                      ref="beanRouteFacade"/>
+                <setProperty id="restPathConsultarTransaccion" propertyName="restHttpPath">
+                    <constant>transaccionEnc</constant>
+                </setProperty>
+                <to id="toWSSafeSignerConsultarTransaccion" uri="direct:conectarSafeSignerMovil"/>
+                <bean id="wsSafeSignerConsultarTransaccionResponseBean"
+                      method="transformTransaccionEncResponseToConsultarTransaccionResponse"
+                      ref="beanRouteFacade"/>
+                <doCatch id="consultarTransaccionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarTransaccionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toConsultarTransaccionExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="registrarRespuesta">
+            <from id="registrarRespuestaFrom" uri="direct:registrarRespuesta"/>
+            <doTry id="registrarRespuestaTry">
+                <bean id="wsSafeSignerRegistrarRespuestaRequestBean"
+                      method="transformRegistrarRespuestaRequestToRecibeCodigoRequest"
+                      ref="beanRouteFacade"/>
+                <setProperty id="restPathRecibeCodigo" propertyName="restHttpPath">
+                    <constant>recibeCodigo</constant>
+                </setProperty>
+                <to id="toWSSafeSignerRegistrarRespuesta" uri="direct:conectarSafeSignerMovil"/>
+                <bean id="wsSafeSignerRegistrarRespuestaResponseBean"
+                      method="transformSendCodeResponseToRegistrarRespuestaResponse"
+                      ref="beanRouteFacade"/>
+                <doCatch id="registrarRespuestaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="registrarRespuestaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toRegistrarRespuestaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="conectarSafeSigner">
+            <from id="conectarSafeSignerFrom" uri="direct:conectarSafeSigner"/>
+            <doTry id="conectarSafeSignerTry">
+                <removeHeaders id="wsRemoveHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="safeSignerSetHeaderOperationName">
+                    <simple>${exchangeProperty.soapOperation}</simple>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="safeSignerSetHeaderoperationNamespace">
+                    <constant>http://orand.cl/safesigner</constant>
+                </setHeader>
+                <to id="soapEndpointSafeSigner"
+                    uri="cxf:bean:endpointWSSafesigner?continuationTimeout=5000&amp;password={{safesigner.safesignerws.clave}}&amp;username={{safesigner.safesignerws.usuario}}"/>
+                <doCatch id="conectarSafeSignerDoCatchTimeOut">
+                    <exception>java.net.SocketTimeoutException</exception>
+                    <setProperty id="conectarSafeSignerPropertyCodigo" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to id="conectarSafeSignerToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarSafeSignerErrorStop"/>
+                </doCatch>
+                <doCatch id="conectarSafeSignerDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="conectarSafeSignerPropertyCodigo" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="conectarSafeSignerToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarSafeSignerErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="conectarSafeSignerMovil">
+            <from id="conectarSafeSignerMovilFrom" uri="direct:conectarSafeSignerMovil"/>
+            <doTry id="conectarSafeSignerMovilTry">
+                <removeHeaders id="wsRemoveHeadersMovil" pattern="*"/>
+                <setHeader headerName="CamelHttpPath" id="safeSignerMovilSetPath">
+                    <simple>${exchangeProperty.restHttpPath}</simple>
+                </setHeader>
+                <setHeader headerName="Content-Type" id="safeSignerMovilSetContentType">
+                    <constant>application/json</constant>
+                </setHeader>
+
+                <log id="logSafeSignerMobileRequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: SafeSigner || Type: Request || Body: ${body}" />
+                <to id="restEndpointSafeSignerMovil"
+                    uri="cxfrs://bean://endpointRestMovilSafeSigner"/>
+                <convertBodyTo id="registrarResponseConvertTo" type="java.lang.String"/>
+                <log id="logSafeSignerMobileResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: SafeSigner || Type: Response || Body: ${body}" />
+
+                <doCatch id="conectarSafeSignerMovilDoCatchTimeOut">
+                    <exception>java.net.SocketTimeoutException</exception>
+                    <setProperty id="conectarSafeSignerMovilPropertyCodigo" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to id="conectarSafeSignerMovilToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarSafeSignerMovilErrorStop"/>
+                </doCatch>
+                <doCatch id="conectarSafeSignerMovilDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="conectarSafeSignerMovilPropertyCodigo" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="conectarSafeSignerMovilToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarSafeSignerMovilErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <log id="logExcepcionInfo" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: Excepcion || Type: Info || Body: ${exception.message}" />
+                <wireTap id="excepcionSendColaError" uri="direct:envioColaError"/>
+                <bean id="excepcionBeanExcepcion" method="procesaExcepcion" ref="beanRouteExcepcionFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR"
+                         message="Ha ocurrido un error en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="auditoriaDesafio">
+            <from id="auditoriaDesafioFrom" uri="direct:auditoriaDesafio"/>
+            <doTry id="auditoriaDesafioTry">
+                <setProperty id="auditoriaDesafioIdTipoDesafio" propertyName="auditoriaDesafioIdTipoDesafio">
+                    <constant>2</constant>
+                </setProperty>
+                <choice id="auditoriaDesafioChoice">
+                    <when id="whenAuditoriaDesafioGenerar">
+                        <simple>${exchangeProperty.tipoRequest} == 'GenerarRequest'</simple>
+                        <setProperty id="auditoriaDesafioIdEtapa" propertyName="auditoriaDesafioIdEtapa">
+                            <constant>1</constant>
+                        </setProperty>
+                        <to id="auditoriaDesafioSQL"
+                            uri="sql-stored:classpath:etc/sql/PA_INSLogDesafio.sql?dataSource=#dataSourceSqlServer"/>
+                    </when>
+                    <when id="whenAuditoriaDesafioValidar">
+                        <simple>${exchangeProperty.tipoRequest} == 'ValidarRequest' and ${body.operacion.codigo} != '25'
+                        </simple>
+                        <setProperty id="auditoriaDesafioIdEtapa" propertyName="auditoriaDesafioIdEtapa">
+                            <constant>2</constant>
+                        </setProperty>
+                        <to id="auditoriaDesafioSQL"
+                            uri="sql-stored:classpath:etc/sql/PA_INSLogDesafio.sql?dataSource=#dataSourceSqlServer"/>
+                    </when>
+                </choice>
+                <choice>
+                    <when>
+                        <simple>${body[codigoRespuesta]} != '' and ${body[codigoRespuesta]} != '200'</simple>
+                        <throwException exceptionType="java.lang.Exception"
+                                        id="auditoriaDesafioThrowException"
+                                        message="${body[codigoRespuesta]} - ${body[descripcionRespuesta]}"/>
+                    </when>
+                </choice>
+
+                <doCatch id="auditoriaDesafioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toAuditoriaDesafioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="envioColaError">
+            <from id="envioColaErrorFrom" uri="direct:envioColaError"/>
+            <doTry id="envioColaErrorTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteExcepcionFacade"/>
+                <marshal id="envioColaErrorMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="envioColaErrorConvertTo" type="java.lang.String"/>
+                <to id="envioColaErrorToAmqFault"
+                    uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <doCatch id="envioColaErrorDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="envioColaErrorLog" loggingLevel="ERROR"
+                         message="Ha ocurrido un error en la ejecucion del servicio: Request: ${body} Error: ${exception}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

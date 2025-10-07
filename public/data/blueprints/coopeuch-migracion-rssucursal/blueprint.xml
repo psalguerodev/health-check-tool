@@ -1,0 +1,410 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+           xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+           xmlns:http="http://cxf.apache.org/transports/http/configuration"
+           xmlns:sec="http://cxf.apache.org/configuration/security" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd
+           http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal"
+                             persistent-id="global" placeholder-prefix="{[" placeholder-suffix="]}"
+                             update-strategy="reload" />
+    <cm:property-placeholder id="propertyLocal"
+                             persistent-id="wssucursal" placeholder-prefix="[{" placeholder-suffix="}]"
+                             update-strategy="reload" />
+    <cm:property-placeholder id="propertyGlobalDb2"
+                             persistent-id="globalDb2" placeholder-prefix="[[" placeholder-suffix="]]"
+                             update-strategy="reload" />
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent"
+          id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}" />
+        <property name="userName" value="{[amq.username]}" />
+        <property name="password" value="{[amq.password]}" />
+        <property name="usePooledConnection" value="true" />
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+          destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver" />
+        <property name="url"
+                  value="[{jdbc.sqlserver.url.sucursal}]/Payroll;charset=iso_1" />
+        <property name="username" value="[{jdbc.sqlserver.username.sucursal}]" />
+        <property name="password" value="[{jdbc.sqlserver.password.sucursal}]" />
+        <property name="timeBetweenEvictionRunsMillis"
+                  value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.sucursal}]" />
+        <property name="numTestsPerEvictionRun"
+                  value="[{jdbc.sqlserver.numTestsPerEvictionRun.sucursal}]" />
+        <property name="minEvictableIdleTimeMillis"
+                  value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.sucursal}]" />
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.sucursal}]" />
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+          destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.personas]]"/>
+        <property name="password" value="[[jdbc.db2.password.personas]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.sucursal}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.sucursal}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.sucursal}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.sucursal}]"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.wssucursal.util.RouteFacade"
+          id="beanRouteFacade" />
+    <camelcxf:rsServer address="/RSSucursal" id="endpointRSSucursal"
+                       serviceClass="cl.coopeuch.integracion.wssucursal.wsdl.WSSucursalSOAPPortType" />
+    <camelcxf:cxfEndpoint address="/WSSucursal" id="endpointWSSucursal"
+                          loggingFeatureEnabled="true"
+                          serviceClass="cl.coopeuch.integracion.wssucursal.wsdl.WSSucursalSOAPPortType"
+                          wsdlURL="etc/wsdl/WSSucursal.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true" />
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <reference id="bindy" interface="org.apache.camel.spi.DataFormatResolver"
+               timeout="30000" />
+    <camelContext id="servicio-wssucursal"
+                  xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSSucursal" />
+            <to id="soapToInicioWs" uri="direct:iniciows" />
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSSucursal" />
+            <to id="restToInicioWs" uri="direct:iniciows" />
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:iniciows" />
+            <doTry id="InicioDoTry">
+                <setProperty id="inicioSetBody" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetBodyDetalle" propertyName="requestOperacion">
+                    <simple>${body.get(0)}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="Consultar-To" uri="direct:consultar" />
+                    </when>
+                    <when id="inicioWhenOperacionConsultarEjeutivo">
+                        <simple>${header.operationName} == 'consultarEjecutivo'</simple>
+                        <to id="ConsultarEjecutivo-To" uri="direct:consultarEjecutivo" />
+                    </when>
+                    <when id="inicioWhenOperacionConsultarfuncionario">
+                        <simple>${header.operationName} == 'consultarFuncionario'</simple>
+                        <to id="ConsultarFuncionario-To" uri="direct:consultarFuncionarios" />
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException exceptionType="java.lang.Exception"
+                                        id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida" />
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioPropertyCodigo" propertyName="codigoError">
+                        <simple>1</simple>
+                    </setProperty>
+                    <to id="toInicioExcepcion" uri="direct:excepcion" />
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarEjecutivo">
+            <from id="consultarEjecutivo-From" uri="direct:consultarEjecutivo" />
+            <doTry id="consultarEjecutivo-doTry">
+                <setBody id="consultarEjecutivo-SetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <bean id="consultarEjecutivo-ValidaCamposEntrada-Bean" method="validarCamposEntradas"
+                      ref="beanRouteFacade" />
+                <choice id="consultarEjecutivo-ValidaCamposEntrada-choice">
+                    <when id="consultarEjecutivo-ValidaCamposEntrada-when">
+                        <simple>${exchangeProperty.validaciones} == 'Correcto'</simple>
+                        <marshal id="consultarEjecutivo-Marshal">
+                            <jaxb contextPath="cl.coopeuch.integracion.wssucursal.wsdl" />
+                        </marshal>
+                        <convertBodyTo id="consultarEjecutivo-ConvertBodyToString"
+                                       type="java.lang.String" />
+                        <removeHeaders id="consultarEjecutivo-rmHeaders"
+                                       pattern="*" />
+                        <bean id="consultarEjecutivo-UUID" method="crearJMSCorrelationId24"
+                              ref="beanRouteFacade" />
+                        <to id="consultarEjecutivo-ToXSLTrama"
+                            uri="xslt://etc/xsl/request/IOC727503I_consultarEjecutivo.xsl" />
+                        <log id="consultarEjecutivo-TramaRequest" loggingLevel="TRACE"
+                             message="Trama generada = ${body}" />
+                        <to id="consultarEjecutivo-crearToAmq"
+                            uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false" />
+                        <log id="consultarEjecutivo-TramaResponse1" loggingLevel="TRACE"
+                             message="Trama recibida = ${body}" />
+                        <transform id="consultarEjecutivo-TransformBody">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to
+                            id="consultarEjecutivo-ValidaInformacionRecibidaErronea-ToXSLSOAP"
+                            uri="xslt://etc/xsl/response/IOC727503O_consultarEjecutivo.xsl?saxon=true" />
+                        <unmarshal id="consultarEjecutivo-ConvertBodyToResponse">
+                            <jaxb contextPath="cl.coopeuch.integracion.wssucursal.wsdl" />
+                        </unmarshal>
+                    </when>
+                    <otherwise id="consultarEjecutivo-Otherwise">
+                        <throwException exceptionType="java.lang.Exception"
+                                        id="consultarEjecutivo-ThrowException" message="Error Validaciones Minimas" />
+                    </otherwise>
+                </choice>
+                <doCatch id="consultarEjecutivo-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarEjecutivo-PropertyCodigo"
+                                 propertyName="codigoError">
+                        <simple>503</simple>
+                    </setProperty>
+                    <to id="consultarEjecutivo-Excepcion" uri="direct:excepcion" />
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="consultarFuncionarios">
+            <from id="consultarFuncionarios-From" uri="direct:consultarFuncionarios" />
+            <doTry id="consultarFuncionarios-doTry">
+                <setBody id="consultarFuncionarios-SetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <bean id="consultarFuncionarios-ValidaCamposEntrada-Bean"
+                      method="validarCamposEntradas" ref="beanRouteFacade" />
+                <choice id="consultarFuncionarios-ValidaCamposEntrada-choice">
+                    <when id="consultarFuncionarios-ValidaCamposEntrada-when">
+                        <simple>${exchangeProperty.validaciones} == 'Correcto'</simple>
+                        <marshal id="consultarFuncionarios-Marshal">
+                            <jaxb contextPath="cl.coopeuch.integracion.wssucursal.wsdl" />
+                        </marshal>
+                        <convertBodyTo id="consultarFuncionarios-ConvertBodyToString"
+                                       type="java.lang.String" />
+                        <bean id="consultarFuncionarios-UUID" method="crearJMSCorrelationId24"
+                              ref="beanRouteFacade" />
+                        <to id="consultarFuncionarios-ToXSLTrama"
+                            uri="xslt://etc/xsl/request/IOC727401I_consultarFuncionario.xsl" />
+                        <log id="consultarFuncionarios-TramaRequest" loggingLevel="TRACE"
+                             message="Trama generada = ${body}" />
+                        <to id="consultarFuncionarios-ToAmq"
+                            uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false" />
+                        <log id="consultarFuncionarios-TramaResponse" loggingLevel="TRACE"
+                             message="Trama recibida = ${body}" />
+                        <transform id="consultarFuncionarios-TransformBody">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <choice id="consultarFuncionarios-Choice">
+                            <when id="consultarFuncionarios-when">
+                                <simple>${body} contains 'ECNLERR'</simple>
+                                <to
+                                    id="consultarFuncionarios-ValidaInformacionRecibidaErronea-ToXSLSOAP"
+                                    uri="xslt://etc/xsl/response/IOC727401O_consultarFuncionario.xsl?saxon=true" />
+                                <convertBodyTo id="calcular-ConvertBodyToResponse"
+                                               type="cl.coopeuch.integracion.wssucursal.wsdl.ConsultarFuncionarioResponse" />
+                            </when>
+                            <otherwise
+                                id="consultarFuncionarios-ValidaInformacionRecibidaCorrecta-otherwise">
+                                <to id="consultarFuncionarios-ToXSLSOAP"
+                                    uri="xslt://etc/xsl/response/IOC727401O_consultarFuncionario.xsl?saxon=true" />
+                                <unmarshal id="consultarFuncionarios-ConvertBodyToResponse">
+                                    <jaxb contextPath="cl.coopeuch.integracion.wssucursal.wsdl" />
+                                </unmarshal>
+                                <bean id="rutEjecutivos-Bean" method="obtenerRutEjecutivos"
+                                      ref="beanRouteFacade" />
+                                <choice id="consultarFuncionarios-RPG-Choice">
+                                    <when id="consultarFuncionarios-RPG-When">
+                                        <simple>${exchangeProperty.Rut1} == ''</simple>
+                                        <throwException exceptionType="java.lang.Exception"
+                                                        id="consultarFuncionarios-RPG-throwException" message="NroRegistro" />
+                                    </when>
+                                    <otherwise id="consultarFuncionarios-RPG-Otherwise">
+                                        <to uri="direct:llamadaMsBukConsultarSucursal" />
+                                    </otherwise>
+                                </choice>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="consultarFuncionarios-Otherwise">
+                        <throwException exceptionType="java.lang.Exception"
+                                        id="consultarFuncionarios-ThrowException" message="Error Validaciones Minimas" />
+                    </otherwise>
+                </choice>
+                <doCatch id="consultarFuncionarios-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarFuncionarios-PropertyCodigo"
+                                 propertyName="codigoError">
+                        <simple>503</simple>
+                    </setProperty>
+                    <to id="consultarFuncionarios-Excepcion" uri="direct:excepcion" />
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="LlamadaMsBukConsultarSucursal">
+            <from uri="direct:llamadaMsBukConsultarSucursal" />
+            <doTry>
+                <bean method="generarRequestConsultarSucursal" ref="beanRouteFacade"/>
+                <removeHeaders pattern="*"/>
+                <setHeader headerName="Content-Type">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="Exchange.HTTP_METHOD">
+                    <constant>POST</constant>
+                </setHeader>
+                <marshal>
+                    <json include="NON_NULL" library="Jackson"/>
+                </marshal>
+                <convertBodyTo type="java.lang.String"/>
+                <toD uri="cxfrs:{{wssucursal.integracion.api.msbuk.endpoint}}?loggingFeatureEnabled=true"/>
+                <choice>
+                    <when>
+                        <simple>${header.CamelHttpResponseCode} != '200'</simple>
+                        <convertBodyTo type="java.lang.String"/>
+                        <throwException exceptionType="org.apache.camel.CamelException" message="Codigo externo ${header.CamelHttpResponseCode} - ${body}"/>
+                    </when>
+                </choice>
+                <removeHeaders pattern="*"/>
+                <unmarshal>
+                    <json library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.apibuk.ConsultarSucursalResponse"/>
+                </unmarshal>
+                <bean method="generarResponseConsultarSucursal" ref="beanRouteFacade"/>
+                <unmarshal>
+                    <jaxb contextPath="cl.coopeuch.integracion.wssucursal.wsdl"/>
+                </unmarshal>
+                <doCatch>
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch>
+                    <exception>java.io.IOException</exception>
+                    <setProperty propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch>
+                    <exception>org.apache.camel.CamelException</exception>
+                    <setProperty propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch>
+                    <exception>java.lang.Exception</exception>
+                    <setProperty propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultar">
+            <from id="consultar-From" uri="direct:consultar" />
+            <doTry id="consultar-doTry">
+                <setBody id="consultar-SetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <setProperty id="_setProperty1" propertyName="userid">
+                    <xpath resultType="String">substring(//userid, 0, 11)</xpath>
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="canalLlamada">
+                    <xpath resultType="String">substring(//canalLlamada, 0, 5)</xpath>
+                </setProperty>
+                <setProperty id="_setProperty3" propertyName="codRegion">
+                    <xpath resultType="String">substring(//codRegion, 0, 5)</xpath>
+                </setProperty>
+                <setProperty id="_setProperty4" propertyName="codComuna">
+                    <xpath resultType="String">substring(//codComuna, 0, 5)</xpath>
+                </setProperty>
+                <setProperty id="_setProperty5" propertyName="codSucursal">
+                    <xpath resultType="String">substring(//codSucursal, 0, 5)</xpath>
+                </setProperty>
+                <to id="consultar-To" uri="sql-stored:classpath:etc/sql/PA_SEL_SUCURSALCONSULTAR_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseConsultar"/>
+                <bean id="validarConsultarBean"
+                      method="validarConsultar" ref="beanRouteFacade"/>
+                <removeHeaders id="consultar-rmHeaders" pattern="*" />
+                <doCatch id="consultar-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultar-PropertyCodigo"
+                                 propertyName="codigoError">
+                        <simple>503</simple>
+                    </setProperty>
+                    <to id="consultar-Excepcion" uri="direct:excepcion" />
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="concatenarSucursales">
+            <from id="concatenarSucursales" uri="direct:concatenarSucursales" />
+            <removeHeaders id="removeHeadersConcatenar" pattern="*" />
+            <bean id="beanObtenerMasRegistros" method="obtenerMasRegistros"
+                  ref="beanRouteFacade" />
+            <marshal id="marshalModelo">
+                <bindy classType="cl.coopeuch.integracion.wssucursal.modelo.IOC727501I"
+                       type="Fixed" />
+            </marshal>
+            <to id="toIOC7275" uri="direct:IOC7275" />
+        </route>
+        <route id="routeIOC7275">
+            <from id="fromIOC7275" uri="direct:IOC7275" />
+            <bean id="consultarBeanRouteFacadeUUID" method="crearJMSCorrelationId24"
+                  ref="beanRouteFacade" />
+            <log id="consultar-TramaRequest" loggingLevel="TRACE"
+                 message="Trama generada = ${body}" />
+            <to id="consultar-crearToAmq"
+                uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false" />
+            <log id="consultar-TramaResponse" loggingLevel="TRACE"
+                 message="Trama recibida = ${body}" />
+            <transform id="consultar-TransformBody">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <to id="consultar-ToXSLSOAP"
+                uri="xslt://etc/xsl/response/IOC727501O_consultar.xsl?saxon=true" />
+            <unmarshal id="consultar-ConvertBodyToResponse">
+                <jaxb contextPath="cl.coopeuch.integracion.wssucursal.wsdl" />
+            </unmarshal>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion" />
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade" />
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson" />
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String" />
+                <to id="excepcionToAmqFault"
+                    uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly" />
+                <choice id="_choice1">
+                    <when id="_when1">
+                        <simple>${property.tipoRequest} == 'ConsultarFuncionarioRequest'</simple>
+                        <bean id="excepcionBeanExcepcion-dotry1" method="excepcionWSSucursal"
+                              ref="beanRouteFacade" />
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <bean id="excepcionBeanExcepcion-dotry2" method="excepcionCrear"
+                              ref="beanRouteFacade" />
+                    </otherwise>
+                </choice>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <choice id="_choice2">
+                        <when id="_when2">
+                            <simple>${property.tipoRequest} == 'ConsultarFuncionarioRequest'</simple>
+                            <bean id="excepcionBeanExcepcion-docatch1" method="excepcionWSSucursal"
+                                  ref="beanRouteFacade" />
+                        </when>
+                        <otherwise id="_otherwise2">
+                            <bean id="excepcionBeanExcepcion-docatch2" method="excepcionCrear"
+                                  ref="beanRouteFacade" />
+                        </otherwise>
+                    </choice>
+                    <log id="excepcionLog" loggingLevel="ERROR"
+                         message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}" />
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

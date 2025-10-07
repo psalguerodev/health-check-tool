@@ -1,0 +1,364 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wscliente" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+		persistent-id="globalDb2" placeholder-prefix="[["
+		placeholder-suffix="]]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+		destroy-method="close" id="dataSourceSqlDb2">
+		<property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+		<property name="url" value="[[jdbc.db2.url.servicio]]"/>
+		<property name="username" value="[[jdbc.db2.username.personas]]"/>
+		<property name="password" value="[[jdbc.db2.password.personas]]"/>
+		<property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.wscliente}]"/>
+		<property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.wscliente}]"/>
+		<property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.wscliente}]"/>
+		<property name="maxActive" value="[{jdbc.db2.maxActive.wscliente}]"/>
+	</bean>
+	    
+    
+    <bean class="cl.coopeuch.integracion.cliente.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSCliente" id="endpointWSCliente"
+        serviceClass="cl.coopeuch.integracion.cliente.wsdl.WSClienteSOAPPortType" wsdlURL="etc/wsdl/WSCliente.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+   
+    <camelcxf:rsServer address="/RSCliente" id="endpointRSCliente" serviceClass="cl.coopeuch.integracion.cliente.wsdl.WSClienteSOAPPortType">
+    <camelcxf:providers>  	
+    		<bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        		<property name="serializeAsArray" value="true"/>
+        		<property name="arrayKeys">
+                    <list>
+                        <value>detalleError</value>
+                        <value>direcciones</value>                   
+                    </list>
+                </property>
+                <property name="ignoreEmptyArrayValues" value="true"/>
+    		</bean>
+    	</camelcxf:providers>   
+	</camelcxf:rsServer>
+     
+    <camelcxf:cxfEndpoint
+        address="[{cliente.servicio.parametro.endpoint}]"
+        id="endpointServicioParametro" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.cliente.wsdl.parametro.ParametroPortType" wsdlURL="etc/wsdl/ServicioParametro.wsdl"/>
+    <camelcxf:cxfEndpoint
+        address="[{cliente.servicio.listanegra.endpoint}]"
+        id="endpointServicioListasNegras" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.cliente.wsdl.listasnegras.WSListasNegrasSOAPPortType" wsdlURL="etc/wsdl/WSListasNegras.wsdl"/>
+
+    <camelContext id="servicio-cliente"  trace="true" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSCliente"/>
+            <to id="soapToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSCliente"/>
+            <to id="restToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="iniciows" uri="direct:iniciows"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setProperty id="inicioSetBody" propertyName="bodyEntrada">
+                    <simple>${body.get(0)}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionCrear">
+                        <simple>${header.operationName} == 'crear'</simple>
+                        <to id="toCrear" uri="direct:crear"/>
+                    </when>
+                    <when id="inicioWhenOperacionActualizar">
+                        <simple>${header.operationName} == 'actualizar'</simple>
+                        <to id="toActualizar" uri="direct:actualizar"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="toConsultar" uri="direct:consultar"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodError" propertyName="codigoError">
+                        <simple>500</simple>
+                    </setProperty>
+                    <setHeader headerName="entra_fault" id="_headEntraFaultInicio">
+                        <simple>0</simple>
+                    </setHeader>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+            <removeHeaders id="_removeHeaders1" pattern="*"/>
+        </route>
+
+        <route id="crear">
+            <from id="crearFrom" uri="direct:crear"/>
+            <doTry id="crearTry">
+                <setBody id="crearSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <bean id="validarRequestCrear"
+                    method="validarCrearClienteRequest" ref="beanRouteFacade"/>
+                <setProperty id="setPropertyUserId" propertyName="userid">
+                    <simple>$simple{body.userid}</simple>
+                </setProperty>
+                <setProperty id="SetPropertyNacionalidad" propertyName="codNacionalidad">
+                    <simple>$simple{body.nacionalidad.toUpperCase()}</simple>
+                </setProperty>
+                <setProperty id="SetPropertyRutCliente" propertyName="rutCliente">
+                    <simple>$simple{body.rutCliente.toUpperCase()}</simple>
+                </setProperty>
+                <choice id="crearChoiceNacionalidad">
+                    <when id="whenNacionalidadCL">
+                        <simple>${exchangeProperty.codNacionalidad} == '{{cliente.servicio.parametro.nacionalidad}}'</simple>
+                        <setProperty id="setPropertyDescripcion" propertyName="descripcionNacionalidad">
+                            <simple>{{cliente.servicio.parametro.nacionalidad.descripcion}}</simple>
+                        </setProperty>
+                    </when>
+                    <otherwise id="otherwiseNacionalidad">
+                        <to id="wsParametroTo" uri="direct:servicioParametro"/>
+                    </otherwise>
+                </choice>
+                <to id="wsListaNegraTo-v" uri="direct:wsListasNegras-verificar"/>
+                <to id="wsListaNegraTo-c" uri="direct:wsListasNegras-consultar"/>
+                <setBody id="crearSetBodyOriginal">
+                    <simple>${exchangeProperty.bodyEntrada}</simple>
+                </setBody>
+                <marshal id="crearMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cliente.wsdl"/>
+                </marshal>
+                <removeHeaders id="removeHeadersCrear" pattern="*"/>
+                <bean id="beanCrearClienteReq"
+                    method="crearClienteRequest" ref="beanRouteFacade"/>
+                <convertBodyTo id="crearConvertBodyToString" type="java.lang.String"/>
+                <bean id="crearUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="crearToXSLTrama" uri="xslt://etc/xsl/request/IOC7390_crear.xsl"/>
+                <log id="crearTrama" message="Trama generada = \n\n\n |${body}|"/>
+                <to id="crearToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="crearTramaResponse" message="Trama recibida = ${body}"/>
+                <transform id="crearTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="crearToXSLSOAP" uri="xslt://etc/xsl/response/IOC7390_crear.xsl?saxon=true"/>
+                <unmarshal id="crearUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cliente.wsdl"/>
+                </unmarshal>
+                <doCatch id="crearDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="crearCodError" propertyName="codigoError">
+                        <simple>501</simple>
+                    </setProperty>
+                    <setHeader headerName="entra_fault" id="_headEntraFaultCrear">
+                        <simple>0</simple>
+                    </setHeader>
+                    <to id="toCrearExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+
+        <route id="actualizar">
+            <from id="actualizarFrom" uri="direct:actualizar"/>
+            <doTry id="actualizarTry">
+                <setBody id="actualizarSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="actualizarMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cliente.wsdl"/>
+                </marshal>
+                <convertBodyTo id="actualizarConvertBodyToString" type="java.lang.String"/>
+                <bean id="actualizarUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <log id="_log2" message="body1: ${body}"/>
+                <to id="actualizarToXSLTrama" uri="xslt://etc/xsl/request/IOC7410_actualizar.xsl"/>
+                <log id="actualizarTrama" message="Trama generada = \n\n\n |${body}|"/>
+                <to id="actualizarToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="actualizarTramaResponse" message="Trama recibida = ${body}"/>
+                <transform id="actualizarTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="actualizarToXSLSOAP" uri="xslt://etc/xsl/response/IOC7410_actualizar.xsl?saxon=true"/>
+                <unmarshal id="actualizarUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cliente.wsdl"/>
+                </unmarshal>
+                <doCatch id="actualizarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="actualizarCodError" propertyName="codigoError">
+                        <simple>501</simple>
+                    </setProperty>
+                    <setHeader headerName="entra_fault" id="_headEntraFaultActualizar">
+                        <simple>0</simple>
+                    </setHeader>
+                    <to id="toActualizarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+               
+        <route id="wsParametro-Nacionalidad">
+            <from id="wsParametroFrom" uri="direct:servicioParametro"/>
+            <doTry id="wsParametrodoTry">
+                <removeHeaders id="wsParametroRemoveHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="wsParametroOpName">
+                    <constant>consultaParametros</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="wsParametroSoapAction">
+                    <constant>http://www.example.org/Parametro/consultaParametros</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="wsParametroOpNamespace">
+                    <constant>parametro.core.coopeuch.cl/parametro</constant>
+                </setHeader>
+                <bean id="wsParametroRequestBean"
+                    method="requestServicioParametro" ref="beanRouteFacade"/>
+                <to id="wsParametroToService" uri="cxf:bean:endpointServicioParametro"/>
+                <bean id="wsParametroResponseBean"
+                    method="responseServicioParametro" ref="beanRouteFacade"/>
+                <doCatch id="wsParametroDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="wsParametroCodError" propertyName="codigoError">
+                        <simple>502</simple>
+                    </setProperty>
+                    <setHeader headerName="entra_fault" id="_headEntraFaultParam">
+                        <simple>0</simple>
+                    </setHeader>
+                    <to id="wsParametroToException" uri="direct:excepcion"/>
+                    <stop id="wsParametroStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+       <route id="wsListasNegras-verificar">
+            <from id="wsListasNegrasFrom" uri="direct:wsListasNegras-verificar"/>
+            <doTry id="wsListasDoTry">
+                <removeHeaders id="wsListasNegrasRemoveHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="wsListasNegrasOpName">
+                    <constant>verificar</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="wsListasNegrasSoapAction">
+                    <constant>http://integracion.coopeuch.cl/WSListasNegras/verificar</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="wsListasNegrasOpNamespace">
+                    <constant>http://integracion.coopeuch.cl/WSListasNegras/</constant>
+                </setHeader>
+                <bean id="wsListasNegrasRequestBean"
+                    method="requestServicioListasNegrasVerificar" ref="beanRouteFacade"/>
+                <to id="wsListasNegrasToService" uri="cxf:bean:endpointServicioListasNegras"/>
+                <bean id="wsListasNegrasResponseBean"
+                    method="responseServicioListasNegrasVerificar" ref="beanRouteFacade"/>
+                <doCatch id="wsListasNegrasDoCatch3">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="wsListasNegrasCodError" propertyName="codigoError">
+                        <simple>503</simple>
+                    </setProperty>
+                    <to id="wsListasNegrasToException" uri="direct:excepcion"/>
+                    <stop id="wsListasNegrasStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="wsListasNegras-consultar">
+            <from id="wsListasNegrasFrom-consultar" uri="direct:wsListasNegras-consultar"/>
+            <doTry id="wsListasDoTry-consultar">
+                <removeHeaders
+                    id="wsListasNegrasRemoveHeaders-consultar" pattern="*"/>
+                <setHeader headerName="operationName" id="wsListasNegrasOpName-consultar">
+                    <constant>consultar</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="wsListasNegrasSoapAction-consultar">
+                    <constant>http://integracion.coopeuch.cl/WSListasNegras/consultar</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace-consultar" id="wsListasNegrasOpNamespace-consultar">
+                    <constant>http://integracion.coopeuch.cl/WSListasNegras/</constant>
+                </setHeader>
+                <bean id="wsListasNegrasRequestBean-consultar"
+                    method="requestServicioListasNegrasConsultar" ref="beanRouteFacade"/>
+                <to id="wsListasNegrasToService-consultar" uri="cxf:bean:endpointServicioListasNegras"/>
+                <bean id="wsListasNegrasResponseBean-consultar"
+                    method="responseServicioListasNegrasConsultar" ref="beanRouteFacade"/>
+                <doCatch id="wsListasNegrasDoCatch3-consultar">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="wsListasNegrasCodError-consultar" propertyName="codigoError">
+                        <simple>503</simple>
+                    </setProperty>
+                    <to id="wsListasNegrasToException-consultar" uri="direct:excepcion"/>
+                    <stop id="wsListasNegrasStop-consultar"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="consultar">
+            <from id="consultarFrom" uri="direct:consultar"/>
+            <doTry id="consultarTry">
+            <bean id="responseConsultar" method="requestConsultar" ref="beanRouteFacade"/>  
+            <to id="toPASelWSClienteConsultar" uri="sql-stored:classpath:etc/sql/PA_SEL_WSCLIENTE_CONSULTAR_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responsePA_CONSULTAR"/>
+     		<log id="_log4" message="Salida PA consultarcliente"/>
+     		<bean id="responseConsultar" method="responseConsultar" ref="beanRouteFacade"/> 
+
+			<doCatch id="consultarRenovadasSQLDoCatch">
+				<exception>org.apache.camel.ExchangeTimedOutException</exception>
+				<exception>java.sql.SQLException</exception>
+				<setProperty id="codigoErrorConsultarRenovadasSQL" propertyName="codigoError">
+					<constant>503</constant>
+				</setProperty>
+				<to id="excepcionToConsultarRenovadasSQL" uri="direct:excepcion"/>
+			</doCatch>
+           <doCatch id="consultarDoCatch">
+                 <exception>java.lang.Exception</exception>
+                 <setProperty id="consultarCodError" propertyName="codigoError">
+                 	<simple>500</simple>
+                 </setProperty>
+                 <to id="toConsultarExcepcion" uri="direct:excepcion"/>
+            </doCatch>
+            </doTry>
+        </route>
+        
+       <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <when id="_when1">
+                    <simple>${headers.entra_fault} == 0</simple>
+                    <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </when>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

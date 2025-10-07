@@ -1,0 +1,707 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Configures the Camel Context -->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0      https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                   http://camel.apache.org/schema/blueprint/cxf      http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd                   http://camel.apache.org/schema/blueprint      http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyWsProducto"
+        persistent-id="wsproducto" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioProductos"
+        id="servicioProductoEndpoint"
+        serviceClass="cl.coopeuch.core.productos.servicioproductos.ServicioProductos" wsdlURL="wsdl/ServicioProductos.wsdl"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.creditos]]"/>
+        <property name="password" value="[[jdbc.db2.password.creditos]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.producto}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.producto}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.producto}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.producto}]"/>
+    </bean>
+    <cxf:rsServer address="/RSProductos" id="productosRest" serviceClass="cl.coopeuch.core.productos.service.rest.ProductosRest"/>
+    <bean class="cl.coopeuch.util.RouteFacade" id="routeFacade"/>
+    <bean class="cl.coopeuch.util.AgregarProductos" id="agregarProductos"/>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <camelContext id="servicio-productos" xmlns="http://camel.apache.org/schema/blueprint">
+        <!-- Entrada principal del servicio SOAP -->
+        <route id="cxf-RuteoOperaciones-cxf">
+            <from id="servicioProductoEndpointListener" uri="cxf:bean:servicioProductoEndpoint?DataFormat=MESSAGE"/>
+            <to id="_to1_Inicio" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-RuteoOperaciones-jms">
+            <from id="servicioProductoEndpointListenerJms" uri="AMQ:queue:{{colas.servicio.producto.in.temp}}?preserveMessageQos=true"/>
+            <to id="_to2_Inicio" uri="direct:inicio"/>
+        </route>
+        <route id="cxfrs-RuteoOperaciones-rs">
+            <from id="servicioProductoEndpointListenerRest" uri="cxfrs:bean:productosRest"/>
+            <choice id="_choice1">
+                <when id="_when1">
+                    <simple>${header.operationName} == 'consultarProductos'</simple>
+                    <unmarshal id="_unmarshal1">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.productos.soap.DatosConsultaEntrada"/>
+                    </unmarshal>
+                    <bean id="_bean1" method="consultarProductosRequest" ref="routeFacade"/>
+                    <marshal id="_marshal1">
+                        <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                    </marshal>
+                    <to id="_to1" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal2">
+                        <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                    </unmarshal>
+                    <bean id="_bean2"
+                        method="consultarProductosResponse" ref="routeFacade"/>
+                    <marshal id="_marshal2">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.productos.soap.RespuestaConsultaProductos"/>
+                    </marshal>
+                </when>
+                <when id="_when2">
+                    <simple>${header.operationName} == 'consultarProductosSitio'</simple>
+                    <unmarshal id="_unmarshal3">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.productos.soap.DatosConsultaSitioEntrada"/>
+                    </unmarshal>
+                    <bean id="_bean3"
+                        method="consultarProductosSitioRequest" ref="routeFacade"/>
+                    <marshal id="_marshal3">
+                        <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                    </marshal>
+                    <to id="_to2" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal4">
+                        <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                    </unmarshal>
+                    <bean id="_bean4"
+                        method="consultarProductosSitioResponse" ref="routeFacade"/>
+                    <marshal id="_marshal4">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.productos.soap.RespuestaConsultaProductosSitio"/>
+                    </marshal>
+                </when>
+                <when id="_when3">
+                    <simple>${header.operationName} == 'verificar'</simple>
+                    <unmarshal id="_unmarshal5">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.productos.soap.DatosEntradaVerificar"/>
+                    </unmarshal>
+                    <bean id="_bean5" method="verificarRequest" ref="routeFacade"/>
+                    <marshal id="_marshal5">
+                        <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                    </marshal>
+                    <to id="_to3" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                    </unmarshal>
+                    <bean id="_bean6" method="verificarResponse" ref="routeFacade"/>
+                    <marshal id="_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.productos.soap.DatosSalidaVerificar"/>
+                    </marshal>
+                </when>
+                <when id="_when3">
+                    <simple>${header.operationName} == 'consultarProductoDetalle'</simple>
+                    <unmarshal id="_unmarshal11">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.productos.soap.ConsultarProductoDetalleEntradaType"/>
+                    </unmarshal>
+                    <bean id="_bean8"
+                        method="consultarProductoDetalleRequestRest" ref="routeFacade"/>
+                    <marshal id="_marshal9">
+                        <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                    </marshal>
+                    <to id="_to5" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal12">
+                        <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                    </unmarshal>
+                    <bean id="_bean9"
+                        method="consultarProductoDetalleResponseRest" ref="routeFacade"/>
+                    <marshal id="_marshal10">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.productos.soap.ConsultarProductoDetalleResponse"/>
+                    </marshal>
+                </when>
+                <when id="_when12">
+                    <simple>${header.operationName} == 'consultaDetalleCuotasMorosas'</simple>
+                    <unmarshal id="_unmarshal19">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.productos.soap.EntradaType"/>
+                    </unmarshal>
+                    <bean id="_bean22"
+                        method="consultaDetalleCuotasMorosasRest" ref="routeFacade"/>
+                    <marshal id="_marshal20">
+                        <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                    </marshal>
+                    <to id="_to12" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal20">
+                        <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                    </unmarshal>
+                    <bean id="_bean23"
+                        method="consultaDetalleCuotasMorosasResponseRest" ref="routeFacade"/>
+                    <marshal id="_marshal21">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.productos.soap.ConsultaDetalleCuotasMorosasResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenListar">
+                    <simple>${header.operationName} == 'listar'</simple>
+                    <unmarshal id="unmarshalListar">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.productos.soap.ListarRequest"/>
+                    </unmarshal>
+                    <bean id="listarRequestRest"
+                        method="listarRequestRest" ref="routeFacade"/>
+                    <marshal id="marshalListar">
+                        <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                    </marshal>
+                    <to id="toInicioListar" uri="direct:inicio"/>
+                    <unmarshal id="unmarshalListar">
+                        <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                    </unmarshal>
+                    <bean id="listarResponseRest"
+                        method="listarResponseRest" ref="routeFacade"/>
+                    <marshal id="listarUnmarshallRest">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.productos.soap.ListarResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <route id="cxf-RuteoOperaciones-inicio">
+            <from id="_fromInicio" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                    id="createJMSCorrelationId" method="createJMSCorrelationId24"/>
+                <bean beanType="cl.coopeuch.util.ProcesoCamel"
+                    id="guardaBody" method="guardaBody"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaConsultaDetalleCuotasMorosas">
+                        <simple>${body} contains 'consultaDetalleCuotasMorosas'</simple>
+                        <to id="consultaDetalleCuotasMorosasTo" uri="direct:consultaDetalleCuotasMorosas"/>
+                    </when>
+                    <when id="rutaConsultarProductosSitio">
+                        <simple>${body} contains 'consultarProductosSitio'</simple>
+                        <to id="consultarProductosSitioValidator" uri="validator:xsd/soapConsultaPodSitio.xsd"/>
+                        <to id="consultarProductoSitioTo" uri="direct:consultarProductosSitio"/>
+                    </when>
+                    <when id="rutaConsultarProductos">
+                        <simple>${body} contains 'consultarProductos'</simple>
+                        <to id="consultarProductosValidator" uri="validator:xsd/soapConsulta.xsd"/>
+                        <to id="consultarProductosTo" uri="direct:consultarProductos"/>
+                    </when>
+                    <when id="rutaVerificar">
+                        <simple>${body} contains 'verificar'</simple>
+                        <to id="verificarValidator" uri="validator:xsd/soapVerificar.xsd"/>
+                        <to id="verificarTo" uri="direct:verificar"/>
+                    </when>
+                    <when id="rutaConsultarProductoDetalle">
+                        <simple>${body} contains 'consultarProductoDetalle'</simple>
+                        <to id="consultarProductoDetalleTo" uri="direct:consultarProductoDetalle"/>
+                    </when>
+                    <when id="rutaListar">
+                        <simple>${body} contains 'listar'</simple>
+                        <to id="listarValidator" uri="validator:xsd/soapConsulta.xsd"/>
+                        <to id="listarTo" uri="direct:listar"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.ProcesoCamel"
+                        id="ruteoOperacionesRestoreBody" method="restauraBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <route id="consultaDetalleCuotasMorosasRoute">
+            <from id="_from3" uri="direct:consultaDetalleCuotasMorosas"/>
+            <doTry id="_doTry2">
+                <removeHeaders id="_removeHeaders3" pattern="*"/>
+                <unmarshal id="_unmarshal16">
+                    <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                </unmarshal>
+                <setProperty id="_setProperty21" propertyName="entrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                    id="_bean14" method="createJMSCorrelationId24"/>
+                <bean id="_bean15" method="xmltoIOC093802I" ref="routeFacade"/>
+                <marshal id="_marshal14">
+                    <bindy
+                        classType="cl.coopeuch.core.productos.modelo.IOC093802I" type="Fixed"/>
+                </marshal>
+                <to id="toIOC0938" uri="direct:IOC093802"/>
+                <when id="_when10">
+                    <simple>${property.ioc093802.getS02MASCUO()} != null</simple>
+                    <to id="_to10" uri="direct:concatenarFaltantesDetalleMora"/>
+                </when>
+                <bean id="_bean20" method="salidaDetalleCuotas" ref="routeFacade"/>
+                <marshal id="_marshal18">
+                    <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                </marshal>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="_bean21" method="errorConsultarProductoDetalle"/>
+                    <marshal id="_marshal19">
+                        <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                    </marshal>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeConsultarProductoDetalle">
+            <from id="fromConsultarProductoDetalle" uri="direct:consultarProductoDetalle"/>
+            <doTry id="_doTry1">
+                <unmarshal id="_unmarshal9">
+                    <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                </unmarshal>
+                <setProperty id="_setProperty22" propertyName="entrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <log id="_log9" message="entrada desde property--> ${property.entrada}"/>
+                <multicast id="_multicast1" parallelProcessing="true"
+                    stopOnException="true" strategyRef="agregarProductos">
+                    <to id="_to7" uri="direct:activos"/>
+                    <to id="_to6" uri="direct:pasivos"/>
+                    <to id="_to9" uri="direct:mora"/>
+                </multicast>
+                <bean id="_bean12" method="filtrarCuentasVistas" ref="routeFacade"/>
+                <bean id="_bean10" method="salidaServicio" ref="routeFacade"/>
+                <marshal id="_marshal11">
+                    <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                </marshal>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="_bean18" method="errorConsultarProductoDetalle"/>
+                    <marshal id="_marshal16">
+                        <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                    </marshal>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeMora">
+            <from id="fromMora" uri="direct:mora"/>
+            <removeHeaders id="_removeHeaders4" pattern="*"/>
+            <bean id="transformarEntradatoIOC093801"
+                method="generarTramaIOC093801I" ref="routeFacade"/>
+            <marshal id="_marshal15">
+                <bindy
+                    classType="cl.coopeuch.core.productos.modelo.IOC093801I" type="Fixed"/>
+            </marshal>
+            <to id="toIOC093801O" uri="direct:IOC093801"/>
+            <when id="_when11">
+                <simple>${property.ioc093801.getS01MASCPP()} != null or ${property.ioc093801.getS01MASCPD()} != null or ${property.ioc093801.getS01MASCHI()} != null or ${property.ioc093801.getS01MASTAR()} != null or ${property.ioc093801.getS01MASGAR()} != null</simple>
+                <to id="_to11" uri="direct:concatenarFaltantesMora"/>
+            </when>
+        </route>
+        <route id="routePasivos">
+            <from id="fromPasivos" uri="direct:pasivos"/>
+            <removeHeaders id="_removeHeaders1" pattern="*"/>
+            <bean id="transformarEntradatoIOC0935"
+                method="generarTramaConsultarProductoDetalleEntradaPasivos" ref="routeFacade"/>
+            <marshal id="_marshal8">
+                <bindy
+                    classType="cl.coopeuch.core.productos.modelo.IOC093501I" type="Fixed"/>
+            </marshal>
+            <to id="toIOC0935" uri="direct:IOC0935"/>
+            <when id="_when7">
+                <simple>${property.ioc0935.getS01MASCUP()} != null or ${property.ioc0935.getS01MASAHO()} != null or ${property.ioc0935.getS01MASCVI()} != null or ${property.ioc0935.getS01MASDAP()} != null or ${property.ioc0935.getS01MASACR()} != null or ${property.ioc0935.getS01MASREM()} != null or ${property.ioc0935.getS01MASPAC()} != null</simple>
+                <to id="_to8" uri="direct:concatenarFaltantesPasivos"/>
+            </when>
+        </route>
+        <route id="routeActivos">
+            <from id="_from2" uri="direct:activos"/>
+            <removeHeaders id="_removeHeaders2" pattern="*"/>
+            <bean id="transformarEntradatoIOC093"
+                method="generarTramaConsultarProductoDetalleEntrada" ref="routeFacade"/>
+            <marshal id="_marshal7">
+                <bindy
+                    classType="cl.coopeuch.core.productos.modelo.IOC093001I" type="Fixed"/>
+            </marshal>
+            <to id="toIOC0930" uri="direct:IOC0930"/>
+            <when id="_when5">
+                <simple>${property.ioc0930.getS01MASCPP()} != null or ${property.ioc0930.getS01MASCPD()} != null or ${property.ioc0930.getS01MASCHI()} != null or ${property.ioc0930.getS01MASTAR()} != null</simple>
+                <to id="_to4" uri="direct:concatenarFaltantes"/>
+            </when>
+        </route>
+        <route id="routeFaltantesMora">
+            <from id="fromFaltantesMora" uri="direct:concatenarFaltantesMora"/>
+            <loop doWhile="true" id="_loop3">
+                <simple>${property.ioc093801.getS01MASCPP()} != '-' or ${property.ioc093801.getS01MASCPD()} != '-' or ${property.ioc093801.getS01MASCHI()} != '-' or ${property.ioc093801.getS01MASTAR()} != '-' or ${property.ioc093801.getS01MASGAR()} != '-'</simple>
+                <bean id="obtenerDatosFaltantesMoraIdBean"
+                    method="obtenerDatosFaltantesMora" ref="routeFacade"/>
+                <marshal id="_marshal17">
+                    <bindy
+                        classType="cl.coopeuch.core.productos.modelo.IOC093801I" type="Fixed"/>
+                </marshal>
+                <to id="toIOC093801Loop" uri="direct:IOC093801"/>
+                <bean id="_bean19"
+                    method="concatenarSalidaProductosMora" ref="routeFacade"/>
+            </loop>
+        </route>
+        <route id="routeFaltantesPasivos">
+            <from id="fromFaltantesPasivos" uri="direct:concatenarFaltantesPasivos"/>
+            <loop doWhile="true" id="_loop2">
+                <simple>${property.ioc0935.getS01MASCUP()} != '-' or ${property.ioc0935.getS01MASAHO()} != '-' or ${property.ioc0935.getS01MASCVI()} != '-' or ${property.ioc0935.getS01MASDAP()} != '-' or ${property.ioc0935.getS01MASACR()} != '-' or ${property.ioc0935.getS01MASREM()} != '-' or ${property.ioc0935.getS01MASPAC()} != '-'</simple>
+                <bean id="obtenerDatosFaltantesPasivosIdBean"
+                    method="obtenerDatosFaltantesPasivos" ref="routeFacade"/>
+                <marshal id="_marshal13">
+                    <bindy
+                        classType="cl.coopeuch.core.productos.modelo.IOC093501I" type="Fixed"/>
+                </marshal>
+                <to id="toIOC0935Loop" uri="direct:IOC0935"/>
+                <bean id="_bean13"
+                    method="concatenarSalidaProductosPasivos" ref="routeFacade"/>
+            </loop>
+        </route>
+        <route id="routeFaltantesDetalleMora">
+            <from id="fromFaltantesDetalleMora" uri="direct:concatenarFaltantesDetalleMora"/>
+            <loop doWhile="true" id="_loopDetalleMora">
+                <simple>${property.ioc093802.getS02MASCUO()} != '-'</simple>
+                <bean id="obtenerDatosFaltantesDetalleMoraIdBean"
+                    method="obtenerDatosFaltantesDetalleMora" ref="routeFacade"/>
+                <marshal id="_marshalDetalleMora">
+                    <bindy
+                        classType="cl.coopeuch.core.productos.modelo.IOC093802I" type="Fixed"/>
+                </marshal>
+                <to id="toIOC093802Loop" uri="direct:IOC093802"/>
+                <bean id="_beanDetalleMora"
+                    method="concatenarSalidaProductosDetalleMora" ref="routeFacade"/>
+            </loop>
+        </route>
+        <route id="routeFaltantes">
+            <from id="_from1" uri="direct:concatenarFaltantes"/>
+            <loop doWhile="true" id="_loop1">
+                <simple>${property.ioc0930.getS01MASCPP()} != '-' or ${property.ioc0930.getS01MASCPD()} != '-' or ${property.ioc0930.getS01MASCHI()} != '-' or ${property.ioc0930.getS01MASTAR()} != '-'</simple>
+                <bean id="obtenerDatosFaltantesIdBean"
+                    method="obtenerDatosFaltantes" ref="routeFacade"/>
+                <marshal id="_marshal12">
+                    <bindy
+                        classType="cl.coopeuch.core.productos.modelo.IOC093001I" type="Fixed"/>
+                </marshal>
+                <to id="toIOC0930Loop" uri="direct:IOC0930"/>
+                <bean id="_bean11" method="concatenarSalidaProductos" ref="routeFacade"/>
+            </loop>
+        </route>
+        <route id="routeIOC0935">
+            <from id="fromIOC0935" uri="direct:IOC0935"/>
+            <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                id="createJMSCorrelationId0935" method="createJMSCorrelationId24"/>
+            <log id="_log1" message="Entrada IOC0935: ${body}"/>
+            <to id="listarPasivosToAmq" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+            <log id="_log2" message="Salida IOC0935: |${body}|"/>
+            <choice id="_choice3">
+                <when id="_when6">
+                    <simple>${body} contains 'ECNLERR'</simple>
+                    <unmarshal id="_unmarshal13">
+                        <bindy
+                            classType="cl.coopeuch.core.productos.modelo.IOCERROR" type="Fixed"/>
+                    </unmarshal>
+                    <bean id="_bean7" method="transformarSalidaError" ref="routeFacade"/>
+                </when>
+                <otherwise id="_otherwise2">
+                    <unmarshal id="_unmarshalIOC0935">
+                        <bindy
+                            classType="cl.coopeuch.core.productos.modelo.IOC093501O" type="Fixed"/>
+                    </unmarshal>
+                    <bean id="idTransformarSalidaIOC0935"
+                        method="transformarSalidaIOC0935" ref="routeFacade"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="routeIOC0930">
+            <from id="fromIOC0930" uri="direct:IOC0930"/>
+            <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                id="createJMSCorrelationId0930" method="createJMSCorrelationId24"/>
+            <log id="_log3" message="Entrada IOC0930: ${body}"/>
+            <to id="listarToAmq" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+            <log id="_log4" message="Salida IOC0930: ${body}"/>
+            <choice id="_choice2">
+                <when id="_when4">
+                    <simple>${body} contains 'ECNLERR'</simple>
+                    <unmarshal id="_unmarshal10">
+                        <bindy
+                            classType="cl.coopeuch.core.productos.modelo.IOCERROR" type="Fixed"/>
+                    </unmarshal>
+                    <bean id="idTransformarSalidaError"
+                        method="transformarSalidaError" ref="routeFacade"/>
+                </when>
+                <otherwise id="_otherwise1">
+                    <unmarshal id="_unmarshalIOC0930">
+                        <bindy
+                            classType="cl.coopeuch.core.productos.modelo.IOC093001O" type="Fixed"/>
+                    </unmarshal>
+                    <bean id="idTransformarSalidaIOC0930"
+                        method="transformarSalidaIOC0930" ref="routeFacade"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="routeIOC093801">
+            <from id="fromIOC093801" uri="direct:IOC093801"/>
+            <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                id="createJMSCorrelationId093801" method="createJMSCorrelationId24"/>
+            <log id="_log7" message="Entrada IOC093801: ${body}"/>
+            <to id="listarToAmqIOC093801" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+            <log id="_log8" message="Salida IOC093801: |${body}|"/>
+            <choice id="_choice5">
+                <when id="_when9">
+                    <simple>${body} contains 'ECNLERR'</simple>
+                    <unmarshal id="_unmarshal17">
+                        <bindy
+                            classType="cl.coopeuch.core.productos.modelo.IOCERROR" type="Fixed"/>
+                    </unmarshal>
+                    <bean id="_bean17" method="transformarSalidaError" ref="routeFacade"/>
+                </when>
+                <otherwise id="_otherwise4">
+                    <unmarshal id="_unmarshal18">
+                        <bindy
+                            classType="cl.coopeuch.core.productos.modelo.IOC093801O" type="Fixed"/>
+                    </unmarshal>
+                    <bean id="idTransformarSalidaIOC093801"
+                        method="transformarSalidaIOC093801" ref="routeFacade"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="routeIOC093802">
+            <from id="fromIOC093802" uri="direct:IOC093802"/>
+            <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                id="createJMSCorrelationId093802" method="createJMSCorrelationId24"/>
+            <log id="_log5" message="Entrada IOC093802: ${body}"/>
+            <to id="listarToAmqIOC093802" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+            <log id="_log6" message="Salida IOC093802: |${body}|"/>
+            <choice id="_choice4">
+                <when id="_when8">
+                    <simple>${body} contains 'ECNLERR'</simple>
+                    <unmarshal id="_unmarshal14">
+                        <bindy
+                            classType="cl.coopeuch.core.productos.modelo.IOCERROR" type="Fixed"/>
+                    </unmarshal>
+                    <bean id="_bean16"
+                        method="transformarSalidaErrorDetalleMorosos" ref="routeFacade"/>
+                </when>
+                <otherwise id="_otherwise3">
+                    <unmarshal id="_unmarshal15">
+                        <bindy
+                            classType="cl.coopeuch.core.productos.modelo.IOC093802O" type="Fixed"/>
+                    </unmarshal>
+                    <bean id="idTransformarSalidaIOC093802"
+                        method="transformarSalidaIOC093802" ref="routeFacade"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- ruta camel que extrae productos del socio -->
+        <route id="consultarProductos">
+            <from id="consultarProductosFrom" uri="direct:consultarProductos"/>
+            <doTry id="consultarProductosTry">
+                <setProperty id="_setProperty1" propertyName="rut">
+                    <xpath resultType="String">//rut</xpath>
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="codCliente">
+                    <xpath resultType="Integer">//numeroCliente</xpath>
+                </setProperty>
+                <setProperty id="_setProperty3" propertyName="ultimoRegistro">
+                    <xpath resultType="Integer">//numeroUltimoRegistro</xpath>
+                </setProperty>
+                <choice id="consultarProductos_choice">
+                    <when id="consultarProductos_when">
+                        <simple> ${exchangeProperty.rut.length} &gt; 9 </simple>
+                        <setProperty id="_setProperty4" propertyName="rut">
+                            <simple>''</simple>
+                        </setProperty>
+                    </when>
+                </choice>
+                <to id="consultarProductos-To" uri="sql-stored:classpath:sql/PA_SEL_LISTAPRODUCTOS_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseConsultarProductos"/>
+                <bean id="validarConsultarProductosBean"
+                    method="validarConsultarProductos" ref="routeFacade"/>
+                <unmarshal id="_unmarshal7">
+                    <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                </unmarshal>
+                <removeHeaders id="removeHeadersconsultarProductos" pattern="*"/>
+                <setProperty id="_setProperty13" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty14" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty15" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty16" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <to id="consultarProductosTrama2xml" uri="xslt://transformations/out/xmlOut_consultaProductos.xsl?saxon=true"/>
+                <doCatch id="consultarProductosCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.ProcesoCamel"
+                        id="consultarProductosRestoreBody" method="restauraBody"/>
+                    <setBody id="consultarProductosSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarProductosFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="consultarProductosSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultarProductosFinally"/>
+            </doTry>
+        </route>
+        <!-- ruta camel que extrae productos del socio, utilizado en sitio privado -->
+        <route id="consultarProductosSitio">
+            <from id="consultarProductosSitioFrom" uri="direct:consultarProductosSitio"/>
+            <doTry id="consultarProductosSitioTry">
+                <setProperty id="_setProperty17" propertyName="rut">
+                    <xpath resultType="String">//rut</xpath>
+                </setProperty>
+                <setProperty id="_setProperty18" propertyName="codCliente">
+                    <xpath resultType="Integer">//numeroCliente</xpath>
+                </setProperty>
+                <setProperty id="_setProperty19" propertyName="ultimoRegistro">
+                    <xpath resultType="Integer">//numeroUltimoRegistro</xpath>
+                </setProperty>
+                <choice id="consultarProductosSitio_choice">
+                    <when id="consultarProductosSitio_when">
+                        <simple> ${exchangeProperty.rut.length} &gt; 9 </simple>
+                        <setProperty id="_setProperty20" propertyName="rut">
+                            <simple>''</simple>
+                        </setProperty>
+                    </when>
+                </choice>
+                <to id="consultarProductosSitio-To" uri="sql-stored:classpath:sql/PA_SEL_LISTAPRODUCTOSSITIO_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseConsultarProductos"/>
+                <bean id="validarConsultarProductosSitioBean"
+                    method="validarConsultarProductosSitio" ref="routeFacade"/>
+                <unmarshal id="_unmarshal8">
+                    <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                </unmarshal>
+                <removeHeaders id="removeHeadersconsultarProductosSitio" pattern="*"/>
+                <setProperty id="_setProperty9" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty10" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty11" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty12" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <to id="consultarProductosSitioTrama2xml" uri="xslt://transformations/out/xmlOut_consultaProductosSitio.xsl?saxon=true"/>
+                <doCatch id="consultarProductosSitioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.ProcesoCamel"
+                        id="consultarProductosSitioRestoreBody" method="restauraBody"/>
+                    <setBody id="consultarProductosSitioSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarProductosSitioFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="consultarProductosSitioSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultarProductosSitioFinally"/>
+            </doTry>
+        </route>
+        <route id="verificarRoute">
+            <from id="verificarFrom" uri="direct:verificar"/>
+            <doTry id="verificarTry">
+                <to id="verificarXml2trama" uri="xslt://transformations/in/xml2tramaIOC718001I_verificar.xsl"/>
+                <to id="activemq-verificar" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="verificarTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <removeHeaders id="removeHeadersVerificar" pattern="JMS*"/>
+                <setProperty id="_setProperty5" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty6" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty7" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty8" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <to id="verificarTrama2xml" uri="xslt://transformations/out/trama2xmlIOC718001O_verificar.xsl?saxon=true"/>
+                <doCatch id="verificarCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.ProcesoCamel"
+                        id="verificarRestoreBody" method="restauraBody"/>
+                    <setBody id="verificarSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="verificarFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="verificarSetBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="listar">
+            <from id="listarFrom" uri="direct:listar"/>
+            <doTry id="listarTry">
+                <setProperty id="listarSetUserId" propertyName="userId">
+                    <xpath resultType="String">//userId</xpath>
+                </setProperty>
+                <setProperty id="listarSetCanalLlamada" propertyName="canalLlamada">
+                    <xpath resultType="String">//canalLlamada</xpath>
+                </setProperty>
+                <setProperty id="listarSetCodigoFamilia" propertyName="codigoFamilia">
+                    <xpath resultType="String">//codigoFamilia</xpath>
+                </setProperty>
+                <to id="listarToPa" uri="sql-stored:classpath:sql/PA_SEL_SERVICIOPRODUCTOS_LISTAR_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseListar"/>
+                <bean id="listarResponsePa" method="listarResponsePa" ref="routeFacade"/>
+                <marshal id="listarMarshal18">
+                    <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                </marshal>
+                <doCatch id="listarErrorDoCatch">
+                    <exception>java.lang.RuntimeException</exception>
+                    <log id="listarLogError" loggingLevel="ERROR" message="${exception}"/>
+                    <setProperty id="listarCodigoError" propertyName="codigoError">
+                        <constant>509</constant>
+                    </setProperty>
+                    <setProperty id="listarDescripcionError" propertyName="descripcionError">
+                        <simple>Error al ejecutar procedimiento almacenado.</simple>
+                    </setProperty>
+                    <setProperty id="listarOrigenError" propertyName="origenError">
+                        <simple>RSProductos/listar_PA_SEL_SERVICIOPRODUCTOS_LISTAR_WS.</simple>
+                    </setProperty>
+                    <bean id="listarExceptionError"
+                        method="listarException" ref="routeFacade"/>
+                    <marshal id="listarMarshalError">
+                        <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                    </marshal>
+                </doCatch>
+                <doCatch id="listarDoCatchException">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="listarCodigoErrorException" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="listarDescripcionErrorException" propertyName="descripcionError">
+                        <simple>Error interno del servidor.</simple>
+                    </setProperty>
+                    <setProperty id="listarOrigenError" propertyName="origenError">
+                        <simple>RSProductos/listar</simple>
+                    </setProperty>
+                    <bean id="listarException" method="listarException" ref="routeFacade"/>
+                    <marshal id="listarMarshalException">
+                        <jaxb contextPath="cl.coopeuch.core.productos.soap"/>
+                    </marshal>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

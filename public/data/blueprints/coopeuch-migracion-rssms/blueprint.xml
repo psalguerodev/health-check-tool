@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyServicioSms"
+        persistent-id="serviciosms" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioSMS" id="servicioSMSEndpoint"
+        serviceClass="cl.coopeuch.integracion.sms.wsdl.ServicioSMS" wsdlURL="wsdl/ServicioSMS.wsdl"/>
+    <cxf:rsServer address="/RSServicioSMS" id="RSServicioSMSRestBean"
+        loggingFeatureEnabled="false" serviceClass="cl.coopeuch.integracion.sms.rest.RSServicioSMSRest"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <bean class="cl.coopeuch.integracion.sms.util.RouteFacade" id="routeFacade"/>
+    <camelContext id="servicio-sms" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="JacksonSmsReq" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.sms.wsdl.SMSRequest"/>
+            <json id="JacksonSmsResp" include="NON_NULL"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.sms.xsd.SMSResponse"/>
+            <json id="JacksonSmsFault" include="NON_NULL"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.sms.xsd.SMSFaultMsg"/>
+        </dataFormats>
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:RSServicioSMSRestBean?bindingStyle=SimpleConsumer&amp;provider=jsonProvider"/>
+            <doTry id="restDoTry">
+                <convertBodyTo id="restToString" type="java.lang.String"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.sms.util.RespaldarCuerpo"
+                    id="restBackupBody" method="respaldoCuerpo"/>
+                <choice id="restRuteoOperaciones">
+                    <when id="restRutaSMSRequest">
+                        <simple>${header.operationName} == 'sms'</simple>
+                        <unmarshal id="unmarshallEntradaSms" ref="JacksonSmsReq"/>
+                        <to id="restSMSRequestValidator" uri="validator:xsd/soapSMS.xsd"/>
+                        <removeHeaders id="restRmHeaders" pattern="*"/>
+                        <to id="restSMSRequestTo" uri="direct:SMSRequest"/>
+                        <marshal id="unmarshalFromSmsResponseXsd">
+                            <jaxb contextPath="cl.coopeuch.integracion.sms.xsd"/>
+                        </marshal>
+                        <bean id="beanSmsResponse"
+                            method="beanSmsResponse" ref="routeFacade"/>
+                    </when>
+                </choice>
+                <doCatch id="restDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.sms.util.RespaldarCuerpo"
+                        id="restRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="restSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="restFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.sms.util.SalidaError"
+                        id="restGeneraBodyError" method="generarBodyError"/>
+                    <convertBodyTo id="errorRest" type="java.lang.String"/>
+                    <bean id="cathBeanSmsResponse"
+                        method="beanSmsResponse" ref="routeFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cx-RuteoOperaciones">
+            <from id="servicioSMSEndpointListener" uri="cxf:bean:servicioSMSEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.sms.util.RespaldarCuerpo"
+                    id="backupBody" method="respaldoCuerpo"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaSMSRequest">
+                        <simple>${body} contains 'SMSRequest'</simple>
+                        <to id="SMSRequestValidator" uri="validator:xsd/soapSMS.xsd"/>
+                        <to id="SMSRequestTo" uri="direct:SMSRequest"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.sms.util.RespaldarCuerpo"
+                        id="ruteoOperacionesRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.sms.util.SalidaError"
+                        id="ruteoOperacionesBodyError" method="generarBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <!-- Inicio: Envio SMS OTP -->
+        <route id="SMSRequest">
+            <from id="SMSRequestFrom" uri="direct:SMSRequest"/>
+            <setHeader headerName="mensaje" id="_setHeader1">
+                <xpath resultType="String">//mensaje/text()</xpath>
+            </setHeader>
+            <choice id="_choice2">
+                <when id="_when2">
+                    <simple>${headers.mensaje} != ''</simple>
+                    <doTry id="SMSRequestTry">
+                        <!-- Guarda el la cabecera el mensaje enviado en la entrada. -->
+                        <!-- Inicio: Valida que los valores de entrada del mensaje no sean 
+							caracteres extraños. -->
+                        <!-- Fin: Valida que los valores de entrada del mensaje no sean caracteres 
+							extraños. -->
+                        <choice id="_choice1">
+                            <when id="_when1">
+                                <simple>${headers.mensaje} regex '.*[a-zA-Z0-9].*'</simple>
+                                <!-- Forma XML de entrada para el servicio externo. -->
+                                <!-- Llamada al servicio externo -->
+                                <!-- Remueve los namespace desde el XML de salida. -->
+                                <!-- Forma XML salida para el usuario. -->
+                                <to id="xml2xml_SMSRequest" uri="xslt://transformations/in/xml2xml_SMSRequest.xsl?saxon=true"/>
+                                <to id="SMSRequestEnpoint" uri="cxf:{{endpoint.SMS.url}}?dataFormat=MESSAGE"/>
+                                <to id="xml2xml_SMSRequestClean" uri="xslt://transformations/out/cleanNameSpaces.xsl?saxon=true"/>
+                                <to id="xml2xml_SMSRequest" uri="xslt://transformations/out/xml2xmlSMSResponse.xsl?saxon=true"/>
+                            </when>
+                            <otherwise id="_otherwise1">
+                                <to id="_to1" uri="xslt://transformations/error/ErrorDatos.xsl?saxon=true"/>
+                            </otherwise>
+                        </choice>
+                        <doCatch id="SMSRequestCatch">
+                            <exception>java.lang.Exception</exception>
+                            <exception>java.io.IOException</exception>
+                            <bean
+                                beanType="cl.coopeuch.integracion.sms.util.RespaldarCuerpo"
+                                id="SMSRequestRestoreBody" method="restaurarCuerpo"/>
+                            <setBody id="SMSRequestSetBodyError">
+                                <simple>ERROR:${exception}:${body}</simple>
+                            </setBody>
+                            <to id="SMSRequestFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                            <bean
+                                beanType="cl.coopeuch.integracion.sms.util.SalidaError"
+                                id="SMSRequestBodyError" method="generarBodyError"/>
+                        </doCatch>
+                        <doFinally id="SMSRequestFinally"/>
+                    </doTry>
+                </when>
+                <otherwise id="_otherwise2">
+                    <to id="_to2" uri="xslt://transformations/error/ErrorDatos.xsl?saxon=true"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Fin: Envio SMS OTP -->
+    </camelContext>
+</blueprint>

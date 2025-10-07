@@ -1,0 +1,1181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder  -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyTercerFactor"
+        persistent-id="wstercerfactor" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+
+    <cxf:rsServer address="/RSTercerFactor" id="RSTercerFactor"
+        loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.tercerfactor.rest.TercerFactorRest"/>
+    <cxf:cxfEndpoint address="/ServicioTercerFactor"
+        id="servicioTercerFactorPortType" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.core.tercerfactor.tercerfactor.TercerFactorPortType" wsdlURL="wsdl/ServicioTercerFactor.wsdl"/>
+    <cxf:cxfEndpoint address="[{endpoint.safesigner.smsws}]"
+        id="endpointSafeSignerSmsWs" loggingFeatureEnabled="false"
+        serviceClass="cl.coopeuch.integracion.tercerfactor.wsdl.safesigner.smsws.SmsWs" wsdlURL="wsdl/SafeSigner_SmsWs.wsdl">
+        <cxf:inInterceptors>
+            <bean class="cl.coopeuch.integracion.tercerfactor.interceptor.CustomLoggingInInterceptor" />
+        </cxf:inInterceptors>
+        <cxf:outInterceptors>
+            <bean class="cl.coopeuch.integracion.tercerfactor.interceptor.CustomLoggingOutInterceptor" />
+        </cxf:outInterceptors>
+    </cxf:cxfEndpoint>
+    <cxf:cxfEndpoint address="[{endpoint.safesigner.ws}]"
+        id="endpointSafeSignerWs" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.tercerfactor.wsdl.safesigner.ws.SafeSignerWs" wsdlURL="wsdl/SafeSignerWs.wsdl"/>
+    <cxf:rsClient address="[{rsnotificaciones.enviar.endpoint}]"
+        id="endpointRsNotificaciones" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="true"/>
+        </cxf:properties>
+    </cxf:rsClient>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.portalweb}]/PortalWeb;charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.portalweb}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.portalweb}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.portalweb}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.portalweb}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.portalweb}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.portalweb}]"/>
+    </bean>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+
+    <bean class="cl.coopeuch.integracion.tercerfactor.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="cl.coopeuch.integracion.tercerfactor.util.LogIncidencias" id="beanLogIncidencias"/>
+	<bean id="logTraceIncidencias" class="org.slf4j.LoggerFactory" factory-method="getLogger">
+		<argument index="0" value="logTercerFactor" />
+	</bean>
+
+    <camelContext id="servicio-tercerfactor" xmlns="http://camel.apache.org/schema/blueprint">
+        <!-- Primera entrada: aca de define la ruta que tomara la consulta -->
+        <dataFormats>
+            <json id="JacksonSolicitarReq" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tercerfactor.xsd.Solicitar"/>
+            <json id="JacksonSolicitarResp" include="NON_NULL"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tercerfactor.xsd.SolicitarResponse"/>
+            <json id="JacksonValidarReq" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tercerfactor.xsd.Validar"/>
+            <json id="JacksonValidarResp" include="NON_NULL"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tercerfactor.xsd.ValidarResponse"/>
+            <json id="JacksonSolicitarCodigoAutorizacionReq"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tercerfactor.xsd.SolicitarCodigoAutorizacion"/>
+            <json id="JacksonSolicitarCodigoAutorizacionResp"
+                include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tercerfactor.xsd.SolicitarCodigoAutorizacionResponse"/>
+            <json id="JacksonValidarCodigoAutorizacionReq"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tercerfactor.xsd.ValidarCodigoAutorizacion"/>
+            <json id="JacksonValidarCodigoAutorizacionResp"
+                include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tercerfactor.xsd.ValidarCodigoAutorizacionResponse"/>
+        </dataFormats>
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:RSTercerFactor?bindingStyle=SimpleConsumer&amp;provider=jsonProvider"/>
+
+           <!-- <onCompletion>
+                <log id="logBodyFinalRest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: TercerFactor(mismo) || Type: Outbound || Body: ${body}" />
+            </onCompletion>-->
+
+            <doTry id="restDoTry">
+                <convertBodyTo id="restToString" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.integracion.tercerfactor.util.RespaldarCuerpo"
+                    id="backupBody-REST" method="respaldarCuerpo"/>
+
+                <bean id="generarIdflujoLogRest" method="generarIdFlujoLog" ref="beanLogIncidencias"/>
+                <log id="logBodyInicioRest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: TercerFactor(mismo) || Type: Inbound || Body: ${body}" />
+  
+                <choice id="restRuteoOperaciones">
+                    <when id="restRutaSMSRequest">
+                        <simple>${header.operationName} == 'solicitarCodigoAutorizacion'</simple>
+                        <unmarshal id="unmarshallEntradaSms" ref="JacksonSolicitarCodigoAutorizacionReq"/>
+                        <to id="restSMSRequestValidator" uri="validator:xsd/soapTercerFactor.xsd"/>
+                        <removeHeaders id="restRmHeaders" pattern="*"/>
+                        <setProperty
+                            id="solicitarCodigoAutorizacionRest" propertyName="solicitarCodigoAutorizacionRest">
+                            <constant>true</constant>
+                        </setProperty>
+                        <to id="restSMSRequestTo" uri="direct:solicitarCodigoAutorizacionSS"/>
+                        <marshal id="unmarshalFromSmsResponseXsd">
+                            <jaxb contextPath="cl.coopeuch.integracion.tercerfactor.xsd"/>
+                        </marshal>
+                        <bean id="beanSmsResponse"
+                            method="beanSolicitarCodigoAutorizacionResponse" ref="beanRouteFacade"/>
+                    </when>
+                    <when id="restRutaSMSRequest">
+                        <simple>${header.operationName} == 'solicitar'</simple>
+                        <unmarshal id="unmarshallEntradaSms" ref="JacksonSolicitarReq"/>
+                        <to id="restSMSRequestValidator" uri="validator:xsd/soapTercerFactor.xsd"/>
+                        <setProperty id="solicitarRestCanalLlamada" propertyName="canalLlamada">
+                            <simple>${header.canalLlamada}</simple>
+                        </setProperty>
+                        <removeHeaders id="restRmHeaders" pattern="*"/>
+                        <setProperty id="solicitarRest" propertyName="solicitarRest">
+                            <constant>true</constant>
+                        </setProperty>
+                        <to id="restSMSRequestTo" uri="direct:solicitarOTPSafeSigner"/>
+                        <marshal id="unmarshalFromSmsResponseXsd">
+                            <jaxb contextPath="cl.coopeuch.integracion.tercerfactor.xsd"/>
+                        </marshal>
+                        <bean id="beanSmsResponse"
+                            method="beanSolicitarResponse" ref="beanRouteFacade"/>
+                    </when>
+                    <when id="restRutaSMSRequest">
+                        <simple>${header.operationName} == 'validarCodigoAutorizacion'</simple>
+                        <unmarshal id="unmarshallEntradaSms-validar" ref="JacksonValidarCodigoAutorizacionReq"/>
+                        <to
+                            id="restSMSRequestValidator-validarCodigoAutorizacion" uri="validator:xsd/soapTercerFactor.xsd"/>
+                        <removeHeaders
+                            id="restRmHeaders-validarCodigoAutorizacion" pattern="*"/>
+                        <setProperty id="validarCodigoAutorizacionRest" propertyName="validarCosigoAutorizacionRest">
+                            <constant>true</constant>
+                        </setProperty>
+                        <to
+                            id="restSMSRequestTo-validarCodigoAutorizacion" uri="direct:validarCodigoAutorizacionSS"/>
+                        <marshal id="unmarshalFromSmsResponseXsd-validarCodAut">
+                            <jaxb contextPath="cl.coopeuch.integracion.tercerfactor.xsd"/>
+                        </marshal>
+                        <bean id="beanSmsResponse"
+                            method="beanValidarCodigoAutorizacionResponse" ref="beanRouteFacade"/>
+                    </when>
+                    <when id="restRutaSMSRequest">
+                        <simple>${header.operationName} == 'validar'</simple>
+                        <unmarshal id="unmarshallEntradaSms-validar" ref="JacksonValidarReq"/>
+                        <to id="restSMSRequestValidator-validar" uri="validator:xsd/soapTercerFactor.xsd"/>
+                        <removeHeaders id="restRmHeaders-validar" pattern="*"/>
+                        <setProperty id="validarRest" propertyName="validarRest">
+                            <constant>true</constant>
+                        </setProperty>
+                        <to id="restSMSRequestTo-validar" uri="direct:validarOTPSafeSigner"/>
+                        <marshal id="unmarshalFromSmsResponseXsd-validar">
+                            <jaxb contextPath="cl.coopeuch.integracion.tercerfactor.xsd"/>
+                        </marshal>
+                        <bean id="beanSmsResponse"
+                            method="beanValidarResponse" ref="beanRouteFacade"/>
+                    </when>
+                </choice>
+                <doCatch id="restDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to uri="direct:excepcionLog"/>
+                    <bean beanType="cl.coopeuch.integracion.tercerfactor.util.RespaldarCuerpo"
+                        id="ruteoOperacionesRestoreBody-REST" method="restaurarCuerpo"/>
+                    <setBody id="restSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="restFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.tercerfactor.util.InsertarError"
+                        id="ruteoOperacionesBodyError-REST" method="insertarError"/>
+                    <convertBodyTo id="errorRest" type="java.lang.String"/>
+                    <choice id="restRuteoOperaciones-Error">
+                        <when id="restRutaSMSRequest-Error">
+                            <simple>${header.operationName} == 'solicitarCodigoAutorizacion'</simple>
+                            <bean id="cathBeanSmsResponse"
+                                method="beanSolicitarCodigoAutorizacionResponse" ref="beanRouteFacade"/>
+                        </when>
+                        <when id="restRutaSMSRequest-Error">
+                            <simple>${header.operationName} == 'solicitar'</simple>
+                            <bean id="cathBeanSmsResponse"
+                                method="beanSolicitarResponse" ref="beanRouteFacade"/>
+                        </when>
+                        <when id="restRutaSMSRequest-Error">
+                            <simple>${header.operationName} == 'validarCodigoAutorizacion'</simple>
+                            <bean id="cathBeanSmsResponse"
+                                method="beanValidarCodigoAutorizacionResponse" ref="beanRouteFacade"/>
+                        </when>
+                        <when id="restRutaSMSRequest-Error">
+                            <simple>${header.operationName} == 'validar'</simple>
+                            <bean id="cathBeanSmsResponse"
+                                method="beanValidarResponse" ref="beanRouteFacade"/>
+                        </when>
+                    </choice>
+                </doCatch>
+                <doFinally>
+                    <bean method="getBodyFromInputStream" ref="beanLogIncidencias"/>
+                    <log id="logBodyFinalRest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: TercerFactor(mismo) || Type: Outbound || Body: ${exchangeProperty.bodyLog}" />
+                </doFinally>
+            </doTry>
+        </route>
+        <route id="cx-RuteoOperaciones">
+            <from id="EndpointListener" uri="cxf:bean:servicioTercerFactorPortType?DataFormat=MESSAGE"/>
+
+           <!-- <onCompletion>
+                <log id="logBodyFinalSoap" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: TercerFactor(mismo) || Type: Outbound || Body: ${body}" />
+            </onCompletion>-->
+
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.integracion.tercerfactor.util.RespaldarCuerpo"
+                    id="backupBody" method="respaldarCuerpo"/>
+                <bean beanType="cl.coopeuch.integracion.tercerfactor.util.CorrelationId"
+                    id="createJMSCorrelationId" method="createJMSCorrelationId24"/>
+                <setHeader headerName="identificadorCliente" id="ruteoOperacionesHeaderIdentificadorCliente">
+                    <xpath resultType="String">//identificadorCliente</xpath>
+                </setHeader>
+
+                <bean id="generarIdflujoLogSoap" method="generarIdFlujoLog" ref="beanLogIncidencias"/>
+                <log id="logBodyInicioSoap" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: TercerFactor(mismo) || Type: Inbound || Body: ${body}" />
+   
+                <choice id="ruteoOperaciones">
+                    <when id="rutaSolicitarCodigoAutorizacionSS">
+                        <simple>${body} contains 'solicitarCodigoAutorizacion'</simple>
+                        <to id="solicitarCodigoAutorizacionSSGenerator" uri="validator:xsd/soapTercerFactor.xsd"/>
+                        <to id="solicitarCodigoAutorizacionSSTo" uri="direct:solicitarCodigoAutorizacionSS"/>
+                    </when>
+                    <when id="rutaSolicitarOTP">
+                        <simple>${body} contains 'solicitar'</simple>
+                        <to id="solicitarOTPValidator" uri="validator:xsd/soapTercerFactor.xsd"/>
+                        <setProperty id="solicitarSOAPCanalLlamada" propertyName="canalLlamada">
+                            <simple>${header.canalLlamada}</simple>
+                        </setProperty>
+                        <to id="solicitarOTPTo" uri="direct:solicitarOTPSafeSigner"/>
+                    </when>
+                    <when id="rutaValidarCodigoAutorizacionSS">
+                        <simple>${body} contains 'validarCodigoAutorizacion'</simple>
+                        <to id="validarCodigoAutorizacionSSValidator" uri="validator:xsd/soapTercerFactor.xsd"/>
+                        <to id="validarCodigoAutorizacionSSTo" uri="direct:validarCodigoAutorizacionSS"/>
+                    </when>
+                    <when id="rutaValidarOTP">
+                        <simple>${body} contains 'validar'</simple>
+                        <to id="validarOTPValidator" uri="validator:xsd/soapTercerFactor.xsd"/>
+                        <to id="validarOTPTo" uri="direct:validarOTPSafeSigner"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <to uri="direct:excepcionLog"/>
+                    <bean beanType="cl.coopeuch.integracion.tercerfactor.util.RespaldarCuerpo"
+                        id="ruteoOperacionesRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.integracion.tercerfactor.util.InsertarError"
+                        id="ruteoOperacionesBodyError" method="insertarError"/>
+                </doCatch>
+                <doFinally>
+                    <bean method="getBodyFromInputStream" ref="beanLogIncidencias"/>
+                    <log id="logBodyFinalSoap" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: TercerFactor(mismo) || Type: Outbound || Body: ${exchangeProperty.bodyLog}" />
+                </doFinally>
+            </doTry>
+        </route>
+        <!-- Metodo encargado de solicitar la OTP a traves del identificador del 
+			cliente -->
+        <route id="solicitarOTP">
+            <from id="solicitarOTPFrom" uri="direct:solicitarOTP"/>
+            <setProperty id="solicitarOTPSetProp" propertyName="origen">
+                <constant>IDG</constant>
+            </setProperty>
+            <setHeader headerName="identificadorCliente" id="_setHeader2">
+                <xpath resultType="String">//identificadorCliente</xpath>
+            </setHeader>
+            <choice id="EvaluarIdCliente">
+                <when id="IdClienteVacio">
+                    <simple>${header.identificadorCliente} == '' or ${header.identificadorCliente} == ' '</simple>
+                    <to id="errorIdClienteVacio" uri="xslt://transformations/error/validarDatosvalidarIdCliente.xsl?saxon=true"/>
+                </when>
+                <otherwise id="IdClienteNoVacio">
+                    <setHeader headerName="IDG.admin.grupo.clientes" id="_setHeade81">
+                        <simple>{{IDG.admin.grupo.clientes}}</simple>
+                    </setHeader>
+                    <setHeader headerName="IDG.admin.grupo.app" id="_setHeade83">
+                        <simple>{{IDG.admin.grupo.app}}</simple>
+                    </setHeader>
+                    <setHeader headerName="IDG.admin.user" id="_setHeader1">
+                        <simple>{{IDG.admin.user}}</simple>
+                    </setHeader>
+                    <setHeader headerName="IDG.admin.password" id="_setHeader3">
+                        <simple>{{IDG.admin.password}}</simple>
+                    </setHeader>
+                    <setHeader headerName="SOAPAction" id="_setHeader39">
+                        <constant>{{idg.solicitar}}</constant>
+                    </setHeader>
+                    <to id="solicitarOTPProbarConexionXml2xml" uri="xslt://transformations/in/xml2xmlin_solicitarProbarConexion.xsl"/>
+                    <log id="logIDGRequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Autentica) || Type: Request || Body: ${body}" />
+                    <to id="cxfsolicitarOTPProbarConexion" uri="cxf:{{endpoint.IDG.url.authentica}}?dataFormat=MESSAGE"/>
+                    <convertBodyTo id="solicitarOTPBodyTo" type="java.lang.String"/>
+                    <log id="logIDGResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Autentica) || Type: Response || Body: ${body}" />
+                    <choice id="solicitarOTPResultado">
+                        <when id="solicitarOTPOk">
+                            <xpath resultType="String">//challengeRequestResult='CHALLENGE' or //InternalCode='' or //InternalCode='5203040' or //InternalCode='5203004'</xpath>
+                            <!-- Recupera el Body de respuesta -->
+                            <to id="solicitarOTPXml2xml" uri="xslt://transformations/in/xml2xmlin_solicitar.xsl"/>
+                            <log id="logIDG2Request" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Autentica) || Type: Request || Body: ${body}" />
+                            <to id="cxfsolicitarOTP" uri="cxf:{{endpoint.IDG.url.authentica}}?dataFormat=MESSAGE"/>
+                            <convertBodyTo id="solicitarOTPResultadoBodyTo" type="java.lang.String"/>
+                            <log id="logIDG2Response" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Autentica) || Type: Response || Body: ${body}" />
+                            <setHeader
+                                headerName="challengeRequestResult" id="_setHeader4">
+                                <xpath resultType="String">//challengeRequestResult</xpath>
+                            </setHeader>
+                            <choice id="_choice3">
+                                <when id="_when3">
+                                    <xpath resultType="String">boolean(//InternalCode)</xpath>
+                                    <setHeader headerName="errorMessage" id="_setHeader14">
+                                        <xpath resultType="String">//errorMessage</xpath>
+                                    </setHeader>
+                                    <setHeader headerName="InternalCode" id="_setHeader15">
+                                        <xpath resultType="String">//InternalCode</xpath>
+                                    </setHeader>
+                                    <to id="_to2" uri="xslt://transformations/error/errorsolicitar.xsl?saxon=true"/>
+                                </when>
+                                <otherwise id="_otherwise4">
+                                    <to id="xml2xml_getGenericChallengeCallParms" uri="xslt://transformations/IDGsession/xml2xml_getGenericChallengeCallParms.xsl"/>
+                                    <log id="logIDG3Request" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Autentica) || Type: Request || Body: ${body}" />
+                                    <to id="getGenericChallengeCallParmsTo1" uri="cxf:{{endpoint.IDG.url.authentica}}?dataFormat=MESSAGE"/>
+                                    <convertBodyTo id="convertIDGLoginTo1" type="java.lang.String"/>
+                                    <log id="logIDG3Response" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Autentica) || Type: Response || Body: ${body}" />
+                                    <to id="xml2xml_IDGLoginXSL1" uri="xslt://transformations/IDGsession/xml2xml_IDGLogin.xsl"/>
+                                    <log id="logIDG4Request" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Admin) || Type: Request || Body: ${body}" />
+                                    <to id="IDGLoginTo1" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                                    <removeHeaders id="_removeHeaders1" pattern="CamelHttp*"/>
+                                    <setHeader headerName="Cookie" id="_setHeader11">
+                                        <simple>${headers.Set-Cookie}</simple>
+                                    </setHeader>
+                                    <convertBodyTo id="convertIgetGenericChallengeCallParmsTo1xx" type="java.lang.String"/>
+                                    <log id="logIDG4Response" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Admin) || Type: Response || Body: ${body}" />
+                                    <to id="xml2xml_userOTPGetXSL1" uri="xslt://transformations/IDGsession/xml2xml_userOTPGet.xsl"/>
+                                    <log id="logIDG5Request" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Admin) || Type: Request || Body: ${body}" />
+                                    <to id="userOTPGetTo1" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                                    <convertBodyTo id="convertuserOTPGetTo1" type="java.lang.String"/>
+                                    <log id="logIDG5Response" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Admin) || Type: Response || Body: ${body}" />
+                                    <choice id="_choice2">
+                                        <when id="_when2">
+                                            <xpath resultType="String">boolean(//InternalCode)</xpath>
+                                            <setHeader headerName="errorMessage" id="_setHeader12">
+                                                <xpath resultType="String">//errorMessage</xpath>
+                                            </setHeader>
+                                            <setHeader headerName="InternalCode" id="_setHeader13">
+                                                <xpath resultType="String">//InternalCode</xpath>
+                                            </setHeader>
+                                            <to id="_to1" uri="xslt://transformations/error/errorsolicitar.xsl?saxon=true"/>
+                                        </when>
+                                        <otherwise id="_otherwise3">
+                                            <setProperty id="solicitarOTPHeader" propertyName="otp">
+                                                <xpath resultType="String">//OTP</xpath>
+                                            </setProperty>
+                                            <to id="xml2xml_IDGLogoutXSL" uri="xslt://transformations/IDGsession/xml2xml_IDGLogout.xsl"/>
+                                            <log id="logIDG6Request" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Admin) || Type: Request || Body: ${body}" />
+                                            <to id="IDGLogoutTo" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                                            <log id="logIDG6Response" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Admin) || Type: Response || Body: ${body}" />
+                                            <removeHeaders id="_removeHeaders11" pattern="JMS*"/>
+                                            <to id="remoteCall_consultaParametrosTo2" uri="direct:remoteCall_consultaParametros"/>
+                                            <removeHeaders id="_removeHeaders12" pattern="JMS*"/>
+                                            <to id="remoteCall_traerDatosPersonaTo" uri="direct:remoteCall_traerDatosPersona"/>
+                                            <setHeader headerName="emailFrom" id="_setHeader20">
+                                                <simple>{{tercerfactor.email.from}}</simple>
+                                            </setHeader>
+                                            <choice id="solicitarOTPEnvioEmail">
+                                                <when id="envioAmbos">
+                                                    <simple>${header.Parametro_Envio1.trim} == 'ENVIO EMAIL' and ${header.Parametro_Envio2.trim} == 'ENVIO SMS'</simple>
+                                                    <to id="remoteCall_envioEmailTercerFactorXSL1" uri="xslt://transformations/mid/remoteCall_envioEmailTercerFactor.xsl?saxon=true"/>
+                                                    <wireTap id="_wireTap3" uri="direct:enviarRsNotificaciones"/>
+                                                    <wireTap id="_wireTap4" uri="direct:remoteCall_SMS"/>
+                                                </when>
+                                                <when id="EnvioEmail">
+                                                    <simple>${header.Parametro_Envio1.trim} == 'ENVIO EMAIL' or ${header.Parametro_Envio2.trim} == 'ENVIO EMAIL'</simple>
+                                                    <to id="remoteCall_envioEmailTercerFactorXSL" uri="xslt://transformations/mid/remoteCall_envioEmailTercerFactor.xsl?saxon=true"/>
+                                                    <wireTap id="_wireTap1" uri="direct:enviarRsNotificaciones"/>
+                                                    <removeHeaders id="_removeHeaders2" pattern="IDG.admin.grupo.clientes|IDG.admin.grupo.app|Cookie|Host|identificadorCliente|IDG.admin.password|breadcrumbId|IDG.admin.user|Set-Cookie|challengeRequestResult|SOAPAction|otp|Parametro_Envio1"/>
+                                                </when>
+                                                <when id="EnvioSMS">
+                                                    <simple>${header.Parametro_Envio1.trim} == 'ENVIO SMS' or ${header.Parametro_Envio2.trim} == 'ENVIO SMS'</simple>
+                                                    <wireTap id="_wireTap2" uri="direct:remoteCall_SMS"/>
+                                                    <removeHeaders id="_removeHeaders3" pattern="IDG.admin.grupo.clientes|IDG.admin.grupo.app|Cookie|Host|identificadorCliente|IDG.admin.password|breadcrumbId|IDG.admin.user|Set-Cookie|challengeRequestResult|SOAPAction|otp|Parametro_Envio1"/>
+                                                </when>
+                                                <otherwise id="resultadoNoVacio">
+                                                    <to id="errorsolicitarOTP" uri="xslt://transformations/error/errorsolicitar.xsl?saxon=true"/>
+                                                </otherwise>
+                                            </choice>
+                                            <to id="solicitarOTPxml2xmlout" uri="xslt://transformations/out/xml2xmlout_solicitar.xsl?saxon=true"/>
+                                            <removeHeaders id="_removeHeaders4" pattern="*"/>
+                                        </otherwise>
+                                    </choice>
+                                </otherwise>
+                            </choice>
+                        </when>
+                        <otherwise id="solicitarOTPError">
+                            <to id="errorConexionOTP" uri="xslt://transformations/error/errorSolicitarConexion.xsl?saxon=true"/>
+                            <removeHeaders id="_removeHeaders13" pattern="*"/>
+                        </otherwise>
+                    </choice>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Metodo encargado de validar la OTP devuelta por el metodo solicitar -->
+        <route id="validarOTP">
+            <!-- <doTry id="validarOTPTry"> -->
+            <from id="validarOTPFrom" uri="direct:validarOTP"/>
+            <setProperty id="validarOTPSetProp" propertyName="origen">
+                <constant>IDG</constant>
+            </setProperty>
+            <setHeader headerName="identificadorCliente" id="_setHeader5">
+                <xpath resultType="String">//identificadorCliente</xpath>
+            </setHeader>
+            <setHeader headerName="otp" id="validarOTPHeader">
+                <xpath resultType="String">normalize-space(//otp)</xpath>
+            </setHeader>
+            <choice id="validarOTPResultado-validar">
+                <when id="validarOTPVacio-validar">
+                    <xpath resultType="String">//identificadorCliente='' or normalize-space(//otp)='' or //identificadorCliente=' '</xpath>
+                    <to id="validarDatosvalidarOTP-validar" uri="xslt://transformations/error/validarDatosvalidar.xsl"/>
+                </when>
+                <otherwise id="validarOTPNoVacio-validar">
+                    <setHeader headerName="validaRut" id="validarOTPHeaderValidaRut-validar">
+                        <method beanType="cl.coopeuch.integracion.tercerfactor.util.Rut"
+                            id="validarOTPValidaRut-validar" method="validaRut(${headers.identificadorCliente})"/>
+                    </setHeader>
+                    <choice id="autenticaRutValidaRutResultado-validar">
+                        <when id="autenticaRutValido-validar">
+                            <simple>${headers.validaRut} == 'Correcto'</simple>
+                            <setHeader headerName="SOAPAction" id="_setHeader25-validar">
+                                <constant>http://www.example.org/ServicioTercerFactor/validarTercerFactor</constant>
+                            </setHeader>
+                            <to id="validarOTPProbarConexionXml2xml" uri="xslt://transformations/in/xml2xmlin_validarProbarConexion.xsl"/>
+                            <log id="logIDG8Request" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Autentica) || Type: Request || Body: ${body}" />
+                            <to id="cxfvalidarOTPProbarConexion" uri="cxf:{{endpoint.IDG.url.authentica}}?dataFormat=MESSAGE"/>
+                            <convertBodyTo id="validarOTPBodyTo" type="java.lang.String"/>
+                            <log id="logIDG8Response" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Autentica) || Type: Response || Body: ${body}" />
+                            <setHeader headerName="InternalCode" id="validarOTPHeaderInternalCode">
+                                <xpath resultType="String">//InternalCode</xpath>
+                            </setHeader>
+                            <choice id="validarOTPInternalCode">
+                                <when id="validarOTPInternalCodeOk">
+                                    <xpath resultType="String">//challengeRequestResult='CHALLENGE' or //InternalCode='' or //InternalCode='5203040' or //InternalCode='5203004'</xpath>
+                                    <to id="validarOTPXml2xml" uri="xslt://transformations/in/xml2xmlin_validar.xsl"/>
+                                    <log id="logIDG9Request" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Autentica) || Type: Request || Body: ${body}" />
+                                    <to id="cxfvalidarOTP" uri="cxf:{{endpoint.IDG.url.authentica}}?dataFormat=MESSAGE"/>
+                                    <convertBodyTo id="validarOTPInternalCodeOkBodyTo" type="java.lang.String"/>
+                                    <log id="logIDG9Response" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Autentica) || Type: Response || Body: ${body}" />
+                                    <setHeader headerName="InternalCode" id="validarOTPNoVacioHeaderInternalCode">
+                                        <xpath resultType="String">//InternalCode</xpath>
+                                    </setHeader>
+                                    <setHeader headerName="errorMessage" id="validarOTPNoVacioHeaderErrorMessage">
+                                        <xpath resultType="String">//errorMessage</xpath>
+                                    </setHeader>
+                                    <choice id="_choice4">
+                                        <when id="_when4">
+                                            <xpath>//errorMessage</xpath>
+                                            <to id="_to6" uri="xslt://transformations/error/errorvalidar.xsl"/>
+                                            <removeHeaders id="_removeHeaders5" pattern="errorMessage|JMSCorrelationID|Host|identificadorCliente|breadcrumbId|InternalCode|SOAPAction|Accept|Accept-Encoding|otp|validaRut"/>
+                                        </when>
+                                        <otherwise id="_otherwise6">
+                                            <wireTap id="remote_flujoCCA-wireTap" uri="direct:FlujoCCA"/>
+                                            <to id="validarOTPxml2xmlout_salida normal" uri="xslt://transformations/out/xml2xmlout_validar.xsl?saxon=true"/>
+                                            <removeHeaders id="_removeHeaders8" pattern="errorMessage|JMSCorrelationID|Host|identificadorCliente|breadcrumbId|InternalCode|SOAPAction|Accept|Accept-Encoding|otp|validaRut"/>
+                                        </otherwise>
+                                    </choice>
+                                </when>
+                                <otherwise id="validarOTPInternalCodeError">
+                                    <to id="validarOTPxml2xmlout_salidaError" uri="xslt://transformations/error/errorValidarConexion.xsl?saxon=true"/>
+                                    <removeHeaders id="_removeHeaders9" pattern="errorMessage|JMSCorrelationID|Host|identificadorCliente|breadcrumbId|InternalCode|SOAPAction|Accept|Accept-Encoding|otp|validaRut"/>
+                                </otherwise>
+                            </choice>
+                        </when>
+                        <otherwise id="_otherwise5">
+                            <to id="validarDatosRutInvalido" uri="xslt://transformations/error/validarDatosvalidar.xsl"/>
+                            <removeHeaders id="_removeHeaders10" pattern="errorMessage|JMSCorrelationID|Host|identificadorCliente|breadcrumbId|InternalCode|SOAPAction|Accept|Accept-Encoding|otp|validaRut"/>
+                        </otherwise>
+                    </choice>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- LLama a Servicio Mantenedor Datos Fraude/Consultar Datos Fraude CCA -->
+        <route id="remoteCall_consultarDatosFraudeCCA">
+            <from id="remoteCall_consultarDatosFraudeCCAFrom" uri="direct:remoteCall_consultarDatosFraudeCCA"/>
+            <doTry id="remoteCall_consultarDatosFraudeCCATry">
+                <setHeader headerName="validatef.credenciales.userId" id="_setHeader26">
+                    <simple>{{validatef.credenciales.userId}}</simple>
+                </setHeader>
+                <to id="remoteCall_consultarDatosFraudeCCAXls" uri="xslt://transformations/mid/remoteCall_consultarDatosFraudeCCA.xsl?saxon=true"/>
+                <log id="logDatosFraudeCCARequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioDatosFraudeCCA (ConsultarDatosFraudeCCA) || Type: Request || Body: ${body}" />
+                <removeHeaders id="remoteCall_consultarDatosFraudeCCARemoveHeaders" pattern="JMS*"/>
+                <to id="remoteCall_consultarDatosFraudeCCAToServicioDatosFraudeCCA" uri="cxf:{{endpoint.serviciodatosfraudecca.url}}?dataFormat=MESSAGE"/>
+                <log id="logDatosFraudeCCAResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioDatosFraudeCCA (ConsultarDatosFraudeCCA) || Type: Response || Body: ${body}" />
+                <doCatch id="remoteCall_consultarDatosFraudeCCACatch">
+                    <exception>java.lang.Exception</exception>
+                    <to uri="direct:excepcionLog"/>
+                    <to id="remoteCall_consultarDatosFraudeCCAFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </doCatch>
+                <doFinally id="remoteCall_consultarDatosFraudeCCAFinally"/>
+            </doTry>
+        </route>
+        <!-- LLama a Servicio Fraude/ReportesChallengeCCA -->
+        <route id="remoteCall_ReportesChallengeCCA">
+            <from id="remoteCall_ReportesChallengeCCAFrom" uri="direct:remoteCall_ReportesChallengeCCA"/>
+            <doTry id="remoteCall_ReportesChallengeCCATry">
+                <to id="remoteCall_ReportesChallengeCCAXls" uri="xslt://transformations/mid/remoteCall_ReportesChallengeCCA.xsl?saxon=true"/>
+                <log id="logFraudeRequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioFraude (ReportesChallengeCCA) || Type: Request || Body: ${body}" />
+                <removeHeaders id="remoteCall_ReportesChallengeCCARemoveHeaders" pattern="JMS*"/>
+                <to id="remoteCall_ReportesChallengeCCAToServicioFraude" uri="cxf:{{endpoint.serviciofraude.url}}?dataFormat=MESSAGE"/>
+                <log id="logFraudeResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioFraude (ReportesChallengeCCA) || Type: Response || Body: ${body}" />
+                <doCatch id="remoteCall_ReportesChallengeCCACatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <to uri="direct:excepcionLog"/>
+                    <bean beanType="cl.coopeuch.integracion.tercerfactor.util.RespaldarCuerpo"
+                        id="simuladorCreditoRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="simuladorCreditoSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="simuladorCreditoFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.integracion.tercerfactor.util.InsertarError"
+                        id="simuladorCreditoSetBodyError" method="insertarError"/>
+                </doCatch>
+                <doFinally id="remoteCall_ReportesChallengeCCAFinally"/>
+            </doTry>
+        </route>
+        <!-- LLama a Servicio Fraude/validadorReglas -->
+        <route id="direct:remoteCall_validadorReglas">
+            <from id="direct:remoteCall_validadorReglasFrom" uri="direct:remoteCall_validadorReglas"/>
+            <setHeader headerName="validatef.credenciales.userId" id="_setHeader27">
+                <simple>{{validatef.credenciales.userId}}</simple>
+            </setHeader>
+            <to id="remoteCall_validadorReglasXls" uri="xslt://transformations/mid/remoteCall_validadorReglas.xsl?saxon=true"/>
+            <removeHeaders id="_removeHeaders122" pattern="JMS*"/>
+            <log id="logFraudeVRRequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioFraude (ValidadorReglas) || Type: Request || Body: ${body}" />
+            <to id="_to15" uri="cxf:{{endpoint.serviciofraude.url}}?dataFormat=MESSAGE"/>
+            <convertBodyTo id="validadorReglasToBody" type="java.lang.String"/>
+            <log id="logFraudeVRResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioFraude (ValidadorReglas) || Type: Response || Body: ${body}" />
+        </route>
+        <!-- LLama a Servicio Mantenedor Datos Fraude/Modificar Datos Fraude CCA -->
+        <route id="remoteCall_modificarDatosFraudeCCA1">
+            <from id="remoteCall_modificarDatosFraudeCCAFrom" uri="direct:remoteCall_modificarDatosFraudeCCA"/>
+            <doTry id="remoteCall_modificarDatosFraudeCCATry">
+                <setHeader headerName="validatef.credenciales.userId" id="_setHeader28">
+                    <simple>{{validatef.credenciales.userId}}</simple>
+                </setHeader>
+                <to id="remoteCall_modificarDatosFraudeCCA" uri="xslt://transformations/mid/remoteCall_modificarDatosFraudeCCA.xsl?saxon=true"/>
+                <removeHeaders id="_removeHeader733" pattern="JMS*"/>
+                <log id="logFraudeMDFRequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioDatosFraudeCCA (ModificarDatosFraude) || Type: Request || Body: ${body}" />
+                <to id="_to3" uri="cxf:{{endpoint.serviciodatosfraudecca.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="modificaDatosFraudeBodyToString" type="java.lang.String"/>
+                <log id="logFraudeMDFResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioDatosFraudeCCA (ModificarDatosFraude) || Type: Response || Body: ${body}" />
+                <doCatch id="remoteCall_modificarDatosFraudeCCACatch">
+                    <exception>java.lang.Exception</exception>
+                    <to uri="direct:excepcionLog"/>
+                    <to id="remoteCall_modificarDatosFraudeCCAFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </doCatch>
+                <doFinally id="remoteCall_modificarDatosFraudeCCAFinally"/>
+            </doTry>
+        </route>
+        <!-- LLama a Servicio de Parametros/consultaParametros para Obtener Metodo 
+			de Envio del OTP -->
+        <route id="remoteCall_consultaParametros">
+            <from id="remoteCall_consultaParametrosFrom" uri="direct:remoteCall_consultaParametros"/>
+            <doTry id="remoteCall_consultaParametrosTry">
+                <!-- Parametros al Header -->
+                <to id="remoteCall_consultaParametros2" uri="xslt://transformations/mid/remoteCall_consultaParametros.xsl?saxon=true"/>
+                <log id="logServicioParametroRequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioParametro (consultaParametros) || Type: Request || Body: ${body}" />
+                <removeHeaders id="_removeHeaders33" pattern="JMS*"/>
+                <to id="_to10" uri="cxf:{{endpoint.servicioparametro.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="_convertBodyTo17" type="java.lang.String"/>
+                <log id="logServicioParametroResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioParametro (consultaParametros) || Type: Response || Body: ${body}" />
+                <setHeader headerName="Parametro_Envio1" id="_setHeader16">
+                    <xpath resultType="String">normalize-space(//ListaParametro[1]/descripcion)</xpath>
+                </setHeader>
+                <setHeader headerName="Parametro_Envio2" id="_setHeader17">
+                    <xpath resultType="String">normalize-space(//ListaParametro[2]/descripcion)</xpath>
+                </setHeader>
+                <doCatch id="remoteCall_consultaParametrosCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to uri="direct:excepcionLog"/>
+                    <to id="remoteCall_consultaParametrosFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </doCatch>
+                <doFinally id="remoteCall_consultaParametrosFinally"/>
+            </doTry>
+        </route>
+
+        <route id="remoteCall_SMS">
+            <from id="remoteCall_SMSFrom" uri="direct:remoteCall_SMS" />
+            <doTry id="remoteCall_SMSTry">
+                <to id="solicitarOTPSS_SMSXSL1" uri="xslt://transformations/mid/remoteCall_SMS.xsl?saxon=true"/>
+                <log id="logSSMSRequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioSMS || Type: Request || Body: ${body}" />
+                <to id="solicitarOTPSS_wireTap4" uri="cxf:{{endpoint.serviciosms.url}}?dataFormat=MESSAGE&amp;LoggingFeatureEnabled=true"/>
+                <log id="logSMSResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioSMS || Type: Response || Body: ${body}" />
+                <doCatch id="remoteCall_SMSCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to uri="direct:excepcionLog"/>
+                </doCatch>
+            </doTry>
+        </route>
+
+        <!-- LLama a Servicio de Persona/traerDatosPersona para Obtener Nombres 
+			e correo Electronico -->
+        <route id="remoteCall_traerDatosPersona1">
+            <from id="remoteCall_traerDatosPersonaFrom" uri="direct:remoteCall_traerDatosPersona"/>
+            <doTry id="remoteCall_traerDatosPersonaTry">
+                <!-- Parametros al Header -->
+                <to id="remoteCall_traerDatosPersona" uri="xslt://transformations/mid/remoteCall_traerDatosPersona.xsl?saxon=true"/>
+                <log id="logPersonaRequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioPersona || Type: Request || Body: ${body}" />
+                <removeHeaders id="_removeHeaders43" pattern="JMS*"/>
+                <to id="_to20" uri="cxf:{{endpoint.serviciopersona.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="_convertBodyTo2" type="java.lang.String"/>
+                <log id="logPersonaResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioPersona || Type: Response || Body: ${body}" />
+                <setHeader headerName="primerNombre" id="_setHeader18">
+                    <xpath resultType="String">normalize-space(//primerNombre)</xpath>
+                </setHeader>
+                <setHeader headerName="apellidoPaterno" id="_setHeader19">
+                    <xpath resultType="String">normalize-space(//apellidoPaterno)</xpath>
+                </setHeader>
+                <setHeader headerName="apellidoMaterno" id="_setHeader21">
+                    <xpath resultType="String">normalize-space(//apellidoMaterno)</xpath>
+                </setHeader>
+                <setHeader headerName="nombre" id="_setHeader22">
+                    <simple>${header.primerNombre} ${header.apellidoPaterno}</simple>
+                </setHeader>
+                <setHeader headerName="correoElectronico" id="_setHeader23">
+                    <xpath resultType="String">normalize-space(//correoElectronico)</xpath>
+                </setHeader>
+                <setHeader headerName="telefono" id="_setHeader24">
+                    <xpath resultType="String">normalize-space(//telefono)</xpath>
+                </setHeader>
+                <doCatch id="remoteCall_traerDatosPersonaCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to uri="direct:excepcionLog"/>
+                    <to id="remoteCall_traerDatosPersonaFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </doCatch>
+                <doFinally id="remoteCall_traerDatosPersonaFinally"/>
+            </doTry>
+        </route>
+        <route id="FlujoCCA">
+            <from id="flujoCCAFrom" uri="direct:FlujoCCA"/>
+            <to id="remoteCall_consultarDatosFraudeCCATo" uri="direct:remoteCall_consultarDatosFraudeCCA"/>
+            <convertBodyTo id="validarOTPNoVacioBodyTo" type="java.lang.String"/>
+            <choice id="consultarDatosFraudeCCAResultado">
+                <when id="consultarDatosFraudeCCAOk">
+                    <xpath resultType="String">//formato != 'ECNLERROR'</xpath>
+                    <setHeader headerName="idTransaccion" id="_setHeader6">
+                        <xpath resultType="String">//idTransaccion</xpath>
+                    </setHeader>
+                    <setHeader headerName="idTransaccionCCA" id="_setHeader7">
+                        <xpath resultType="String">//idTransaccionCCA</xpath>
+                    </setHeader>
+                    <choice id="_choice1">
+                        <when id="_when1">
+                            <xpath>//estado='C'</xpath>
+                            <setHeader headerName="estadoChallenge" id="_setHeader8">
+                                <constant>FALSE</constant>
+                            </setHeader>
+                        </when>
+                        <otherwise id="_otherwise2">
+                            <setHeader headerName="estadoChallenge" id="_setHeader9">
+                                <constant>TRUE</constant>
+                            </setHeader>
+                        </otherwise>
+                    </choice>
+                    <to id="remoteCall_ReportesChallengeCCATo" uri="direct:remoteCall_ReportesChallengeCCA"/>
+                    <convertBodyTo id="BodyTo215" type="java.lang.String"/>
+                    <choice id="ReportesChallengeCCAResultado">
+                        <when id="ReportesChallengeCCAResultadoOK">
+                            <xpath resultType="String">//codigoTransaccion = '0'</xpath>
+                            <setHeader headerName="estadoChallenge" id="_setHeader10">
+                                <constant>FALSE</constant>
+                            </setHeader>
+                            <to id="remoteCall_validadorReglasTo" uri="direct:remoteCall_validadorReglas"/>
+                            <convertBodyTo id="BodyTo25" type="java.lang.String"/>
+                            <choice id="validadorReglas">
+                                <when id="validadorReglasOK">
+                                    <xpath resultType="String">//idTransaccion != ''</xpath>
+                                    <to id="remoteCall_modificarDatosFraudeCCATo" uri="direct:remoteCall_modificarDatosFraudeCCA"/>
+                                    <convertBodyTo id="BodyTo25" type="java.lang.String"/>
+                                </when>
+                            </choice>
+                        </when>
+                    </choice>
+                </when>
+            </choice>
+        </route>
+        <route id="solicitarOTPSafeSigner">
+            <from id="fromSolicitarOTPSS" uri="direct:solicitarOTPSafeSigner"/>
+            <doTry id="solicitarOTPSSdoTry">
+                <setProperty id="solicitarOTPSSSetProp" propertyName="origen">
+                    <constant>SS</constant>
+                </setProperty>
+                <setProperty id="solicitarOTPSSPropRutCliente" propertyName="identificadorCliente">
+                    <xpath resultType="String">//identificadorCliente</xpath>
+                </setProperty>
+                <setProperty id="solicitarOTPHashAppCoopeuch" propertyName="hashAppCoopeuch">
+                    <simple>{{hash.app.coopeuch.sms}}</simple>
+                </setProperty>
+                <to id="solicitarOTPSSToAutenticarSS" uri="direct:autenticarSafeSigner"/>
+                <choice id="solicitarOTPSSAutenticarSSChoice">
+                    <when id="solicitarOTPSSAutenticarSSWhen">
+                        <simple>${exchangeProperty.usuarioValidoSS}</simple>
+                        <bean id="solicitarOTPSSRequest"
+                            method="solicitarOTPSSRequest" ref="beanRouteFacade"/>
+                        <to id="solicitarOTPSSToSmsWs" uri="cxf:bean:endpointSafeSignerSmsWs?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}"/>
+                        <bean id="solicitarOTPSSResponse"
+                            method="solicitarOTPSSResponse" ref="beanRouteFacade"/>
+                        <wireTap id="solicitarOTPSSWiretap" uri="direct:logMigracionSS"/>
+                        <setBody id="solicitarOTPSSSetBody">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <marshal id="solicitarOTPSSUnmarshal">
+                            <jaxb contextPath="cl.coopeuch.integracion.tercerfactor.wsdl.safesigner.smsws"/>
+                        </marshal>
+                        <convertBodyTo id="solicitarOTPSSBodyToString" type="java.lang.String"/>
+                        <choice id="solicitarOTPSSChoice">
+                            <when id="solicitarOTPSSWhen">
+                                <simple>${exchangeProperty.codRespuestaSafeSigner} == 0</simple>
+                                <removeHeaders
+                                    id="solicitarOTPSSRmHeadersParametros" pattern="*"/>
+                                <to id="solicitarOTPSSToconsultaParametros" uri="direct:remoteCall_consultaParametros"/>
+                                <to id="solicitarOTPSSToPersona" uri="direct:remoteCall_traerDatosPersona"/>
+                                <setHeader headerName="emailFrom" id="solicitarOTPSSSetHeaderEmail">
+                                    <simple>{{tercerfactor.email.from}}</simple>
+                                </setHeader>
+                                <choice id="solicitarOTPSSEnvioEmail">
+                                    <when id="solicitarOTPSSenvioAmbos">
+                                        <simple>${header.Parametro_Envio1.trim} == 'ENVIO EMAIL' and ${header.Parametro_Envio2.trim} == 'ENVIO SMS'</simple>
+                                        <to id="solicitarOTPSSenvioEmailTercerFactorXSL1" uri="xslt://transformations/mid/remoteCall_envioEmailTercerFactor.xsl?saxon=true"/>
+                                        <wireTap id="solicitarOTPSSwireTap3" uri="direct:enviarRsNotificaciones"/>
+                                        <wireTap uri="direct:remoteCall_SMS" />
+                                    </when>
+                                    <when id="solicitarOTPSSEnvioEmail">
+                                        <simple>${header.Parametro_Envio1.trim} == 'ENVIO EMAIL' or ${header.Parametro_Envio2.trim} == 'ENVIO EMAIL'</simple>
+                                        <to id="solicitarOTPSS_envioEmailTercerFactorXSL" uri="xslt://transformations/mid/remoteCall_envioEmailTercerFactor.xsl?saxon=true"/>
+                                        <wireTap id="solicitarOTPSSWiretapEmail" uri="direct:enviarRsNotificaciones"/>
+                                        <removeHeaders id="solicitarOTPSS_removeHeaders2" pattern="IDG.admin.grupo.clientes|IDG.admin.grupo.app|Cookie|Host|identificadorCliente|IDG.admin.password|breadcrumbId|IDG.admin.user|Set-Cookie|challengeRequestResult|SOAPAction|otp|Parametro_Envio1"/>
+                                    </when>
+                                    <when id="solicitarOTPSSEnvioSMS">
+                                        <simple>${header.Parametro_Envio1.trim} == 'ENVIO SMS' or ${header.Parametro_Envio2.trim} == 'ENVIO SMS'</simple>
+                                        <wireTap uri="direct:remoteCall_SMS" />
+                                        <removeHeaders id="solicitarOTPSS_removeHeaders3" pattern="IDG.admin.grupo.clientes|IDG.admin.grupo.app|Cookie|Host|identificadorCliente|IDG.admin.password|breadcrumbId|IDG.admin.user|Set-Cookie|challengeRequestResult|SOAPAction|otp|Parametro_Envio1"/>
+                                    </when>
+                                    <otherwise id="solicitarOTPSSresultadoNoVacio">
+                                        <to id="solicitarOTPSSerrorsolicitarOTP" uri="xslt://transformations/error/errorsolicitar.xsl?saxon=true"/>
+                                    </otherwise>
+                                </choice>
+                                <to id="solicitarOTPSSsolicitarOTPxml2xmlout" uri="xslt://transformations/out/xml2xmlout_solicitar.xsl?saxon=true"/>
+                                <removeHeaders id="solicitarOTPSS_removeHeaders4" pattern="*"/>
+                            </when>
+                            <otherwise id="solicitarOTPSS_solicitarOTP">
+                                <to id="solicitarOTPSS_errorSolicitar" uri="xslt://transformations/error/errorsolicitar.xsl?saxon=true"/>
+                                <bean id="_bean1" method="transformacionMensajeOut" ref="beanRouteFacade"/>
+                                <to id="solicitarOTPSSToMigracion" uri="direct:solicitarOTPMigracion"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="solicitarOTPSSAutenticarSSOtherwhise">
+                        <setBody id="solicitarOTPSSSetBody_other">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <marshal id="solicitarOTPSSUnmarshal_other">
+                            <jaxb contextPath="cl.coopeuch.integracion.tercerfactor.wsdl.safesigner.smsws"/>
+                        </marshal>
+                        <convertBodyTo id="solicitarOTPSSBodyToString_other" type="java.lang.String"/>
+                        <to id="solicitarOTPSSAutenticarSS_errorSolicitar" uri="xslt://transformations/error/errorsolicitar.xsl?saxon=true"/>
+                        <bean id="_bean2"
+                            method="transformacionMensajeOut" ref="beanRouteFacade"/>
+                        <to id="solicitarOTPSSAutenticarSSToMigracion" uri="direct:solicitarOTPMigracion"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="solicitarOTPSSdoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to uri="direct:excepcionLog"/>
+                    <to id="solicitarOTPSSToException" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <setBody id="body_exception">
+                        <simple>${property.theoriginalbody}</simple>
+                    </setBody>
+                    <to id="solicitarOTPSSAutenticarSS_exception" uri="xslt://transformations/error/errorSolicitarConexion.xsl?saxon=true"/>
+                    <bean id="_bean3" method="transformacionMensajeOut" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="solicitarOTPMigracion">
+            <from id="solicitarOTPMigracionFrom" uri="direct:solicitarOTPMigracion"/>
+            <choice id="solicitarOTPSSChoiceMigracion">
+                <when id="solicitarOTPSSWhenMigracion">
+                    <simple>${properties:propiedad.migracion} == 1</simple>
+                    <setBody id="solicitarOTPSSMigracionSetBody">
+                        <simple>${exchangeProperty.theoriginalbody}</simple>
+                    </setBody>
+                    <choice id="solicitarOTPMigracionRest">
+                        <when id="solicitarOTPMigracionRest">
+                            <simple>${exchangeProperty.solicitarRest}</simple>
+                            <unmarshal id="unmarshallEntradaRestSol" ref="JacksonSolicitarReq"/>
+                            <to id="requestValidatorRestSol" uri="validator:xsd/soapTercerFactor.xsd"/>
+                        </when>
+                    </choice>
+                    <removeHeaders
+                        id="solicitarOTPSSMigracionRemoveHeaders" pattern="*"/>
+                    <to id="solicitarOTPSSToIDG" uri="direct:solicitarOTP"/>
+                </when>
+                <otherwise id="solicitarOTPMigracion_other">
+                    <setBody id="body_solicitar_other">
+                        <simple>${body}</simple>
+                    </setBody>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="validarOTPSafeSigner">
+            <from id="fromValidarOTPSS" uri="direct:validarOTPSafeSigner"/>
+            <doTry id="validarOTPSSdoTry">
+                <setProperty id="validarOTPSSSetProp" propertyName="origen">
+                    <constant>SS</constant>
+                </setProperty>
+                <setProperty id="validarOTPSSHeaderIdCliente" propertyName="identificadorCliente">
+                    <xpath resultType="String">//identificadorCliente</xpath>
+                </setProperty>
+                <setProperty id="validarOTPSSHeaderOtp" propertyName="inputOTP">
+                    <xpath resultType="String">normalize-space(//otp)</xpath>
+                </setProperty>
+                <choice id="validarOTPResultado">
+                    <when id="validarOTPVacio">
+                        <xpath resultType="String">//identificadorCliente='' or normalize-space(//otp)='' or //identificadorCliente=' '</xpath>
+                        <to id="validarDatosvalidarOTP" uri="xslt://transformations/error/validarDatosvalidar.xsl"/>
+                    </when>
+                    <otherwise id="validarOTPNoVacio">
+                        <setHeader headerName="validaRut" id="validarOTPHeaderValidaRut">
+                            <method beanType="cl.coopeuch.integracion.tercerfactor.util.Rut"
+                                id="validarOTPValidaRut" method="validaRut(${headers.identificadorCliente})"/>
+                        </setHeader>
+                        <choice id="autenticaRutValidaRutResultado">
+                            <when id="autenticaRutValido">
+                                <simple>${headers.validaRut} == 'Correcto'</simple>
+                                <to id="validarOTPSSToAutenticarSS" uri="direct:autenticarSafeSigner"/>
+                                <choice id="validarOTPSSAutenticarSSChoice">
+                                    <when id="validarOTPSSAutenticarSSWhen">
+                                        <simple>${exchangeProperty.usuarioValidoSS}</simple>
+                                        <bean id="validarOTPSSRequest" method="validarOTPSSRequest" ref="beanRouteFacade"/>
+                                        <to id="validarOTPSSToSmsWs" uri="cxf:bean:endpointSafeSignerSmsWs?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}"/>
+                                        <bean id="validarOTPSSResponse" method="validarOTPSSResponse" ref="beanRouteFacade"/>
+                                        <wireTap id="validarOTPSSWiretap" uri="direct:logMigracionSS"/>
+                                        <when id="_when7">
+                                            <simple>${exchangeProperty.codRespuestaSafeSigner} == 51 and ${properties:propiedad.migracion} == 1</simple>
+                                            <wireTap id="llamada_BloqueoOTP" uri="direct:bloqueoOTP"/>
+                                        </when>
+                                        <setBody id="validarOTPSSSetBody">
+                                            <simple>$simple{body.get(0)}</simple>
+                                        </setBody>
+                                        <marshal id="validarOTPSSUnmarshal">
+                                            <jaxb contextPath="cl.coopeuch.integracion.tercerfactor.wsdl.safesigner.smsws"/>
+                                        </marshal>
+                                        <convertBodyTo id="validarOTPSSBodyToString" type="java.lang.String"/>
+                                        <choice id="validarOTPSSChoice">
+                                            <when id="validarOTPSSWhen">
+                                                <simple>${exchangeProperty.codRespuestaSafeSigner} == 0</simple>
+                                                <wireTap id="validarOTPSSwireTap" uri="direct:FlujoCCA"/>
+                                                <to id="validarOTPSSSalidaOk" uri="xslt://transformations/out/xml2xmlout_validar.xsl?saxon=true"/>
+                                                <bean id="_bean4" method="transformacionMensajeOut" ref="beanRouteFacade"/>
+                                            </when>
+                                            <otherwise id="validarOTPSSOtherwhise">
+                                                <to id="validarOTPSSErrorValidarXSLT" uri="xslt://transformations/error/errorvalidar.xsl"/>
+                                                <bean id="_bean5" method="transformacionMensajeOut" ref="beanRouteFacade"/>
+                                                <to id="validarOTPSSToMigracion" uri="direct:validarOTPMigracion"/>
+                                            </otherwise>
+                                        </choice>
+                                    </when>
+                                    <otherwise id="validarOTPSSAutenticarSSOtherwhise">
+                                        <setBody id="validarOTPSSSetBody_other">
+                                        <simple>$simple{body.get(0)}</simple>
+                                        </setBody>
+                                        <marshal id="validarOTPSSUnmarshal_other">
+                                            <jaxb contextPath="cl.coopeuch.integracion.tercerfactor.wsdl.safesigner.smsws"/>
+                                        </marshal>
+                                        <convertBodyTo id="validarOTPSSBodyToString_other" type="java.lang.String"/>
+                                        <to id="validarOTPSSAutenticarSS_errorValidar" uri="xslt://transformations/error/errorvalidar.xsl"/>
+                                        <bean id="_bean6" method="transformacionMensajeOut" ref="beanRouteFacade"/>
+                                        <to id="validarOTPSSAutenticarSSToMigracion" uri="direct:validarOTPMigracion"/>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="_otherwise8">
+                                <to id="validarDatosRutInvalido-validar" uri="xslt://transformations/error/validarDatosvalidar.xsl"/>
+                                <removeHeaders id="_removeHeaders10-validar" pattern="errorMessage|JMSCorrelationID|Host|identificadorCliente|breadcrumbId|InternalCode|SOAPAction|Accept|Accept-Encoding|otp|validaRut"/>
+                            </otherwise>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="validarOTPSSdoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to uri="direct:excepcionLog"/>
+                    <to id="validarOTPSSToException" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <setBody id="validarOTPSetBody_exception">
+                        <simple>${exchangeProperty.theoriginalbody}</simple>
+                    </setBody>
+                    <to id="validarOTPSS_exception" uri="xslt://transformations/error/errorValidarConexion.xsl?saxon=true"/>
+                    <bean id="_bean7" method="transformacionMensajeOut" ref="beanRouteFacade"/>
+                    <to id="validarOTPSSToMigracionException" uri="direct:validarOTPMigracion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validarOTPMigracion">
+            <from id="validarOTPMigracionFrom" uri="direct:validarOTPMigracion"/>
+            <choice id="validarOTPSSChoiceMigracion">
+                <when id="validarOTPSSWhenMigracion">
+                    <simple>${properties:propiedad.migracion} == 1</simple>
+                    <choice id="validarOTPMigracion-optusuarioSS">
+                        <when id="validarOTPMigracion-optusuarioSSWhen">
+                            <simple>${exchangeProperty.usuarioValidoSS} == false or ${exchangeProperty.OTPValida} == false</simple>
+                            <setBody id="validarOTPSSMigracionSetBody">
+                                <simple>${exchangeProperty.theoriginalbody}</simple>
+                            </setBody>
+                            <choice id="validarOTPMigracionRest">
+                                <when id="validarOTPMigracionRest">
+                                    <simple>${exchangeProperty.validarRest}</simple>
+                                    <unmarshal id="unmarshallEntradaRest" ref="JacksonValidarReq"/>
+                                    <to id="requestValidatorRest" uri="validator:xsd/soapTercerFactor.xsd"/>
+                                </when>
+                            </choice>
+                            <removeHeaders
+                                id="validarOTPSSMigracionRemoveHeaders" pattern="*"/>
+                            <to id="validarOTPSSToMigracionToIDG" uri="direct:validarOTP"/>
+                        </when>
+                    </choice>
+                </when>
+                <otherwise id="validarOTPMigracion_other">
+                    <setBody id="body_validar_other">
+                        <simple>${body}</simple>
+                    </setBody>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="logMigracionSS">
+            <from id="fromLogMigracionSS" uri="direct:logMigracionSS"/>
+            <to id="logMigracionSSToSql" uri="sql-stored:classpath:sql/pa_insMigracionSSLog.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseMigracion"/>
+        </route>
+        <route id="autenticarSafeSigner">
+            <from id="autenticarSafeSignerFrom" uri="direct:autenticarSafeSigner"/>
+            <bean id="smsUserStatusSSRequest"
+                method="smsUserStatusSSRequest" ref="beanRouteFacade"/>
+            <to id="smsUserStatusSSToSmsWs" uri="cxf:bean:endpointSafeSignerSmsWs?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}"/>
+            <bean id="smsUserStatusSSResponse"
+                method="smsUserStatusSSResponse" ref="beanRouteFacade"/>
+        </route>
+        <route id="probarConexionIDG">
+            <from id="probarConexionIDGFrom" uri="direct:probarConexionIDG"/>
+            <removeHeaders id="probarConexionIDGRemoveHeaders" pattern="*"/>
+            <setHeader headerName="SOAPAction" id="cambio2">
+                <constant>{{idg.solicitar}}</constant>
+            </setHeader>
+            <setBody id="probarConexionIDGSetBody">
+                <simple>&lt;trama&gt;algo&lt;/trama&gt;</simple>
+            </setBody>
+            <to id="probarConexionIDGProbarConexionXml2xml" uri="xslt://transformations/in/xml2xmlin_solicitarProbarConexion.xsl"/>
+            <to id="probarConexionIDGProbarConexion" uri="cxf:{{endpoint.IDG.url.authentica}}?dataFormat=MESSAGE&amp;loggingFeatureEnabled=true"/>
+        </route>
+        <!-- Metodo para bloquear OTP -->
+        <route id="bloqueoOTP">
+            <from id="bloqueoOTP-from" uri="direct:bloqueoOTP"/>
+            <bean id="SetearLoop-datosEntrada" method="iniciarVariables" ref="beanRouteFacade"/>
+            <to id="To-validarOTPIDG-bloqueoOTP" uri="direct:validarOTPIDG"/>
+        </route>
+        <route id="validarOTP-IDG">
+            <from id="validarOTP-IDG-from" uri="direct:validarOTPIDG"/>
+            <setHeader headerName="SOAPAction" id="cambio">
+                <constant>http://www.example.org/ServicioTercerFactor/validarTercerFactor</constant>
+            </setHeader>
+            <choice id="_choice5">
+                <when id="_when5">
+                    <simple>${exchangeProperty.validarContador} == '0'</simple>
+                    <stop id="_stop1"/>
+                </when>
+                <otherwise id="_otherwise7">
+                    <to id="BloquearOTP-Xml2xml" uri="xslt://transformations/in/xml2xmlBloquearOTP.xsl"/>
+                    <convertBodyTo id="SetBody-To" type="java.lang.String"/>
+                    <log id="logIDG7Request" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Autentica) || Type: Request || Body: ${body}" />
+                    <to id="cxf-probarConexionIDG" uri="cxf:{{endpoint.IDG.url.authentica}}?dataFormat=MESSAGE"/>
+                    <convertBodyTo id="SetBody-To-respuest" type="java.lang.String"/>
+                    <log id="logIDG7Response" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IDG (Autentica) || Type: Response || Body: ${body}" />
+                    <bean id="IncrementarLoop-datosEntrada"
+                        method="incrementarLoop" ref="beanRouteFacade"/>
+                    <to id="To-validarOTPIDG" uri="direct:validarOTPIDG"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="solicitarCodigoAutorizacionSS">
+            <from id="fromSolicitarCodigoAutorizacionSS" uri="direct:solicitarCodigoAutorizacionSS"/>
+            <doTry id="solicitarCodigoAutorizacionSSDoTry">
+                <setProperty id="solicitarCodigoAutorizacionSSSetProp" propertyName="origen">
+                    <constant>solicitarCodigoAutorizacion</constant>
+                </setProperty>
+                <setProperty
+                    id="solicitarCodigoAutorizacionSSPropRutCliente" propertyName="rut">
+                    <xpath resultType="java.lang.String">//rut</xpath>
+                </setProperty>
+                <setProperty
+                    id="solicitarCodigoAutorizacionSSPropTipoValidacion" propertyName="tipoValidacion">
+                    <xpath resultType="java.lang.String">//tipoValidacion</xpath>
+                </setProperty>
+                <setProperty
+                    id="solicitarCodigoAutorizacionSSPropAtriburo1" propertyName="atributo1">
+                    <xpath resultType="java.lang.String">//parametros[1]/atributo</xpath>
+                </setProperty>
+                <setProperty
+                    id="solicitarCodigoAutorizacionSSPropValor1" propertyName="valor1">
+                    <xpath resultType="java.lang.String">//parametros[1]/valor</xpath>
+                </setProperty>
+                <setProperty
+                    id="solicitarCodigoAutorizacionSSPropAtriburo2" propertyName="atributo2">
+                    <xpath resultType="java.lang.String">//parametros[2]/atributo</xpath>
+                </setProperty>
+                <setProperty
+                    id="solicitarCodigoAutorizacionSSPropValor2" propertyName="valor2">
+                    <xpath resultType="java.lang.String">//parametros[2]/valor</xpath>
+                </setProperty>
+                <setHeader headerName="atributo1" id="setHeaderAtributo1">
+                    <xpath resultType="java.lang.String">//parametros[1]/atributo</xpath>
+                </setHeader>
+                <setHeader headerName="valor1" id="setHeaderValor1">
+                    <xpath resultType="java.lang.String">//parametros[1]/valor</xpath>
+                </setHeader>
+                <setHeader headerName="atributo2" id="setHeaderAtributo2">
+                    <xpath resultType="java.lang.String">//parametros[2]/atributo</xpath>
+                </setHeader>
+                <setHeader headerName="valor2" id="setHeaderValor2">
+                    <xpath resultType="java.lang.String">//parametros[2]/valor</xpath>
+                </setHeader>
+                <choice id="choiceValidarTipoValidacionSMS">
+                    <when id="whenValidarTipoValidacionSMS">
+                        <xpath resultType="String">//tipoValidacion='sms' or //tipoValidacion='SMS'</xpath>
+                        <choice id="choiceValidarCodigoAutorizacion">
+                            <when id="whenValidarCodigoAutorizacion">
+                                <simple>${exchangeProperty.valor1} contains 'codigoAutorizacion' or ${exchangeProperty.valor2} contains 'codigoAutorizacion'</simple>
+                                <choice id="choiceValidarParametrosEntradaSMS">
+                                    <when id="whenValidarParametrosEntradaSMS">
+                                    <xpath resultType="String">((//parametros[1]/atributo = 'numeroCelular' and string-length(//parametros[1]/valor) &gt; 8) and //parametros[2]/atributo = 'mensaje') or ((//parametros[2]/atributo = 'numeroCelular' and string-length(//parametros[2]/valor) &gt; 8)and //parametros[1]/atributo = 'mensaje')</xpath>
+                                    <bean
+                                    id="GenerateAuthorizationCodeRequest"
+                                    method="generateAuthorizationCodeRequest" ref="beanRouteFacade"/>
+                                    <to
+                                    id="safeSignerWsGenerate_call_to" uri="cxf:bean:endpointSafeSignerWs?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}"/>
+                                    <bean
+                                    id="GenerateAuthorizationCodeResponse"
+                                    method="generateAuthorizationCodeResponse" ref="beanRouteFacade"/>
+                                    <setBody id="solicitarCodigoAutorizacionSSSetBody">
+                                    <simple>${body}</simple>
+                                    </setBody>
+                                    <marshal id="solicitarCodigoAutorizacionSSUnmarshal_other">
+                                    <jaxb contextPath="cl.coopeuch.integracion.tercerfactor.wsdl.safesigner.ws"/>
+                                    </marshal>
+                                    <choice id="safeSignerChoice">
+                                    <when id="safeSignerWhen">
+                                    <simple>${exchangeProperty.codRespuestaSafeSigner} == 0</simple>
+                                    <removeHeaders
+                                    id="safeSignerRMHeadersParametros" pattern="*"/>
+                                    <to
+                                    id="servicioSMS_xslCall" uri="xslt://transformations/mid/remoteCall_SMS_SS.xsl?saxon=true"/>
+                                    <to
+                                    id="servicioSMS_call_to" uri="cxf:{{endpoint.serviciosms.url}}?dataFormat=MESSAGE&amp;LoggingFeatureEnabled=true"/>
+                                    <to
+                                    id="solicitarCodigoAutorizacionResponseFTo" uri="xslt://transformations/out/xml2xmlout_solicitarCodigoAutorizacion.xsl?saxon=true"/>
+                                    <bean id="_bean9"
+                                    method="transformacionMensajeOut" ref="beanRouteFacade"/>
+                                    </when>
+                                    <otherwise id="safeSignerOtherwise">
+                                    <to
+                                    id="solicitarCodigoAutorizacionResponseFTo" uri="xslt://transformations/error/errorSafeSigner.xsl?saxon=true"/>
+                                    <bean id="_bean14"
+                                    method="transformacionMensajeOut" ref="beanRouteFacade"/>
+                                    </otherwise>
+                                    </choice>
+                                    </when>
+                                    <otherwise id="_otherwise9">
+                                    <to
+                                    id="validarParametrosEntradaSMS_error" uri="xslt://transformations/error/errorParametrosEntrada.xsl?saxon=true"/>
+                                    <bean id="_bean10"
+                                    method="transformacionMensajeOut" ref="beanRouteFacade"/>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="_otherwise11">
+                                <to id="validarCodigoAutorizacion_error" uri="xslt://transformations/error/errorCodigoAutorizacion.xsl?saxon=true"/>
+                                <bean id="_bean8"
+                                    method="transformacionMensajeOut" ref="beanRouteFacade"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="_otherwise10">
+                        <to id="validarTipoValidacionSMS_error" uri="xslt://transformations/error/errorTipoValidacionSMS.xsl?saxon=true"/>
+                        <bean id="_bean11"
+                            method="transformacionMensajeOut" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="solicitarCodigoAutorizacionSSdoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <to uri="direct:excepcionLog"/>
+                    <to id="solicitarCodigoAutorizacionSSToException" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <setBody id="body_exceptionSolicitarCodigoAut">
+                        <simple>${property.theoriginalbody}</simple>
+                    </setBody>
+                    <to id="solicitarCodigoAutorizacionSS_exception" uri="xslt://transformations/error/errorSolicitarCodigoAutorizacion.xsl?saxon=true"/>
+                    <bean id="_bean8" method="transformacionMensajeOut" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validarCodigoAutorizacionSS">
+            <from id="fromValidarCodigoAutorizacionSS" uri="direct:validarCodigoAutorizacionSS"/>
+            <doTry id="validarCodigoAutorizacionSSDoTry">
+                <setProperty id="validarCodigoAutorizacionSSSetProp" propertyName="origen">
+                    <constant>validarCodigoAutorizacion</constant>
+                </setProperty>
+                <setProperty
+                    id="validarCodigoAutorizacionSSPropRutCliente" propertyName="rut">
+                    <xpath resultType="java.lang.String">//rut</xpath>
+                </setProperty>
+                <setProperty id="validarCodigoAutorizacionSSPropCodAut" propertyName="codigoAutorizacion">
+                    <xpath resultType="java.lang.String">//codigoAutorizacion</xpath>
+                </setProperty>
+                <setHeader headerName="codigoAutorizacion" id="setHeaderCodigoAutorizacion">
+                    <xpath resultType="java.lang.String">//codigoAutorizacion</xpath>
+                </setHeader>
+                <bean id="ValidateAuthorizationCodeRequest"
+                    method="validateAuthorizationCodeRequest" ref="beanRouteFacade"/>
+                <to id="safeSignerWsValidate_call_to" uri="cxf:bean:endpointSafeSignerWs?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}"/>
+                <bean id="ValidateAuthorizationCodeResponse"
+                    method="validateAuthorizationCodeResponse" ref="beanRouteFacade"/>
+                <setBody id="validarCodigoAutorizacionSSSetBody">
+                    <simple>${body}</simple>
+                </setBody>
+                <marshal id="validarCodigoAutorizacionSSUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tercerfactor.wsdl.safesigner.ws"/>
+                </marshal>
+                <convertBodyTo
+                    id="validarCodigoAutorizacionSSBodyToString" type="java.lang.String"/>
+                <to id="validarCodigoAutorizacionResponseTo" uri="xslt://transformations/out/xml2xmlout_validarCodigoAutorizacion.xsl?saxon=true"/>
+                <bean id="_bean12" method="transformacionMensajeOut" ref="beanRouteFacade"/>
+                <doCatch id="validarCodigoAutorizacionSSdoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <to uri="direct:excepcionLog"/>
+                    <to id="validarCodigoAutorizacionSSToException" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <setBody id="body_exceptionValidarCodigoAut">
+                        <simple>${property.theoriginalbody}</simple>
+                    </setBody>
+                    <to id="validarCodigoAutorizacionSS_exception" uri="xslt://transformations/error/errorValidarCodigoAutorizacion.xsl?saxon=true"/>
+                    <bean id="_bean13" method="transformacionMensajeOut" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="enviarRsNotificacionesRoute">
+            <from id="enviarRsNotificacionesFrom" uri="direct:enviarRsNotificaciones"/>
+            <convertBodyTo id="envioEmailConvertToString" type="java.lang.String"/>
+            <setBody id="envioEmailSetBodyEntradaXSLT">
+                <xpath>//entrada</xpath>
+            </setBody>
+            <setProperty id="idNotificacionTercerFactor" propertyName="idNotificacion">
+                <simple>{{rsnotificaciones.idnotificacion.tercerfactor}}</simple>
+            </setProperty>
+            <bean id="requestNotificacion" method="requestNotificacion" ref="beanRouteFacade"/>
+            <log id="logNotificacionesRequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: Notificaciones || Type: Request || Body: ${body}" />
+            <to id="envioNotificacion" uri="cxfrs://bean://endpointRsNotificaciones"/>
+            <log id="logNotificacionesResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: Notificaciones || Type: Response || Body: ${body}" />
+        </route>
+        <route id="exceptionToLogRoute">
+            <from id="exceptionToLogFrom" uri="direct:excepcionLog"/>
+            <log id="logExcepcionInfo" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: Excepcion || Type: Info || Body: ${exception.message}" />
+        </route>
+    </camelContext>
+</blueprint>

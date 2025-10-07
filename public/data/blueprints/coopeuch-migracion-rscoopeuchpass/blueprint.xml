@@ -1,0 +1,559 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wscoopeuchpass" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{wscoopeuchpass.bd.url}];charset=iso_1"/>
+        <property name="username" value="[{wscoopeuchpass.bd.username}]"/>
+        <property name="password" value="[{wscoopeuchpass.bd.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{wscoopeuchpass.bd.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{wscoopeuchpass.bd.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{wscoopeuchpass.bd.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{wscoopeuchpass.bd.maxActive}]"/>
+    </bean>
+    <camelcxf:cxfEndpoint address="/WSCoopeuchPass"
+        id="coopeuchPassSOAP" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.coopeuchpass.wsdl.WSCoopeuchPassSOAPPortType" wsdlURL="etc/wsdl/public/WSCoopeuchPass.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSCoopeuchPass" id="coopeuchPassREST"
+        loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.coopeuchpass.wsdl.WSCoopeuchPassSOAPPortType"/>
+    <camelcxf:cxfEndpoint
+        address="{{wscoopeuchpass.safesigner.safesignerws.endpoint}}"
+        id="endpointClientWSSafesigner" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.coopeuchpass.wsdl.client.safesigner.SafeSignerWs" wsdlURL="etc/wsdl/client/SafeSignerWs.wsdl"/>
+    <camelcxf:cxfEndpoint
+        address="{{wscoopeuchpass.wsadministradoridg.endpoint}}"
+        id="endpointClientSoapAdministradorIDG"
+        loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.coopeuchpass.wsdl.client.wsadministradoridg.AdministradorIDGPortType" wsdlURL="etc/wsdl/client/WSAdministradorIDG.wsdl"/>
+    <camelcxf:rsClient
+        address="{{wscoopeuchpass.safesigner.mobirest.endpoint}}"
+        id="endpointRestSafeSignerMobi" loggingFeatureEnabled="true">
+        <camelcxf:properties>
+            <entry key="supportUnwrapped" value="true"/>
+        </camelcxf:properties>
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+        
+    <camelcxf:rsClient
+        address="{{wscoopeuchpass.mobisigner.api.user.validate.jwt}}"
+        id="endpointApiEnrolamiento" loggingFeatureEnabled="true">
+        <camelcxf:properties>
+            <entry key="supportUnwrapped" value="true"/>
+        </camelcxf:properties>
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="dropRootElement" value="true"/>
+    </bean>
+    <!--<http-conf:conduit name="*.http-conduit">
+        <http-conf:client ConnectionTimeout="3000"
+                          ReceiveTimeout="3000"/>
+    </http-conf:conduit>-->
+    <bean class="cl.coopeuch.integracion.coopeuchpass.util.RouteFacade" id="beanRouteFacade"/>
+    <bean
+        class="cl.coopeuch.integracion.coopeuchpass.util.RouteExcepcionFacade" id="beanRouteExcepcionFacade"/>
+    <bean
+        class="cl.coopeuch.integracion.coopeuchpass.util.RouteFacadeAggregationMultiCast" id="agregatorMultiCast"/>
+    <camelContext id="servicio-coopeuchPass" trace="false" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="moviCUTokenResponse" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.coopeuchpass.wsdl.client.mobi.TokenClaveUnicaResponse"/>
+            <json id="moviCUJwtPayload" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.coopeuchpass.wsdl.client.mobi.JwtPayload"/>
+        </dataFormats>
+        <route id="soap-inicio">
+            <from id="inicioSoapFrom" uri="cxf:bean:coopeuchPassSOAP"/>
+            <to id="soapToInicio" uri="direct:inicioCoopeuchPass"/>
+        </route>
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:coopeuchPassREST"/>
+            <to id="restToInicio" uri="direct:inicioCoopeuchPass"/>
+        </route>
+        <route id="cxf-Inicio">
+            <from id="inicioFromServicio" uri="direct:inicioCoopeuchPass"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setProperty id="inicioSetCodigoErrorDefault" propertyName="codigoError">
+                    <constant>0</constant>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultarTipoEnrolamiento'</simple>
+                        <to id="toConsultar" uri="direct:consultarTipoEnrolamiento"/>
+                    </when>
+                    <when id="inicioWhenOperacionActivar">
+                        <simple>${header.operationName} == 'activar'</simple>
+                        <to id="toActivar" uri="direct:activarEnrolamiento"/>
+                    </when>
+                    <when id="inicioWhenOperacionConfirmar">
+                        <simple>${header.operationName} == 'confirmar'</simple>
+                        <to id="toConfirmar" uri="direct:confirmarEnrolamiento"/>
+                        <wireTap id="toAuditoriaConfirmacion" uri="direct:auditoriaConfirmacion"/>
+                    </when>
+                    <when id="inicioWhenOperacionValidarClaveUnica">
+                        <simple>${header.operationName} == 'validarClaveUnica'</simple>
+                        <to id="toValidarClaveUnica" uri="direct:validarClaveUnica"/>
+                    </when>
+                    <when id="inicioWhenOperacionEnrolarPersona">
+                        <simple>${header.operationName} == 'enrolarPersona'</simple>
+                        <to id="toEnrolarPersona" uri="direct:enrolarPersona"/>
+                    </when>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to5" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarTipoEnrolamiento">
+            <from id="consultarTipoEnrolamientoFrom" uri="direct:consultarTipoEnrolamiento"/>
+            <doTry id="consultarTipoEnrolamientoTry">
+                <multicast id="consultarTipoEnrolamientoMultiCast"
+                    parallelProcessing="true" strategyRef="agregatorMultiCast">
+                    <to id="consultarUsuarioSafeSignerTo" uri="direct:consultarUsuarioSafeSigner"/>
+                    <to id="consultarIDGTarjetaTo" uri="direct:consultarIDGTarjeta"/>
+                </multicast>
+                <doCatch id="consultarTipoEnrolamientoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="consultarTipoEnrolamientoCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to
+                        id="toOperacionConsultarTipoEnrolamientoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="activarEnrolamiento">
+            <from id="activarEnrolamientoFrom" uri="direct:activarEnrolamiento"/>
+            <doTry id="activarEnrolamientoTry">
+                <bean id="eliminarSafeSignerRequestBean"
+                    method="transformActivarEnrolamientoRequestToDeleteRequest" ref="beanRouteFacade"/>
+                <to id="eliminarEnrolamientoToSafeSigner" uri="direct:eliminarSafeSigner"/>
+                <bean id="activarSafeSignerRequestBean"
+                    method="transformActivarEnrolamientoRequestToActivationRequest" ref="beanRouteFacade"/>
+                <to id="activarEnrolamientoToActivarSafeSigner" uri="direct:activarSafeSigner"/>
+                <bean id="activarSafeSignerResponseBean"
+                    method="transformActivationResponseToActivarEnrolamientoResponse" ref="beanRouteFacade"/>
+                <doCatch id="activarEnrolamientoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="activarEnrolamientoCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toactivarEnrolamientoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="confirmarEnrolamiento">
+            <from id="confirmarEnrolamientoFrom" uri="direct:confirmarEnrolamiento"/>
+            <doTry id="confirmarEnrolamientoTry">
+                <bean id="confirmarEnrolamientoRequestBean"
+                    method="transformConfirmarEnrolamientoActivationConfirmationRequest" ref="beanRouteFacade"/>
+                <to id="confirmarEnrolamientoToConfirmarSafeSigner" uri="direct:confirmarSafeSigner"/>
+                <bean id="confirmarEnrolamientoResponseBean"
+                    method="transformConfirmarResponseToConfirmarEnrolamientoResponse" ref="beanRouteFacade"/>
+                <doCatch id="confirmarEnrolamientoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="confirmarEnrolamientoCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toConfirmarEnrolamientoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validarClaveUnica">
+            <from id="validarClaveUnicaFrom" uri="direct:validarClaveUnica"/>
+            <doTry id="validarClaveUnicaTry">
+                <bean id="wsValidarClaveUnicaRequestBean"
+                    method="transformValidarClaveUnicaToMobiSignerTokenRequest" ref="beanRouteFacade"/>
+                <setProperty id="validarClaveUnicaRestPathConfirmar" propertyName="restHttpPathConectarSafeSignerMobi">
+                    <constant>oauth/token</constant>
+                </setProperty>
+                <to id="toValidarClaveUnicaMobi" uri="direct:conectarSafeSignerMobi"/>
+                <unmarshal id="_unmarshal1" ref="moviCUTokenResponse"/>
+                <bean id="wsValidarClaveUnicaPayloadTokenResponseBean"
+                    method="getPayloadByMoviJwtToken(${body.idToken})" ref="beanRouteFacade"/>
+                <unmarshal id="_unmarshal2" ref="moviCUJwtPayload"/>
+                <bean id="wsValidarClaveUnicaPayloadTokenResponseBean"
+                    method="transformMobiSignerTokenRequestToValidarClaveUnicaResponse" ref="beanRouteFacade"/>
+                <doCatch id="validarClaveUnicaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="validarClaveUnicaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toValidarClaveUnicaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarUsuarioSafeSigner">
+            <from id="consultarUsuarioSafeSignerSafeSignerFrom" uri="direct:consultarUsuarioSafeSigner"/>
+            <doTry id="consultarUsuarioSafeSignerSafeSignerTry">
+                <bean id="consultarUsuarioSafeSignerRequestBean"
+                    method="transformConsultarTipoEnrolamientoRequestToUserStatusRequest" ref="beanRouteFacade"/>
+                <setProperty
+                    id="soapOperationConsultarUsuarioSafeSigner" propertyName="soapOperation">
+                    <constant>UserStatus</constant>
+                </setProperty>
+                <to id="toConsultarUsuarioSafeSignerConectarSafeSigner" uri="direct:conectarSafeSigner"/>
+                <doCatch id="consultarUsuarioSafeSignerDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="consultarUsuarioSafeSignerCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toConsultarUsuarioSafeSignerExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="eliminarSafeSigner">
+            <from id="eliminarSafeSignerFrom" uri="direct:eliminarSafeSigner"/>
+            <doTry id="eliminarSafeSignerTry">
+                <setProperty id="soapOperationEliminarSafeSigner" propertyName="soapOperation">
+                    <constant>Delete</constant>
+                </setProperty>
+                <to id="toEliminarSafeSignerToConectarSafeSigener" uri="direct:conectarSafeSigner"/>
+                <doCatch id="eliminarSafeSignerDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="eliminarSafeSignerCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toEliminarSafeSignerExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="activarSafeSigner">
+            <from id="activarSafeSignerFrom" uri="direct:activarSafeSigner"/>
+            <doTry id="activarSafeSignerTry">
+                <setProperty id="soapOperationActivarSafeSigner" propertyName="soapOperation">
+                    <constant>Activation</constant>
+                </setProperty>
+                <to id="activarSafeSignerToconectarSafeSigner" uri="direct:conectarSafeSigner"/>
+                <doCatch id="activarSafeSignerDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="activarSafeSignerCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toActivarSafeSignerExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="confirmarSafeSigner">
+            <from id="confirmarSafeSignerFrom" uri="direct:confirmarSafeSigner"/>
+            <doTry id="confirmarSafeSignerTry">
+                <setProperty id="soapOperationConfirmarSafeSigner" propertyName="soapOperation">
+                    <constant>ActivationConfirmation</constant>
+                </setProperty>
+                <to id="confirmarSafeSignerToConectarSafeSigner" uri="direct:conectarSafeSigner"/>
+                <doCatch id="confirmarSafeSignerDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="confirmarSafeSignerCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toConfirmarSafeSignerExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarIDGTarjeta">
+            <from id="consultarIDGTarjetaFrom" uri="direct:consultarIDGTarjeta"/>
+            <doTry id="consultarIDGTarjetaTry">
+                <bean id="consultarIDGTarjetaRequestBean"
+                    method="transformConsultarTipoEnrolamientoRequestToObtenerTarjeta" ref="beanRouteFacade"/>
+                <setProperty id="soapOperationConsultarIDGTarjeta" propertyName="IDGTarjetaSoapOperation">
+                    <constant>obtenerTarjeta</constant>
+                </setProperty>
+                <setProperty id="soapActionconsultarIDGTarjeta" propertyName="IDGTarjetaSoapAction">
+                    <constant>http://www.example.org/AdministradorIDG/obtenerTarjeta</constant>
+                </setProperty>
+                <to id="toConectarAdministradorIDG" uri="direct:conectarAdministradorIDG"/>
+                <doCatch id="consultarIDGTarjetaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarIDGTarjetaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toConsultarIDGTarjetaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="conectarSafeSigner">
+            <from id="conectarSafeSignerFrom" uri="direct:conectarSafeSigner"/>
+            <doTry id="conectarSafeSignerTry">
+                <removeHeaders id="wsRemoveHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="safeSignerSetHeaderOperationName">
+                    <simple>${exchangeProperty.soapOperation}</simple>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="safeSignerSetHeaderoperationNamespace">
+                    <constant>http://orand.cl/safesigner</constant>
+                </setHeader>
+                <to id="soapEndpointSafeSigner" uri="cxf:bean:endpointClientWSSafesigner?continuationTimeout=5000&amp;password={{wscoopeuchpass.safesigner.safesignerws.clave}}&amp;username={{wscoopeuchpass.safesigner.safesignerws.usuario}}"/>
+                <doCatch id="conectarSafeSignerDoCatchTimeOut">
+                    <exception>java.net.SocketTimeoutException</exception>
+                    <setProperty id="conectarSafeSignerPropertyCodigo" propertyName="codigoError">
+                        <constant>511</constant>
+                    </setProperty>
+                    <setProperty
+                        id="conectarSafeSignerPropertyDescripcion" propertyName="descripcionError">
+                        <simple>${properties:wscoopeuchpass.desafio.coordenadas}</simple>
+                    </setProperty>
+                    <to id="conectarSafeSignerToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarSafeSignerErrorStop"/>
+                </doCatch>
+                <doCatch id="conectarSafeSignerDoCatchUnknownHost">
+                    <exception>java.net.UnknownHostException</exception>
+                    <setProperty id="conectarSafeSignerPropertyCodigo" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty
+                        id="conectarSafeSignerPropertyDescripcion" propertyName="descripcionError">
+                        <simple>${properties:wscoopeuchpass.desafio.coordenadas}</simple>
+                    </setProperty>
+                    <to id="conectarSafeSignerToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarSafeSignerErrorStop"/>
+                </doCatch>
+                <doCatch id="conectarSafeSignerDoCatchTimeOut">
+                    <exception>java.net.SocketTimeoutException</exception>
+                    <setProperty id="conectarSafeSignerPropertyCodigo" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to id="conectarSafeSignerToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarSafeSignerErrorStop"/>
+                </doCatch>
+                <doCatch id="conectarSafeSignerDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="conectarSafeSignerPropertyCodigo" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="conectarSafeSignerToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarSafeSignerErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="conectarSafeSignerMobi">
+            <from id="conectarSafeSignerMobiFrom" uri="direct:conectarSafeSignerMobi"/>
+            <doTry id="conectarSafeSignerMobiTry">
+                <removeHeaders
+                    id="wsRemoveHeadersConectarSafeSignerMobi" pattern="*"/>
+                <setHeader headerName="CamelHttpPath" id="conectarSafeSignerMobiSetPath">
+                    <simple>${exchangeProperty.restHttpPathConectarSafeSignerMobi}</simple>
+                </setHeader>
+                <setHeader headerName="Content-Type" id="conectarSafeSignerMobiSetContentType">
+                    <constant>application/x-www-form-urlencoded</constant>
+                </setHeader>
+                <to id="restEndpointConectarSafeSignerMobi" uri="cxfrs://bean://endpointRestSafeSignerMobi"/>
+                <convertBodyTo
+                    id="conectarSafeSignerMobiResponseConvertTo" type="java.lang.String"/>
+                <doCatch id="conectarSafeSignerMobiDoCatchTimeOut">
+                    <exception>java.net.SocketTimeoutException</exception>
+                    <setProperty
+                        id="conectarSafeSignerMobiPropertyCodigo" propertyName="codigoError">
+                        <constant>400</constant>
+                    </setProperty>
+                    <setProperty
+                        id="conectarSafeSignerMobiPropertyDescripcionError" propertyName="descripcionError">
+                        <constant>Inconveniente al validar token clave única</constant>
+                    </setProperty>
+                    <to id="conectarSafeSignerMobiToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarSafeSignerMobiErrorStop"/>
+                </doCatch>
+                <doCatch id="conectarSafeSignerMobiDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="conectarSafeSignerMobiPropertyCodigo" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty
+                        id="conectarSafeSignerMobiPropertyDescripcionError" propertyName="descripcionError">
+                        <constant>Inconveniente al validar token clave única</constant>
+                    </setProperty>
+                    <to id="conectarSafeSignerMobiToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarSafeSignerMobiErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="conectarAdministradorIDG">
+            <from id="conectarAdministradorIDGFrom" uri="direct:conectarAdministradorIDG"/>
+            <doTry id="conectarAdministradorIDGTry">
+                <removeHeaders
+                    id="conectarAdministradorIDGRemoveHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="conectarAdministradorIDGSetHeaderOperationName">
+                    <simple>${exchangeProperty.IDGTarjetaSoapOperation}</simple>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="conectarAdministradorIDGSetHeaderoperationNamespace">
+                    <constant>administradoridg.core.coopeuch.cl/administradoridg</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="conectarAdministradorIDGSetHeaderSoapAction">
+                    <simple>${exchangeProperty.IDGTarjetaSoapAction}</simple>
+                </setHeader>
+                <to id="soapEndpointAdministradorIDG" uri="cxf:bean:endpointClientSoapAdministradorIDG?continuationTimeout=5000"/>
+                <doCatch id="conectarAdministradorIDGDoUnknownHostException">
+                    <exception>java.net.UnknownHostException</exception>
+                    <setProperty
+                        id="conectarAdministradorIDGPropertyCodigo" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty
+                        id="conectarAdministradorIDGPropertyDescripcion" propertyName="descripcionError">
+                        <simple>${properties:wscoopeuchpass.desafio.coordenadas}</simple>
+                    </setProperty>
+                    <to id="conectarAdministradorIDGToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarAdministradorIDGErrorStop"/>
+                </doCatch>
+                <doCatch id="conectarAdministradorIDGDoCatchTimeOut">
+                    <exception>java.net.SocketTimeoutException</exception>
+                    <setProperty
+                        id="conectarAdministradorIDGPropertyCodigo" propertyName="codigoError">
+                        <constant>511</constant>
+                    </setProperty>
+                    <to id="conectarAdministradorIDGToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarAdministradorIDGErrorStop"/>
+                </doCatch>
+                <doCatch id="conectarAdministradorIDGDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="conectarAdministradorIDGPropertyCodigo" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="conectarAdministradorIDGToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarAdministradorIDGErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="auditoriaConfirmacion">
+            <from id="auditoriaConfirmacionFrom" uri="direct:auditoriaConfirmacion"/>
+            <doTry id="auditoriaConfirmacionTry">
+                <choice id="auditoriaConfirmacionChoice">
+                    <when id="whenAuditoriaConfirmacion">
+                        <simple>${exchangeProperty.tipoRequest} == 'ConfirmarRequest' and ${body.operacion.codigo} == '0'</simple>
+                        <to id="auditoriaDesafioSQL" uri="sql-stored:classpath:etc/sql/PA_INSEnrolamiento.sql?dataSource=#dataSourceSqlServer"/>
+                        <choice id="_choice1">
+                            <when id="_when1">
+                                <simple>${body[codigoRespuesta]} != '' and ${body[codigoRespuesta]} != '200'</simple>
+                                <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="auditoriaConfirmacionThrowException" message="${body[codigoRespuesta]} - ${body[descripcionRespuesta]}"/>
+                            </when>
+                        </choice>
+                    </when>
+                </choice>
+                <doCatch id="auditoriaConfirmacionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log1" loggingLevel="ERROR" message="Error ${exception}"/>
+                    <to id="toAuditoriaConfirmacionExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="enrolarPersona">
+            <from id="enrolarPersonaFrom" uri="direct:enrolarPersona"/>
+            <doTry id="enrolarPersonaTry">
+               <bean id="enrolarPersonaRequestBean"
+                    method="transformEnrolarPersonaRequest" ref="beanRouteFacade"/>
+               <choice>
+               		<when>
+               		   <simple>${property.validaRut} == 'Correcto'</simple>
+              		   <choice>
+              		    
+              		   		<when>
+              		   		   <simple>${property.validaJWT}</simple>
+              		   		   <removeHeaders id="wsRemoveHeadersEnrolarPersona" pattern="*"/>
+				               <setHeader headerName="CamelHttpPath" id="enrolarPersonaSetPath">
+				                   <simple>${exchangeProperty.URL}</simple>
+				               </setHeader>     
+				               <setHeader headerName="Authorization" id="enrolarPersonaSetAuthorization">
+				                   <simple>${exchangeProperty.Authorization}</simple>
+				               </setHeader>   
+				               <setHeader headerName="CamelHttpMethod">
+						            <constant>GET</constant>
+						        </setHeader> 
+				                <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader4">
+				                    <constant>application/json</constant>
+				                </setHeader>
+				               <to id="restEndpointEnrolarPersona" uri="cxfrs://bean://endpointApiEnrolamiento"/>
+				               <convertBodyTo
+				                    id="enrolarPersonaResponseConvertTo" type="java.lang.String"/>		               
+				               <log message="body: ${body}"></log>		               
+				               <bean id="enrolarPersonaRequestBean"
+				                    method="enrolarPersonaResponse" ref="beanRouteFacade"/>  
+              		   		</when>
+              		   		<otherwise>
+              		   			<bean id="enrolarPersona-ErrorJWT"
+		                    		method="enrolarPersonaErrorJWT" ref="beanRouteFacade"/>  
+              		   		</otherwise>
+              		   </choice>
+              		   
+               		</when>
+               		<otherwise>
+               			<bean id="enrolarPersonaRequestBean"
+		                    method="enrolarPersonaErrorRequest" ref="beanRouteFacade"/>  
+               		</otherwise>
+               </choice>
+               
+                <doCatch id="enrolarPersonaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="enrolarPersonaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <convertBodyTo
+                    	id="enrolarPersonaResponseConvertToError" type="java.lang.String"/>               
+               		<log message="body: ${body}"></log>               
+               		<bean id="enrolarPersonaRequestBeanError"
+                    	method="enrolarPersonaResponse" ref="beanRouteFacade"/> 
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <wireTap id="excepcionSendColaError" uri="direct:envioColaError"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="procesaExcepcion" ref="beanRouteExcepcionFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="envioColaError">
+            <from id="envioColaErrorFrom" uri="direct:envioColaError"/>
+            <doTry id="envioColaErrorTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteExcepcionFacade"/>
+                <marshal id="envioColaErrorMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="envioColaErrorConvertTo" type="java.lang.String"/>
+                <to id="envioColaErrorToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <doCatch id="envioColaErrorDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="envioColaErrorLog" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del servicio: Request: ${body} Error: ${exception}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

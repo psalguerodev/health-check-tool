@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+	xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+	xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+	<cm:property-placeholder id="propertyGlobal"
+		persistent-id="global" placeholder-prefix="{[" placeholder-suffix="]}"
+		update-strategy="reload" />
+	<cm:property-placeholder id="propertyGlobalDb2"
+		persistent-id="globalDb2" placeholder-prefix="[[" placeholder-suffix="]]"
+		update-strategy="reload" />
+	<cm:property-placeholder id="propertyWscontrato"
+		persistent-id="wscontrato" placeholder-prefix="{{" placeholder-suffix="}}"
+		update-strategy="reload" />
+	<bean class="cl.coopeuch.integracion.contrato.canales.util.RouteFacade"
+		id="beanRouteFacade" />
+	<camelcxf:cxfEndpoint address="/WSContrato" id="endpointWSContrato"
+		serviceClass="cl.coopeuch.integracion.contrato.canales.wsdl.WSContratoPortType"
+		wsdlURL="etc/wsdl/WSContrato.wsdl" />
+	<camelcxf:rsServer address="/RSContrato" id="endpointRSContrato"
+		serviceClass="cl.coopeuch.integracion.contrato.canales.wsdl.WSContratoPortType" />
+	<bean class="org.apache.activemq.camel.component.ActiveMQComponent"
+		id="beanAMQ">
+		<property name="brokerURL" value="{[amq.broker.url]}" />
+		<property name="userName" value="{[amq.username]}" />
+		<property name="password" value="{[amq.password]}" />
+		<property name="usePooledConnection" value="true" />
+	</bean>
+
+	<bean class="org.apache.commons.dbcp.BasicDataSource"
+		destroy-method="close" id="dataSourceSqlDb2">
+		<property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver" />
+		<property name="url" value="[[jdbc.db2.url.servicio]]" />
+		<property name="username" value="[[jdbc.db2.username.personas]]" />
+		<property name="password" value="[[jdbc.db2.password.personas]]" />
+		<property name="timeBetweenEvictionRunsMillis" value="{{jdbc.db2.timeBetweenEvictionRunsMillis.personas}}"/>
+        <property name="numTestsPerEvictionRun" value="{{jdbc.db2.numTestsPerEvictionRun.personas}}"/>
+        <property name="minEvictableIdleTimeMillis" value="{{jdbc.db2.minEvictableIdleTimeMillis.personas}}"/>
+        <property name="maxActive" value="{{jdbc.db2.maxActive.personas}}"/>
+	</bean>
+
+	<camelContext id="servicio-contrato"
+		xmlns="http://camel.apache.org/schema/blueprint">
+		<route id="inicio-soap">
+			<from id="inicioFromServicio" uri="cxf:bean:endpointWSContrato" />
+			<to id="soapToInicioWs" uri="direct:inicio" />
+		</route>
+		<route id="inicio-rest">
+			<from id="restInicio" uri="cxfrs:bean:endpointRSContrato" />
+			<to id="restToInicioWs" uri="direct:inicio" />
+		</route>
+		<route id="cxf-inicio">
+			<from id="inicioFrom" uri="direct:inicio" />
+			<setProperty id="inicioRequestSetProperty" propertyName="requestEntrada">
+				<simple>${body}</simple>
+			</setProperty>
+			<setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+            </setProperty>
+			<doTry id="inicioTry">
+				<choice id="inicioChoice">
+					<when id="OperacionFirmar">
+						<simple>${header.operationName} == 'firmar'</simple>
+						<to id="inicioFirmarTo" uri="direct:firmar" />
+					</when>
+					<when id="OperacionConsultarContratoCanales">
+						<simple>${header.operationName} == 'consultarContratoCanales'
+						</simple>
+						<to id="inicioconsultarContratoCanalesTo" uri="direct:consultarContratoCanales" />
+					</when>
+					<otherwise id="inicioOtherwise">
+						<throwException exceptionType="java.lang.Exception"
+							id="inicioThrowException" message="La operacion soliciatada no es valida." />
+					</otherwise>
+				</choice>
+				<doCatch id="inicioDoCatch">
+					<exception>java.lang.Exception</exception>
+					<to id="inicioExceptionTo" uri="direct:exceptionRoute" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="consultarContratoCanales">
+			<from id="consultarContratoCanalesFrom" uri="direct:consultarContratoCanales" />
+			<doTry>
+				<setProperty propertyName="userId">
+					<simple>${body.get(0).userId}</simple>
+				</setProperty>
+				<setProperty propertyName="canal">
+					<simple>${body.get(0).canalLlamada}</simple>
+				</setProperty>
+				<setProperty propertyName="rut">
+					<simple>${body.get(0).rut}</simple>
+				</setProperty>
+				<bean id="validar" method="validarIngreso" ref="beanRouteFacade" />
+				<choice>
+					<when>
+						<simple>${headers.validacion}</simple>
+						<bean id="validarerror" method="validarIngresoError" ref="beanRouteFacade" />
+						<stop />
+					</when>
+					<otherwise id="otherwiseConsultar">
+						<to id="consultarContratoCanales"
+							uri="sql-stored:classpath:etc/sql/PA_SEL_CONTRATO_CONSULTARContratoCanales_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=dataResponse" />
+						<bean id="consultarContratoCanalesResponse" method="consultarContratoCanalesResponse"
+							ref="beanRouteFacade" />
+					</otherwise>
+				</choice>
+				<doCatch id="consultarContratoDoCatch">
+					<exception>java.lang.Exception</exception>
+					<to id="consultarContratoExceptionTo" uri="direct:exceptionRoute" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="firmar">
+			<from id="firmarFrom" uri="direct:firmar" />
+			<doTry id="firmarDoTry">
+				<setProperty id="firmarContratoSetProperty"
+					propertyName="contratoTipo">
+					<simple>$simple{body.get(0).contratoTipo}</simple>
+				</setProperty>
+				<setProperty id="firmarRutSetProperty" propertyName="rut">
+					<simple>$simple{body.get(0).rut}</simple>
+				</setProperty>
+				<setProperty id="firmarProductoCodigoSetProperty"
+					propertyName="productoCodigo">
+					<simple>$simple{body.get(0).productoCodigo}</simple>
+				</setProperty>
+				<setProperty id="firmarProductoIdSetProperty"
+					propertyName="productoId">
+					<simple>$simple{body.get(0).productoId}</simple>
+				</setProperty>
+				<setBody id="firmarSetBody">
+					<simple>$simple{body.get(0)}</simple>
+				</setBody>
+				<marshal id="firmarMarshal">
+					<jaxb contextPath="cl.coopeuch.integracion.contrato.canales.wsdl" />
+				</marshal>
+				<convertBodyTo id="firmarConvertStringBodyTo" type="java.lang.String" />
+				<bean id="firmarBean" method="crearJMSCorrelationId24" ref="beanRouteFacade" />
+				<log id="firmarBodyLog" loggingLevel="TRACE" message="Body.xml: ${body}" />
+				<to id="firmarXsltTo" uri="xslt://etc/xsl/IOC707001i_modificar.xsl?saxon=true" />
+				<log id="firmarAmqLog" loggingLevel="INFO" message="Body.amq.in: ${body}" />
+				<to id="firmarAmqTo"
+					uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=ERROR&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut" />
+				<log id="firmarAmqRespuestaLog" loggingLevel="INFO"
+					message="Body.amq.out: ${body}" />
+				<transform id="firmarTransform">
+					<simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+				</transform>
+				<to id="firmarRespuestaTo" uri="xslt://etc/xsl/IOC707001o_modificar.xsl?saxon=true" />
+				<unmarshal id="firmarUnmarshal">
+					<jaxb contextPath="cl.coopeuch.integracion.contrato.canales.wsdl" />
+				</unmarshal>
+				<choice id="firmarChoice">
+					<when id="firmarWhen">
+						<simple>${body.contrato} != null</simple>
+						<script id="firmarScript">
+							<ognl>request.getBody().getContrato().setRut(getProperty('rut')),
+								request.getBody().getContrato().setProductoCodigo(getProperty('productoCodigo')),
+								request.getBody().getContrato().setProductoId(getProperty('productoId')),
+								request.getBody().getContrato().setContratoTipo(getProperty('contratoTipo'))
+							</ognl>
+						</script>
+					</when>
+				</choice>
+				<doCatch id="firmarDoCatch">
+					<exception>java.lang.Exception</exception>
+					<to id="firmarExceptionTo" uri="direct:exceptionRoute" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="manejoException">
+			<from id="manejoExceptionFrom" uri="direct:exceptionRoute" />
+			<bean id="manejoExceptionAmq" method="excepcionAmq" ref="beanRouteFacade" />
+			<marshal id="manejoExceptionMarshalJson">
+				<json library="Jackson" />
+			</marshal>
+			<convertBodyTo id="manejoExceptionConvertTo" type="java.lang.String" />
+			<to id="manejoExceptionTo"
+				uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly" />
+			<bean id="manejoExceptionBean" method="iniciarExcepcion" ref="beanRouteFacade" />
+		</route>
+	</camelContext>
+</blueprint>

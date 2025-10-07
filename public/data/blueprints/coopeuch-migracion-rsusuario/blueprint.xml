@@ -1,0 +1,571 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="globalProperties"
+        persistent-id="global" placeholder-prefix="{["
+        placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="wsusuarioProperties"
+        persistent-id="wsusuario" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.wsusuario.wsdl.Response" id="beanResponse"/>
+    <bean class="javax.naming.directory.InitialDirContext" id="beanldap" scope="prototype">
+        <argument>
+            <props>
+                <prop key="java.naming.factory.initial" value="[{ldap.initial}]"/>
+                <prop key="java.naming.provider.url" value="[{ldap.url}]"/>
+                <prop key="java.naming.security.authentication" value="[{ldap.authentication}]"/>
+                <prop key="java.naming.security.principal" value="[{ldap.principal}]"/>
+                <prop key="java.naming.security.credentials" value="[{ldap.credentials}]"/>
+            </props>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.integracion.util.RouteFacade" id="beanFacade"/>
+    <cxf:cxfEndpoint address="/WSUsuario" id="epWSUsuarioSOAP"
+        loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.wsusuario.wsdl.WSUsuarioPortType" wsdlURL="etc/wsdl/WSUsuario.wsdl"/>
+    <cxf:rsServer address="/RSUsuario" id="epWSUsuarioREST" serviceClass="cl.coopeuch.integracion.wsusuario.wsdl.WSUsuarioPortType"/>
+    <cxf:cxfEndpoint address="[{parametro.endpoint}]"
+        id="endpointParametro"
+        serviceClass="cl.coopeuch.integracion.parametro.wsdl.ParametroPortType" wsdlURL="etc/wsdl/ServicioParametro.wsdl"/>
+    <bean
+        class="cl.coopeuch.integracion.parametro.wsdl.ConsultaParametrosRequest" id="beanParametros"/>
+    <camelContext id="context-wsusuario" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="RutaSOAP">
+            <from id="RutaSOAP-From" uri="cxf:bean:epWSUsuarioSOAP"/>
+            <to id="SoapToInicio" uri="direct:inicioWs"/>
+        </route>
+        <route id="routeREST">
+            <from id="fromRest" uri="cxfrs:bean:epWSUsuarioREST"/>
+            <to id="restToInicio" uri="direct:inicioWs"/>
+        </route>
+        <route id="inicio">
+            <from id="inicioFrom" uri="direct:inicioWs"/>
+            <doTry id="inicioTry">
+                <setProperty id="autenticar-NombreOperacion-Property" propertyName="operationName">
+                    <simple> ${header.operationName}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="WhenConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="ConsultarUsuario" uri="direct:usuario"/>
+                    </when>
+                    <when id="WhenOperacionWSDestinatario">
+                        <simple>${header.operationName} == 'autenticar'</simple>
+                        <to id="autenticar-To" uri="direct:autenticar"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:exception"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="autenticar">
+            <from id="autenticar-From" uri="direct:autenticar"/>
+            <doTry id="autenticarTry">
+                <setProperty id="autenticar-userId-Property" propertyName="userId">
+                    <simple>$simple{body.get(0).getUserId()}</simple>
+                </setProperty>
+                <setProperty id="autenticar-canalLlamada-Property" propertyName="canal">
+                    <simple>$simple{body.get(0).getCanalLlamada()}</simple>
+                </setProperty>
+                <setProperty id="autenticar-usuario-Property" propertyName="usuario">
+                    <simple>$simple{body.get(0).getUsuario()}</simple>
+                </setProperty>
+                <setProperty id="autenticar-clave-Property" propertyName="clave">
+                    <simple>$simple{body.get(0).getClave()}</simple>
+                </setProperty>
+                <setProperty id="autenticar-clave-URL" propertyName="provider_url">
+                    <simple>{{ldap.url}}</simple>
+                </setProperty>
+                <choice id="autenticar-validar-canal-Choice">
+                    <when id="_when16">
+                        <simple>${exchangeProperty.canal} != ''</simple>
+                        <to id="Llamada-Servicio-Parametro-To" uri="direct:parametro"/>
+                        <choice id="Llamada-Servicio-Parametro-Respuesta-Choice">
+                            <when id="Llamada-Servicio-Parametro-Respuesta-When">
+                                <simple>${exchange.getProperty('canalEncontrado')} == 'SI'</simple>
+                                <setBody id="valida-UsuarioBloqueado">
+                                    <simple>(&amp;({{ldap.find.cuenta}}=${exchange.getProperty('usuario')})(lockoutTime:1.2.840.113556.1.4.804:=4294967295))</simple>
+                                </setBody>
+                                <to id="Llamada-LDAP-Active-Directory"   uri="ldap:beanldap?scope=subtree&amp;base={{ldap.base}}"/>
+                                <choice id="autenticar-validar-UsuarioBloqueado-Choice">
+                                    <when id="autenticar-validar-UsuarioBloqueado-When">
+                                    <simple>$simple{body.size()} == 0</simple>
+                                    <bean
+                                    id="autenticar-validar-UsuarioBloqueado-Bean"
+                                    method="validaClave" ref="beanFacade"/>
+                                    <choice id="Valida-Autenticacion-Choice">
+                                    <when id="Valida-Autenticacion-When">
+                                    <simple>${body} == 'USUARIO AUTENTICADO'</simple>
+                                    <bean
+                                    id="Respuesta-OK-Bean"
+                                    method="respuestaAutenticar" ref="beanFacade"/>
+                                    </when>
+                                    <otherwise id="Valida-Autenticacion-Otherwise">
+                                    <setProperty
+                                    id="Valida-Autenticacion-Codigo-Bloqueo-Property" propertyName="codigo">
+                                    <simple>{{usuario.clave.incorrecta.codigo}}</simple>
+                                    </setProperty>
+                                    <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="Valida-Autenticacion-ThrowException" message="{{usuario.clave.incorrecta.descripcion}}"/>
+                                    <removeHeaders
+                                    id="Valida-Autenticacion-RemoveHeaders" pattern="*"/>
+                                    <setProperty
+                                    id="Valida-Autenticacion-CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                                    <constant>text/xml;charset=utf-8</constant>
+                                    </setProperty>
+                                    <setProperty
+                                    id="Valida-Autenticacion-HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                                    <constant>utf-8</constant>
+                                    </setProperty>
+                                    <setProperty
+                                    id="Valida-Autenticacion-CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                                    <constant>utf-8</constant>
+                                    </setProperty>
+                                    <setProperty
+                                    id="Valida-Autenticacion-CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                                    <constant>utf-8</constant>
+                                    </setProperty>
+                                    </otherwise>
+                                    </choice>
+                                    </when>
+                                    <otherwise id="autenticar-validar-UsuarioBloqueado-Otherwise">
+                                    <setProperty
+                                    id="Codigo-Bloqueo-Property" propertyName="codigo">
+                                    <simple>{{usuario.bloqueado.codigo}}</simple>
+                                    </setProperty>
+                                    <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="autenticar-validar-UsuarioBloqueado-ThrowException" message="{{usuario.bloqueado.descripcion}}"/>
+                                    <removeHeaders
+                                    id="autenticar-validar-UsuarioBloqueado-RemoveHeaders" pattern="*"/>
+                                    <setProperty
+                                    id="autenticar-validar-UsuarioBloqueado-CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                                    <constant>text/xml;charset=utf-8</constant>
+                                    </setProperty>
+                                    <setProperty
+                                    id="autenticar-validar-UsuarioBloqueado-HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                                    <constant>utf-8</constant>
+                                    </setProperty>
+                                    <setProperty
+                                    id="autenticar-validar-UsuarioBloqueado-CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                                    <constant>utf-8</constant>
+                                    </setProperty>
+                                    <setProperty
+                                    id="autenticar-validar-UsuarioBloqueado-CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                                    <constant>utf-8</constant>
+                                    </setProperty>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="Canal-Erroneo-Otherwise">
+                                <setProperty
+                                    id="Canal-Erroneo-Codigo-Bloqueo-Property" propertyName="codigo">
+                                    <simple>{{usuario.error.canal.codigo}}</simple>
+                                </setProperty>
+                                <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="Canal-Erroneo-ThrowException" message="{{usuario.error.canal.descripcion}}"/>
+                                <removeHeaders
+                                    id="Canal-Erroneo-RemoveHeaders" pattern="*"/>
+                                <setProperty
+                                    id="Canal-Erroneo-CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                                    <constant>text/xml;charset=utf-8</constant>
+                                </setProperty>
+                                <setProperty
+                                    id="Canal-Erroneo-HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                                    <constant>utf-8</constant>
+                                </setProperty>
+                                <setProperty
+                                    id="Canal-Erroneo-CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                                    <constant>utf-8</constant>
+                                </setProperty>
+                                <setProperty
+                                    id="Canal-Erroneo-CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                                    <constant>utf-8</constant>
+                                </setProperty>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="Canal-No-Ingresado-Otherwise">
+                        <setProperty
+                            id="Canal-No-Ingresado-Codigo-Bloqueo-Property" propertyName="codigo">
+                            <simple>{{usuario.error.canal.codigo}}</simple>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="Canal-No-Ingresado-ThrowException" message="{{usuario.error.canal.descripcion}}"/>
+                        <removeHeaders
+                            id="Canal-No-Ingresado-RemoveHeaders" pattern="*"/>
+                        <setProperty
+                            id="Canal-No-Ingresado-CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                            <constant>text/xml;charset=utf-8</constant>
+                        </setProperty>
+                        <setProperty
+                            id="Canal-No-Ingresado--HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                            <constant>utf-8</constant>
+                        </setProperty>
+                        <setProperty
+                            id="Canal-No-Ingresado-CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                            <constant>utf-8</constant>
+                        </setProperty>
+                        <setProperty
+                            id="Canal-No-Ingresado-CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                            <constant>utf-8</constant>
+                        </setProperty>
+                    </otherwise>
+                </choice>
+                <doCatch id="autenticarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="autenticarToExcepcion" uri="direct:exception"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeWSUsuario">
+            <from id="_from3" uri="direct:usuario"/>
+            <setProperty id="_setProperty18" propertyName="canal">
+                <simple>$simple{body.get(0).getCanalLlamada()}</simple>
+            </setProperty>
+            <setProperty id="_setProperty16" propertyName="rut">
+                <simple>$simple{body.get(0).getRut()}</simple>
+            </setProperty>
+            <setProperty id="_setProperty17" propertyName="cuenta">
+                <simple>$simple{body.get(0).getCuenta()}</simple>
+            </setProperty>
+            <doTry id="_doTry1">
+                <choice id="_choice10">
+                    <when id="_when13">
+                        <simple>$simple{body.get(0).canalLlamada} != ''</simple>
+                        <to id="_to7" uri="direct:parametro"/>
+                        <choice id="_choice12">
+                            <when id="_when15">
+                                <simple>${exchange.getProperty('canalEncontrado')} == 'SI'</simple>
+                                <choice id="_choice8">
+                                    <when id="_when8">
+                                    <simple>${exchange.getProperty('cuenta')} != '' &amp;&amp; ${exchange.getProperty('rut')} != ''</simple>
+                                    <setBody id="_setBody1">
+                                    <simple>(&amp;({{ldap.find.rut}}=${exchange.getProperty('rut')})&amp;({{ldap.find.cuenta}}=${exchange.getProperty('cuenta')})((!(lockoutTime&gt;=1))(!(userAccountControl:1.2.840.113556.1.4.803:=2))))</simple>
+                                    </setBody>
+                                    <log message="busqueda cuenta con rut: ${body}"></log>
+                                    </when>
+                                    <when id="_when9">
+                                    <simple>${exchange.getProperty('cuenta')} != '' &amp;&amp; ${exchange.getProperty('rut')} == '' </simple>
+                                    <setBody id="_setBody4">
+                                    <simple>(&amp;({{ldap.find.cuenta}}=${exchange.getProperty('cuenta')})((!(lockoutTime&gt;=1))(!(userAccountControl:1.2.840.113556.1.4.803:=2))))</simple>
+                                    </setBody>
+                                    <log message="busqueda cuenta sin rut: ${body}"></log>
+                                    </when>
+                                    <when id="_when10">
+                                    <simple>${exchange.getProperty('cuenta')} == '' &amp;&amp; ${exchange.getProperty('rut')} != '' </simple>
+                                    <setBody id="_setBody5">
+                                    <simple>(&amp;({{ldap.find.rut}}=${exchange.getProperty('rut')})((!(lockoutTime&gt;=1))(!(userAccountControl:1.2.840.113556.1.4.803:=2))))</simple>
+                                    </setBody>
+                                    <log message="busqueda sin cuenta con rut: ${body}"></log>
+                                    </when>
+                                    <otherwise id="_otherwise2">
+                                    <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="_throwException2" message="{{usuario.parametros.notfound}}"/>
+                                    </otherwise>
+                                </choice>
+                                <to id="_to4" uri="ldap:beanldap?scope=subtree&amp;base={{ldap.base}}"/>
+                                <choice id="_choice1">
+                                    <when id="_when1">
+                                    <simple>$simple{body.size()} == 1</simple>
+                                    <to id="_to5" uri="direct:body"/>
+                                    <log message="vuelta ruta body: ${body}"></log>
+                                    </when>
+                                    <when id="_when11">
+                                    <simple>$simple{body.size()} &gt; 1</simple>
+                                    <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="_throwException3" message="{{usuario.multiple.rut}}"/>
+                                    </when>
+                                    <otherwise id="_otherwise1">
+                                    <setProperty
+                                    id="Usuario-No-encontrado-Property" propertyName="codigo">
+                                    <simple>{{ldap.user.notfound.codigo}}</simple>
+                                    </setProperty>
+                                    <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="_throwException1" message="{{ldap.user.notfound}}"/>
+                                    <removeHeaders
+                                    id="Usuario-No-encontrado-RemoveHeaders" pattern="*"/>
+                                    <setProperty
+                                    id="Usuario-No-encontrado-CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                                    <constant>text/xml;charset=utf-8</constant>
+                                    </setProperty>
+                                    <setProperty
+                                    id="Usuario-No-encontrado-HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                                    <constant>utf-8</constant>
+                                    </setProperty>
+                                    <setProperty
+                                    id="Usuario-No-encontrado-CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                                    <constant>utf-8</constant>
+                                    </setProperty>
+                                    <setProperty
+                                    id="Usuario-No-encontrado-CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                                    <constant>utf-8</constant>
+                                    </setProperty>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="_otherwise12">
+                                <setProperty
+                                    id="Canal-No-Ingresado-Property5" propertyName="codigo">
+                                    <simple>{{usuario.error.canal.codigo}}</simple>
+                                </setProperty>
+                                <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="Canal-No-Ingresado-ThrowException5" message="{{usuario.error.canal.descripcion}}"/>
+                                <removeHeaders
+                                    id="Canal-No-Ingresado-RemoveHeaders5" pattern="*"/>
+                                <setProperty
+                                    id="Canal-No-Ingresado-CONTENT_TYPE5" propertyName="Exchange.CONTENT_TYPE">
+                                    <constant>text/xml;charset=utf-8</constant>
+                                </setProperty>
+                                <setProperty
+                                    id="Canal-No-Ingresado-HTTP_CHARACTER_ENCODING5" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                                    <constant>utf-8</constant>
+                                </setProperty>
+                                <setProperty
+                                    id="Canal-No-Ingresado-CONTENT_ENCODING5" propertyName="Exchange.CONTENT_ENCODING">
+                                    <constant>utf-8</constant>
+                                </setProperty>
+                                <setProperty
+                                    id="Canal-No-Ingresado-CHARSET_NAME5" propertyName="Exchange.CHARSET_NAME">
+                                    <constant>utf-8</constant>
+                                </setProperty>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="_otherwise4">
+                        <setProperty id="Canal-No-Ingresado-Property4" propertyName="codigo">
+                            <simple>{{usuario.error.canal.codigo}}</simple>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="Canal-No-Ingresado-ThrowException4" message="{{usuario.error.canal.descripcion}}"/>
+                        <removeHeaders
+                            id="Canal-No-Ingresado-RemoveHeaders4" pattern="*"/>
+                        <setProperty
+                            id="Canal-No-Ingresado-CONTENT_TYPE4" propertyName="Exchange.CONTENT_TYPE">
+                            <constant>text/xml;charset=utf-8</constant>
+                        </setProperty>
+                        <setProperty
+                            id="Canal-No-Ingresado-HTTP_CHARACTER_ENCODING4" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                            <constant>utf-8</constant>
+                        </setProperty>
+                        <setProperty
+                            id="Canal-No-Ingresado-CONTENT_ENCODING4" propertyName="Exchange.CONTENT_ENCODING">
+                            <constant>utf-8</constant>
+                        </setProperty>
+                        <setProperty
+                            id="Canal-No-Ingresado-CHARSET_NAME4" propertyName="Exchange.CHARSET_NAME">
+                            <constant>utf-8</constant>
+                        </setProperty>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to3" uri="direct:exception"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeBody">
+            <from id="_from5" uri="direct:body"/>
+            <setBody id="_setBody2">
+                <simple>$simple{body.get(0).getAttributes()}</simple>
+            </setBody>
+            <log message="dentro ruta body body.get(0).getAttributes(): ${body}"></log>
+            <choice id="_choice7">
+                <when id="_when7">
+                    <simple>$simple{body.get('description')} != null</simple>
+                    <setProperty id="_setProperty1" propertyName="rut">
+                        <simple>$simple{body.get('description').get()}</simple>
+                    </setProperty>
+                    <log message="rut: ${exchangeProperty.rut}"></log>
+                </when>
+                <otherwise id="_otherwise3">
+                    <setProperty id="_setProperty7" propertyName="rut">
+                        <simple/>
+                    </setProperty>
+                </otherwise>
+            </choice>
+            <choice id="_choice2">
+                <when id="_when2">
+                    <simple>$simple{body.get('sAMAccountName')} != null</simple>
+                    <setProperty id="_setProperty2" propertyName="cuenta">
+                        <simple>$simple{body.get('sAMAccountName').get()}</simple>
+                    </setProperty>
+                    <log message="cuenta: ${exchangeProperty.cuenta}"></log>
+                </when>
+                <otherwise id="_otherwise5">
+                    <setProperty id="_setProperty8" propertyName="cuenta">
+                        <simple/>
+                    </setProperty>
+                </otherwise>
+            </choice>
+            <choice id="_choice3">
+                <when id="_when3">
+                    <simple>$simple{body.get('givenName')} != null</simple>
+                    <setProperty id="_setProperty3" propertyName="nombres">
+                        <simple>$simple{body.get('givenName').get()}</simple>
+                    </setProperty>
+                    <log message="nombres: ${exchangeProperty.nombres}"></log>
+                </when>
+                <otherwise id="_otherwise6">
+                    <setProperty id="_setProperty10" propertyName="nombres">
+                        <simple/>
+                    </setProperty>
+                </otherwise>
+            </choice>
+            <choice id="_choice4">
+                <when id="_when4">
+                    <simple>$simple{body.get('sn')} != null</simple>
+                    <setProperty id="_setProperty4" propertyName="apellidos">
+                        <simple>$simple{body.get('sn').get()}</simple>
+                    </setProperty>
+                     <log message="apellidos: ${exchangeProperty.apellidos}"></log>
+                </when>
+                <otherwise id="_otherwise7">
+                    <setProperty id="_setProperty11" propertyName="apellidos">
+                        <simple/>
+                    </setProperty>
+                </otherwise>
+            </choice>
+            <choice id="_choice5">
+                <when id="_when5">
+                    <simple>$simple{body.get('cn')} != null</simple>
+                    <setProperty id="_setProperty5" propertyName="nombreCompleto">
+                        <simple>$simple{body.get('cn').get()}</simple>
+                    </setProperty>
+                     <log message="nombreCompleto: ${exchangeProperty.nombreCompleto}"></log>
+                </when>
+                <otherwise id="_otherwise8">
+                    <setProperty id="_setProperty12" propertyName="nombreCompleto">
+                        <simple/>
+                    </setProperty>
+                </otherwise>
+            </choice>
+            <choice id="_choice6">
+                <when id="_when6">
+                    <simple>$simple{body.get('mail')} != null</simple>
+                    <setProperty id="_setProperty6" propertyName="email">
+                        <simple>$simple{body.get('mail').get()}</simple>
+                    </setProperty>
+                    <log message="email: ${exchangeProperty.email}"></log>
+                </when>
+                <otherwise id="_otherwise9">
+                    <setProperty id="_setProperty13" propertyName="email">
+                        <simple/>
+                    </setProperty>
+                </otherwise>
+            </choice>
+            <choice id="_choice9">
+                <when id="_when12">
+                    <simple>$simple{body.get('userAccountControl')} != null</simple>
+                    <setProperty id="_setProperty9" propertyName="estado">
+                        <simple>$simple{body.get('userAccountControl').get()}</simple>
+                    </setProperty>
+                </when>
+                <otherwise id="_otherwise10">
+                    <setProperty id="_setProperty14" propertyName="estado">
+                        <simple/>
+                    </setProperty>
+                </otherwise>
+            </choice>
+            <setBody id="_setBody3">
+                <simple>${ref:beanResponse}</simple>
+            </setBody>
+            <script id="_script1">
+                <ognl>
+					request.getBody().setRut(getProperty('rut')),
+					request.getBody().setCuenta(getProperty('cuenta')),
+					request.getBody().setNombres(getProperty('nombres')),
+					request.getBody().setApellidos(getProperty('apellidos')),
+					request.getBody().setNombreCompleto(getProperty('nombreCompleto')),
+					request.getBody().setEmail(getProperty('email')),
+					request.getBody().setEstado(getProperty('estado'))
+				</ognl>
+            </script>
+        </route>
+        <route id="routeExceptonWSUsuario">
+            <from id="_from4" uri="direct:exception"/>
+            <bean id="_bean1" method="iniciarExcepcion" ref="beanFacade"/>
+            <stop id="_stop1"/>
+        </route>
+        <route id="routeParametro">
+            <from id="_from6" uri="direct:parametro"/>
+            <doTry id="_doTry2">
+                <setBody id="_setBody6">
+                    <simple>${ref:beanParametros}</simple>
+                </setBody>
+                <script id="_script2">
+                    <ognl>
+						request.getBody().setUserID('SRVMBK')
+					</ognl>
+                </script>
+                <script id="_script3">
+                    <ognl>
+						request.getBody().setCodigo('B1')
+					</ognl>
+                </script>
+                <script id="_script4">
+                    <ognl>
+						request.getBody().setElemento(getProperty('canal'))
+					</ognl>
+                </script>
+                <script id="_script5">
+                    <ognl>
+						request.getBody().setFiltros(' ')
+					</ognl>
+                </script>
+                <removeHeaders id="removeHeaders" pattern="*"/>
+                <setHeader headerName="operationNamespace" id="operationNamespace">
+                    <constant>{{parametro.namespace}}</constant>
+                </setHeader>
+                <setHeader headerName="operationName" id="operationName">
+                    <constant>{{parametro.operationname}}</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="SOAPAction">
+                    <constant>{{parametro.soapaction}}</constant>
+                </setHeader>
+                <to id="_to6" uri="cxf:bean:endpointParametro"/>
+                <choice id="_choice11">
+                    <when id="_when14">
+                        <simple>$simple{body.size()} == 1 &amp;&amp; $simple{body.get(0).getNumeroRegistro()} == 1 </simple>
+                        <setProperty id="_setProperty15" propertyName="canalEncontrado">
+                            <simple>SI</simple>
+                        </setProperty>
+                    </when>
+                    <otherwise id="_otherwise11">
+                        <setProperty id="_setProperty15" propertyName="canalEncontrado">
+                            <simple>NO</simple>
+                        </setProperty>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <throwException exceptionType="java.lang.Exception"
+                        id="_throwException6" message="Occurio un problema al consultar el canal: ${exception}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

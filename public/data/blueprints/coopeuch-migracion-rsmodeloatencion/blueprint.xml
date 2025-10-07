@@ -1,0 +1,436 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="modeloatencion" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url}];charset=iso_1;domain=coopeuch1;usentlmv2=true"/>
+        <property name="username" value="[{jdbc.sqlserver.username}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive}]"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.personas]]"/>
+        <property name="password" value="[[jdbc.db2.password.personas]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive}]"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.modeloAtencion.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint
+        address="[{modeloatencion.servicio.WSRegistrodeAtencion.endpoint}]"
+        id="endpointRegistrodeAtencion" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.modeloAtencion.wsdl.WSRegistrodeAtencion.WSRegistrodeAtencionSoap" wsdlURL="etc/wsdl/WSRegistrodeAtencion.wsdl"/>
+    <camelcxf:cxfEndpoint address="/WSModeloAtencion"
+        id="endpointModeloAtencion"
+        serviceClass="cl.coopeuch.integracion.modeloAtencion.wsdl.ModeloAtencionSOAPPortType" wsdlURL="etc/wsdl/ModeloAtencion.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSModeloAtencion"
+        id="endpointRSModeloAtencion" serviceClass="cl.coopeuch.integracion.modeloAtencion.wsdl.ModeloAtencionSOAPPortType"/>
+    <camelContext id="context-modeloAtencion" streamCache="true" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointModeloAtencion"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSModeloAtencion"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionCrear">
+                        <simple>${header.operationName} == 'crear'</simple>
+                        <to id="toCrear" uri="direct:crear"/>
+                    </when>
+                    <when id="inicioWhenOperacionActualizar">
+                        <simple>${header.operationName} == 'actualizar'</simple>
+                        <to id="toActualizar" uri="direct:actualizar"/>
+                    </when>
+                    <when id="inicioWhenOperacionCargamasiva">
+                        <simple>${header.operationName} == 'cargamasiva'</simple>
+                        <to id="toCargamasiva" uri="direct:cargamasiva"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="crear">
+            <from id="crearCliente" uri="direct:crear"/>
+            <doTry id="_doTry1">
+                <setProperty id="_setProperty1" propertyName="rut">
+                    <simple>$simple{body.rut.toUpperCase()}</simple>
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="userId">
+                    <simple>$simple{body.userId}</simple>
+                </setProperty>
+                <setProperty id="_setProperty3" propertyName="canalLlamada">
+                    <simple>$simple{body.canalLlamada}</simple>
+                </setProperty>
+                <setProperty id="_setProperty4" propertyName="identificador">
+                    <simple>$simple{body.identificadorAtencion}</simple>
+                </setProperty>
+                <setProperty id="_setProperty5" propertyName="origen">
+                    <simple>$simple{body.origen}</simple>
+                </setProperty>
+                <setProperty id="_setProperty6" propertyName="NumeroAtencion">
+                    <simple>${body.numeroAtencion}</simple>
+                </setProperty>
+                <setProperty id="_setProperty7" propertyName="lugarAtencion">
+                    <simple>${body.lugarAtencion}</simple>
+                </setProperty>
+                <setProperty id="_setProperty8" propertyName="nombreSucursal">
+                    <simple>${body.nombreSucursal}</simple>
+                </setProperty>
+                <setProperty id="_setProperty9" propertyName="fechaGeneracion">
+                    <simple>${body.fechaGeneracion}</simple>
+                </setProperty>
+                <setProperty id="_setProperty10" propertyName="fechaHoraReserva">
+                    <simple>${body.fechaHoraReserva}</simple>
+                </setProperty>
+                <setProperty id="_setProperty11" propertyName="NombreReserva">
+                    <simple>${body.nombreReserva}</simple>
+                </setProperty>
+                <setProperty id="_setProperty12" propertyName="rutReserva">
+                    <simple>${body.rutReserva}</simple>
+                </setProperty>
+                <setProperty id="_setProperty13" propertyName="emailReserva">
+                    <simple>${body.emailReserva}</simple>
+                </setProperty>
+                <setProperty id="_setProperty14" propertyName="telefonoReserva">
+                    <simple>${body.telefonoReserva}</simple>
+                </setProperty>
+                <setProperty id="_setProperty35" propertyName="res">
+                    <simple>A</simple>
+                </setProperty>
+                <bean id="crearBean" method="validarIngreso" ref="beanRouteFacade"/>
+                <to id="spConsultarDatos" uri="sql-stored:classpath:etc/sql/PA_SEL_MODELOATENCION_CREAR_WS.sql?outputHeader=ConsultarPaResponse&amp;dataSource=dataSourceSqlDb2"/>
+                <log id="_log3" message="${header.ConsultarPaResponse}"/>
+                <bean id="consultarBeanProceso"
+                    method="procesoConsultarMensaje" ref="beanRouteFacade"/>
+                <choice id="_choice2">
+                    <when id="_when2">
+                        <simple>${exchangeProperty.existe_rut_ibs} != 0</simple>
+                        <to id="consultarbean" uri="direct:insertarPaIbs"/>
+                    </when>
+                </choice>
+                <to id="insertarDatos" uri="direct:insertarPaTempus"/>
+                <removeHeaders id="_removeHeaders2" pattern="*"/>
+                <doCatch id="crearDoCatchEspecifico">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="crearCodigoErrorEspecifico" propertyName="codigoError">
+                        <constant>417</constant>
+                    </setProperty>
+                    <to id="crearToExcepcionEspecifica" uri="direct:excepcion"/>
+                    <stop id="crearStopEspecifica"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="insertarPaTempus">
+            <from id="insertardatosTempus" uri="direct:insertarPaTempus"/>
+            <doTry id="_doTry2">
+                <to id="spinsertarDatos" uri="sql-stored:classpath:etc/sql/PA_INSDatosTempus.sql?outputHeader=InsertarPaResponse&amp;dataSource=dataSourceSqlServer"/>
+                <bean id="responseBeanInsert"
+                    method="responseInsertarTempus" ref="beanRouteFacade"/>
+                <removeHeaders id="_removeHeaders3" pattern="*"/>
+                <doCatch id="insertarDatosDoCatchEspecifico">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="insertarDatosCodigoErrorEspecifico" propertyName="codigoError">
+                        <constant>462</constant>
+                    </setProperty>
+                    <to id="insertarDatosToExcepcionEspecifica" uri="direct:excepcion"/>
+                    <stop id="insertarDatosStopEspecifica"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="insertarPaIbs">
+            <from id="insertardatosIbs" uri="direct:insertarPaIbs"/>
+            <doTry id="_doTry6">
+                <to id="spinsertarDatosIbs" uri="sql-stored:classpath:etc/sql/PA_INSDatosIBS.sql?outputHeader=InsertarPaIbsResponse&amp;dataSource=dataSourceSqlServer"/>
+                <bean id="responseBeanInsertIbs"
+                    method="responseInsertarIbs" ref="beanRouteFacade"/>
+                <removeHeaders id="_removeHeaders1" pattern="*"/>
+                <doCatch id="insertarDatosIbsDoCatchEspecifico">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty
+                        id="insertarDatosIbsCodigoErrorEspecifico" propertyName="codigoError">
+                        <constant>462</constant>
+                    </setProperty>
+                    <to id="insertarDatosIbsToExcepcionEspecifica" uri="direct:excepcion"/>
+                    <stop id="insertarDatosIbsStopEspecifica"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="actualizar">
+            <from id="actualizarRegistros" uri="direct:actualizar"/>
+            <setProperty id="_setProperty15" propertyName="userId">
+                <simple>$simple{body.userId}</simple>
+            </setProperty>
+            <setProperty id="_setProperty16" propertyName="canalLlamada">
+                <simple>$simple{body.canalLlamada}</simple>
+            </setProperty>
+            <setProperty id="_setProperty17" propertyName="identificadorAtencion">
+                <simple>$simple{body.identificadorAtencion}</simple>
+            </setProperty>
+            <setProperty id="_setProperty24" propertyName="tiempoLlamado">
+                <simple>$simple{body.tiempoLlamado}</simple>
+            </setProperty>
+            <setProperty id="_setProperty18" propertyName="tiempoInicio">
+                <simple>$simple{body.tiempoInicio}</simple>
+            </setProperty>
+            <setProperty id="_setProperty19" propertyName="tiempoFin">
+                <simple>$simple{body.tiempoFin}</simple>
+            </setProperty>
+            <setProperty id="_setProperty20" propertyName="tipoAtencion">
+                <simple>$simple{body.tipoAtencion}</simple>
+            </setProperty>
+            <setProperty id="_setProperty21" propertyName="nombreEjecutivo">
+                <simple>$simple{body.nombreEjecutivo}</simple>
+            </setProperty>
+            <setProperty id="_setProperty22" propertyName="rutEjecutivo">
+                <simple>$simple{body.rutEjecutivo}</simple>
+            </setProperty>
+            <setProperty id="_setProperty23" propertyName="nombreModulo">
+                <simple>$simple{body.nombreModulo}</simple>
+            </setProperty>
+            <multicast id="_multicast1" parallelProcessing="true" stopOnException="true">
+                <to id="BuscarDatosCrm" uri="direct:extraccionCrm"/>
+                <to id="BuscarDatos" uri="direct:updatePaTempus"/>
+            </multicast>
+        </route>
+        <route id="updatePaTempus">
+            <from id="updatedatosTempus" uri="direct:updatePaTempus"/>
+            <doTry id="_doTry4">
+                <to id="spupdateDatosIbs" uri="sql-stored:classpath:etc/sql/PA_UPDDatosTempus.sql?outputHeader=UpdatePaResponse&amp;dataSource=dataSourceSqlServer"/>
+                <choice id="_choice3">
+                    <when id="_when3">
+                        <simple>${header.operationName} == 'actualizar'</simple>
+                        <bean id="responseBeanUpdateTempus"
+                            method="responseUpdateTempus" ref="beanRouteFacade"/>
+                    </when>
+                    <when id="_when4">
+                        <simple>${header.operationName} == 'cargamasiva'</simple>
+                        <bean id="responseBeanUpdatemasivoTempus"
+                            method="responseUpdatemasivoTempus" ref="beanRouteFacade"/>
+                    </when>
+                </choice>
+                <removeHeaders id="_removeHeaders" pattern="*"/>
+                <doCatch id="updateDatosTempusDoCatchEspecifico">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty
+                        id="updateDatosTempusCodigoErrorEspecifico" propertyName="codigoError">
+                        <constant>462</constant>
+                    </setProperty>
+                    <to id="updateDatosTempusToExcepcionEspecifica" uri="direct:excepcion"/>
+                    <stop id="updateDatosTempusStopEspecifica"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="extraccionCrm" streamCache="true">
+            <from id="ExtraccionDatosCrm" uri="direct:extraccionCrm"/>
+            <doTry id="_doTry5">
+                <to id="spselDatosTempus" uri="sql-stored:classpath:etc/sql/PA_SELDatosTempus.sql?outputHeader=SELPaResponse&amp;dataSource=dataSourceSqlServer"/>
+                <bean id="selectBean" method="responseSelectTempus" ref="beanRouteFacade"/>
+                <removeHeaders id="wsRegistrodeAtencionRemoveHeaders" pattern="*"/>
+                <bean id="wsRegistrodeAtencionRequestBean"
+                    method="requestServicioRegistrodeAtencion" ref="beanRouteFacade"/>
+                <setHeader headerName="operationName" id="wsRegistrodeAtencionSetHeaderOpName">
+                    <constant>consultaRegistroAtencion</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="firmarDocumentoSetHeaderSoapAction">
+                    <constant>crm.coopeuch.cl/WSRegistrodeAtencion/consultaRegistroAtencion</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="firmarDocumentoSetHeaderOpNamespace">
+                    <constant>crm.coopeuch.cl/WSRegistrodeAtencion</constant>
+                </setHeader>
+                <to id="wsRegistrodeAtencionTo" uri="cxf:bean:endpointRegistrodeAtencion?dataFormat=PAYLOAD"/>
+                <split id="_split2" parallelProcessing="true" streaming="true">
+                    <tokenize token="ResponseValue" xml="true"/>
+                    <setProperty id="_setProperty36" propertyName="fechahoraCreacion">
+                        <xpath resultType="String">//ResponseValue//fechahoraCreacion</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty37" propertyName="rutEjecutivo">
+                        <xpath resultType="String">//ResponseValue//rutEjecutivo</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty38" propertyName="nombreEjecutivo">
+                        <xpath resultType="String">//ResponseValue//nombreEjecutivo</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty39" propertyName="cargoEjecutivo">
+                        <xpath resultType="String">//ResponseValue//cargoEjecutivo</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty40" propertyName="regionalEjecutivo">
+                        <xpath resultType="String">//ResponseValue//regionalEjecutivo</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty41" propertyName="motivo1Atencion">
+                        <xpath resultType="String">//ResponseValue//motivo1Atencion</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty42" propertyName="motivo2Atencion">
+                        <xpath resultType="String">//ResponseValue//motivo2Atencion</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty43" propertyName="motivo3Atencion">
+                        <xpath resultType="String">//ResponseValue//motivo3Atencion</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty44" propertyName="comentarioAtencion">
+                        <xpath resultType="String">//ResponseValue//comentarioAtencion</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty45" propertyName="rutSocioCliente">
+                        <xpath resultType="String">//ResponseValue//rutSocioCliente</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty46" propertyName="indicadorSocioCliente">
+                        <xpath resultType="String">//ResponseValue//indicadorSocioCliente</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty47" propertyName="sexoSocioCliente">
+                        <xpath resultType="String">//ResponseValue//sexoSocioCliente</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty48" propertyName="edadSocioCliente">
+                        <xpath resultType="String">//ResponseValue//edadSocioCliente</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty49" propertyName="celularSocioCliente">
+                        <xpath resultType="String">//ResponseValue//celularSocioCliente</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty50" propertyName="telPartSocioCliente">
+                        <xpath resultType="String">//ResponseValue//telPartSocioCliente</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty51" propertyName="telComSocioCliente">
+                        <xpath resultType="String">//ResponseValue//telComSocioCliente</xpath>
+                    </setProperty>
+                    <to id="spinsDatosCrm" uri="sql-stored:classpath:etc/sql/PA_INSDatosCrm.sql?outputHeader=INScrmPaResponse&amp;dataSource=dataSourceSqlServer"/>
+                </split>
+                <doCatch id="selectDatosCRmDoCatchEspecifico">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="selectDatosCrmCodigoErrorEspecifico" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <bean id="errorBean" method="errorbean" ref="beanRouteFacade"/>
+                    <to id="selectDatosCrmToExcepcionEspecifica" uri="direct:excepcion"/>
+                    <stop id="selectDatosCrmStopEspecifica"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cargamasiva">
+            <from id="cargamasivaRegistros" uri="direct:cargamasiva"/>
+            <doTry id="_doTry3">
+                <bean id="requestBeanUpdate" method="inicializacion" ref="beanRouteFacade"/>
+                <split id="_split1" parallelProcessing="true" streaming="true">
+                    <xpath id="_xpath1">//Ticket</xpath>
+                    <setProperty id="_setProperty25" propertyName="userId">
+                        <xpath resultType="String">//Ticket//userId</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty26" propertyName="canalLlamada">
+                        <xpath resultType="String">//Ticket//canalLlamada</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty27" propertyName="identificadorAtencion">
+                        <xpath resultType="String">//Ticket//identificadorAtencion</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty28" propertyName="tiempoLlamado">
+                        <xpath resultType="String">//Ticket//tiempoLlamado</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty29" propertyName="tiempoInicio">
+                        <xpath resultType="String">//Ticket//tiempoInicio</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty30" propertyName="tiempoFin">
+                        <xpath resultType="String">//Ticket//tiempoFin</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty31" propertyName="tipoAtencion">
+                        <xpath resultType="String">//Ticket//tipoAtencion</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty32" propertyName="nombreEjecutivo">
+                        <xpath resultType="String">//Ticket//nombreEjecutivo</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty33" propertyName="rutEjecutivo">
+                        <xpath resultType="String">//Ticket//rutEjecutivo</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty34" propertyName="nombreModulo">
+                        <xpath resultType="String">//Ticket//nombreModulo</xpath>
+                    </setProperty>
+                    <multicast id="_multicast2" stopOnException="true">
+                        <to id="BuscarDatosCrmMasivo" uri="direct:extraccionCrm"/>
+                        <to id="BuscarDatosMasivo" uri="direct:updatePaTempus"/>
+                    </multicast>
+                </split>
+                <bean id="responseBeanUpdate" method="responseUpdate" ref="beanRouteFacade"/>
+                <doCatch id="updateDatosmasivosTempusDoCatchEspecifico">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty
+                        id="updateDatosmasivosTempusCodigoErrorEspecifico" propertyName="codigoError">
+                        <constant>462</constant>
+                    </setProperty>
+                    <to
+                        id="updateDatosmasivosTempusToExcepcionEspecifica" uri="direct:excepcion"/>
+                    <stop id="updateDatosmasivosTempusStopEspecifica"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <removeHeaders id="removeHeadersexcepcion" pattern="*"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

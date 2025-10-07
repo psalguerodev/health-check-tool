@@ -1,0 +1,483 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsabonomasivoremuneraciones"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.convenios]]"/>
+        <property name="password" value="[[jdbc.db2.password.convenios]]"/>
+    </bean>
+    <!--Servidores-->
+    <camelcxf:cxfEndpoint address="/WSAbonoMasivoRemuneraciones"
+        id="abonoMasivoRemuneracionesSOAP" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.wsabonomasivoremuneraciones.wsdl.WSAbonoMasivoRemuneracionesSOAPPortType" wsdlURL="etc/wsdl/public/WSAbonoMasivoRemuneraciones.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSAbonoMasivoRemuneraciones"
+        id="abonoMasivoRemuneracionesREST" loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.wsabonomasivoremuneraciones.wsdl.WSAbonoMasivoRemuneracionesSOAPPortType"/>
+    <!--Clientes-->
+    <camelcxf:cxfEndpoint address="[{wsautenticacioninterna.endpoint}]"
+        id="endpointWSAutenticacioninterna" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.wsabonomasivoremuneraciones.wsdl.client.wsautenticacioninterna.WSAutenticacionInternaSOAPPortType" wsdlURL="etc/wsdl/client/WSAutenticacionInterna.wsdl"/>
+    <camelcxf:rsClient address="[{indexa.api.endpoint}]"
+        id="endpointRestIndexaApi" loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.wsabonomasivoremuneraciones.wsdl.client.IndexaGuiApi.GuiApi">
+        <camelcxf:properties>
+            <entry key="supportUnwrapped" value="true"/>
+        </camelcxf:properties>
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="dropRootElement" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.wsabonomasivoremuneraciones.util.MyAggregationStrategy" id="listOfBody"/>
+    <bean
+        class="cl.coopeuch.integracion.wsabonomasivoremuneraciones.util.RouteFacade" id="beanRouteFacade"/>
+    <bean
+        class="cl.coopeuch.integracion.wsabonomasivoremuneraciones.util.RouteExcepcionFacade" id="beanRouteExcepcionFacade"/>
+    <camelContext id="servicio-abonoMasivoRemuneraciones" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="indexaGuiApiSolicitudTokenResponse"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsabonomasivoremuneraciones.wsdl.client.IndexaGuiApi.SolicitudTokenResponse"/>
+            <json id="indexaGuiApiSolicitudContextoResponse"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsabonomasivoremuneraciones.wsdl.client.IndexaGuiApi.SolicitudContextoResponse"/>
+        </dataFormats>
+        <route id="soap-inicio">
+            <from id="inicioSoapFrom" uri="cxf:bean:abonoMasivoRemuneracionesSOAP"/>
+            <to id="soapToInicio" uri="direct:inicioAbonoMasivoRemuneraciones"/>
+        </route>
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:abonoMasivoRemuneracionesREST"/>
+            <to id="restToInicio" uri="direct:inicioAbonoMasivoRemuneraciones"/>
+        </route>
+        <route id="cxf-Inicio">
+            <from id="inicioFromServicio" uri="direct:inicioAbonoMasivoRemuneraciones"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setProperty id="inicioSetCodigoErrorDefault" propertyName="codigoError">
+                    <constant>0</constant>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionGenerarContexto">
+                        <simple>${header.operationName} == 'generarContexto'</simple>
+                        <to id="toGenerar" uri="direct:generarContexto"/>
+                    </when>
+                    <when id="inicioWhenOperacionnotificar">
+                        <simple>${header.operationName} == 'notificar'</simple>
+                        <to id="toNotificar" uri="direct:notificar"/>
+                    </when>
+                    <when id="inicioWhenOperacionAlmacenarRenta">
+                        <simple>${header.operationName} == 'almacenarRenta'</simple>
+                        <to id="toAlmacenarRenta" uri="direct:almacenarRenta"/>
+                    </when>
+                    <otherwise id="otherwiseOperacion">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion request es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to5" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generarContexto">
+            <from id="generarContextoFrom" uri="direct:generarContexto"/>
+            <doTry id="generarContextoTry">
+                <to id="toGenerarContextoValidacionToken" uri="direct:validacionTokenAutenticacionInterna"/>
+                <to id="toSolicitudTokenIndexa" uri="direct:solicitudTokenIndexa"/>
+                <to id="toSolicitudContextoIndexa" uri="direct:solicitudContextoIndexa"/>
+                <doCatch id="validacionTokenDoCatch">
+                    <exception>cl.coopeuch.integracion.wsabonomasivoremuneraciones.exception.AutenticacionExcepcion</exception>
+                    <to id="validacionTokenToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="validacionTokenErrorStop"/>
+                </doCatch>
+                <doCatch id="generarContextoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="generarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="generarContextoToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="generarContextoErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validacionTokenAutenticacionInterna">
+            <from id="validacionTokenAutenticacionInternaFrom" uri="direct:validacionTokenAutenticacionInterna"/>
+            <doTry id="validacionTokenAutenticacionInternaTry">
+                <setProperty id="inicioSetRequestToken" propertyName="requestToken">
+                    <simple>${body[0].token}</simple>
+                </setProperty>
+                <setProperty id="inicioSetRequestCanal" propertyName="requestCanal">
+                    <simple>${body[0].canalLlamada}</simple>
+                </setProperty>
+                <setProperty id="inicioSetRequestUserId" propertyName="requestUserId">
+                    <simple>${body[0].userId}</simple>
+                </setProperty>
+                <bean id="wsAutenticacionInternaRequestBean"
+                    method="transformConsultarTokenRequest" ref="beanRouteFacade"/>
+                <setProperty id="soapOperationConsultarToken" propertyName="soapOperation">
+                    <constant>consultarToken</constant>
+                </setProperty>
+                <to id="toWSAuntenticacionInternaConsultar" uri="direct:conectarAutenticacionInterna"/>
+                <choice id="auntenticacionInternaChoice">
+                    <when id="whenAuntenticacionInternaExpiradoChoice">
+                        <simple>${body[0].error} == null and ${body[0].estado} != 'Vigente'</simple>
+                        <throwException
+                            exceptionType="cl.coopeuch.integracion.wsabonomasivoremuneraciones.exception.AutenticacionExcepcion"
+                            id="throwExpiradoExceptionAuntenticacionInternaChoice" message="Token Expirado"/>
+                    </when>
+                    <otherwise id="otherWiseAuntenticacionInternaChoice">
+                        <throwException
+                            exceptionType="cl.coopeuch.integracion.wsabonomasivoremuneraciones.exception.AutenticacionExcepcion"
+                            id="throwExceptionAuntenticacionInternaChoice" message="${body[0].error.errores.detalleError[0].descripcion}"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="validacionTokenAutenticacionInternaErrorDoCatch">
+                    <exception>cl.coopeuch.integracion.wsabonomasivoremuneraciones.exception.AutenticacionExcepcion</exception>
+                    <setProperty
+                        id="validacionTokenAutenticacionInternaErrorCodigoError" propertyName="codigoError">
+                        <constant>401</constant>
+                    </setProperty>
+                    <to
+                        id="validacionTokenAutenticacionInternaToResponseErrorExcepcion" uri="direct:excepcion"/>
+                    <stop id="validacionTokenAutenticacionInternaErrorErrorStop"/>
+                </doCatch>
+                <doCatch id="validacionTokenAutenticacionInternaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="validacionTokenAutenticacionInternaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to
+                        id="validacionTokenAutenticacionInternaToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="validacionTokenAutenticacionInternaErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="solicitudTokenIndexa">
+            <from id="solicitudTokenFrom" uri="direct:solicitudTokenIndexa"/>
+            <doTry id="rsolicitudTokenTry">
+                <bean id="solicitudTokenRequestBean"
+                    method="solicitudTokenIndexaRequest" ref="beanRouteFacade"/>
+                <setProperty id="restPathRecibeCodigo" propertyName="restHttpPath">
+                    <constant>SolicitudToken</constant>
+                </setProperty>
+                <to id="toSolicitudToken" uri="direct:conectarIndexaApi"/>
+                <unmarshal id="solicitudTokenUnmarshal" ref="indexaGuiApiSolicitudTokenResponse"/>
+                <choice id="solicitudTokenIndexaChoice">
+                    <when id="whensolicitudTokenIndexaOKChoice">
+                        <simple>${body.estado} == 'OK'</simple>
+                        <bean id="solicitudTokenResponseBean"
+                            method="procesJWTSolicitudTokenIndexa" ref="beanRouteFacade"/>
+                        <setProperty id="_setPropertGUIConexion" propertyName="GuidConexion">
+                            <simple>${body}</simple>
+                        </setProperty>
+                    </when>
+                    <when id="whensolicitudTokenIndexaNOKChoice">
+                        <simple>${body.estado} == 'NOK'</simple>
+                        <setProperty
+                            id="solicitudTokenIndexaCodigoError" propertyName="codigoError">
+                            <constant>400</constant>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionSolicitudTokenIndexaNOKChoice" message="${body.descripcion} "/>
+                    </when>
+                    <otherwise id="otherWisesolicitudTokenIndexaChoice">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionSolicitudTokenIndexaChoice" message="Inconveniente al generar Solicitud Token Indexa"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="solicitudTokenIndexaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toSolicitudTokenIndexaExcepcion" uri="direct:excepcion"/>
+                    <stop id="solicitudTokenIndexaErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="solicitudContextoIndexa">
+            <from id="solicitudContextoIndexaFrom" uri="direct:solicitudContextoIndexa"/>
+            <doTry id="solicitudContextoIndexaTry">
+                <bean id="solicitudContextoIndexaRequestBean"
+                    method="solicitudContextoIndexaRequest" ref="beanRouteFacade"/>
+                <setProperty id="restPathSolicitudContexto" propertyName="restHttpPath">
+                    <constant>EntregaContexto</constant>
+                </setProperty>
+                <to id="toSolicitudContextoIndexaConnect" uri="direct:conectarIndexaApi"/>
+                <unmarshal id="solicitudContextoIndexaUnmarshal" ref="indexaGuiApiSolicitudContextoResponse"/>
+                <choice id="solicitudContextoIndexaChoice">
+                    <when id="whensolicitudContextoIndexaOKChoice">
+                        <simple>${body.estado} == 'OK'</simple>
+                        <bean id="solicitudGeneraContextoResponseBean"
+                            method="solicitudGeneraConextoResponse" ref="beanRouteFacade"/>
+                    </when>
+                    <when id="whensolicitudContextoIndexaNOKChoice">
+                        <simple>${body.estado} == 'NOK'</simple>
+                        <setProperty
+                            id="solicitudContextoIndexaCodigoError" propertyName="codigoError">
+                            <constant>400</constant>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionSolicitudContextoIndexaNOKChoice" message="${body.descripcion} "/>
+                    </when>
+                    <otherwise id="otherWiseSolicitudContextoIndexaChoice">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionSolicitudContextoIndexaChoice" message="Inconveniente al generar Solicitud Contexto Indexa"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="solicitudContextoIndexaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toSolicitudContextoIndexaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!--Conectores-->
+        <route id="conectarAutenticacionInterna">
+            <from id="conectarAutenticacionInternaFrom" uri="direct:conectarAutenticacionInterna"/>
+            <doTry id="conectarAutenticacionInternaTry">
+                <removeHeaders id="wsRemoveHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="autenticacionInternaSetHeaderOperationName">
+                    <simple>${exchangeProperty.soapOperation}</simple>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="autenticacionInternaSetHeaderoperationNamespace">
+                    <constant>http://integracion.coopeuch.cl/WSAutenticacionInterna/</constant>
+                </setHeader>
+                <to id="soapEndpointAutenticacionInterna" uri="cxf:bean:endpointWSAutenticacioninterna?continuationTimeout=5000"/>
+                <doCatch id="conectarAutenticacionInternaDoCatchTimeOut">
+                    <exception>java.net.SocketTimeoutException</exception>
+                    <setProperty
+                        id="conectarAutenticacionInternaPropertyCodigo" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to
+                        id="conectarAutenticacionInternaToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarAutenticacionInternaErrorStop"/>
+                </doCatch>
+                <doCatch id="conectarAutenticacionInternaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="conectarAutenticacionInternaPropertyCodigo" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to
+                        id="conectarAutenticacionInternaToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarAutenticacionInternaErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="conectarIndexaApi">
+            <from id="conectarIndexaApiFrom" uri="direct:conectarIndexaApi"/>
+            <doTry id="conectarIndexaApiTry">
+                <removeHeaders id="wsConectarIndexaApi" pattern="*"/>
+                <setHeader headerName="CamelHttpPath" id="conectarIndexaApiSetPath">
+                    <simple>${exchangeProperty.restHttpPath}</simple>
+                </setHeader>
+                <setHeader headerName="Content-Type" id="conectarIndexaApiSetContentType">
+                    <constant>application/json</constant>
+                </setHeader>
+                <to id="restEndpointConectarIndexaApi" uri="cxfrs://bean://endpointRestIndexaApi?throwExceptionOnFailure=false"/>
+                <convertBodyTo id="registrarResponseConvertTo" type="java.lang.String"/>
+                <doCatch id="conectarIndexaApiDoCatchTimeOut">
+                    <exception>java.net.SocketTimeoutException</exception>
+                    <setProperty id="conectarIndexaApiPropertyCodigo" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to id="conectarIndexaApiToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarIndexaApiErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="notificar">
+            <from id="notificarFrom" uri="direct:notificar"/>
+            <doTry id="notificarTry">
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="notificarMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsabonomasivoremuneraciones.wsdl"/>
+                </marshal>
+                <convertBodyTo id="notificarConvertBodyToString" type="java.lang.String"/>
+                <setProperty id="_setProperty1" propertyName="interfaz">
+                    <xpath resultType="String">//nombreInterfaz/text()</xpath>
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="userId">
+                    <xpath resultType="String">//userId/text()</xpath>
+                </setProperty>
+                <setProperty id="_setProperty3" propertyName="canalLlamada">
+                    <xpath resultType="String">//canalLlamada/text()</xpath>
+                </setProperty>
+                <setProperty id="_setProperty4" propertyName="template">
+                    <simple>{{wsenrolamientoabonoremuneraciones.notificar.template}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty5" propertyName="asunto">
+                    <simple>{{wsenrolamientoabonoremuneraciones.notificar.asunto}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty6" propertyName="idNotificacion">
+                    <simple>{{wsenrolamientoabonoremuneraciones.notificar.idNotificacion}}</simple>
+                </setProperty>
+                <to id="notificar" uri="sql-stored:classpath:sql/PA_SEL_ABONOREMUNERACIONES_NOTIFICAR_WS.sql?dataSource=dataSourceSqlDb2"/>
+                <setProperty id="_setProperty7" propertyName="dataResponse">
+                    <simple>${body}</simple>
+                </setProperty>
+                <split id="_split1" strategyRef="listOfBody">
+                    <simple>${body.get('#result-set-1')}</simple>
+                    <setProperty id="_setProperty8" propertyName="email">
+                        <simple>${body.get('Email')}</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty9" propertyName="rut">
+                        <simple>${body.get('Rut')}</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty10" propertyName="beneficiario">
+                        <simple>${body.get('Beneficiario')}</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty11" propertyName="cuenta">
+                        <simple>${body.get('Cuenta')}</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty12" propertyName="fecha">
+                        <simple>${date:now:yyyy-MM-dd}</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty13" propertyName="hora">
+                        <simple>${date:now:HH:mm:ss}</simple>
+                    </setProperty>
+                    <to id="cnotificarToXSL" uri="velocity://etc/xsl/request/wsNotificacion.vm"/>
+                    <removeHeaders id="_removeHeaders1" pattern="CamelHttp*"/>
+                    <setHeader headerName="CamelHttpMethod" id="_setHeader1">
+                        <constant>POST</constant>
+                    </setHeader>
+                    <setHeader headerName="Content-Type" id="_setHeader2">
+                        <constant>application/json</constant>
+                    </setHeader>
+                    <to id="_to1" uri="{{wsenrolamientoabonoremuneraciones.notificar.wsnotificacionservice}}?httpClient.connectTimeout=10000&amp;bridgeEndpoint=true&amp;throwExceptionOnFailure=false"/>
+                </split>
+                <setBody id="_setBody1">
+                    <simple>${property.dataResponse.get('#result-set-1')}</simple>
+                </setBody>
+                <choice id="_choice1">
+                    <when id="_when1">
+                        <simple>${body.size()} == 0</simple>
+                        <throwException
+                            exceptionType="cl.coopeuch.integracion.wsabonomasivoremuneraciones.exception.ProcedureExcepcion"
+                            id="_throwException1" message="no se encontro nombreInterfaz en la BD"/>
+                        <stop id="_stop1"/>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <bean id="requestNotificar"
+                            method="requestNotificar" ref="beanRouteFacade"/>
+                        <unmarshal id="notificarUnmarshal">
+                            <jaxb contextPath="cl.coopeuch.integracion.wsabonomasivoremuneraciones.wsdl"/>
+                        </unmarshal>
+                        <log id="_log1" message="Trama recibida = ${body}"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="notificarDoCatchControlado">
+                    <exception>cl.coopeuch.integracion.wsabonomasivoremuneraciones.exception.ProcedureExcepcion</exception>
+                    <setProperty id="notificarCodigoError" propertyName="codigoError">
+                        <constant>400</constant>
+                    </setProperty>
+                    <to id="toNotificarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="notificarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="notificarCodigoError" propertyName="codigoError">
+                        <constant>400</constant>
+                    </setProperty>
+                    <to id="toNotificarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="almacenarRenta">
+            <from id="almacenarRentaFrom" uri="direct:almacenarRenta"/>
+            <doTry id="almacenarRentaTry">
+                <setBody id="almacenarRentaSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="almacenarRentaMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsabonomasivoremuneraciones.wsdl"/>
+                </marshal>
+                <convertBodyTo id="almacenarRentaConvertBodyToString" type="java.lang.String"/>
+                <bean id="almacenarRentaUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="almacenarRentaToXSLTrama" uri="xslt://etc/xsl/request/IOC781001I_almacenarRenta.xsl"/>
+                <log id="almacenarRentaTramaRequest" message="trama generada: |${body}|"/>
+                <to id="almacenarRentaToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="almacenarRentaTramaResponse" message="trama recibida: |${body}|"/>
+                <transform id="almacenarRentaTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="almacenarRentaToXSLSOAP" uri="xslt://etc/xsl/response/IOC781001O_almacenarRenta.xsl?saxon=true"/>
+                <log id="_log2" message="salida XSLT: ${body}"/>
+                <removeHeaders id="almacenarRentaRemoveJMS" pattern="JMS*"/>
+                <unmarshal id="almacenarRentaUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsabonomasivoremuneraciones.wsdl"/>
+                </unmarshal>
+                <doCatch id="almacenarRentaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="almacenarRentaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <wireTap id="excepcionSendColaError" uri="direct:envioColaError"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="procesaExcepcion" ref="beanRouteExcepcionFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="envioColaError">
+            <from id="envioColaErrorFrom" uri="direct:envioColaError"/>
+            <doTry id="envioColaErrorTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteExcepcionFacade"/>
+                <marshal id="envioColaErrorMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="envioColaErrorConvertTo" type="java.lang.String"/>
+                <to id="envioColaErrorToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <doCatch id="envioColaErrorDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="envioColaErrorLog" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del servicio: Request: ${body} Error: ${exception}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

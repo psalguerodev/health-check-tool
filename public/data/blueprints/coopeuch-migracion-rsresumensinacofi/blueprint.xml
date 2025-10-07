@@ -1,0 +1,409 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsresumensinacofi" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Configure CXF endpoint -->
+    <cxf:cxfEndpoint address="/ResumenSinacofi"
+        id="servicioSinacofiEndpoint"
+        serviceClass="cl.coopeuch.core.resumensinacofi.resumensinacofi.ResumenSinacofiPortType" wsdlURL="etc/wsdl/ServicioResumenSinacofi.wsdl"/>
+    <cxf:rsServer address="/RSResumenSinacofi" id="ResumenSinacofiRest" serviceClass="cl.coopeuch.integracion.resumensinacofi.rest.ResumenSinacofiRest"/>
+    <!-- Configure Active MQ connection factory -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSybase">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sybase.url.sinacofi}];charset=iso_1"/>
+        <property name="username" value="[{jdbc.sybase.username.sinacofi}]"/>
+        <property name="password" value="[{jdbc.sybase.password.sinacofi}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sybase.timeBetweenEvictionRunsMillis.sinacofi}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sybase.numTestsPerEvictionRun.sinacofi}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sybase.minEvictableIdleTimeMillis.sinacofi}]"/>
+        <property name="maxActive" value="[{jdbc.sybase.maxActive.sinacofi}]"/>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_selValoresMonedas">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selValoresMonedas"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.jms.CorrelationId" id="convertCorrelationId"/>
+    <bean class="cl.coopeuch.util.aggregation.AggregatorConsulta" id="aggregatorConsulta"/>
+    <bean class="cl.coopeuch.process.TransformacionMenorCincuenta" id="transformacionMenorCincuenta"/>
+    <bean class="cl.coopeuch.process.TransformacionMayorCincuenta" id="transformacionMayorCincuenta"/>
+    <bean class="cl.coopeuch.process.TransformacionProtestoEmpresa" id="transformacionProtestoEmpresa"/>
+    <bean class="cl.coopeuch.integracion.util.RouteFacade" id="routeFacade"/>
+    <camelContext id="servicio-resumenSinacofi" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml disableFeatures="WRITE_DATES_AS_TIMESTAMPS"
+                id="jack" prettyPrint="true"/>
+        </dataFormats>
+        <route id="cxf-InicioREST">
+            <from id="inicioFrom-REST" uri="cxfrs:bean:ResumenSinacofiRest"/>
+            <setProperty id="exposicion-REST" propertyName="exposicion">
+                <simple>REST</simple>
+            </setProperty>
+            <choice id="inicioChoiceOperacion-REST">
+                <when id="inicioWhenOperacion-ConsultarToken-REST">
+                    <simple>${header.operationName} == 'resumenAntecedentesComerciales'</simple>
+                    <unmarshal id="ConsultarToken_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.resumensinacofi.soap.DatosConsultaSum"/>
+                    </unmarshal>
+                    <bean id="consultarToken_bean6"
+                        method="ResumenAntecedentesComercialesRest" ref="routeFacade"/>
+                    <marshal id="consultarTokenF_marshal5">
+                        <jaxb contextPath="cl.coopeuch.core.resumensinacofi.soap"/>
+                    </marshal>
+                    <to id="consultarToken_to7" uri="direct:inicio"/>
+                    <unmarshal id="consultarToken_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.core.resumensinacofi.soap"/>
+                    </unmarshal>
+                    <bean id="consultarToken_bean7"
+                        method="ResumenAntecedentesComercialesResponseRest" ref="routeFacade"/>
+                    <marshal id="consultarToken_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.resumensinacofi.soap.ResumenAntecedentesComercialesResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <route id="cx-RuteoOperaciones">
+            <from id="inicioFrom" uri="cxf:bean:servicioSinacofiEndpoint?DataFormat=MESSAGE"/>
+            <setProperty id="exposicion-SOAP" propertyName="exposicion">
+                <simple>SOAP</simple>
+            </setProperty>
+            <to id="_toInicioWSDL" uri="direct:inicio"/>
+        </route>
+        <route id="jms-RutoeOperacion">
+            <from id="inicioJMS" uri="AMQ:{{amq.queue.resumensinacofi.temp}}?preserveMessageQos=true"/>
+            <setProperty id="exposicion-JMS" propertyName="exposicion">
+                <simple>JMS</simple>
+            </setProperty>
+            <to id="_to31" uri="direct:inicio"/>
+        </route>
+        <!-- Entrada principal del servicio Resumen Sinacofi -->
+        <route id="cx-Soap-RuteoOperaciones">
+            <from id="servicioSinacofiEndpointListener" uri="direct:inicio"/>
+            <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+            <doTry id="_doTry1">
+                <to id="validador" uri="validator:etc/xsd/soapResumenSinacofi.xsd"/>
+                <setProperty id="_setProperty1" propertyName="rut">
+                    <xpath resultType="java.lang.String">concat(//rut/text(),//dv/text())</xpath>
+                </setProperty>
+                <setProperty id="_setProperty32" propertyName="serie">
+                    <xpath resultType="java.lang.String">//serie/text()</xpath>
+                </setProperty>
+                <setProperty id="_setProperty42" propertyName="rutEmpleador">
+                    <xpath resultType="java.lang.String">//rutEmpleador/text()</xpath>
+                </setProperty>
+                <setProperty id="_setProperty52" propertyName="dvEmpleador">
+                    <xpath resultType="java.lang.String">//dvEmpleador/text()</xpath>
+                </setProperty>
+                <setProperty id="_setProperty4" propertyName="rutEmpleadorCompleto">
+                    <xpath resultType="java.lang.String">concat(//rutEmpleador/text(),//dvEmpleador/text())</xpath>
+                </setProperty>
+                <setHeader headerName="validaRut" id="_setHeader1">
+                    <method
+                        beanType="cl.coopeuch.util.validacion.ValidacionRutChileno" method="validaRut(${property.rut})"/>
+                </setHeader>
+                <setProperty id="_setProperty3" propertyName="validarNumeroRutEmpleador">
+                    <method beanType="cl.coopeuch.util.ValidacionEntero" method="esNumerico(${property.rutEmpleador})"/>
+                </setProperty>
+                <setProperty id="_setProperty5" propertyName="rutEmpleadorCompleto">
+                    <method
+                        beanType="cl.coopeuch.util.validacion.ValidacionRutChileno" method="validaRut(${property.rutEmpleadorCompleto})"/>
+                </setProperty>
+                <choice id="EvaluarDatos">
+                    <when id="DatosVacios">
+                        <simple>${property.rutEmpleadorCompleto} == 'Incorrecto' || ${property.validarNumeroRutEmpleador} == 'false' || ${headers.validaRut} == 'Incorrecto' || ${property.serie} == '' || ${property.serie} == ' ' || ${property.rutEmpleador} == '' || ${property.rutEmpleador} == ' ' || ${property.dvEmpleador.trim()} == ''</simple>
+                        <to id="errorDatoVacio" uri="xslt://etc/xsl/error/validarDatosEntrada.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="IdClienteNoVacio">
+                        <removeHeaders id="_removeHeaders1" pattern="*"/>
+                        <choice id="FiltroConsulta">
+                            <when id="_when2">
+                                <xpath>//rutEmpleador/text() &lt; 50000000</xpath>
+                                <to id="Cedula-Protesto-MorosidadTo2" uri="direct:Menor50000000"/>
+                            </when>
+                            <otherwise id="_otherwise2">
+                                <choice id="_choice1">
+                                    <when id="_when1">
+                                    <xpath>contains(//consultas/text(),'A1') and contains(//consultas/text(),'A2') and contains(//consultas/text(),'A3') and contains(//consultas/text(),'B')</xpath>
+                                    <to id="_to8" uri="direct:consultaA1A2A3B"/>
+                                    </when>
+                                    <when id="_when3">
+                                    <xpath>contains(//consultas/text(),'A1') and contains(//consultas/text(),'A2') and contains(//consultas/text(),'A3')</xpath>
+                                    <to id="_to15" uri="direct:consultaA1A2A3"/>
+                                    </when>
+                                    <when id="_when4">
+                                    <xpath>//consultas/text() = 'A3'</xpath>
+                                    <to id="_to19" uri="direct:consultaA3"/>
+                                    </when>
+                                    <otherwise id="_otherwise1">
+                                    <to id="_to25" uri="direct:otros"/>
+                                    </otherwise>
+                                </choice>
+                            </otherwise>
+                        </choice>
+                        <to id="eliminarNamespacesXml2XMl2" uri="xslt://etc/xsl/request/eliminarNamespaces.xsl?saxon=true"/>
+                        <to id="response" uri="xslt://etc/xsl/response/xml2xml_SalidaResumenSinacofi.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <removeHeaders id="_removeHeaders2" pattern="*"/>
+                <doCatch id="_doCatch8">
+                    <exception>org.apache.camel.processor.validation.SchemaValidationException</exception>
+                    <to id="_to30" uri="xslt://etc/xsl/error/ErrorGenerico3.xsl?saxon=true"/>
+                </doCatch>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to32" uri="xslt://etc/xsl/error/ErrorGenerico2.xsl?saxon=true"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Fin ruta principal -->
+        <!-- Esta ruta se utiliza cuando el Rut del empleador es menor a 50000000 -->
+        <route id="_routeMenor50000000">
+            <from id="_from1" uri="direct:Menor50000000"/>
+            <doTry id="_doTry2">
+                <setProperty id="_setProperty2" propertyName="MontoProtestoEmpresa">
+                    <constant/>
+                </setProperty>
+                <multicast id="_multicast1" stopOnException="true" strategyRef="aggregatorConsulta">
+                    <to id="_to3" uri="direct:ScoreB"/>
+                    <to id="_to6" uri="direct:ConsultaTodas"/>
+                    <to id="_to7" uri="direct:EstadoFinanciero"/>
+                </multicast>
+                <transform id="_transform3">
+                    <simple>&lt;Respuesta&gt;${body}&lt;/Respuesta&gt;</simple>
+                </transform>
+                <unmarshal id="_unmarshal1">
+                    <jaxb contextPath="cl.coopeuch.jaxb.scoring2"/>
+                </unmarshal>
+                <process id="_process1" ref="transformacionMenorCincuenta"/>
+                <marshal id="_marshal1">
+                    <jaxb contextPath="cl.coopeuch.jaxb.resumensinacofi"/>
+                </marshal>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to40" uri="xslt://etc/xsl/error/ErrorGenerico.xsl?saxon=true"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- En caso que se ingresen todas las opciones de consulta en el elemento 
+			consultas Se redigira a esta ruta -->
+        <route id="_routeConsultasA1A2A3B">
+            <from id="_from5" uri="direct:consultaA1A2A3B"/>
+            <doTry id="_doTry3">
+                <multicast id="_multicast2" stopOnException="true" strategyRef="aggregatorConsulta">
+                    <to id="_to11" uri="direct:ProtestoEmpresa"/>
+                    <to id="_to12" uri="direct:ScoreB"/>
+                    <to id="_to13" uri="direct:ConsultaTodas"/>
+                    <to id="_to14" uri="direct:EstadoFinanciero"/>
+                </multicast>
+                <transform id="_transform5">
+                    <simple>&lt;Respuesta&gt;${body}&lt;/Respuesta&gt;</simple>
+                </transform>
+                <unmarshal id="_unmarshal2">
+                    <jaxb contextPath="cl.coopeuch.jaxb.scoring2"/>
+                </unmarshal>
+                <process id="_process2" ref="transformacionMayorCincuenta"/>
+                <marshal id="_marshal2">
+                    <jaxb contextPath="cl.coopeuch.jaxb.resumensinacofi"/>
+                </marshal>
+                <doCatch id="_doCatch3">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to41" uri="xslt://etc/xsl/error/ErrorGenerico.xsl?saxon=true"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Esta ruta se utiliza solo cuando se ingresa en la etiqueta consultas 
+			las opciones A1, A2 y A3 -->
+        <route id="_routeConsultasA1A2A3">
+            <from id="_from7" uri="direct:consultaA1A2A3"/>
+            <doTry id="_doTry4">
+                <multicast id="_multicast3" stopOnException="true" strategyRef="aggregatorConsulta">
+                    <to id="_to16" uri="direct:ProtestoEmpresa"/>
+                    <to id="_to17" uri="direct:ConsultaTodas"/>
+                    <to id="_to18" uri="direct:EstadoFinanciero"/>
+                </multicast>
+                <transform id="_transform6">
+                    <simple>&lt;Respuesta&gt;${body}&lt;/Respuesta&gt;</simple>
+                </transform>
+                <unmarshal id="_unmarshal3">
+                    <jaxb contextPath="cl.coopeuch.jaxb.scoring2"/>
+                </unmarshal>
+                <process id="_process3" ref="transformacionMayorCincuenta"/>
+                <marshal id="_marshal3">
+                    <jaxb contextPath="cl.coopeuch.jaxb.resumensinacofi"/>
+                </marshal>
+                <doCatch id="_doCatch4">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to42" uri="xslt://etc/xsl/error/ErrorGenerico.xsl?saxon=true"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Esta ruta se utiliza solo cuando se ingresa en la etiqueta consultas 
+			la opcion A3 -->
+        <route id="_routeConsultaA3">
+            <from id="_from8" uri="direct:consultaA3"/>
+            <doTry id="_doTry5">
+                <multicast id="_multicast4" stopOnException="true" strategyRef="aggregatorConsulta">
+                    <to id="_to24" uri="direct:consultaCedulaA3"/>
+                    <to id="_to20" uri="direct:ProtestoEmpresa"/>
+                    <to id="_to21" uri="direct:EstadoFinanciero"/>
+                </multicast>
+                <transform id="_transform7">
+                    <simple>&lt;Respuesta&gt;${body}&lt;/Respuesta&gt;</simple>
+                </transform>
+                <unmarshal id="_unmarshal4">
+                    <jaxb contextPath="cl.coopeuch.jaxb.scoring2"/>
+                </unmarshal>
+                <process id="_process4" ref="transformacionProtestoEmpresa"/>
+                <marshal id="_marshal4">
+                    <jaxb contextPath="cl.coopeuch.jaxb.resumensinacofi"/>
+                </marshal>
+                <doCatch id="_doCatch5">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to43" uri="xslt://etc/xsl/error/ErrorGenerico.xsl?saxon=true"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Si las opciones ingresadas en el elemento consultas no corresponde 
+			a ninguna de las anteriores se dirije a esta ruta -->
+        <route id="_routeOtros">
+            <from id="_from10" uri="direct:otros"/>
+            <doTry id="_doTry6">
+                <multicast id="_multicast5" stopOnException="true" strategyRef="aggregatorConsulta">
+                    <to id="_to26" uri="direct:ProtestoEmpresa"/>
+                    <to id="_to27" uri="direct:ScoreB"/>
+                    <to id="_to28" uri="direct:ConsultaTodas"/>
+                    <to id="_to29" uri="direct:EstadoFinanciero"/>
+                </multicast>
+                <transform id="_transform9">
+                    <simple>&lt;Respuesta&gt;${body}&lt;/Respuesta&gt;</simple>
+                </transform>
+                <unmarshal id="_unmarshal5">
+                    <jaxb contextPath="cl.coopeuch.jaxb.scoring2"/>
+                </unmarshal>
+                <process id="_process5" ref="transformacionMayorCincuenta"/>
+                <marshal id="_marshal5">
+                    <jaxb contextPath="cl.coopeuch.jaxb.resumensinacofi"/>
+                </marshal>
+                <doCatch id="_doCatch6">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to44" uri="xslt://etc/xsl/error/ErrorGenerico.xsl?saxon=true"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta encargada de obtener el scoreB del servicio sinacofi -->
+        <route id="_routeScoreB">
+            <from id="_from2" uri="direct:ScoreB"/>
+            <choice id="_choice2">
+                <when id="_when5">
+                    <simple>${property.exposicion} == 'REST'</simple>
+                    <removeHeaders id="removeHeaders-REST-ScoreB" pattern="*"/>
+                </when>
+                <otherwise id="_otherwise3">
+                    <removeHeaders id="removeHeaders-SOAP-ScoreB" pattern="JMS*"/>
+                </otherwise>
+            </choice>
+            <bean id="_bean1" method="createJMSCorrelationId24" ref="convertCorrelationId"/>
+            <to id="_to1" uri="xslt://etc/xsl/mid/RemoteCall_Sinacofi_ScoreB.xsl?saxon=true"/>
+            <to id="_to2" uri="AMQ:{{amq.queue.creditoscoring.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;explicitQosEnabled=true&amp;replyToDeliveryPersistent=false"/>
+            <transform id="_transform1">
+                <simple>&lt;respuestaScoring2&gt;${body}&lt;/respuestaScoring2&gt;</simple>
+            </transform>
+        </route>
+        <!-- Ruta encargada de realizar consulta a sinacofi de protestos, morosidad 
+			y estado cedula. -->
+        <route id="_routeTodasConsultas">
+            <from id="_from3" uri="direct:ConsultaTodas"/>
+            <choice id="_choice3">
+                <when id="_when6">
+                    <simple>${property.exposicion} == 'REST'</simple>
+                    <removeHeaders id="removeHeaders-REST-ConsultaTodas" pattern="*"/>
+                </when>
+                <otherwise id="_otherwise4">
+                    <removeHeaders id="removeHeaders-SOAP-ConsultaTodas" pattern="JMS*"/>
+                </otherwise>
+            </choice>
+            <bean id="_bean2" method="createJMSCorrelationId24" ref="convertCorrelationId"/>
+            <to id="_to4" uri="xslt://etc/xsl/mid/RemoteCall_Sinacofi_PersonaA1A2A3.xsl?saxon=true"/>
+            <to id="_to5" uri="AMQ:{{amq.queue.creditoscoring.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;explicitQosEnabled=true&amp;replyToDeliveryPersistent=false"/>
+            <transform id="_transform2">
+                <simple>&lt;TodasConsultas&gt;${body}&lt;/TodasConsultas&gt;</simple>
+            </transform>
+        </route>
+        <!-- Ruta encargada de obtener el estado financiero de la persona -->
+        <route id="_routeEstadoFinanciero">
+            <from id="_from4" uri="direct:EstadoFinanciero"/>
+            <to id="pa_selValoresMonedasTo" uri="bean:dbo.pa_selValoresMonedas"/>
+            <marshal id="Marshal_pa_selValoresMonedas1" ref="jack"/>
+            <convertBodyTo id="ConvertBodyTo5" type="java.lang.String"/>
+            <transform id="limpia">
+                <simple>${in.body.replaceAll('#','')}</simple>
+            </transform>
+        </route>
+        <!-- Ruta encargada de obtener el protesto de una empresa desde sinacofi -->
+        <route id="_routeProtestoEmpresa">
+            <from id="_from6" uri="direct:ProtestoEmpresa"/>
+            <choice id="_choice4">
+                <when id="_when7">
+                    <simple>${property.exposicion} == 'REST'</simple>
+                    <removeHeaders
+                        id="removeHeaders-REST-ProtestoEmpresa" pattern="*"/>
+                </when>
+                <otherwise id="_otherwise5">
+                    <removeHeaders
+                        id="removeHeaders-SOAP-ProtestoEmpresa" pattern="JMS*"/>
+                </otherwise>
+            </choice>
+            <bean id="_bean3" method="createJMSCorrelationId24" ref="convertCorrelationId"/>
+            <to id="_to9" uri="xslt://etc/xsl/mid/RemoteCall_Sinacofi_EmpleadorA1.xsl?saxon=true"/>
+            <to id="_to10" uri="AMQ:{{amq.queue.creditoscoring.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;explicitQosEnabled=true&amp;replyToDeliveryPersistent=false"/>
+            <transform id="_transform4">
+                <simple>&lt;ProtestoEmpresa&gt;${body}&lt;/ProtestoEmpresa&gt;</simple>
+            </transform>
+        </route>
+        <!-- Ruta encargada de obtener el estado de la cedula de identidad -->
+        <route id="_routeconsultaCedulaA3">
+            <from id="_from9" uri="direct:consultaCedulaA3"/>
+            <choice id="_choice5">
+                <when id="_when8">
+                    <simple>${property.exposicion} == 'REST'</simple>
+                    <removeHeaders
+                        id="removeHeaders-REST-consultaCedulaA3" pattern="*"/>
+                </when>
+                <otherwise id="_otherwise6">
+                    <removeHeaders
+                        id="removeHeaders-SOAP-consultaCedulaA3" pattern="JMS*"/>
+                </otherwise>
+            </choice>
+            <bean id="_bean4" method="createJMSCorrelationId24" ref="convertCorrelationId"/>
+            <to id="_to22" uri="xslt://etc/xsl/mid/RemoteCall_Sinacofi_PersonaA3.xsl?saxon=true"/>
+            <to id="_to23" uri="AMQ:{{amq.queue.creditoscoring.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;explicitQosEnabled=true&amp;replyToDeliveryPersistent=false"/>
+            <transform id="_transform8">
+                <simple>&lt;TodasConsultas&gt;${body}&lt;/TodasConsultas&gt;</simple>
+            </transform>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,278 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    
+    
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    
+
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.empresa.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSEmpresa" id="endpointWSEmpresa"
+        serviceClass="cl.coopeuch.integracion.empresa.wsdl.WSEmpresaSOAPPortType" wsdlURL="etc/wsdl/WSEmpresa.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSEmpresa" id="endpointRSEmpresa" loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.empresa.wsdl.WSEmpresaSOAPPortType"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+          destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.convenios]]"/>
+        <property name="password" value="[[jdbc.db2.password.convenios]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="60000"/>
+        <property name="numTestsPerEvictionRun" value="5"/>
+        <property name="minEvictableIdleTimeMillis" value="30000"/>
+        <property name="maxActive" value="5"/>
+    </bean>
+    
+    
+    <camelContext id="servicio-empresa" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSEmpresa"/>
+            <to id="soapToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSEmpresa"/>
+            <to id="restToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:iniciows"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionBuscar">
+                        <simple>${header.operationName} == 'buscar'</simple>
+                        <to id="toBuscar" uri="direct:buscar"/>
+                    </when>
+                    <when id="inicioWhenOperacionModificar">
+                        <simple>${header.operationName} == 'modificar'</simple>
+                        <to id="toModificar" uri="direct:modificar"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarConvenios">
+                        <simple>${header.operationName} == 'consultarConvenios'</simple>
+                        <to id="toConsultarConvenios" uri="direct:consultarConvenios"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="buscar">
+            <from id="buscarFrom" uri="direct:buscar"/>
+            <doTry id="buscarTry">
+                <setBody id="buscarSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="buscarMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.empresa.wsdl"/>
+                </marshal>
+                <convertBodyTo id="buscarConvertBodyToString" type="java.lang.String"/>
+                <bean id="buscarUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="buscarToXSLTrama" uri="xslt://etc/xsl/request/IOC755001I_buscar.xsl"/>
+                <log id="buscarTrama" loggingLevel="TRACE" message="Trama generada = ${body}"/>
+                <to id="buscarToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="buscarTramaResponse" loggingLevel="TRACE" message="Trama recibida = ${body}"/>
+                <transform id="buscarTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="buscarToXSLSOAP" uri="xslt://etc/xsl/response/IOC755001O_buscar.xsl?saxon=true"/>
+                <unmarshal id="buscarUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.empresa.wsdl"/>
+                </unmarshal>
+                <doCatch id="buscarDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="buscarCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="toBuscarExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="buscarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="buscarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="buscarToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="modificar">
+            <from id="modificarFrom" uri="direct:modificar"/>
+            <doTry id="modificarTry">
+                <setBody id="modificarSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="modificarMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.empresa.wsdl"/>
+                </marshal>
+                <convertBodyTo id="modificarConvertBodyToString" type="java.lang.String"/>
+                <bean id="modificarUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="modificarToXSLTrama" uri="xslt://etc/xsl/request/IOC741501I_modificarConvenio.xsl"/>
+                <log id="modificarTrama" loggingLevel="INFO" message="Trama generada = (${body})"/>
+                <to id="modificarToAmq1" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="logmodificarTramaResponse" loggingLevel="INFO" message="Trama recibida = (${body})"/>
+                <transform id="modificarTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="modificarToXSLSOAP" uri="xslt://etc/xsl/response/IOC741501O_modificarConvenio.xsl?saxon=true"/>
+                <log id="log1modificarTramaResponse" message="Trama recibida = (${body})"/>
+                
+                <unmarshal id="modificarUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.empresa.wsdl"/>
+                </unmarshal>
+                <stop/>
+                
+                <doCatch id="modificarDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="modificarCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="toModificarExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="ModificarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="ModificarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="ModificarToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+            <stop/>
+        </route>
+        
+       <route id="consultarConvenios" >
+        <from id="fromConsultarConvenios" uri="direct:consultarConvenios"/>
+        <doTry>
+            <log message="1"/>
+            <setProperty id="_setPropertyconsultarConveniosRequestUserId" propertyName="userId">
+                <simple>$simple{body.get(0).userId}</simple>
+            </setProperty>
+            <log message="2"/>
+            <setProperty id="_setPropertyconsultarConveniosRequestCanal" propertyName="canalLlamada">
+                <simple>$simple{body.get(0).canalLlamada}</simple>
+            </setProperty>
+            <log message="3"/>
+            <setProperty id="_setPropconsultarConveniosRequestRut" propertyName="rut">
+                <simple>$simple{body.get(0).rut}</simple>
+            </setProperty>
+            <log message="4"/>
+            <setProperty id="_setPropconsultarConveniosRequestConvenio" propertyName="convenio">
+                <simple>$simple{body.get(0).convenio}</simple>
+            </setProperty>
+            <log message="5"/>
+            <setProperty id="_setPropconsultarConveniosRequestEsConvenioComprimido" propertyName="esConvenioComprimido">
+                <simple>$simple{body.get(0).esConvenioComprimido}</simple>
+            </setProperty>
+            <log message="6"/>
+            <setProperty id="_setPropconsultarConveniosRequestComprimido" propertyName="comprimido">
+                <simple>$simple{body.get(0).comprimido}</simple>
+            </setProperty>
+            <log message="7"/>
+            <setProperty id="_setPropconsultarConveniosRequestEstados" propertyName="estados">
+                <simple>$simple{body.get(0).estados}</simple>
+            </setProperty>
+            <log message="${exchangeProperty.estados}"/>
+            <bean method="concatenaEstados" ref="beanRouteFacade"/>
+            
+            <log message="${exchangeProperty.estadosString}"/>
+            <log message="9"/>
+            
+            <bean method="validaEsComprimido" ref="beanRouteFacade"/>
+            
+            <choice>
+	            <when>
+	            	<simple>${exchangeProperty.errorEsComprimido} == ''</simple>
+	            	<log message="10"/>
+		            <to id="consultarToObtDetalleConvenio" uri="sql-stored:classpath:etc/sql/paConsultarConvenios.sql?dataSource=dataSourceSqlDb2"/>
+		            <log message="11"/>
+		            <setBody id="_setBodyConsultarConvenios">
+		                <simple>${body[#result-set-1]}</simple>
+		            </setBody>
+		            <bean method="processDBConsultarConvenios" ref="beanRouteFacade"/>
+		            <log message="${body}"/>
+	            </when>
+	            <otherwise>
+	            <to id="inicioToExcepcionConsultarConveniosR" uri="direct:excepcion"/>
+	            </otherwise>
+            </choice>
+            
+            
+            <unmarshal id="consultarConveniosUnmarshal">
+                <jaxb contextPath="cl.coopeuch.integracion.empresa.wsdl"/>
+            </unmarshal>
+            <doCatch>
+                <exception>java.lang.Exception</exception>
+                <setProperty id="inicioCodigoErrorConsultarConvenios" propertyName="codigoError">
+                    <constant>500</constant>
+                </setProperty>
+                <to id="inicioToExcepcionConsultarConvenios" uri="direct:excepcion"/>
+            </doCatch>
+        </doTry>
+    </route>
+        
+        
+        
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionBuscar" ref="beanRouteFacade"/>
+                 <when>
+                	<simple>${header.operationName} == 'consultarConvenios'</simple>
+                	<bean id="excepcionBeanExcepcionConsultarConvenios"
+                    method="excepcionConsultarConvenios" ref="beanRouteFacade"/>
+                 </when>   
+                    
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        
+        
+        
+    </camelContext>
+</blueprint>

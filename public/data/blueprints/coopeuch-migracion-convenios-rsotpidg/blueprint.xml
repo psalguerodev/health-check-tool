@@ -1,0 +1,629 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+    xmlns:sec="http://cxf.apache.org/configuration/security"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd      http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd                         http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd ">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder
+        id="property-placeholder-a76710a7-dd3c-4929-a9a0-0fcbdadc83c5"
+        persistent-id="wsotpidg" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/convenios/WSOtpIDG"
+        id="servicioPasswordOTPEndpoint"
+        serviceClass="cl.coopeuch.integracion.otpidg.wsdl.otp.WSOtpIDGSoapPortType" wsdlURL="etc/wsdl/WSOtpIDG.wsdl"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <cxf:cxfEndpoint address="[{endpoint.safesigner.sms.url}]"
+        id="endpointSMSSafesigner"
+        serviceClass="cl.coopeuch.integracion.otpidg.sms.wsdl.SmsWs" loggingFeatureEnabled="true" wsdlURL="etc/wsdl/WSOTPSafesigner.wsdl"/> 
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.sms}]/PortalWeb;charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.sms}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.sms}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.sms}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.sms}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.sms}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.sms}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.sms}]"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.otpidg.util.RouteFacade" id="beanRouteFacade"/>
+    <camelContext id="servicio-otp-idg" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-inicio">
+            <from id="servicioPasswordOTPEndpointListener" uri="cxf:bean:servicioPasswordOTPEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean id="backupBody" method="backupBody" ref="beanRouteFacade"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutSolicitarOTP">
+                        <simple>${body} contains 'solicitarRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest1" propertyName="tipoRequest">
+                            <simple>SolicitarRequest</simple>
+                        </setProperty>
+                        <to id="solicitarTo" uri="direct:solicitar"/>
+                    </when>
+                    <when id="rutaValidarOTP">
+                        <simple>${body} contains 'validarRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest2" propertyName="tipoRequest">
+                            <simple>ValidarRequest</simple>
+                        </setProperty>
+                        <to id="validarOTPTo" uri="direct:validar"/>
+                    </when>
+                    <otherwise id="_otherwise1"/>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="ruteoOperacionesPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteoOperacionesExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="solicitar">
+            <from id="solicitarFrom" uri="direct:solicitar"/>
+            <doTry id="solicitarTry">
+                <setProperty id="solicitarHeaderRut" propertyName="inputRut">
+                    <xpath resultType="String">//Rut</xpath>
+                </setProperty>
+                <setProperty id="solicitarHeaderGroupId" propertyName="inputGroupId">
+                    <xpath resultType="String">//GroupId</xpath>
+                </setProperty>                
+                <setProperty id="grupo_usuario" propertyName="grupo">
+	                <simple>{{IDG.admin.grupo.clientes}}</simple>
+	            </setProperty>    
+	            <setProperty id="ope_solicitar" propertyName="operacion">
+                    <constant>Solicitar</constant>
+                </setProperty>
+                <bean id="propiedades-operacion" method="almacenarInformacionOp" ref="beanRouteFacade"/>             
+                <setProperty id="solicitarHeaderValidaRut" propertyName="validaRut">
+                    <method
+                        beanType="cl.coopeuch.integracion.otpidg.util.RouteFacade"
+                        id="solicitarValidaRut" method="validaRut(${exchangeProperty.inputRut})"/>
+                </setProperty>
+                <convertBodyTo id="ruteoOperacionesBodyTo_solicitar" type="java.lang.String"/>
+                <choice id="solicitarValidaRutValida">
+                    <when id="solicitarRutOk">
+                        <simple>${exchangeProperty.validaRut} == 'Correcto'</simple>
+                        <setProperty id="migracion" propertyName="migracion">
+                            <simple>{{migracion}}</simple>
+                        </setProperty>
+                        <choice id="_choice1">
+                            <when id="_when1">
+                                <simple>${exchangeProperty.migracion} == 0</simple>    	                        	
+                                <to id="_to2" uri="direct:solicitarOTP_SS"/>
+                                <!--
+                                <to id="probarConexion-solicitarOTP_SS" uri="direct:probarConexion"/>
+                                <setBody id="set-respuesta_SS">
+					            	<simple>${exchangeProperty.respuesta}</simple>
+					            </setBody>					                                            
+                                <stop/>
+                                -->
+                            </when>
+                            <otherwise id="_otherwise2">
+                            	<to id="validarEstadoSMS" uri="direct:validaUsuarioSafesigner"/>
+                            	<choice>
+                        			<when>
+                        				<simple>${exchangeProperty.Estado_SMS} == 0 </simple>
+                        				<to id="llamada_SS-solicitar" uri="direct:solicitarOTP_SS"/>              				
+                        				<choice>
+		                            		<when>
+		                            			<simple>${exchangeProperty.CODIGO} == 200</simple>                      			                      			
+					                        	<to id="probarConexion-solicitarOTP_SS" uri="direct:probarConexion"/>  					                        	
+		                            			<to id="toXmlSalida-solicitarTercerFactor" uri="xslt://etc/xsl/response/safesigner/xml2xml_SolicitarOTP-SS.xsl?saxon=true"/>		                            			
+		                            			<stop/>
+		                            		</when>
+		                            		<otherwise>		                            			                            			
+		                            			<to id="probarConexion-solicitarOTP_IDG" uri="direct:probarConexion"/>  
+												<wireTap id="llamada_BD-Solicitar" uri="direct:errorSafesigner"/>  
+		                            			<to id="to-SolicitarIDG-ErrorSS" uri="direct:solicitaIDG"/>
+		                            		</otherwise>
+		                            	</choice>                         				
+                        			</when>
+                        			<otherwise>   
+                        				 <log message="x:${body}" />                     				  
+                        				<wireTap id="llamada_BD-Error-AuthStatus" uri="direct:errorSafesigner"/> 
+                        				<to id="probarConexion-solicitarOTP_IDG" uri="direct:probarConexion"/> 
+                        				<to id="to-solicitarIDG" uri="direct:solicitaIDG"/>                        				               				               					
+                        			</otherwise>
+                        		</choice>                           	                  	
+                                
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="solicitarRutError">
+                        <to id="solicitarValidaRutInvalid" uri="xslt://etc/xsl/response/error/invalidRutSolicitarOTP.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="solicitarCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="solicitarPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="solicitarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validar">
+            <from id="validarFrom" uri="direct:validar"/>
+            <doTry id="validarTry">
+                <setProperty id="validarHeaderRut" propertyName="inputRut">
+                    <xpath resultType="String">normalize-space(//Rut)</xpath>
+                </setProperty>
+                <setProperty id="validarHeaderGroupId" propertyName="inputGroupId">
+                    <xpath resultType="String">//GroupId</xpath>
+                </setProperty>
+                <setProperty id="validarHeaderGroupId" propertyName="inputOTP">
+                    <xpath resultType="String">normalize-space(//OTP)</xpath>
+                </setProperty>
+	            <setProperty id="ope_validar" propertyName="operacion">
+                    <constant>Validar</constant>
+                </setProperty>
+                <bean id="propiedades-operacion-validar" method="almacenarInformacionOp" ref="beanRouteFacade"/>             
+                <setProperty id="validarHeaderValidaRut" propertyName="validaRut">
+                    <method
+                        beanType="cl.coopeuch.integracion.otpidg.util.RouteFacade"
+                        id="validarValidaRut" method="validaRut(${exchangeProperty.inputRut})"/>
+                </setProperty>
+                <convertBodyTo id="ruteoOperacionesBodyTo_validar" type="java.lang.String"/>
+                <choice id="validar-ValidaRutValida">
+                    <when id="validar-RutOk">
+                        <simple>${exchangeProperty.validaRut} == 'Correcto'</simple>
+                        <setProperty id="migracion-validar" propertyName="migracion">
+                            <simple>{{migracion}}</simple>
+                        </setProperty>
+                        <choice id="_choice-validar">
+                            <when id="_when-validar">
+                                <simple>${exchangeProperty.migracion} == 0</simple>    	                        	
+                                <to id="_to-validar" uri="direct:validarOTP_SS"/>
+                                <!--
+                                <to id="probarConexion-validarOTP_SS" uri="direct:probarConexion"/>
+                                <setBody id="set-validar-respuesta_SS">
+					            	<simple>${property.respuesta}</simple>
+					            </setBody>					                                            
+                                <stop/>
+                                -->
+                            </when>
+                            <otherwise id="_otherwise-validar">
+                            	<to id="validar-validarEstadoSMS" uri="direct:validaUsuarioSafesigner"/>
+                            	<choice>
+                        			<when>
+                        				<simple>${exchangeProperty.Estado_SMS} == 0 </simple>
+                        				<to id="llamada_SS-validar" uri="direct:validarOTP_SS"/>              				
+                        				<choice>
+		                            		<when>
+		                            			<simple>${exchangeProperty.CODIGO} == 200</simple>                      			                      			
+					                        	<to id="probarConexion-validarOTP_SS" uri="direct:probarConexion"/>  					                        	
+		                            			<to id="toXmlSalida-validarOTP" uri="xslt://etc/xsl/response/safesigner/xml2xml_SolicitarOTP-SS.xsl?saxon=true"/>		                            			
+		                            			<stop/>
+		                            		</when>
+		                            		<otherwise>		                            			                            			
+		                            			<to id="probarConexion-validarOTP_IDG" uri="direct:probarConexion"/>  
+												<wireTap id="llamada_BD-Validar" uri="direct:errorSafesigner"/>  
+		                            			<to id="_to1" uri="direct:validarIDG"/>
+		                            		</otherwise>
+		                            	</choice>                         				
+                        			</when>
+                        			<otherwise>
+                        				<wireTap id="llamada_BD-Error-AuthStatus-validar" uri="direct:errorSafesigner"/>  
+                        				<to id="probarConexion-validarOTP_SS" uri="direct:probarConexion"/>  
+                        				<to id="_to-validar" uri="direct:validarIDG"/>                        				               				               					
+                        			</otherwise>
+                        		</choice>                           	                  	
+                                
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="validar-RutError">
+                        <to id="validar-ValidaRutInvalid" uri="xslt://etc/xsl/response/error/invalidRutSolicitarOTP.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="validar-Catch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="validar-PropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="validar-Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="_routeSolicitarIDG">
+            <from id="_fromSolicitarIDG" uri="direct:solicitaIDG"/>
+            <removeHeaders id="removeHeader-llamadaIDG" pattern="*"/>
+            <setProperty id="solicitar_IDG_User" propertyName="IDG.admin.user">
+                <simple>{{IDG.admin.user}}</simple>
+            </setProperty>
+            <setProperty id="framework_solicitar-IDG" propertyName="framework">
+                <constant>IDG</constant>
+            </setProperty>
+            <setProperty id="solicitar_IDG_Password" propertyName="IDG.admin.password">
+                <simple>{{IDG.admin.password}}</simple>
+            </setProperty>
+            <setProperty id="solicitar_IDG_User" propertyName="IDG.admin.grupo.clientes">
+                <simple>{{IDG.admin.grupo.clientes}}</simple>
+            </setProperty>
+            <setHeader headerName="SOAPAction" id="_setHeader39">
+               <constant>{{header.idg.solicitar}}</constant>
+           	</setHeader> 
+            <setBody id="datos_entrada">
+                <simple>${property.theoriginalbody}</simple>
+            </setBody>    	
+            <to id="solicitar_xml2xml_IDGLoginXSL" uri="xslt://etc/xsl/request/IDG/xml2xml_IDGLogin.xsl"/>
+            <to id="solicitar_IDGLoginTo" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE&amp;loggingFeatureEnabled=true"/>
+            <convertBodyTo id="solicitar_idgLoginResponse" type="java.lang.String"/>
+            <setHeader headerName="Cookie" id="solicitar_setHeader11">
+                <simple>${headers.Set-Cookie}</simple>
+            </setHeader>
+            <to id="solicitar_xml2xml_IDGUserCreate" uri="xslt://etc/xsl/request/IDG/xml2xml_IDGOTPCreate.xsl"/>
+            <convertBodyTo id="solicitarRequest" type="java.lang.String"/>
+            <to id="solicitar_IDGUserCreate" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE&amp;loggingFeatureEnabled=true"/>
+            <convertBodyTo id="solicitarResponse" type="java.lang.String"/>
+            <setProperty id="solicitarStatus" propertyName="solicitarStatus">
+                <method
+                    beanType="cl.coopeuch.integracion.otpidg.util.RouteFacade"
+                    id="solicitarResponseProcessor" method="checkSolicitarOTPResponse(${body})"/>
+            </setProperty>
+            <removeHeaders id="removeIdgPasswodHeader1" pattern="IDG.admin.password"/>
+            <choice id="solicitarLdapValida">
+                <when id="solicitarUserexists">
+                    <simple>${exchangeProperty.solicitarStatus.otp} == 'USER_NOT_EXIST'</simple>
+                    <log id="solicitarlog16" loggingLevel="ERROR" message="User Does Not exists."/>
+                    <to id="solicitarValidaRutExists" uri="xslt://etc/xsl/response/error/errorExisteSolicitarOTP.xsl?saxon=true"/>
+                </when>
+                <when id="solicitarFailure">
+                    <simple>${exchangeProperty.solicitarStatus.otp} == 'FAILURE'</simple>
+                    <log id="solicitarlog16" loggingLevel="ERROR" message="Error Occurred while generateing OTP."/>
+                    <to id="solicitarValidaRutExists" uri="xslt://etc/xsl/response/error/errorSolicitarOTP.xsl?saxon=true"/>
+                </when>
+                <otherwise id="solicitarLdapOk">
+                    <setProperty id="generatedOTP" propertyName="generatedOTP">
+                        <simple>${exchangeProperty.solicitarStatus.otp}</simple>
+                    </setProperty>
+                    <setProperty id="expiredyDate" propertyName="expiredyDate">
+                        <simple>${exchangeProperty.solicitarStatus.expiredyDate}</simple>
+                    </setProperty>
+                    <setProperty id="createDate" propertyName="createDate">
+                        <simple>${exchangeProperty.solicitarStatus.createDate}</simple>
+                    </setProperty>
+                    <log id="otpLog" message="Generated OTP: ${header.generatedOTP}"/>
+                    <to id="solicitarSuccess" uri="xslt://etc/xsl/response/IDG/xml2xml_SolicitarOTPOk.xsl?saxon=true"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="validarIDG">
+            <from id="validarFrom" uri="direct:validarIDG"/>
+            <doTry id="validarIDG-Try">
+                 <setProperty id="framework_validar-IDG" propertyName="framework">
+	                <constant>IDG</constant>
+	            </setProperty>
+                <setProperty id="validar_IDG_User" propertyName="IDG.admin.user">
+                    <simple>{{IDG.admin.user}}</simple>
+                </setProperty>
+                <setProperty id="validar_IDG_Password" propertyName="IDG.admin.password">
+                    <simple>{{IDG.admin.password}}</simple>
+                </setProperty>
+                <setProperty id="validar_IDG_User" propertyName="IDG.admin.grupo.clientes">
+                    <simple>{{IDG.admin.grupo.clientes}}</simple>
+                </setProperty>
+                <to id="validar_xml2xml_IDGLoginXSL" uri="xslt://etc/xsl/request/IDG/xml2xml_IDGLogin.xsl"/>
+                <to id="validar_IDGLoginTo" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE&amp;loggingFeatureEnabled=true"/>
+                <convertBodyTo id="validar_idgLoginResponse" type="java.lang.String"/>
+                <setHeader headerName="Cookie" id="validar_setHeader11">
+                    <simple>${headers.Set-Cookie}</simple>
+                </setHeader>
+                <to id="validar_xml2xml_IDGUserCreate" uri="xslt://etc/xsl/request/IDG/xml2xml_IDGOTPGet.xsl"/>
+                <convertBodyTo id="validarRequest" type="java.lang.String"/>
+                <to id="validar_IDGUserCreate" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE&amp;loggingFeatureEnabled=true"/>
+                <convertBodyTo id="validarResponse" type="java.lang.String"/>
+                <setProperty id="validarStatus" propertyName="validarStatus">
+                    <method
+                        beanType="cl.coopeuch.integracion.otpidg.util.RouteFacade"
+                        id="validarResponseProcessor" method="checkValidarOTPResponse(${body},${exchangeProperty.inputOTP})"/>
+                </setProperty>
+                <removeHeaders id="removeIdgPasswodHeader2" pattern="IDG.admin.password"/>
+                <choice id="validarLdapValida">
+                    <when id="validarUserexists">
+                        <simple>${exchangeProperty.validarStatus} == 'USER_NOT_EXIST'</simple>
+                        <log id="validarlog16"
+                            loggingLevel="ERROR" message="User Does Not exists."/>
+                        <to id="validarValidaRutExists" uri="xslt://etc/xsl/response/error/errorExisteValidarOTP.xsl?saxon=true"/>
+                    </when>
+                    <when id="NotMatch">
+                        <simple>${exchangeProperty.validarStatus} == 'NO_MATCH'</simple>
+                        <log id="validarlog16"
+                            loggingLevel="ERROR" message="OTP Mathc Failed."/>
+                        <to id="validarValidaRutExists" uri="xslt://etc/xsl/response/error/errorInvalidOTP.xsl?saxon=true"/>
+                    </when>
+                    <when id="validarFailure">
+                        <simple>${exchangeProperty.validarStatus} == 'FAILURE'</simple>
+                        <log id="validarlog16"
+                            loggingLevel="ERROR" message="Error Occurred while va;idating OTP."/>
+                        <to id="validarValidaRutExists" uri="xslt://etc/xsl/response/error/errorValidarOTP.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="validarLdapOk">
+                        <to id="validarValida" uri="xslt://etc/xsl/response/IDG/xml2xml_ValidarOTPOk.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                    
+                <doCatch id="validarCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="validarPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="validarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <setBody id="exceptionBodyError">
+                    <simple>${body}</simple>
+                </setBody>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="solicitarOTP_SS">
+        	<from id="solicitarOTP_SS-from" uri="direct:solicitarOTP_SS"/> 
+       		<doTry id="solicitarOTP_SS-Try">
+       			<setProperty id="solictar-framework_SS" propertyName="framework">
+                    <constant>SS</constant>
+                </setProperty>               
+	        	<bean id="solicitarOTP_SS-datosEntrada" method="validarSmsGenerateChallengeRequest" ref="beanRouteFacade"/>
+	        	<to id="to-solicitarOTP_SS" uri="cxf:bean:endpointSMSSafesigner?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>  
+	        	<bean id="bean-Response-solicitarOTP_SS" method="obtenerOTP" ref="beanRouteFacade"/>	        		        	
+	        	<choice>
+              		<when>
+              			<simple>${exchangeProperty.CODIGO} == 200</simple>
+                        <!--
+             			<to id="probarConexion-IDG-To-Respuesta-solicitarOTP_SS" uri="direct:probarConexion"/>
+             			-->
+              			<to id="toXmlSalida-solicitarOTP_SS" uri="xslt://etc/xsl/response/safesigner/xml2xml_SolicitarOTP-SS.xsl?saxon=true"/>
+                        <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+              			<wireTap id="llamada_BD-Error-solicitarOTP" uri="direct:errorSafesigner"/>            			
+              			<stop/>
+              		</when>
+              		<otherwise>
+                        <!--
+              			<to id="probarConexion-IDG-To-Respuesta-solicitarOTP_SS-Error" uri="direct:probarConexion"/>
+              			-->
+              			<to id="toXmlSalida-ErrorSafesigner-solicitarDesafio" uri="xslt://etc/xsl/response/error/errorxsolicitarOTP_SS.xsl?saxon=true"/>
+                        <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                        <!--
+              			<setProperty id="respuesta_solicitar-Error" propertyName="respuesta">
+                            <simple>${body}</simple>
+                        </setProperty>
+                        -->
+                        <wireTap id="llamada_BD-ERROR_solicitarSS" uri="direct:errorSafesigner"/>
+                        <stop/>
+              		</otherwise>
+              	</choice>
+	        	<doCatch id="DoCatch-solicitarOTP_SS">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>                    
+                    <setBody id="SolicitarOTP_SSSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <bean id="valores-Errores-solicitarOTP" method="obtenerDatosError" ref="beanRouteFacade"/> 
+                    <to id="Fault-solicitarOTP_SS" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <choice>
+                    	<when>
+                    		<simple>${exchangeProperty.migracion} == 0</simple>
+                    		<removeHeaders id="removeHeaders-Error-solicitarOTP_SS" pattern="*" />
+                            <!--
+                        	<to id="probarConexion-IDG-To-solicitarOTP_SS" uri="direct:probarConexion"/>
+                        	-->
+                    		<to id="toXmlSalida-ServidorSafesigner-solicitarFault" uri="xslt://etc/xsl/response/error/errorErrorServidor.xsl?saxon=true"/>
+                            <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                    		<stop/>
+                    	</when>
+                    	<otherwise>
+                    		<wireTap id="llamada_BD-ERROR-DoCatch" uri="direct:errorSafesigner"/>
+                    		<to id="probarConexion-IDG-To-solicitarOTP_SS" uri="direct:probarConexion"/>  
+             				<to id="solicitarDesafioIDG-To-ERROR" uri="direct:solicitaIDG"/> 
+                    	</otherwise>
+                    </choice>
+                       
+                </doCatch>
+	        </doTry>	        
+	    </route>
+	    <route id="validarOTP_SS">
+        	<from id="validarOTP_SS-from" uri="direct:validarOTP_SS"/> 
+       		<doTry id="validarOTP_SS-Try">
+       			<setProperty id="validar-framework_SS" propertyName="framework">
+                    <constant>SS</constant>
+                </setProperty>
+	        	<bean id="validarOTP_SS-datosEntrada" method="validarSmsValidateTransactionRequest" ref="beanRouteFacade"/>
+	        	<to id="to-validarOTP_SS" uri="cxf:bean:endpointSMSSafesigner?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>  
+	        	<bean id="bean-Response-validarOTP_SS" method="validarOTP_SS" ref="beanRouteFacade"/>	        		        	
+	        	<choice>
+              		<when>
+              			<simple>${exchangeProperty.CODIGO} == 200</simple>
+                        <!--
+             			<to id="probarConexion-IDG-To-Respuesta-validarOTP_SS" uri="direct:probarConexion"/>
+             			-->
+              			<to id="toXmlSalida-validarOTP_SS" uri="xslt://etc/xsl/response/safesigner/xml2xml_ValidarOTP-SS.xsl?saxon=true"/>
+                        <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+              			<wireTap id="llamada_BD-Error-validarOTP" uri="direct:errorSafesigner"/>            			
+              			<stop/>
+              		</when>
+              		<otherwise>
+                        <!--
+              			<to id="probarConexion-IDG-To-Respuesta-validarOTP_SS" uri="direct:probarConexion"/>
+              			-->
+              			<choice>
+              				<when>
+              					<simple>${exchangeProperty.CODIGO} == 51</simple>
+              					<wireTap  id="llamada_BloqueoOTP" uri="direct:bloqueoOTP"/>
+              				</when>
+              			</choice>
+              			
+              			<to id="toXmlSalida-ErrorSafesigner-validarDesafio" uri="xslt://etc/xsl/response/error/errorxvalidarOTP_SS.xsl?saxon=true"/>
+                        <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+              			<!--
+                        <setProperty id="respuesta_validar-Error" propertyName="respuesta">
+                            <simple>${body}</simple>
+                        </setProperty>
+                        -->
+                        <wireTap id="llamada_BD-ERROR-validar" uri="direct:errorSafesigner"/>
+                        <stop/>
+              		</otherwise>
+              	</choice>
+	        	<doCatch id="DoCatch-validarOTP_SS">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>                    
+                    <setBody id="validarOTP_SSSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <bean id="valores-Errores-validarOTP" method="obtenerDatosError" ref="beanRouteFacade"/> 
+                    <to id="Fault-validarOTP_SS" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <choice>
+                    	<when>
+                    		<simple>${exchangeProperty.migracion} == 0</simple>
+                    		<removeHeaders id="removeHeaders-Error-validarOTP_SS" pattern="*" />
+                            <!--
+                        	<to id="probarConexion-IDG-To-validarOTP_SS" uri="direct:probarConexion"/>
+                        	-->
+                    		<to id="toXmlSalida-ServidorSafesigner-validarFault" uri="xslt://etc/xsl/response/error/errorErrorServidor.xsl?saxon=true"/>
+                            <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                    		<stop/>
+                    	</when>
+                    	<otherwise>
+                    		<wireTap id="llamada_BD-ERROR" uri="direct:errorSafesigner"/>
+                    		<to id="probarConexion-IDG-To-validarOTP_SS" uri="direct:probarConexion"/>  
+             				<to id="validarIDG-To-ERROR" uri="direct:validarIDG"/> 
+                    	</otherwise>
+                    </choice>
+                       
+                </doCatch>
+	        </doTry>	        
+	    </route>
+	    <route id="bloqueoOTP">
+        	<from id="bloqueoOTP-from" uri="direct:bloqueoOTP"/> 
+        	<bean id="SetearLoop-datosEntrada" method="iniciarVariables" ref="beanRouteFacade"/>   
+            <to id="To-validarOTPIDG-bloqueoOTP" uri="direct:validarOTPIDG"/>            
+        </route> 
+         
+	    <route id="validarOTP-IDG">
+	    	<from id="validarOTP-IDG-from" uri="direct:validarOTPIDG"/> 
+	    	 <choice>
+            	<when>
+             		<simple>${exchangeProperty.validarContador} == '0'</simple>
+             		<stop/>
+             	</when> 
+             	<otherwise>
+             		<to id="BloquearOTP-Xml2xml" uri="xslt://etc/xsl/request/IDG/xml2xmlBloquearOTP.xsl"/>
+		            <convertBodyTo id="SetBody-To" type="java.lang.String"/>
+		            <to id="cxfvalidarOTP" uri="cxf:{{endpoint.IDG.url.authentica}}?dataFormat=MESSAGE"/>
+		            <convertBodyTo id="SetBody-To-respuesat" type="java.lang.String"/>              
+					<bean id="IncrementarLoop-datosEntrada" method="incrementarLoop" ref="beanRouteFacade"/>	
+          		 	<to id="To-validarOTPIDG" uri="direct:validarOTPIDG"/> 
+             	</otherwise>               	
+            </choice>     
+	    	
+	    	
+	    </route>
+        
+        
+	    <route id="probarConexionIDG">
+        	<from id="probarConexionIDG-from" uri="direct:probarConexion"/> 
+        	<removeHeaders id="removeIdg_ProbarConexion" pattern="*"/>
+        	<setHeader headerName="SOAPAction" id="_setHeader_ProbarConexion">
+               <constant>{{header.idg.solicitar}}</constant>
+            </setHeader>
+            <setBody id="body_entrada">
+	        	<simple>${exchangeProperty.theoriginalbody}</simple>
+	        </setBody>    
+	       
+	        
+			<to id="probarConexionIDG-Xml2xml" uri="xslt://etc/xsl/request/IDG/xml2xmlin_ProbarConexion.xsl"/>
+			<to id="cxf-probarConexionIDG" uri="cxf:{{endpoint.IDG.url.authentica}}?dataFormat=MESSAGE"/>
+        </route>
+         <route id="errorSafesigner">
+        	<from id="errorSafesigner-from" uri="direct:errorSafesigner"/> 
+			<to id="errorSafesigner-To" uri="direct:insMigracionLog"/> 
+        </route> 
+         <route id="insMigracionLog">
+        	<from id="insMigracionLog-from" uri="direct:insMigracionLog"/> 
+			<to id="insMigracionLog-To" uri="sql-stored:classpath:etc/sql/pa_insMigracionSSLog.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseMigracion"/>	        
+        </route>
+        <route id="validaUsuarioSafesigner_Safesigner">
+        	<from id="validaUsuarioSafesigner_Safesigner-from" uri="direct:validaUsuarioSafesigner"/>        	
+      		<doTry>
+      			<bean id="autenticar-datosEntrada" method="validarStatusSMSRequest" ref="beanRouteFacade"/>
+      			<setProperty id="validaUsuario-framework_SS" propertyName="framework">
+                    <constant>SS</constant>
+                </setProperty>
+	            <to id="to-AuthenticationStatus" uri="cxf:bean:endpointSMSSafesigner?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>          
+	            <bean id="autenticar-obtenerStatus" method="obtenerStatus" ref="beanRouteFacade"/> 
+	            <choice>
+       				<when>
+       					<simple>${exchangeProperty.CODIGO} == 2</simple>
+       					<to id="probarConexion-validaUsuario_IDG" uri="direct:probarConexion"/> 
+       					<to id="toXmlSalida-ErrorSS-solicitar" uri="xslt://etc/xsl/response/error/errorxsolicitarOTP_SS.xsl?saxon=true"/>
+       					<stop/>
+       				</when>                				
+                </choice>
+	            <doCatch id="DoCatch-validaUsuarioSS">
+                    <exception>java.lang.Exception</exception>                
+                    <setBody id="SetBodyError-validaUsuarioSS">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <bean id="valores-Errores-validaUsuarioSafesigner" method="obtenerDatosError" ref="beanRouteFacade"/>                      
+                    
+                    <to id="Faul-validaUsuarioSS" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <choice>
+                    	<when>
+                    		<simple>${exchangeProperty.migracion} == 1</simple>
+                    		<choice>
+	                  			<when>
+	                  				<simple>${exchangeProperty.operacion} == 'Solicitar'</simple>
+	                  				<setProperty id="operacion-Error-solicitarSS" propertyName="OPERACION">
+				                        <constant>SOLICITAR</constant>
+				                    </setProperty>    
+	                  				<wireTap id="llamada_BD-validaUsuarioSS" uri="direct:errorSafesigner"/>
+		                    		<to id="probarConexion-IDG-To-validaUsuarioSS" uri="direct:probarConexion"/>  
+		             				<to id="solicitarDesafioIDG-To-validaUsuarioSS" uri="direct:solicitaIDG"/>                    		
+			                  		<stop/>
+	                  			</when>
+	                  			<otherwise>
+	                  				<setProperty id="operacion-Error-validarSS" propertyName="OPERACION">
+				                        <constant>VALIDAR</constant>
+				                    </setProperty> 
+	                  				<wireTap id="llamada_BD-validaUsuarioSS" uri="direct:errorSafesigner"/>
+		                    		<to id="probarConexion-IDG-To-validaUsuarioSS" uri="direct:probarConexion"/>  
+		             				<to id="solicitarDesafioIDG-To-validaUsuarioSS" uri="direct:validarIDG"/> 
+		                    		<stop/>
+	                  			</otherwise>
+	                  		</choice>                  		
+                    		
+                    	</when>                   	
+                    </choice>                       
+                </doCatch> 
+            </doTry>	        	  
+        </route>
+    </camelContext>
+</blueprint>

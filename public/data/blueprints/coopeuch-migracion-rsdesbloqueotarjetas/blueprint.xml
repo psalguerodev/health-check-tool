@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+                             persistent-id="wsdesbloqueotarjetas" placeholder-prefix="[{"
+                             placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+                             persistent-id="globalDb2" placeholder-prefix="[["
+                             placeholder-suffix="]]" update-strategy="reload"/>
+    <!--MQ-->                         
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Conexion DB2 -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.cuentas]]"/>
+        <property name="password" value="[[jdbc.db2.password.cuentas]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.wsdesbloqueotarjetas}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.wsdesbloqueotarjetas}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.wsdesbloqueotarjetas}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.wsdesbloqueotarjetas}]"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.desbloqueotarjetas.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSDesbloqueoTarjetas"
+        id="endpointWSDesbloqueoTarjetas"
+        serviceClass="cl.coopeuch.integracion.desbloqueotarjetas.wsdl.WSDesbloqueoTarjetasSOAPPortType" wsdlURL="etc/wsdl/WSDesbloqueoTarjetas.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+	<camelcxf:rsServer address="/RSDesbloqueoTarjetas"
+        id="endpointRSDesbloqueoTarjetas" serviceClass="cl.coopeuch.integracion.desbloqueotarjetas.wsdl.WSDesbloqueoTarjetasSOAPPortType"/>
+    <camelContext id="servicio-desbloqueo-tarjetas" xmlns="http://camel.apache.org/schema/blueprint">
+		<route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSDesbloqueoTarjetas"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSDesbloqueoTarjetas"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+			<from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="toConsultar" uri="direct:consultar"/>
+                    </when>
+                    <when id="inicioWhenOperacionDesbloquear">
+                        <simple>${header.operationName} == 'desbloquear'</simple>
+                        <to id="toDesbloquear" uri="direct:desbloquear"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+
+        <route id="consultar">
+            <from id="consultarFrom" uri="direct:consultar"/>
+            <doTry id="consultarTry">
+            	<setProperty id="setPropertyConsultarUserId" propertyName="userId">
+                    <xpath resultType="String">//userId</xpath>
+                </setProperty>
+                <setProperty id="setPropertyConsultarCanalLlamada" propertyName="canalLlamada">
+                    <xpath resultType="String">//canalLlamada</xpath>
+                </setProperty>
+                <setProperty id="setPropertyConsultarRut" propertyName="rut">
+                    <xpath resultType="String">//rut</xpath>
+                </setProperty>
+                <setProperty id="setPropertyConsultarNumeroTarjeta" propertyName="numeroTarjeta">
+                    <xpath resultType="String">//numeroTarjeta</xpath>
+                </setProperty>
+                <setProperty id="setPropertyConsultarTipoProducto" propertyName="tipoProducto">
+                    <xpath resultType="String">//tipoProducto</xpath>
+                </setProperty>
+                <setProperty id="setPropertyConsultarTipoBloqueo" propertyName="tipoBloqueo">
+                    <xpath resultType="String">//tipoBloqueo</xpath>
+                </setProperty>
+            	<bean id="consultarValidarRequest" method="validarRequest" ref="beanRouteFacade"/>
+            	<to id="PA_SEL_WSDESBLOQUEOTARJETAS_CONSULTAR_WS-to" uri="sql-stored:classpath:etc/sql/PA_SEL_WSDESBLOQUEOTARJETAS_CONSULTAR_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responsePA_SEL_WSDESBLOQUEOTARJETAS_CONSULTAR_WS"/>
+            	<bean id="consultarResponse" method="responseConsultar" ref="beanRouteFacade"/>
+            <doCatch id="responseConsultarDoCatch">
+                <exception>java.lang.IllegalArgumentException</exception>
+                <to id="responseConsultarToExcepcion" uri="direct:excepcion"/>
+            </doCatch>
+            <doCatch id="responseConsultarPADoCatch">
+                <exception>java.sql.SQLException</exception>
+                <to id="responseConsultarPAToExcepcion" uri="direct:excepcion"/>
+            </doCatch>
+            <doCatch id="consultarDoCatch">
+            	<exception>java.lang.Exception</exception>
+                <setProperty id="consultarCodigoError" propertyName="codigoError">
+                	<constant>500</constant>
+                </setProperty>
+                <to id="toConsultarExcepcion" uri="direct:excepcion"/>
+            </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="desbloquear">
+            <from id="desbloquearFrom" uri="direct:desbloquear"/>
+            <doTry id="desbloquearTry">
+            	<setProperty id="setPropertyDesbloquearRut" propertyName="rut">
+                    <xpath resultType="String">//rut</xpath>
+                </setProperty>
+                <setProperty id="setPropertyDesbloquearNumeroTarjeta" propertyName="numeroTarjeta">
+                    <xpath resultType="String">//numeroTarjeta</xpath>
+                </setProperty>
+            	<bean id="desbloquearValidarRequest" method="validarRequest" ref="beanRouteFacade"/>
+                <marshal id="desbloquearMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.desbloqueotarjetas.wsdl"/>
+                </marshal>
+                <convertBodyTo id="desbloquearConvertBodyToString" type="java.lang.String"/>
+                <bean id="desbloquearUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="desbloquearToXSLTrama" uri="xslt://etc/xsl/request/IOC708501I_desbloquear.xsl"/>
+                <log id="desbloquearTrama" message="Trama generada = ${body}"/>
+                <to id="desbloquearToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="desbloquearTramaResponse" message="Trama recibida = ${body}"/>
+                <transform id="desbloquearTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="desbloquearToXSLSOAP" uri="xslt://etc/xsl/response/IOC708501O_desbloquear.xsl?saxon=true"/>
+				<unmarshal id="desbloquearUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.desbloqueotarjetas.wsdl"/>
+                </unmarshal>
+                <doCatch id="IllegalArgumentExceptionDesbloquearDoCatch">
+                	<exception>java.lang.IllegalArgumentException</exception>
+                	<to id="toDesbloquearIllegalArgumentException" uri="direct:excepcion"/>
+            	</doCatch>
+				<doCatch id="desbloquearDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="desbloquearCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="toDesbloquearExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="desbloquearDoCatch">
+                    <exception>java.lang.Exception</exception>
+					<setProperty id="desbloquearCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="desbloquearToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

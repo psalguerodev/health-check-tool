@@ -1,0 +1,917 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsahorroautomatico" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.wsahorroautomatico}];charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.wsahorroautomatico}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.wsahorroautomatico}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.wsahorroautomatico}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.wsahorroautomatico}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.wsahorroautomatico}]"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.ahorroautomatico.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSAhorroAutomatico"
+        id="endpointWSAhorroAutomatico" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.ahorroautomatico.wsdl.WSAhorroAutomaticoSOAPPortType" wsdlURL="etc/wsdl/WSAhorroAutomatico.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:cxfEndpoint
+        address="[{url.servicio.autenticacioninterna}]"
+        id="endpointWSAutenticacionInterna" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.ahorroautomatico.wsautenticacioninterna.wsdl.WSAutenticacionInternaSOAPPortType" wsdlURL="etc/wsdl/WSAutenticacionInterna.wsdl"/>
+    <camelcxf:cxfEndpoint address="[{url.servicio.gestiontoken}]"
+        id="endpointWSGestionToken" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.ahorroautomatico.gestiontoken.wsdl.GestionTokenPortType" wsdlURL="etc/wsdl/ServicioGestionToken.wsdl"/>
+    <camelcxf:rsServer address="/RSAhorroAutomatico"
+        id="endpointRSAhorroAutomatico" serviceClass="cl.coopeuch.integracion.ahorroautomatico.wsdl.WSAhorroAutomaticoSOAPPortType"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <camelcxf:rsClient address="[{api.cpb.endpoint}]"
+        id="endpointApiCpb" loggingFeatureEnabled="true"/>
+    <camelContext id="servicio-ahorro-automatico" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSAhorroAutomatico"/>
+            <to id="soapToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSAhorroAutomatico"/>
+            <to id="restToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:iniciows"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="setPropertyMsgError" propertyName="msgError">
+                    <simple/>
+                </setProperty>
+                <setProperty id="setPropertyProcedenciaError" propertyName="procedenciaError">
+                    <simple/>
+                </setProperty>
+                <setProperty id="setPropertyEsError" propertyName="esError">
+                    <simple>N</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <bean id="obtenerDatosOperacionBean"
+                    method="obtenerDatosOperacion" ref="beanRouteFacade"/>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionCrear">
+                        <simple>${header.operationName} == 'consultarCuentas'</simple>
+                        <to id="toCrear" uri="direct:consultarCuenta"/>
+                    </when>
+                    <when id="inicioWhenOperacionAbonarAhorro">
+                        <simple>${header.operationName} == 'abonar'</simple>
+                        <to id="toAbonar" uri="direct:abonar"/>
+                    </when>
+                    <when id="inicioWhenOperacionAbonarAhorro">
+                        <simple>${header.operationName} == 'aceptarCondiciones'</simple>
+                        <to id="toAceptarCondiciones" uri="direct:aceptarCondiciones"/>
+                    </when>
+                    <when id="inicioWhenOperacionAbonarAhorro">
+                        <simple>${header.operationName} == 'autenticarSocio'</simple>
+                        <to id="toAutenticarSocio" uri="direct:autenticarSocio"/>
+                    </when>
+                    <when id="inicioWhenOperacionautenticarAplicacion">
+                        <simple>${header.operationName} == 'autenticarAplicacion'</simple>
+                        <to id="toAutenticarSocio" uri="direct:autenticarAplicacion"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarCuenta">
+            <from id="consultarCuenta-From" uri="direct:consultarCuenta"/>
+            <doTry id="consultarCuenta-Try">
+                <setBody id="crearSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <to id="consultarCuentaValidarTokenInterno" uri="direct:gestiontoken-ConsultarToken"/>
+                <choice id="consultarCuenta-choiceToken">
+                    <when id="consultarCuenta-whenToken">
+                        <simple>${property.estadoToken} != 'Vigente'</simple>
+                        <bean id="consultarCuentaValidarTokenInterno-To"
+                            method="retornaExpiracionToken" ref="beanRouteFacade"/>
+                        <stop id="consultarCuentaValidarTokenInterno-Stop"/>
+                    </when>
+                    <otherwise id="consultarCuenta-otherwiseToken">
+                        <to id="to-wsproductos" uri="direct:wsproductos"/>
+                        <choice id="choiceMarcaCV">
+                            <when id="whenMarcaCV">
+                                <simple>${exchangeProperty.marcaCV} &gt; 0</simple>
+                                <to id="to-wscuentavista" uri="direct:wscuentaVista"/>
+                                <setProperty id="salidaServicio" propertyName="body">
+                                    <simple>${body}</simple>
+                                </setProperty>
+                                <convertBodyTo id="validar-salida" type="java.lang.String"/>
+                                <choice id="choiceErrorCuenta">
+                                    <when id="whenErrorCuenta">
+                                    <simple>${body} contains 'error'</simple>
+                                    <setBody id="salidaConError">
+                                    <simple>${exchangeProperty.body}</simple>
+                                    </setBody>
+                                    </when>
+                                    <otherwise id="otherwiseErrorCuenta">
+                                    <setProperty id="_setProperty4" propertyName="origenDatosCifrado">
+                                    <simple resultType="java.lang.String">consultarCuentas</simple>
+                                    </setProperty>
+                                    <bean id="wscifrado-Entrada"
+                                    method="enviarDatosCifrado" ref="beanRouteFacade"/>
+                                    <to id="to-wscifradlo" uri="direct:wscifrado"/>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="otherwiseMarcaCV">
+                                <setProperty
+                                    id="sinProductos-CodigoError" propertyName="codigoError">
+                                    <constant>480</constant>
+                                </setProperty>
+                                <to id="sinProductos-ToExcepcion" uri="direct:excepcion"/>
+                            </otherwise>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="consultarCuenta-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarCuenta-CodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <log id="ERRORCC" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="consultarCuenta-ToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="abonar">
+            <from id="abonar-From" uri="direct:abonar"/>
+            <doTry id="abonar-DoTry">
+                <setBody id="bodyAbonar">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <setProperty id="abonar-setPropertyBody" propertyName="bodyAbonarRespaldo">
+                    <simple>${body}</simple>
+                </setProperty>
+                <to id="AbonarValidarTokenInterno" uri="direct:autenticarAplicacion-ConsultarToken"/>
+                <choice id="abonar-choiceToken">
+                    <when id="abonar-whenToken">
+                        <simple>${property.estadoToken} != 'Vigente'</simple>
+                        <bean id="AbonarValidarTokenInterno-To"
+                            method="retornaExpiracionToken" ref="beanRouteFacade"/>
+                        <stop id="AbonarValidarTokenInterno-Stop"/>
+                    </when>
+                    <otherwise id="abonar-otherwiseToken">
+                        <setProperty id="setPropertyOrigenDatosCifrado" propertyName="origenDatosCifrado">
+                            <simple resultType="java.lang.String">abonar</simple>
+                        </setProperty>
+                        <setProperty id="setPropertyParametrosCifrado" propertyName="parametrosCifrado">
+                            <simple resultType="java.lang.String">{{campos.transferencia.desencriptar}}
+							</simple>
+                        </setProperty>
+                        <setBody id="bodyAbonar">
+                            <simple>${property.bodyAbonarRespaldo}</simple>
+                        </setBody>
+                        <setProperty id="setPropertyBodyAbonarRequest" propertyName="bodyAbonarRequest">
+                            <simple>${body}</simple>
+                        </setProperty>
+                        <setProperty
+                            id="setPropertyTipoCuentaOrigenVista" propertyName="tipoCuentaOrigenVista">
+                            <simple resultType="java.lang.String">{{codigo.tipo.cuentavista}}</simple>
+                        </setProperty>
+                        <setProperty
+                            id="setPropertyTipoCuentaOrigenAhorro" propertyName="tipoCuentaOrigenAhorro">
+                            <simple resultType="java.lang.String">{{codigo.tipo.cuentaahorro}}</simple>
+                        </setProperty>
+                        <setProperty id="setPropertyCodigoBancoCopeuch" propertyName="codigoBancoCopeuch">
+                            <simple resultType="java.lang.String">{{codigo.banco.coopeuch}}</simple>
+                        </setProperty>
+                        <setProperty id="setPropertyFactorSeguridad" propertyName="factorSeguridad">
+                            <simple resultType="java.lang.Integer">{{codigo.factor.seguridad}}</simple>
+                        </setProperty>
+                        <setProperty id="setPropertyUserIdOriginal" propertyName="userIdOriginal">
+                            <xpath resultType="java.lang.String">//userId</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty1" propertyName="cuentaOrigenDesencriptada">
+                            <xpath resultType="java.lang.String">//cuentaOrigen</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty2" propertyName="cuentaDestinoDesencriptada">
+                            <xpath resultType="java.lang.String">//cuentaDestino</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty3" propertyName="montoTransferencia">
+                            <xpath resultType="java.lang.String">//montoTransferencia</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty7" propertyName="montoti">
+                            <xpath resultType="Integer">//montoTransferencia</xpath>
+                        </setProperty>
+                        <setProperty  propertyName="id">
+                            <xpath resultType="String">//id</xpath>
+                        </setProperty>
+                        <setProperty  propertyName="fechaHora">
+                            <xpath resultType="String">//fechaHora</xpath>
+                        </setProperty>
+                        <setProperty
+                            id="setPropertyDescripcionTransferencia" propertyName="descripcionTransferencia">
+                            <simple>{{transferencia.descripcion}}</simple>
+                        </setProperty>
+                        <setProperty id="_setProperty5" propertyName="errorCifrado">
+                            <constant>N</constant>
+                        </setProperty>
+                        <choice id="choiceErrorCifrado">
+                            <when id="whenErrorCifrado">
+                                <simple>${property.errorCifrado} == 'S'</simple>
+                                <bean id="errorCifrado-Bean"
+                                    method="retornaErrorCifrado" ref="beanRouteFacade"/>
+                                <stop id="_stop1"/>
+                            </when>
+                            <otherwise id="otherwiseErrorCifrado">
+                                <bean id="beanConsultaSaldosCuenta"
+                                    method="requestSaldosCuenta" ref="beanRouteFacade"/>
+                                <to id="to-consultarSaldosCuenta" uri="direct:servicioCuentas"/>
+                                <setProperty
+                                    id="setPropertyRutTransferenciaInterna" propertyName="rutTransferenciaInterna">
+                                    <xpath resultType="java.lang.String">//cedulaIdenCliente</xpath>
+                                </setProperty>
+                                <setProperty id="_setProperty6" propertyName="saldoContable">
+                                    <xpath resultType="Integer">//saldoContable</xpath>
+                                </setProperty>
+                                <bean id="beanConsultaSaldosCuentaAH"
+                                    method="requestSaldosCuentaAH" ref="beanRouteFacade"/>
+                                <to id="to-consultarSaldosCuentaAH" uri="direct:servicioCuentas"/>
+                                <setProperty
+                                    id="setPropertyRutTransferenciaInternaDestino" propertyName="rutTransferenciaInternaDestino">
+                                    <xpath resultType="java.lang.String">//cedulaIdenCliente</xpath>
+                                </setProperty>
+                                <choice id="_choice2">
+                                    <when id="_when2">
+                                    <simple>${property.montoti} > ${property.saldoContable}</simple>
+                                    <log id="_log1"
+                                    loggingLevel="ERROR" message="!!!!!!!!!${property.montoti} > ${property.saldoContable}!!!!  "/>
+                                    <bean id="_bean1"
+                                    method="responseAbonarSaldo" ref="beanRouteFacade"/>
+                                    <stop id="_stop2"/>
+                                    </when>
+                                </choice>
+                                <choice id="_choice1">
+                                    <when id="_when1">
+                                        <simple>${property.rutTransferenciaInterna} ==
+                                                ${property.rutTransferenciaInternaDestino} </simple>
+                                        <setProperty id="setPropertyPersonaRut" propertyName="personaRut">
+                                            <simple>${property.rutTransferenciaInterna}</simple>
+                                        </setProperty>
+                                        <setProperty id="setPropertyPersonaId" propertyName="personaId">
+                                            <simple>${property.userIdOriginal}</simple>
+                                        </setProperty>
+                                        <setProperty id="setPropertyPersonaNroCliente" propertyName="personaNroCliente">
+                                            <simple>0</simple>
+                                        </setProperty>
+                                        <to id="to-servicioPersona" uri="direct:persona"/>
+                                        <setProperty id="setPropertyCorreoOrigen" propertyName="correoOrigen">
+                                            <simple resultType="java.lang.String">{{campos.transferencia.correoorigen}}</simple>
+                                        </setProperty>
+                                        <setProperty id="setPropertyCorreoDestino" propertyName="correoDestino">
+                                            <xpath resultType="java.lang.String">//correoElectronico</xpath>
+                                        </setProperty>
+
+                                        <!-- ini  validatef -->
+                                        <bean id="beanValidadorTef-To" method="requestServicioValidaTef" ref="beanRouteFacade"/>
+                                        <log loggingLevel="INFO" message="!!validaTefIn!!!!${body}!!!!  "/>
+                                        <to id="to-servicioValidaTef" uri="direct:servicioValidaTef"/>
+                                        <log loggingLevel="INFO" message="!!validaTefOut!!!!${body}!!!!  "/>
+                                        <setBody id="bodyResponseValTef">
+                                            <xpath>//salida</xpath>
+                                        </setBody>
+                                        <setProperty id="setPropertyCodigoTransaccion" propertyName="codigoTransaccion">
+                                            <xpath resultType="java.lang.String">//codigoTransaccion</xpath>
+                                        </setProperty>
+                                        <!-- fin  validatef -->
+
+                                        <bean id="beanTransferenciaInterna-To" method="requestServicioTransferencia" ref="beanRouteFacade"/>
+                                        <to id="to-servicioTransferencia" uri="direct:servicioTransferencia"/>
+                                        <convertBodyTo id="convert-bodyResponseTrans" type="java.lang.String"/>
+                                        <setBody id="bodyResponseTrans">
+                                            <xpath>//salida</xpath>
+                                        </setBody>
+                                        <setBody id="setBodyTransferenciaResponse">
+                                        <simple>&lt;NS1:transferenciaInternasResponse
+                                                    xmlns:NS1="http://transferencia.core.coopeuch.cl"
+                                                    &gt;${body}&lt;/NS1:transferenciaInternasResponse&gt;
+                                                </simple>
+                                        </setBody>
+                                        <bean id="armaResponseAbonar"
+                                        method="responseAbonar" ref="beanRouteFacade"/>
+                                    </when>
+                                    <otherwise id="_otherwise1">
+                                        <bean id="cuentaDestinoErronea-Bean" method="responseErrorCuentaDestino" ref="beanRouteFacade"/>
+                                        <stop id="cuentaDestinoErronea-Stop"/>
+                                    </otherwise>
+                                </choice>
+                            </otherwise>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="abonar-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="ERRORAB" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="ExcepcionAbonarUbank-To" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="aceptarCondiciones">
+            <from id="aceptarCondiciones-From" uri="direct:aceptarCondiciones"/>
+            <doTry id="aceptarCondicionesUbank-DoTry">
+                <setBody id="body-AceptarCondiciones">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <setProperty id="setPropertyBodyCondiciones" propertyName="bodyCondiciones">
+                    <simple>${body}</simple>
+                </setProperty>
+                <to id="AceptarCondicionesValidarTokenInterno" uri="direct:gestiontoken-ConsultarToken"/>
+                <setBody id="setBodyCondiciones">
+                    <simple>${property.bodyCondiciones}</simple>
+                </setBody>
+                <choice id="aceptarCondiciones-choiceToken">
+                    <when id="aceptarCondiciones-whenToken">
+                        <simple>${property.estadoToken} != 'Vigente'</simple>
+                        <bean
+                            id="AceptarCondicionesValidarTokenInterno-To"
+                            method="retornaExpiracionToken" ref="beanRouteFacade"/>
+                        <stop id="AceptarCondicionesValidarTokenInterno-Stop"/>
+                    </when>
+                    <otherwise id="aceptarCondiciones-otherwiseToken">
+                        <to id="aceptarCondiciones-ValidaPersona-To" uri="direct:validaClienteUbank"/>
+                        <setBody id="restauroBodyCondiciones">
+                            <simple>${property.bodyCondiciones}</simple>
+                        </setBody>
+                        <setHeader headerName="msg" id="setHeaderMsg">
+                            <simple resultType="java.lang.String"/>
+                        </setHeader>
+                        <setHeader headerName="idRetorno" id="setHeaderIdRetorno">
+                            <simple resultType="java.lang.Integer">0</simple>
+                        </setHeader>
+                        <to id="PA_AceptarCondicionesUbank-To" uri="sql-stored:classpath:etc/sql/PA_AceptarCondicionesUbank.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseAceptarCondiciones"/>
+                        <bean id="responsePaAceptarCondiciones-Bean"
+                            method="responseAceptarCondiciones" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="aceptarCondicionesUbank-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="ERRORAC" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="ExcepcionAceptarCondicionesUbank-To" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="autenticarSocioUbank">
+            <from id="autenticarSocioUbank-From" uri="direct:autenticarSocio"/>
+            <doTry id="autenticarSocioUbank-DoTry">
+                <setBody id="body-autenticarSocioUbank">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <setProperty id="setPropertyBodyAutenticarSocio" propertyName="bodyAutenticarSocio">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="setPropertyRutCompleto" propertyName="rutCompleto">
+                    <simple>${body.rut}${body.dv}</simple>
+                </setProperty>
+                <setProperty id="setPropertyUserIdUbank" propertyName="userIdUbank">
+                    <simple>${body.userId}</simple>
+                </setProperty>
+                <setProperty id="setPropertyRut_valido" propertyName="rut_valido">
+                    <method method="validaRut(${property.rutCompleto})" ref="beanRouteFacade"/>
+                </setProperty>
+                <choice id="choicevalidaRut">
+                    <when id="validaRut-When">
+                        <simple>${property.rut_valido} == 'Incorrecto'</simple>
+                        <setProperty id="setPropertyMsgErrorVR" propertyName="msgError">
+                            <simple>El rut ingresado es incorrecto</simple>
+                        </setProperty>
+                        <setProperty id="setPropertyCodErrorVR" propertyName="codError">
+                            <simple>900</simple>
+                        </setProperty>
+                        <bean id="rutErroneo-Bean"
+                            method="responseError" ref="beanRouteFacade"/>
+                        <stop id="rutIncorrecto-Stop"/>
+                    </when>
+                    <otherwise id="validaRut-OtherWise">
+                        <removeHeaders id="_removeHeaders1" pattern="*"/>
+                        <setHeader headerName="Content-Type" id="_setHeader3">
+                            <constant>text/xml;charset=UTF-8</constant>
+                        </setHeader>
+                        <setHeader headerName="Exchange.HTTP_QUERY" id="_setHeader4">
+                            <simple>grant_type={{api.cpb.grant_type}}&amp;client_id={{api.cpb.client_id}}&amp;client_secret={{api.cpb.client_secret}}&amp;username=${property.rutCompleto}&amp;password=${body.clave}&amp;scope={{api.cpb.scope}}
+							</simple>
+                        </setHeader>
+                        <setProperty id="setPropertyProcedenciaErrorVR" propertyName="procedenciaError">
+                            <simple>CPB</simple>
+                        </setProperty>
+                        <to id="autenticarCPB-Ubank" uri="cxfrs:bean:endpointApiCpb?${headers.queryStringCPB}"/>
+                        <bean id="validaAutenticacionApi-Bean"
+                            method="validaAutenticacionApiCpb" ref="beanRouteFacade"/>
+                        <setBody id="restauroBodyAutenticarSocioUbank">
+                            <simple>${property.bodyAutenticarSocio}</simple>
+                        </setBody>
+                        <setHeader headerName="rutSocioUbank" id="setHeaderRutSocioUbank">
+                            <simple resultType="java.lang.String">${property.rutCompleto}</simple>
+                        </setHeader>
+                        <setHeader headerName="idRetorno" id="setHeaderIdRetornoAS">
+                            <simple resultType="java.lang.Integer">0</simple>
+                        </setHeader>
+                        <setHeader headerName="msg" id="setHeaderMsgAS">
+                            <simple resultType="java.lang.String"/>
+                        </setHeader>
+                        <to id="PA_AutenticarSocioUbank-To" uri="sql-stored:classpath:etc/sql/PA_ValidarUsuarioUbank.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseValidarUsuario"/>
+                        <bean id="responsePaAutenticarSocioUbank-Bean"
+                            method="responseAutenticarSocioPA" ref="beanRouteFacade"/>
+                        <when id="PA_ValidaUsuarioEsError">
+                            <simple>${property.sigo} == 'N'</simple>
+                            <stop id="PA_ValidaUsuarioEsError-Stop"/>
+                        </when>
+                        <to id="autenticarSocio-ValidaPersona-To" uri="direct:validaClienteUbank"/>
+                        <bean id="autenticarSocioResponse-Bean"
+                            method="responseAutenticarSocio" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="autenticarSocioUbank-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <choice id="autenticarSocioUbank-Choice">
+                        <when id="Excepcion-CPB">
+                            <simple>${property.procedenciaError} == 'CPB'</simple>
+                            <setProperty id="setPropertyEsErrorAS" propertyName="esError">
+                                <simple>S</simple>
+                            </setProperty>
+                            <bean id="validaAutenticacionApi-Bean"
+                                method="validaAutenticacionApiCpb" ref="beanRouteFacade"/>
+                            <stop id="ExceptionErrorCpb-Stop"/>
+                        </when>
+                        <otherwise id="autenticarSocioUbank-OtherWise">
+                            <log id="ERRORAS" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                            <to id="ExcepcionAutenticarSocioUbank-To" uri="direct:excepcion"/>
+                        </otherwise>
+                    </choice>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="autenticarAplicacion">
+            <from id="autenticarAplicacion-From" uri="direct:autenticarAplicacion"/>
+            <doTry id="autenticarAplicacion-DoTry">
+                <setBody id="autenticarAplicacionUbank-Body">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <bean id="WSAutenticacionInternaRequest-Bean"
+                    method="requestAutenticacionInterna" ref="beanRouteFacade"/>
+                <removeHeaders id="_removeHeaders2" pattern="*"/>
+                <setHeader headerName="operationName" id="wsAutenticacionInternaOpName">
+                    <constant>autenticar</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="wsAutenticacionInternaSoapAction">
+                    <constant>http://integracion.coopeuch.cl/WSAutenticacionInterna/autenticar
+					</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="wsParametroOpNamespace">
+                    <constant>http://integracion.coopeuch.cl/WSAutenticacionInterna/
+					</constant>
+                </setHeader>
+                <to id="WSAutenticacionInterna-To" uri="cxf:bean:endpointWSAutenticacionInterna"/>
+                <bean id="WSAutenticacionInternaResponse-Bean"
+                    method="responseAutenticarAplicacion" ref="beanRouteFacade"/>
+                <doCatch id="doCatchWSAutenticacionInternaAutenticar">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="WSAutenticacionInternaAUT-codigoError-servicio-TOUT" propertyName="servicio">
+                        <constant>WSAUTENTICACIONINTERNAAUT</constant>
+                    </setProperty>
+                    <setProperty id="WSAutenticacionInternaAUT-OUT" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <log id="WSAutenticacionInternaAUTTout-log"
+                        loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-WSAutenticacionInternaAUT-Excepcion" uri="direct:excepcion"/>
+                    <stop id="WSAutenticacionInternaAUT-stop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="autenticarAplicacion-ConsultarToken">
+            <from id="autenticarAplicacion-ConsultarToken-From" uri="direct:autenticarAplicacion-ConsultarToken"/>
+            <doTry id="autenticarAplicacion-ConsultarToken-DoTry">
+                <bean id="WSAutenticacionConsultarToken-Bean"
+                    method="requestAutenticacionInternaConsultarToken" ref="beanRouteFacade"/>
+                <removeHeaders id="_removeHeaders3" pattern="*"/>
+                <setHeader headerName="operationName" id="wsAutenticacionInternaConsultarTokenOpName">
+                    <constant>consultarToken</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="ConsultarTokenInternaConsultarTokenSoapAction">
+                    <constant>http://integracion.coopeuch.cl/WSAutenticacionInterna/consultarToken
+					</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="ConsultarTokenConsultarTokenOpNamespace">
+                    <constant>http://integracion.coopeuch.cl/WSAutenticacionInterna/
+					</constant>
+                </setHeader>
+                <to id="WSAutenticacionInternaConsultarToken-To" uri="cxf:bean:endpointWSAutenticacionInterna"/>
+                <bean
+                    id="WSAutenticacionInternaConsultarTokenResponse-Bean"
+                    method="responseAutenticarAplicacionConsultarToken" ref="beanRouteFacade"/>
+                <when id="whenSigo">
+                    <simple>${property.sigo} == 'N'</simple>
+                    <stop id="consultarToken-Stop"/>
+                </when>
+                <doCatch id="doCatchWSAutenticacionInternaConsultarToken">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="WSAutenticacionInternaCTK-codigoError-servicio-TOUT" propertyName="servicio">
+                        <constant>WSAUTENTICACIONINTERNACTK</constant>
+                    </setProperty>
+                    <setProperty id="WSAutenticacionInternaCTK-OUT" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <log id="WSAutenticacionInternaCTKTout-log"
+                        loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-WSAutenticacionInternaCTK-Excepcion" uri="direct:excepcion"/>
+                    <stop id="WSAutenticacionInternaCTK-stop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="gestiontoken-ConsultarToken">
+            <from id="gestiontoken-ConsultarToken-From" uri="direct:gestiontoken-ConsultarToken"/>
+            <doTry id="gestiontoken-ConsultarToken-DoTry">
+                <bean id="WSGestionToken-Bean"
+                    method="requestGestionTokenConsultarToken" ref="beanRouteFacade"/>
+                <removeHeaders id="_removeHeaders4" pattern="*"/>
+                <setHeader headerName="operationName" id="wsGestionTokenConsultarTokenOpName">
+                    <constant>consultarToken</constant>
+                </setHeader>
+                <to id="WSGestionTokenConsultarToken-To" uri="cxf:bean:endpointWSGestionToken"/>
+                <bean id="WSGestionTokenConsultarTokenResponse-Bean"
+                    method="responseGestionTokenConsultarToken" ref="beanRouteFacade"/>
+                <when id="whenSigoGT">
+                    <simple>${property.sigo} == 'N'</simple>
+                    <stop id="GTconsultarToken-Stop"/>
+                </when>
+                <doCatch id="doCatchWSGestionTokenConsultarToken">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="WSGestionToken-codigoError-servicio-TOUT" propertyName="servicio">
+                        <constant>WSGESTIONTOKEN</constant>
+                    </setProperty>
+                    <setProperty id="WSGestionToken-OUT" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <log id="WSGestionTokenTout-log"
+                        loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-WSGestionToken-Excepcion" uri="direct:excepcion"/>
+                    <stop id="WSGestionToken-stop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validaClienteUbank">
+            <from id="validaClienteUbank-From" uri="direct:validaClienteUbank"/>
+            <doTry id="validaClienteUbank-DoTry">
+                <to id="to-servicioPersona-Condiciones" uri="direct:persona"/>
+                <setBody id="setBodySalida">
+                    <xpath>//salida</xpath>
+                </setBody>
+                <setBody id="setBodyDB">
+                    <simple>&lt;NS1:traerDatosBasicosResponse
+						xmlns:NS1="http://persona.core.coopeuch.cl"
+						&gt;${body}&lt;/NS1:traerDatosBasicosResponse&gt;</simple>
+                </setBody>
+                <bean id="aceptaCondiciones-ValidaCliente"
+                    method="validaCliente" ref="beanRouteFacade"/>
+                <when id="whenExisteCliente">
+                    <simple>${property.existeCliente} == 'X' or
+						${property.existeCliente} == 'N'</simple>
+                    <stop id="stop-aceptaCondiciones-persona"/>
+                </when>
+                <doCatch id="validaClienteUbank-doCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="ERRORCU" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="ExcepcionValidaClienteUbank-To" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Invocacion ServicioProductos -->
+        <route id="wsproductos">
+            <from id="wsproductos-From" uri="direct:wsproductos"/>
+            <doTry id="wsproductos-DoTry">
+                <bean id="consultarProductoSitio-Bean"
+                    method="consultarProductoSitioRequest" ref="beanRouteFacade"/>
+                <removeHeaders
+                    id="RemoveHeadersJMS_consultarProductoSitio" pattern="*"/>
+                <setHeader headerName="operationName" id="operationName">
+                    <simple>consultarProductosSitio</simple>
+                </setHeader>
+                <bean id="consultarProductoSitio-UUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultarProductoSitio-to-AMQ" uri="beanAMQ:{{wsproductos.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false;receiveTimeout=20000&amp;requestTimeout=20000"/>
+                <convertBodyTo id="consultarProductoSitio-ConvertBodyTo" type="java.lang.String"/>
+                <unmarshal id="consultarProductoSitio-unmarshalResp">
+                    <jaxb contextPath="cl.coopeuch.integracion.ahorroautomatico.productos.wsdl"/>
+                </unmarshal>
+                <bean id="consultarProductoSitio-Respuesta-Bean"
+                    method="consultarProductoSitioResponse" ref="beanRouteFacade"/>
+                <doCatch id="consultarProductoSitio-DoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty
+                        id="consultarProductoSitio-codigoError-servicio-TOUT" propertyName="servicio">
+                        <constant>WSPRODUCTO</constant>
+                    </setProperty>
+                    <setProperty
+                        id="consultarProductoSitio-wsproducto-OUT" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <log id="ERRORPS" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-consultarProductoSitio-Excepcion" uri="direct:excepcion"/>
+                    <stop id="consultarProductoSitio-stop"/>
+                </doCatch>
+                <doCatch id="consultarProductoSitio-DoCatchException">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="consultarProductoSitio-codigoErrorProducto" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <log id="ERRORHI" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="toCreditoHipotecarioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Invocacion WSCuentaVista -->
+        <route id="wscuentaVista">
+            <from id="wscuentaVista-From" uri="direct:wscuentaVista"/>
+            <doTry id="wscuentaVista-DoTry">
+                <bean id="consultarCV-Bean" method="consultarCVRequest" ref="beanRouteFacade"/>
+                <removeHeaders id="RemoveHeadersJMS_consultarCV" pattern="*"/>
+                <setHeader headerName="operationName" id="consultarCV-operationName">
+                    <simple>consultar</simple>
+                </setHeader>
+                <bean id="consultarCV-UUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultarCV-to-AMQ" uri="beanAMQ:{{wscuentavista.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false;receiveTimeout=6000&amp;requestTimeout=6000"/>
+                <convertBodyTo id="consultarCV-ConvertBodyTo" type="java.lang.String"/>
+                <setBody id="wscuentavista-consultar-SetBody">
+                    <xpath>//consultarResponse</xpath>
+                </setBody>
+                <unmarshal id="consultarCV-unmarshalResp">
+                    <jaxb contextPath="cl.coopeuch.integracion.ahorroautomatico.cuentavista.wsdl"/>
+                </unmarshal>
+                <bean id="consultarCV-Respuesta-Bean"
+                    method="consultarCVResponse" ref="beanRouteFacade"/>
+                <when id="whenSigoCV">
+                    <simple>${property.sigo} == 'N'</simple>
+                    <stop id="stopCV"/>
+                </when>
+                <doCatch id="consultarCV-DoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty
+                        id="consultarCV-codigoError-servicio-TOUT" propertyName="servicio">
+                        <constant>WSCUENTAVISTA</constant>
+                    </setProperty>
+                    <setProperty id="consultarCV-OUT" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <log id="wscuentaVistaTout-log" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-consultarCV-Excepcion" uri="direct:excepcion"/>
+                    <stop id="consultarCV-stop"/>
+                </doCatch>
+                <doCatch id="wscuentaVista-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoError-wscuentaVista" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <log id="wscuentaVista-log" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-wscuentaVista-Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Invocacion ServicioCuentas -->
+        <route id="servicioCuentas-ConsultarSaldos">
+            <from id="servicioCuentas-From" uri="direct:servicioCuentas"/>
+            <doTry id="servicioCuentas-DoTry">
+                <bean id="servicioCuentas-UUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="Cola-AMQ-servicioCuentas" uri="beanAMQ:{{colas.servicio.cuenta.in.temp}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;explicitQosEnabled=true&amp;replyToDeliveryPersistent=false"/>
+                <bean id="validaRespuestaCuentas-Bean"
+                    method="validaRespuestaCuentas" ref="beanRouteFacade"/>
+                <when id="whenSigoCT">
+                    <simple>${property.sigo} == 'N'</simple>
+                    <stop id="servicioCuentas-Stop"/>
+                </when>
+                <doCatch id="servicioCuentas-DoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty
+                        id="servicioCuentas-codigoError-servicio-TOUT" propertyName="servicio">
+                        <constant>SERVICIOCUENTAS</constant>
+                    </setProperty>
+                    <setProperty id="servicioCuentas-OUT" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <log id="servicioCuentasTout-log"
+                        loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-servicioCuentas-Excepcion" uri="direct:excepcion"/>
+                    <stop id="servicioCuentas-stop"/>
+                </doCatch>
+                <doCatch id="servicioCuentas-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoError-servicioCuentas" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <log id="servicioCuentas-log" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-servicioCuentas-Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Invocación ServicioTransferencia -->
+        <route id="servicioTransferencia-Interna">
+            <from id="servicioTrasnferencia-From" uri="direct:servicioTransferencia"/>
+            <doTry id="servicioTransferencia-DoTry">
+                <bean id="servicioTransferencia-UUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="Cola-AMQ-servicioTransferencia" uri="beanAMQ:{{colas.servicio.transferencia.in.temp}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;explicitQosEnabled=true&amp;replyToDeliveryPersistent=false"/>
+                <bean id="validaRespuestaTransferencia-Bean"
+                    method="validaRespuestaTransferencia" ref="beanRouteFacade"/>
+                <when id="whenSigoTI">
+                    <simple>${property.sigo} == 'N'</simple>
+                    <stop id="transferenciaInterna-Stop"/>
+                </when>
+                <doCatch id="servicioTransferencia-DoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty
+                        id="servicioTransferencia-codigoError-servicio-TOUT" propertyName="servicio">
+                        <constant>SERVICIOTRANSFERENCIA</constant>
+                    </setProperty>
+                    <log id="servicioTransferenciaTOut-log"
+                        loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <setProperty id="servicioTransferencia-OUT" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <log id="servicioTransferenciaTout-log"
+                        loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-servicioTransferencia-Excepcion" uri="direct:excepcion"/>
+                    <stop id="servicioTransferencia-stop"/>
+                </doCatch>
+                <doCatch id="servicioTransferencia-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoError-servicioTransferencia" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <log id="servicioTransferencia-log"
+                        loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-servicioTransferencia-Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Invocación ServicioValidaTef -->
+        <route id="servicioValidaTef-validador">
+            <from id="servicioValidaTef-From" uri="direct:servicioValidaTef"/>
+            <doTry id="servicioValidaTef-DoTry">
+                <bean id="servicioValidaTef-UUID"
+                      method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="Cola-AMQ-servicioValidaTef" uri="beanAMQ:{{colas.servicio.validatef.in.temp}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;explicitQosEnabled=true&amp;replyToDeliveryPersistent=false"/>
+                <bean id="validaRespuestaValidaTef-Bean"
+                      method="respuestaValidaTef" ref="beanRouteFacade"/>
+                <when id="whenSigoVT">
+                    <simple>${property.sigo} == 'N'</simple>
+                    <stop id="servicioValidaTef-Stop"/>
+                </when>
+                <doCatch id="servicioValidaTef-DoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty
+                            id="servicioValidaTef-codigoError-servicio-TOUT" propertyName="servicio">
+                        <constant>SERVICIOVALIDATEF</constant>
+                    </setProperty>
+                    <log id="servicioValidaTefOut-log"
+                         loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <setProperty id="servicioValidaTef-OUT" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <log id="servicioValidaTefvOut-log"
+                         loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-servicioValidaTef-TExcepcion" uri="direct:excepcion"/>
+                    <stop id="servicioValidaTef-stop"/>
+                </doCatch>
+                <doCatch id="servicioValidaTef-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoError-servicioValidaTef" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <log id="servicioValidaTef-log"
+                         loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-servicioValidaTef-Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Invocación ServicioPersona -->
+        <route id="servicioPersona-TraerDatosBasicos">
+            <from id="servicioPersona-TraerDatosBasicos-From" uri="direct:persona"/>
+            <doTry id="servicioPersona-DoTry">
+                <bean id="servicioPersona-UUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <bean id="personaRequest-Bean" method="requestPersona" ref="beanRouteFacade"/>
+                <marshal id="marshalDB">
+                    <jaxb contextPath="cl.coopeuch.integracion.ahorroautomatico.serviciopersona.wsdl"/>
+                </marshal>
+                <to id="Cola-AMQ-servicioPersona" uri="beanAMQ:{{colas.servicio.persona.in.temp}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;explicitQosEnabled=true&amp;replyToDeliveryPersistent=false"/>
+                <doCatch id="servicioPersona-DoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty
+                        id="servicioPersona-codigoError-servicio-TOUT" propertyName="servicio">
+                        <constant>SERVICIOPERSONA</constant>
+                    </setProperty>
+                    <setProperty id="servicioPersona-OUT" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <log id="servicioPersonaTOut-log"
+                        loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-servicioPersona-Excepcion" uri="direct:excepcion"/>
+                    <stop id="servicioPersona-stop"/>
+                </doCatch>
+                <doCatch id="servicioPersona-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoError-servicioPersona" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <log id="servicioPersona-log" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-servicioPersona-Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Invocacion WSCifrado -->
+        <route id="wscifrado">
+            <from id="wscifrado-From" uri="direct:wscifrado"/>
+            <doTry id="wscifrado-DoTry">
+                <bean id="wscifrado-UUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="Cola-AMQ-wscifrado" uri="beanAMQ:{{wscifrado.amq.in.temp}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;explicitQosEnabled=true&amp;replyToDeliveryPersistent=false"/>
+                <bean id="wscifrado-Salida"
+                    method="obtenerDatosCifrados" ref="beanRouteFacade"/>
+                <doCatch id="encriptar-DoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty
+                        id="encriptar-codigoError-servicio-TOUT" propertyName="servicio">
+                        <constant>WSCIFRADO</constant>
+                    </setProperty>
+                    <setProperty id="encriptar-OUT" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <log id="encriptarCF-log" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-encriptar-Excepcion" uri="direct:excepcion"/>
+                    <stop id="encriptar-stop"/>
+                </doCatch>
+                <doCatch id="encriptar-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoError-encriptar" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <log id="encriptar-log" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-encriptar-Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion-DoTry"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="excepcionBeanExcepcion"
+                        method="excepcionCrear" ref="beanRouteFacade"/>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

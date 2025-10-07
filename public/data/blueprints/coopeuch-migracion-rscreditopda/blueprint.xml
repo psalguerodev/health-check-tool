@@ -1,0 +1,270 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="        http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd        http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd    http://camel.apache.org/schema/blueprint  http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder
+        id="property-placeholder-aad19d45-657b-40d3-8ce3-14f1a335c389" persistent-id="serviceProperties"/>
+    <cxf:cxfEndpoint address="/ServicioCreditoPDA"
+        id="servicioCreditoPdaEndpoint"
+        serviceClass="cl.coopeuch.core.creditopda.serviciocreditopda.CreditoPDAPortType" wsdlURL="wsdl/ServicioCreditoPDA.wsdl"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Local Beans -->
+    <!-- Configure IBM WebSphere MQ connection factory -->
+    <bean class="com.ibm.mq.jms.MQConnectionFactory" id="websphereConnectionFactory">
+        <property name="transportType" value="1"/>
+        <property name="hostName" value="${ibm.mq.host}"/>
+        <property name="port" value="${ibm.mq.port}"/>
+        <property name="queueManager" value="${ibm.qm.name}"/>
+        <property name="useConnectionPooling" value="true"/>
+        <property name="channel" value="${ibm.qm.channel}"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="websphereConfig">
+        <property name="connectionFactory" ref="websphereConnectionFactory"/>
+        <property name="concurrentConsumers" value="${ibm.mq.concurrentConsumers.creditopda}"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsComponent" id="websphere">
+        <property name="configuration" ref="websphereConfig"/>
+    </bean>
+    <bean class="cl.coopeuch.util.other.aggregatorHeader" id="agregadorHeader"/>
+    <camelContext id="servicio-creditopda-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cx-RuteoOperaciones">
+            <from id="servicioCreditoPdaEndpointListener" uri="cxf:bean:servicioCreditoPdaEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="createJMSCorrelationId" method="createJMSCorrelationId24"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaestadoCredito">
+                        <simple>${body} contains 'estadoCredito'</simple>
+                        <to id="estadoCreditoValidator" uri="validator:xsd/soapCreditoPDA.xsd"/>
+                        <to id="estadoCreditoTo" uri="direct:estadoCredito"/>
+                    </when>
+                    <when id="rutalistadoCreditosXRut">
+                        <simple>${body} contains 'listadoCreditosXRut'</simple>
+                        <to id="listadoCreditosXRutValidator" uri="validator:xsd/soapCreditoPDA.xsd"/>
+                        <to id="listadoCreditosXRutTo" uri="direct:listadoCreditosXRut"/>
+                    </when>
+                    <otherwise id="_otherwise1"/>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <route id="estadoCredito">
+            <from id="estadoCreditoFrom" uri="direct:estadoCredito"/>
+            <doTry id="estadoCreditoTry">
+                <to id="estadoCreditoXml2trama" uri="xslt://transformations/in/xml2tramaIOC005001I_estadoCredito.xsl"/>
+                <to id="activemq-estadoCredito" uri="AMQ:{{amq.queue.amq.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.amq.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.amq.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="estadoCreditoTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="estadoCreditoTrama2xml" uri="xslt://transformations/out/trama2xmlIOC005001O_estadoCredito.xsl?saxon=true"/>
+                <doCatch id="estadoCreditoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="estadoCreditoRestoreBody" method="restoreBody"/>
+                    <setBody id="estadoCreditoSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="estadoCreditoFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="estadoCreditoBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="estadoCreditoFinally"/>
+            </doTry>
+        </route>
+        <route id="listadoCreditosXRut">
+            <from id="listadoCreditosXRutFrom" uri="direct:listadoCreditosXRut"/>
+            <doTry id="listadoCreditosXRutTry">
+                <!--                 <to id="listadoCreditosXRutTrama2xml" uri="xslt://transformations/out/trama2xmlIOC005101O_listadoCreditosXRut_clean.xsl?saxon=true"/> -->
+                <to id="listadoCreditosXRutXml2trama" uri="xslt://transformations/in/xml2tramaIOC005101I_listadoCreditosXRut.xsl"/>
+                <to id="activemq-listadoCreditosXRut" uri="AMQ:{{amq.queue.amq.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.amq.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.amq.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="listadoCreditosXRutTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="listadoCreditosXRutTrama2xml" uri="xslt://transformations/out/trama2xmlIOC005101O_listadoCreditosXRut.xsl?saxon=true"/>
+                <doCatch id="listadoCreditosXRutCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="listadoCreditosXRutRestoreBody" method="restoreBody"/>
+                    <setBody id="listadoCreditosXRutSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="listadoCreditosXRutFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="listadoCreditosXRutBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="listadoCreditosXRutFinally"/>
+            </doTry>
+        </route>
+        <route id="_route1">
+            <from id="_from1" uri="AMQ:{{amq.queueCredPda.in}}?disableReplyTo=true"/>
+            <to id="_to1" uri="direct:mainSolicitudCreditoPDA"/>
+            <to id="_to2" uri="AMQ:{{amq.queueCredPda.out}}"/>
+        </route>
+        <route id="_route2">
+            <!--             <from id="solicitudCreditoPDAFrom" uri="websphere:queue:{{ibm.queueCredPda.in}}?jmsMessageType=Text&amp;preserveMessageQos=true&amp;disableReplyTo=true"/> -->
+            <from id="solicitudCreditoPDAFrom" uri="websphere:queue:{{ibm.queueCredPda.in}}?jmsMessageType=Text&amp;preserveMessageQos=true"/>
+            <to id="_to3" uri="direct:mainSolicitudCreditoPDA"/>
+            <!--             <to id="solicitudCreditoPDATo" pattern="InOnly" uri="websphere:queue:{{ibm.queueCredPda.out}}"/> -->
+        </route>
+        <route id="solicitudCreditoPDA">
+            <from id="solicitudCreditoPDAFrom" uri="direct:mainSolicitudCreditoPDA"/>
+            <doTry id="solicitudCreditoPDATry">
+                <convertBodyTo id="solicitudCreditoPDABodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                    id="solicitudCreditoPDABackupBody" method="backupBody"/>
+                <setHeader headerName="TMP_JMSCorrelationId" id="_setHeader1">
+                    <simple>${headers.JMSCorrelationId}</simple>
+                </setHeader>
+                <setHeader headerName="NumSolicitudIbs" id="solicitudCreditoPDAHeaderNumSolicitudIbs">
+                    <xpath resultType="String">//NumSolicitudIbs</xpath>
+                </setHeader>
+                <setHeader headerName="IdSolicitud" id="solicitudCreditoPDAHeaderIdSolicitud">
+                    <xpath resultType="String">//IdSolicitud</xpath>
+                </setHeader>
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="createJMSCorrelationId2" method="createJMSCorrelationId24"/>
+                <choice id="_choice1">
+                    <when id="_when1">
+                        <simple>${headers.NumSolicitudIbs} regex '[0-9]+'</simple>
+                        <removeHeader headerName="JMS_IBM_Character_Set" id="solicitudCreditoPDAremoveHeaderJMS_IBM_Character_Set"/>
+                        <removeHeader headerName="JMS_IBM_Encoding" id="solicitudCreditoPDAremoveHeaderJMS_IBM_Encoding"/>
+                        <removeHeader headerName="JMS_IBM_Format" id="solicitudCreditoPDAremoveHeaderJMS_IBM_Format"/>
+                        <removeHeader headerName="JMS_IBM_MsgType" id="solicitudCreditoPDAremoveHeaderJMS_IBM_MsgType"/>
+                        <removeHeader headerName="JMS_IBM_PutApplType" id="solicitudCreditoPDAremoveHeaderJMS_IBM_PutApplType"/>
+                        <removeHeader headerName="JMS_IBM_PutDate" id="solicitudCreditoPDAremoveHeaderJMS_IBM_PutDate"/>
+                        <removeHeader headerName="JMS_IBM_PutTime" id="solicitudCreditoPDAremoveHeaderJMS_IBM_PutTime"/>
+                        <to id="solicitudCreditoPDAxml2trama" uri="xslt://transformations/in/xml2tramaIOC002501I_solicitudCreditoPDA.xsl"/>
+                        <enrich id="solicitudCreditoPDAenrich" strategyRef="agregadorHeader">
+                            <constant>AMQ:{{amq.queue.amq.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.amq.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.amq.res}}&amp;synchronous=true&amp;exchangePattern=InOut</constant>
+                        </enrich>
+                        <setHeader headerName="JMSCorrelationId" id="solicitudCreditoPDAHeaderJMSCorrelationId">
+                            <simple>${headers.TMP_JMSCorrelationId}</simple>
+                        </setHeader>
+                        <transform id="solicitudCreditoPDATransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="solicitudCreditoPDATrama2xml" uri="xslt://transformations/out/trama2xmlIOC002501O_solicitudCreditoPDA.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <to id="solicitudCreditoPDATrama2xml" uri="xslt://transformations/error/errorSolicitudCreditoPda.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <bean beanType="cl.coopeuch.util.other.StringReplace"
+                    id="_bean1" method="replaceBody"/>
+                <doCatch id="solicitudCreditoPDACatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="solicitudCreditoPDARestoreBody" method="restoreBody"/>
+                    <setBody id="solicitudCreditoPDASetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="solicitudCreditoPDAFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="solicitudCreditoPDABodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="solicitudCreditoPDAFinally"/>
+            </doTry>
+        </route>
+        <route id="_route3">
+            <from id="_from2" uri="AMQ:{{amq.queueCredPdaPda.in}}?disableReplyTo=true"/>
+            <to id="_to4" uri="direct:mainSolicitudParaCreditoPDA"/>
+            <to id="_to5" uri="AMQ:{{amq.queueCredPdaPda.out}}"/>
+        </route>
+        <route id="_route4">
+            <!--             <from id="solicitudParaCreditoPDAFrom" uri="websphere:queue:{{ibm.queueCredPdaPda.in}}?jmsMessageType=Text&amp;preserveMessageQos=true&amp;disableReplyTo=true"/> -->
+            <from id="solicitudParaCreditoPDAFrom" uri="websphere:queue:{{ibm.queueCredPdaPda.in}}?jmsMessageType=Text&amp;preserveMessageQos=true"/>
+            <to id="_to6" uri="direct:mainSolicitudParaCreditoPDA"/>
+            <!--             <to id="solicitudParaCreditoPDATo" pattern="InOnly" uri="websphere:queue:{{ibm.queueCredPdaPda.out}}"/> -->
+        </route>
+        <route id="solicitudParaCreditoPDA">
+            <from id="solicitudParaCreditoPDAFrom" uri="direct:mainSolicitudParaCreditoPDA"/>
+            <doTry id="solicitudParaCreditoPDATry">
+                <convertBodyTo id="solicitudParaCreditoPDABodyTo" type="java.lang.String"/>
+                <log id="_log1" message="##solicitudParaCreditoPDA##${body}#####"/>
+                <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                    id="solicitudParaCreditoPDABackupBody" method="backupBody"/>
+                <setHeader headerName="TMP_JMSCorrelationId" id="_setHeader2">
+                    <simple>${headers.JMSCorrelationId}</simple>
+                </setHeader>
+                <setHeader headerName="NumSolicitudIbs" id="solicitudParaCreditoPDAHeaderNumSolicitudIbs">
+                    <xpath resultType="String">//NumSolicitudIbs</xpath>
+                </setHeader>
+                <setHeader headerName="IdSolicitud" id="solicitudParaCreditoPDAHeaderIdSolicitud">
+                    <xpath resultType="String">//IdSolicitud</xpath>
+                </setHeader>
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="createJMSCorrelationId3" method="createJMSCorrelationId24"/>
+                <choice id="_choice2">
+                    <when id="_when2">
+                        <simple>${headers.NumSolicitudIbs} regex '[0-9]+'</simple>
+                        <removeHeader headerName="JMS_IBM_Character_Set" id="solicitudParaCreditoPDAremoveHeaderJMS_IBM_Character_Set"/>
+                        <removeHeader headerName="JMS_IBM_Encoding" id="solicitudParaCreditoPDAremoveHeaderJMS_IBM_Encoding"/>
+                        <removeHeader headerName="JMS_IBM_Format" id="solicitudParaCreditoPDAremoveHeaderJMS_IBM_Format"/>
+                        <removeHeader headerName="JMS_IBM_MsgType" id="solicitudParaCreditoPDAremoveHeaderJMS_IBM_MsgType"/>
+                        <removeHeader headerName="JMS_IBM_PutApplType" id="solicitudParaCreditoPDAremoveHeaderJMS_IBM_PutApplType"/>
+                        <removeHeader headerName="JMS_IBM_PutDate" id="solicitudParaCreditoPDAremoveHeaderJMS_IBM_PutDate"/>
+                        <removeHeader headerName="JMS_IBM_PutTime" id="solicitudParaCreditoPDAremoveHeaderJMS_IBM_PutTime"/>
+                        <to id="solicitudParaCreditoPDAxml2trama" uri="xslt://transformations/in/xml2tramaIOC002601I_solicitudParaCreditoPDA.xsl"/>
+                        <enrich id="solicitudParaCreditoPDAenrich" strategyRef="agregadorHeader">
+                            <constant>AMQ:{{amq.queue.amq.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.amq.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.amq.res}}&amp;synchronous=true&amp;exchangePattern=InOut</constant>
+                        </enrich>
+                        <setHeader headerName="JMSCorrelationId" id="solicitudParaCreditoPDAHeaderJMSCorrelationId">
+                            <simple>${headers.TMP_JMSCorrelationId}</simple>
+                        </setHeader>
+                        <transform id="solicitudParaCreditoPDATransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="solicitudParaCreditoPDATrama2xml" uri="xslt://transformations/out/trama2xmlIOC002601O_solicitudParaCreditoPDA.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise3">
+                        <to id="solicitudParaCreditoPDATrama2xml" uri="xslt://transformations/error/errorSolicitudParaCreditoPda.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <bean beanType="cl.coopeuch.util.other.StringReplace"
+                    id="_bean2" method="replaceBody"/>
+                <log id="_log2" message="#####${body}####"/>
+                <doCatch id="solicitudParaCreditoPDACatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="solicitudParaCreditoPDARestoreBody" method="restoreBody"/>
+                    <setBody id="solicitudParaCreditoPDASetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="solicitudParaCreditoPDAFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="solicitudParaCreditoPDABodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="solicitudParaCreditoPDAFinally"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

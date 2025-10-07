@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd        http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd    http://camel.apache.org/schema/blueprint  http://camel.apache.org/schema/blueprint/camel-blueprint.xsd   http://cxf.apache.org/schemas/configuration/http-conf.xsd">
+    <!-- Servicio para gestionar tipo de Riesgo de un cliente-->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal" persistent-id="wsriesgo"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <http-conf:conduit name="*.http-conduit">
+        <http-conf:client ConnectionTimeout="5000" ReceiveTimeout="5000"/>
+    </http-conf:conduit>
+    <!-- Conexion AMQ -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Endpoint wsdl Servicio Riesgo -->
+    <camelcxf:cxfEndpoint address="/WSRiesgo" id="endpointWsRiesgo"
+        loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.riesgo.wsdl.WSRiesgoSOAPPortType" wsdlURL="etc/wsdl/WSRiesgo.wsdl"/>
+    <bean class="cl.coopeuch.integracion.riesgo.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="[{riesgo.endpoint.Previred.url}]"
+        id="endpointServicioMonitorPrevired"
+        loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.riesgo.monitorprevired.wsdl.CWSMensajeriaXML" wsdlURL="etc/wsdl/MonitorPrevired.wsdl"/>
+    <camelContext id="servicio-riesgo" xmlns="http://camel.apache.org/schema/blueprint">
+        <!-- Ruta que invoca operaciones del servicio web -->
+        <route id="cxf-Inicio">
+            <from id="inicioFrom" uri="cxf:bean:endpointWsRiesgo?DataFormat=MESSAGE"/>
+            <doTry id="inicioTry">
+                <convertBodyTo id="convertBodyToIni" type="java.lang.String"/>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsultarCotizaciones">
+                        <simple>${body} contains 'consultarCotizaciones'</simple>
+                        <setProperty id="setPropertyOperacionCot" propertyName="operacion">
+                            <simple>consultarCotizaciones</simple>
+                        </setProperty>
+                        <to id="toRiesgoConsultarCotizaciones" uri="direct:RiesgoConsultarCotizaciones"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="beanExcepcionRiesgo"
+                        method="iniciarExcepcion" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!--Ruta que obtiene las cotizaciones desde el WS externo-->
+        <route id="consultarCotizaciones">
+            <from id="consultarCotizacionesFrom" uri="direct:RiesgoConsultarCotizaciones"/>
+            <doTry id="consultarCotizacionesTry">
+                <convertBodyTo id="consultarCotizacionesConvert" type="java.lang.String"/>
+                <setProperty id="_setProperty7" propertyName="userID">
+                    <xpath resultType="java.lang.String">//userID/text()</xpath>
+                </setProperty>
+                <setProperty id="_setProperty8" propertyName="canalLLamada">
+                    <xpath resultType="java.lang.String">//canalLLamada/text()</xpath>
+                </setProperty>
+                <setProperty id="_setProperty9" propertyName="user">
+                    <simple>{{riesgo.user.toc}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty10" propertyName="pass">
+                    <simple>{{riesgo.pass.toc}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty11" propertyName="codigoAutorizacion">
+                    <xpath resultType="java.lang.String">//datosTOC/codigoAutorizacion/text()</xpath>
+                </setProperty>
+                <setProperty id="_setProperty12" propertyName="rut">
+                    <xpath resultType="java.lang.String">//datosTOC/rutCliente/text()</xpath>
+                </setProperty>
+                <setHeader headerName="user" id="userConsulta">
+                    <simple>${exchangeProperty.user}</simple>
+                </setHeader>
+                <setHeader headerName="pass" id="passConsulta">
+                    <simple>${exchangeProperty.pass}</simple>
+                </setHeader>
+                <setHeader headerName="codigoAutorizacion" id="codigoAutorizacionConsulta">
+                    <simple>${exchangeProperty.codigoAutorizacion}</simple>
+                </setHeader>
+                <setHeader headerName="rut" id="rutConsulta">
+                    <simple>${exchangeProperty.rut}</simple>
+                </setHeader>
+                <to id="callPreviRedToCons" uri="direct:callPreviRed"/>
+                <choice id="_choice2">
+                    <when id="_when2">
+                        <simple>${headers.codErrorPrevired} == '0'</simple>
+                        <setHeader headerName="Xml" id="rentasPreviredHeaderCons">
+                            <simple>${body}</simple>
+                        </setHeader>
+                        <to id="previredXmlCDATACons" uri="xslt://etc/xslt/request/CDATA_respuestaPrevired.xsl?saxon=true"/>
+                        <setProperty id="codigoResp" propertyName="codigoResp">
+                            <xpath resultType="java.lang.String">/respuesta/respuestaservicio[2]/control/@codigo</xpath>
+                        </setProperty>
+                        <setHeader headerName="codigo" id="previRedGetCodigoCons">
+                            <xpath resultType="java.lang.String">/respuesta/control/@codigo</xpath>
+                        </setHeader>
+                        <choice id="consultarPreviredChoice">
+                            <when id="consultarPreviredWhen">
+                                <simple>${headers.codigo} != '9000'</simple>
+                                <setHeader headerName="codErrorPrevired" id="codErrorPreviredHeader">
+                                    <constant>1</constant>
+                                </setHeader>
+                                <convertBodyTo id="_convertBodyTo2" type="java.lang.String"/>
+                                <to id="_to1" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                                <bean
+                                    beanType="cl.coopeuch.integracion.riesgo.util.BodyError"
+                                    id="_bean1" method="setBodyError"/>
+                            </when>
+                            <otherwise id="_otherwise3">
+                                <choice id="_choice3">
+                                    <when id="_when3">
+                                    <simple>${headers.codErrorPrevired} == '0'</simple>
+                                    <to
+                                    id="respXMLConsultaToXSLSOAP" uri="xslt://etc/xslt/response/RespuestaConsultaCotizaciones.xsl?saxon=true"/>
+                                    </when>
+                                </choice>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="consultarCotizacionesotherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="consultarCotizacionesthrowException" message="Error General en Previred "/>
+                    </otherwise>
+                </choice>
+                <convertBodyTo id="consultarPreviredConvertBodyTo" type="java.lang.String"/>
+                <doCatch id="consultarCotizacionesdoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.riesgo.util.BodyError"
+                        id="consultarCotizacionesbean" method="setBodyError"/>
+                </doCatch>
+                <removeHeaders id="consultarCotizacionesRemoveHeaders" pattern="*"/>
+                <doFinally id="consultarCotizacionesdoFinally"/>
+            </doTry>
+        </route>
+        <!-- LLAMADA A PREVIRED -->
+        <route id="callPreviRed">
+            <from id="callPreviRedfrom" uri="direct:callPreviRed"/>
+            <transform id="vacio">
+                <simple>&lt;trama&gt;vacio&lt;/trama&gt;</simple>
+            </transform>
+            <doTry id="previRedDoTry">
+                <to id="previRed2Xml" uri="xslt://etc/xslt/request/CDATA_consultaPrevired.xsl?saxon=true"/>
+                <log id="_log1" message="## Request Previred ${body} ##"/>
+                <removeHeaders id="_removeHeaders1" pattern="operationName*"/>
+                <setHeader headerName="SOAPAction" id="setHeaderConsultarSoapAction">
+                    <constant>""</constant>
+                </setHeader>
+                <convertBodyTo id="previRedBodyTo" type="java.lang.String"/>
+                <to id="cxfPreviredurl" uri="cxf:bean:endpointServicioMonitorPrevired?dataFormat=MESSAGE"/>
+                <convertBodyTo id="_convertBodyTo4" type="java.lang.String"/>
+                <log id="_log2" message="## Respuesta Previred ${body} ##"/>
+                <setHeader headerName="codErrorPrevired" id="sinErrorPrevired">
+                    <constant>0</constant>
+                </setHeader>
+                <doCatch id="previRedDoCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setHeader headerName="codErrorPrevired" id="cxfPreviRedError">
+                        <constant>1</constant>
+                    </setHeader>
+                    <bean id="previredException"
+                        method="riesgoExcepcion" ref="beanRouteFacade"/>
+                    <convertBodyTo id="previredConvertBodyTo" type="java.lang.String"/>
+                    <to id="previredCatchFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </doCatch>
+                <doFinally id="previRedDoFinaly"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

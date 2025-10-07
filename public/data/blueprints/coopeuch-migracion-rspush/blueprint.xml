@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal" persistent-id="wspush"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Conexion AMQ -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Configure IBM WebSphere MQ connection factory -->
+    <bean class="com.ibm.mq.jms.MQConnectionFactory" id="websphereConnectionFactory">
+        <property name="transportType" value="1"/>
+        <property name="hostName" value="{[ibm.mq.host]}"/>
+        <property name="port" value="{[ibm.mq.port]}"/>
+        <property name="queueManager" value="{[ibm.qm.name]}"/>
+        <property name="useConnectionPooling" value="true"/>
+        <property name="channel" value="{[ibm.qm.channel]}"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="websphereConfig">
+        <property name="connectionFactory" ref="websphereConnectionFactory"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsComponent" id="websphere">
+        <property name="configuration" ref="websphereConfig"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.ahorroautomatico}];charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.ahorroautomatico}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.ahorroautomatico}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.ahorroautomatico}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.ahorroautomatico}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.ahorroautomatico}]"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.push.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <camelContext id="push-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-programado">
+            <from id="fromQuartz" uri="quartz2:ejecutaProceso/proceso?fireNow=true&amp;cron={{cron.tiempo.programado}}"/>
+            <to id="notificarAbonosTo" uri="direct:notificarAbonos"/>
+        </route>
+        <route id="notificarAbonos">
+            <from id="notificarAbonosFrom" uri="direct:notificarAbonos"/>
+            <doTry id="notificarAbonosTry">
+                <setBody id="notificarAbonosSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <to id="consultaAbonosRemuneracionesTo" uri="direct:consultaAbonosRemuneraciones"/>
+                <split id="splitAbonos">
+                    <tokenize token="detalleAbonos" xml="true"/>
+                    <to id="notificaPushMQTo" uri="direct:notificaPushMQ"/>
+                </split>
+                <doCatch id="notificarAbonosCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="ExcepcionnotificarAbonos-To" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Consulta de registros de Abonos de Remuneraciones informados en BD -->
+        <route id="consultaAbonosRemuneraciones">
+            <from id="consultaAbonosRemuneracionesFrom" uri="direct:consultaAbonosRemuneraciones"/>
+            <doTry id="consultaAbonosRemuneracionesTry">
+                <to id="PA_ConsultaAbonosRemuneraciones-To" uri="sql-stored:classpath:etc/sql/PA_ConsultaAbonosRemuneraciones.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseConsultaAbonosRemuneraciones"/>
+                <bean id="responsePAConsultaAbonosRemuneraciones-Bean"
+                    method="responsePAConsultaAbonosRemuneraciones" ref="beanRouteFacade"/>
+                <log id="logTotalReg" message="\n\n WSPush Auditoria >> Total Registros Consultados e Informados:${property.totRegConsultados} \n"/>
+                <doCatch id="consultaAbonosRemuneracionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="consultaAbonosRemuneraciones-log"
+                        loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="ExcepcionConsultaAbonosRemuneraciones-To" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Proceso para Notificaciones PUSH en Cola MQ y Actualizacion de resgistros -->
+        <route id="notificaPushMQ">
+            <from id="notificaPushMQFrom" uri="direct:notificaPushMQ"/>
+            <doTry id="notificaPushMQDoTry">
+                <setProperty id="setPropertyRut" propertyName="rut">
+                    <xpath resultType="java.lang.String">//rut</xpath>
+                </setProperty>
+                <to id="notificaPushMQXSLT" uri="xslt://etc/xsl/request/APPMOVIL.PUSH.RESP.xsl?saxon=true"/>
+                <to id="notificaPushMQWSTo" uri="websphere:queue:{{ibm.queueNotificaTrx.in}}?disableReplyTo=true"/>
+                <to id="actualizarRegistroNotificadoTo" uri="direct:actualizarRegistroNotificado"/>
+                <doCatch id="notificaPushMQDoCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setBody id="notificaPushMQException">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLogNotif" loggingLevel="ERROR" message="Ha ocurrido un error al hacer push en la cola MQ: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Actualizacion de registro en BD de la notificacion a Ubank -->
+        <route id="actualizarRegistroNotificado">
+            <from id="actualizarRegistroNotificado-From" uri="direct:actualizarRegistroNotificado"/>
+            <doTry id="doTryActualizarRegistroNotificado">
+                <to id="PA_ActualizarRegistroNotificado-To" uri="sql-stored:classpath:etc/sql/PA_ActualizarRegistroNotificado.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseActualizarRegistroNotificado"/>
+                <bean id="responseActualizarRegistroNotificado-Bean"
+                    method="responsePAActualizarRegistroNotificado" ref="beanRouteFacade"/>
+                <when id="whenLog">
+                    <simple>${property.actualizado} == 'S'</simple>
+                    <log id="actualizarRegistroNotificado-Log" message="\n\n WSPush Auditoria >> Rut:${property.rut} - Actualizado Correctamente en BD\n"/>
+                </when>
+                <doCatch id="actualizarRegistroNotificado-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="actualizarRegistroNotificado-log"
+                        loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="ExcepcionActualizarRegistroNotificado-To" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="colaErrorTry">
+                <bean id="colaErrorExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="colaErrorMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="colaErrorConvertTo" type="java.lang.String"/>
+                <to id="colaErrorFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <doCatch id="colaErrorCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,273 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+    xsi:schemaLocation="http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    
+    <cxf:cxfEndpoint address="/convenios/WSServicioUsuarioConvenio"
+        id="servicioUsuarioConvenioEndpoint" wsdlURL="etc/wsdl/WSServicioUsuarioConvenio.wsdl"/>
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"  update-strategy="reload"/>      
+        
+   <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSource">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="${jdbc.url.usuarioConvenio};charset=iso_1"/>
+        <property name="username" value="${jdbc.username.usuarioConvenio}"/>
+        <property name="password" value="${jdbc.password.usuarioConvenio}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="${jdbc.timeBetweenEvictionRunsMillis.usuarioConvenio}"/>
+        <property name="numTestsPerEvictionRun" value="${jdbc.numTestsPerEvictionRun.usuarioConvenio}"/>
+        <property name="minEvictableIdleTimeMillis" value="${jdbc.minEvictableIdleTimeMillis.usuarioConvenio}"/>
+        <property name="maxActive" value="${jdbc.maxActive.usuarioConvenio}"/>
+    </bean>
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>  
+    <bean class="cl.coopeuch.integracion.serviciousuarioconvenio.util.RouteFacade" id="beanRouteFacade"/>
+    <!-- Define the stored procedure bean with the input and output params -->
+    <bean class="cl.coopeuch.integracion.serviciousuarioconvenio.util.db.StoredProcedureBean" id="call_sp_get_userdetails">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_get_userdetails"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="rutInput"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="rut"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="firstName"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="secondName"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="lastName"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="secondLastName"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="phone"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="phoneMovil"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="email"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="lastLogin"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                 <map>
+                    <entry key="name" value="blocked"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="bit"/>
+                </map>
+                 <map>
+                    <entry key="name" value="defaultSolicitudId"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                   <map>
+                    <entry key="name" value="defaultRegion"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                 <map>
+                    <entry key="name" value="userType"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="display"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                
+                <map>
+					<entry key="name" value="hasIndexaUser" />
+					<entry key="mode" value="out" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="indexaProfile" />
+					<entry key="mode" value="out" />
+					<entry key="type" value="varchar" />
+				</map>
+                
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <camelContext id="servicio-usuarioConvenio" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml id="jacksonTransform" prettyPrint="true"/>
+        </dataFormats>
+        <route id="cxf-inicio">
+           <from id="servicioUsuarioConvenioEndpointListener" uri="cxf:bean:servicioUsuarioConvenioEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+	            <bean id="backupBody" method="backupBody" ref="beanRouteFacade"/>   
+            <choice id="routeOperations">
+                <when id="routeOperationGetUserDetails">
+                    <simple>${body} contains 'consultarInformacionUsuarioConvenioRequest'</simple>
+                     <setProperty id="inicioSetTipoRequest1" propertyName="tipoRequest">
+                   				 <simple>ConsultarInformacionUsuarioConvenioRequest</simple>
+                		</setProperty>
+                    <to id="toUserDetails" uri="direct:userDetails"/>
+                </when>
+            </choice>
+            <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="ruteoOperacionesPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteoOperacionesExcepcion" uri="direct:excepcion"/>
+                    </doCatch>
+            </doTry>
+        </route>
+        <route id="getUserDetails">
+            <from id="userDetailsFrom" uri="direct:userDetails"/>
+            <doTry id="getUserDetailsTry">
+                <setHeader headerName="rutInput" id="rutInput">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <to id="to_call_sp_get_userdetails" uri="bean:call_sp_get_userdetails"/>
+                
+                <setProperty propertyName="rut" id="rutRequest">
+                    <simple>${body.[rut]}</simple>
+                </setProperty>
+                <setProperty propertyName="firstName" id="firstNameRequest">
+                    <simple>${body.[firstName]}</simple>
+                </setProperty>
+                <setProperty propertyName="secondName" id="secondNameRequest">
+                    <simple>${body.[secondName]}</simple>
+                </setProperty>
+                <setProperty propertyName="lastName" id="lastNameRequest">
+                    <simple>${body.[lastName]}</simple>
+                </setProperty>
+                <setProperty propertyName="secondLastName" id="secondLastNameRequest">
+                    <simple>${body.[secondLastName]}</simple>
+                </setProperty>
+                <setProperty propertyName="phone" id="phoneRequest">
+                    <simple>${body.[phone]}</simple>
+                </setProperty>
+                <setProperty propertyName="phoneMovil" id="phoneMovilRequest">
+                    <simple>${body.[phoneMovil]}</simple>
+                </setProperty>
+                <setProperty propertyName="email" id="emailRequest">
+                    <simple>${body.[email]}</simple>
+                </setProperty>
+                 <setProperty propertyName="lastLogin" id="lastLoginRequest">
+                    <simple>${body.[lastLogin]}</simple>
+                </setProperty>
+                <setProperty propertyName="blocked" id="user_state">
+                    <simple>${body.[blocked]}</simple>
+                </setProperty>
+                <setProperty propertyName="defaultSolicitud" id="defaultSolicitudRequest">
+                    <simple>${body.[defaultSolicitudId]}</simple>
+                </setProperty>
+                 <setProperty propertyName="defaultRegion" id="defaultRegionResponse">
+                    <simple>${body.[defaultRegion]}</simple>
+                </setProperty>
+                <setProperty propertyName="userType" id="userTypeResponse">
+                    <simple>${body.[userType]}</simple>
+                </setProperty>
+                <setProperty propertyName="display" id="displayResponse">
+                    <simple>${body.[display]}</simple>
+                </setProperty>
+                
+                <setProperty propertyName="hasIndexaUser" id="hasIndexaUserResponse">
+                    <simple>${body.[hasIndexaUser]}</simple>
+                </setProperty>
+                <setProperty propertyName="indexaProfile" id="indexaProfileResponse">
+                    <simple>${body.[indexaProfile]}</simple>
+                </setProperty>
+                
+                <!-- utf8 -->
+            	<removeHeaders id="_removeHeaders2" pattern="JMS*"/>
+                <setProperty id="_setProperty9" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty10" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty11" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty12" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                
+                <marshal id="getUserDetails_storedProcResultMarshal" ref="jacksonTransform"/>
+                <convertBodyTo id="getUserDetails_storedProcResult" type="java.lang.String"/>
+                <to id="userDetailsResponseXml" uri="xslt://etc/xsl/response/userDetails.xsl"/>
+                <removeHeaders id="removeHeader1" pattern="*" />
+                <doCatch id="getUserDetailsCatch">
+                     <exception>java.lang.Exception</exception>
+                    <setProperty id="ruteogetUserDetailsPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteogetUserDetailsExcepcion" uri="direct:excepcion"/>    
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                 <setBody id="exceptionBodyError">
+                        <simple>${body}</simple>
+                    </setBody>    
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Created by: Cristian Saez V. -->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+	xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+	xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+	<cm:property-placeholder persistent-id="global"
+		placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload" />
+	<cm:property-placeholder persistent-id="wstasapizarra"
+		placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload" />
+	<bean class="cl.coopeuch.integracion.util.RouteFacade" id="beanRouteFacade" />
+	<camelcxf:cxfEndpoint address="/WSTasaPizarraSOAP"
+		id="epTasaPizarraSOAP" serviceClass="cl.coopeuch.integracion.pricing.tasa.wsdl.TasaPizarraPortType"
+		wsdlURL="etc/wsdl/pricing-tasa-pizarra.wsdl" />
+	<camelcxf:rsServer address="/WSTasaPizarraREST" id="epTasaPizarraREST"
+		serviceClass="cl.coopeuch.integracion.pricing.tasa.wsdl.TasaPizarraPortType" />
+	<bean class="org.apache.commons.dbcp.BasicDataSource"
+		destroy-method="close" id="dataSourceSqlServer">
+		<property name="driverClassName" value="[{jdbc.pricing.driverClassName}]" />
+		<property name="url"
+			value="[{jdbc.pricing.url}]/[{jdbc.pricing.database}];charset=iso_1" />
+		<property name="username" value="[{jdbc.pricing.username}]" />
+		<property name="password" value="[{jdbc.pricing.password}]" />
+		<property name="timeBetweenEvictionRunsMillis"
+			value="[{jdbc.pricing.timeBetweenEvictionRunsMillis}]" />
+		<property name="numTestsPerEvictionRun" value="[{jdbc.pricing.numTestsPerEvictionRun}]" />
+		<property name="minEvictableIdleTimeMillis" value="[{jdbc.pricing.minEvictableIdleTimeMillis}]" />
+		<property name="maxActive" value="[{jdbc.pricing.maxActive}]" />
+	</bean>
+	<bean class="org.apache.activemq.camel.component.ActiveMQComponent"
+		id="beanAMQ">
+		<property name="brokerURL" value="{[amq.broker.url]}" />
+		<property name="userName" value="{[amq.username]}" />
+		<property name="password" value="{[amq.password]}" />
+		<property name="usePooledConnection" value="true" />
+	</bean>
+	<camelContext id="contextPricingTasaPizarra"
+		xmlns="http://camel.apache.org/schema/blueprint">
+		<route id="routeREST">
+			<from id="_from1" uri="cxfrs:bean:epTasaPizarraREST" />
+			<to id="_to1" uri="direct:pricingTasaPizarra" />
+		</route>
+		<route id="routeSOAP">
+			<from id="_from2" uri="cxf:bean:epTasaPizarraSOAP" />
+			<to id="_to2" uri="direct:pricingTasaPizarra" />
+		</route>
+		<route id="routePricingTasaPizarra">
+			<from id="fromPricingTasaPizarra" uri="direct:pricingTasaPizarra" />
+			<doTry id="_doTry1">
+				<bean id="_bean1" method="createJMSCorrelationId24" ref="beanRouteFacade" />
+				<setBody id="_setBody1">
+					<simple>$simple{body.get(0)}</simple>
+				</setBody>
+				<to id="toSqlServer"
+					uri="sql-stored:classpath:etc/sql/sp_contingencia_tasas.sql?dataSource=dataSourceSqlServer&amp;outputHeader=idSpResponse" />
+				<bean id="beanResulsetToStoreProcedure" method="resulsetSP"
+					ref="beanRouteFacade" />
+				<doCatch id="catchConsultar">
+					<exception>java.lang.Exception</exception>
+					<to id="catchConsultarAMQ"
+						uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=ERROR&amp;exchangePattern=InOnly" />
+					<bean id="beanExcepcionConsultar" method="excepcionCrear" ref="beanRouteFacade" />
+					<log id="_log2" loggingLevel="ERROR" message="${body}" />
+				</doCatch>
+			</doTry>
+		</route>
+	</camelContext>
+</blueprint>

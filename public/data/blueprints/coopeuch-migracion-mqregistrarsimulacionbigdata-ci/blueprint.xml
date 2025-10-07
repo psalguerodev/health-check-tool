@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyMqRegistrarSimulacionBigData"
+        persistent-id="mqregistrarsimulacionbigdata"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.ActiveMQConnectionFactory" id="amqConnectionFactory">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="jmsConfig">
+        <property name="connectionFactory" ref="amqConnectionFactory"/>
+        <property name="concurrentConsumers" value="10"/>
+    </bean>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="configuration" ref="jmsConfig"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.microservicio.bigdata.util.RouteFacade" id="beanRouteFacade"/>
+    <cxf:rsClient address="[{bigdata.op.crearlog}]"
+        id="restBigDataCrearLog" loggingFeatureEnabled="true">
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <cxf:rsClient address="[{bigdata.op.simular}]"
+        id="restBigDataSimular" loggingFeatureEnabled="true">
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <cxf:rsClient address="[{bigdata.op.updatelog}]"
+        id="restBigDataUpdateLog" loggingFeatureEnabled="true">
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <cxf:rsClient address="[{bigdata.op.aceptado}]"
+        id="restBigDataAceptado" loggingFeatureEnabled="true">
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <camelContext id="servicio-MQRegistrarSimulacionBigData" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-inicio">
+            <from id="recibeAMQSimulaciones" uri="AMQ:{{amq.queue.simulaciones}}"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="whenCrearLog">
+                        <simple>${body} contains 'crearLogRequest'</simple>                        
+                        <bean id="xmlToJsonBeanCrearLog"
+                            method="xmlToJsonCrearLog" ref="beanRouteFacade"/>                            
+                        <to id="bigdataToCrearLog" uri="cxfrs://bean://restBigDataCrearLog"/>
+                    </when>
+                    <when id="whenSimularPublico">
+                        <simple>${body} contains 'simularPublicoRequest'</simple>
+                        <bean id="xmlToJsonBeanPublico"
+                            method="xmlToJsonSimularPublico" ref="beanRouteFacade"/>
+                        <to id="bigdataToSimular" uri="cxfrs://bean://restBigDataSimular"/>
+                    </when>
+                    <when id="whenSimularPrivado">
+                        <simple>${body} contains 'simularPrivadoRequest'</simple>
+                        <bean id="xmlToJsonBeanPrivado"
+                            method="xmlToJsonSimularPrivado" ref="beanRouteFacade"/>
+                        <to id="bigdataToSimular" uri="cxfrs://bean://restBigDataSimular"/>
+                    </when>
+                    <when id="whenResumen">
+                        <simple>${body} contains 'estado&gt;3'</simple>
+                        <bean id="xmlToJsonBeanResumen"
+                            method="xmlToJsonActualizarEstadoLog" ref="beanRouteFacade"/>
+                        <to id="bigdataToResumen" uri="cxfrs://bean://restBigDataUpdateLog"/>
+                    </when>
+                    <when id="whenAceptado">
+                        <simple>${body} contains 'estado&gt;4'</simple>
+                        <bean id="xmlToJsonBeanAceptado"
+                            method="xmlToJsonActualizarEstadoLog" ref="beanRouteFacade"/>
+                        <to id="bigdataToAceptado" uri="cxfrs://bean://restBigDataAceptado"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <log id="bigdataLog" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del servicio: \n\n\n\n ${body}"/>
+                <to id="excepcionToAmqFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

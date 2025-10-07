@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsdocumento" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <camelcxf:cxfEndpoint address="/WSDocumento"
+        id="endpointWsDocumento"
+        serviceClass="cl.coopeuch.integracion.documento.wsdl.WSDocumentoSOAPPortType" wsdlURL="etc/wsdl/WSDocumento.wsdl"/>
+    <camelcxf:rsServer address="/RSDocumento" id="endpointRSDocumento" serviceClass="cl.coopeuch.integracion.documento.wsdl.WSDocumentoSOAPPortType"/>
+    <camelcxf:cxfEndpoint
+        address="[{documento.endpoint.datos.documento}]"
+        id="endpointWSDatosDocumento"
+        serviceClass="cl.coopeuch.integracion.documento.wsdl.datosdocumento.WSDatosDocumentoSOAPPortType" wsdlURL="etc/wsdl/WSDatosDocumento.wsdl"/>
+    <bean class="cl.coopeuch.integracion.documento.util.RouteFacade" id="beanRouteFacade"/>
+    <camelContext id="servicio-documento" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWsDocumento"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSDocumento"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionCrear">
+                        <simple>${header.operationName} == 'crear'</simple>
+                        <to id="toCrear" uri="direct:crear"/>
+                    </when>
+                    <when id="inicioWhenOperaciongenerarPDF">
+                        <simple>${header.operationName} == 'generarPDF'</simple>
+                        <to id="toGenerarPDF" uri="direct:generarPDF"/>
+                    </when>
+                    <when id="inicioWhenOperacionGenerarExcel">
+                        <simple>${header.operationName} == 'generarExcel'</simple>
+                        <to id="toGenerarExcel" uri="direct:generarExcel"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <removeHeaders id="inicioRemoveHeader" pattern="*"/>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cxf-crear">
+            <from id="crearFromServicio" uri="direct:crear"/>
+            <doTry id="crearTry">
+                <bean id="crearBeanTpDocumento"
+                    method="seleccionDocumento" ref="beanRouteFacade"/>
+                <setHeader headerName="operationName" id="crearSetHeaderOpName">
+                    <constant>consultar</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="crearSetHeaderSoapAction">
+                    <constant>http://integracion.coopeuch.cl/WSDatosDocumento/consultar</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="crearSetHeaderOpNamespace">
+                    <constant>http://integracion.coopeuch.cl/WSDatosDocumento/</constant>
+                </setHeader>
+                <setProperty id="crearSetHeaderJasper" propertyName="jasper">
+                    <simple>{{documento.jasper.path}}/${header.nombreDocumento}.jasper</simple>
+                </setProperty>
+                <setProperty id="crearSetHeaderImagenes" propertyName="pathImagenes">
+                    <simple>{{documento.jasper.imagenes}}</simple>
+                </setProperty>
+                <setProperty id="crearSetHeaderImagenes" propertyName="imagenesPermitidas">
+                    <simple>{{documento.jasper.imagenes.permitidas}}</simple>
+                </setProperty>
+                <bean id="crearBeanRequest"
+                    method="requestDatosDocumento" ref="beanRouteFacade"/>
+                <to id="crearTo" uri="AMQ:{{colas.servicio.datos.documento.in.temp}}??preserveMessageQos=true&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <bean id="crearBeanResponse" method="pdf" ref="beanRouteFacade"/>
+                <doCatch id="crearDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="crearToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cxf-generarPFD">
+            <from id="generarPFDFromServicio" uri="direct:generarPDF"/>
+            <doTry id="generarPFDTry">
+                <bean id="generarPDFBeanTpDocumento"
+                    method="validarDocumento" ref="beanRouteFacade"/>
+                <bean id="generarPDFBeanResponse" method="generarPdf" ref="beanRouteFacade"/>
+                <doCatch id="generarPDFDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="generarPDFToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cxf-generarExcel">
+            <from id="generarExcelFromServicio" uri="direct:generarExcel"/>
+            <doTry id="generarExcelTry">
+                <bean id="generarExcelBeanTpDocumento"
+                      method="validarDocumentoExcel" ref="beanRouteFacade"/>
+                <bean id="generarExcelBeanResponse" method="generarExcel" ref="beanRouteFacade"/>
+                <doCatch id="generarExcelDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="generarExcelToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionInicio" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

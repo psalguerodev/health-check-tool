@@ -1,0 +1,326 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyValidaTef"
+        persistent-id="wsconsultacuentatef" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <bean
+        class="cl.coopeuch.integracion.mandatosproductos.util.RouteFacade" id="beanRouteFacade"/>
+        
+     <bean class="cl.coopeuch.integracion.mandatosproductos.exception.ErrorExcepcionInterceptor" id="ErrorExcepcionInterceptor"/>   
+        
+    <camelcxf:cxfEndpoint address="/WSMandatosProductos"
+        id="endpointWSMandatosProductosTefMasiva"
+        serviceClass="cl.coopeuch.integracion.mandatosproductos.wsdl.WSMandatosProductosSOAPPortType" wsdlURL="etc/wsdl/WSMandatosProductos.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    
+    <camelcxf:rsServer address="/RSMandatosProductos"
+        id="endpointRSMandatosProductosTefMasiva" serviceClass="cl.coopeuch.integracion.mandatosproductos.wsdl.WSMandatosProductosSOAPPortType">
+        <camelcxf:inInterceptors>
+			<ref component-id="ErrorExcepcionInterceptor"/>
+		</camelcxf:inInterceptors>
+	</camelcxf:rsServer>
+        
+        
+    <camelContext id="servicioValidaTefMasiva" xmlns="http://camel.apache.org/schema/blueprint">
+        <onException id="CustomExceptionHandling">
+            <exception>java.lang.Exception</exception>
+            <handled>
+                <constant>true</constant>
+            </handled>
+            <log loggingLevel="ERROR" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.message}"/>
+            <log loggingLevel="DEBUG" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.stacktrace}"/>
+            <bean id="soapFault" method="soapFault" ref="beanRouteFacade"/>
+            <log message="(((((${body})))))"/>
+            <stop/>
+        </onException>
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSMandatosProductosTefMasiva"/>
+            <setProperty id="_setProperty2" propertyName="tipoRequest">
+                <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+            </setProperty>
+            <setBody id="MandatosProductosSetBody">
+                <simple>$simple{body.get(0)}</simple>
+            </setBody>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSMandatosProductosTefMasiva"/>
+            <log id="_log1" message="Paso ${body}"/>
+            <setProperty id="_setProperty3" propertyName="tipoRequest">
+                <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+            </setProperty>
+            <setBody id="MandatosProductosSetBody1">
+                <simple>$simple{body.get(0)}</simple>
+            </setBody>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-jms">
+            <from id="jmsInicio" uri="beanAMQ:{{amq.mandatosproductos.req}}"/>
+            <to id="jmsToInicio" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionconsultaTef">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="toMandatosProductos" uri="direct:consultar"/>
+                    </when>
+                    <when id="_when1">
+                        <simple>${header.operationName} == 'registrarAbonoRemuneracion'</simple>
+                        <to id="toRegistrarAbonoRemuneracion" uri="direct:registrarAbonoRemuneracion"/>
+                    </when>
+                    <when id="_when3">
+                        <simple>${header.operationName} == 'registrarMandatoPensionados'</simple>
+                        <to id="toRegistrarMandatoPensionados" uri="direct:registrarMandatoPensionados"/>
+                    </when>
+                     <when id="_when9">
+                        <simple>${header.operationName} == 'registrarMandatoFach'</simple>
+                        <to id="toRegistrarMandatoFach" uri="direct:registrarMandatoFach"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="registrarAbonoRemuneracion">
+            <from id="fromRegistrarAbonoRemuneracion" uri="direct:registrarAbonoRemuneracion"/>
+            <doTry id="_doTry2">
+                <bean id="_bean2" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <bean id="_bean3" method="transformarIOC722501I" ref="beanRouteFacade"/>
+                <marshal id="_marshal1">
+                    <bindy
+                        classType="cl.coopeuch.integracion.mandatosproductos.modelo.IOC722501I" type="Fixed"/>
+                </marshal>
+                <to id="validarCantidadCuotasToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <choice id="_choice1">
+                    <when id="_when2">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_unmarshal1">
+                            <bindy
+                                classType="cl.coopeuch.integracion.mandatosproductos.modelo.IOCERROR" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="errorIOCBean"
+                            method="transformarIocError" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <unmarshal id="_unmarshal2">
+                            <bindy
+                                classType="cl.coopeuch.integracion.mandatosproductos.modelo.IOC722501O" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="_bean4" method="transformarIOC722501O" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch3">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="crearCodigoError1" propertyName="codigoError">
+                        <simple resultType="Integer">500</simple>
+                    </setProperty>
+                    <to id="_to3" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route1">
+            <from id="fromRegistrarMandatoPensionados" uri="direct:registrarMandatoPensionados"/>
+            <doTry id="_doTry1">
+                <bean id="_bean5" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <bean id="_bean6"
+                    method="transformarPensionadosIOC722501I" ref="beanRouteFacade"/>
+                <marshal id="_marshal2">
+                    <bindy
+                        classType="cl.coopeuch.integracion.mandatosproductos.modelo.IOC722501I" type="Fixed"/>
+                </marshal>
+                <to id="_to4" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <choice id="_choice2">
+                    <when id="_when4">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_unmarshal3">
+                            <bindy
+                                classType="cl.coopeuch.integracion.mandatosproductos.modelo.IOCERROR" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="errorIOCBean2"
+                            method="transformarIocErrorPensionados" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <unmarshal id="_unmarshal4">
+                            <bindy
+                                classType="cl.coopeuch.integracion.mandatosproductos.modelo.IOC722501O" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="_bean7"
+                            method="transformarIOC722501OPensionados" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch4">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="crearCodigoError2" propertyName="codigoError">
+                        <simple resultType="Integer">500</simple>
+                    </setProperty>
+                    <to id="_to5" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarTef">
+            <from id="Consultarfrom" uri="direct:consultar"/>
+            <doTry id="consultarTryf">
+                <!--                 <stop/> -->
+                <marshal id="mandatosProductosMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.mandatosproductos.wsdl"/>
+                </marshal>
+                <convertBodyTo id="mandatosProductosConvertBodyToString" type="java.lang.String"/>
+                <to id="consultaTefXSLTrama2" uri="xslt://etc/xsl/request/IOC146001I_consultaCuenta.xsl"/>
+                <log id="consultaTefTrama1" message="Trama generada = (${body})"/>
+                <bean id="_bean1" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultaTefToAmq1" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <choice id="_choice3">
+                    <when id="_when5">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_unmarshal5">
+                            <bindy
+                                classType="cl.coopeuch.integracion.mandatosproductos.modelo.IOCERROR" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="_bean8"
+                            method="transformarIocErrorConsultar" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise3">
+                        <unmarshal id="_unmarshal6">
+                            <bindy
+                                classType="cl.coopeuch.integracion.mandatosproductos.modelo.IOC146001O" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="_bean9" method="transformarIOC146001O" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch1">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="_setProperty1" propertyName="codigoError">
+                        <simple resultType="Integer">502</simple>
+                    </setProperty>
+                    <to id="_to1" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="crearCodigoError" propertyName="codigoError">
+                        <simple resultType="Integer">500</simple>
+                    </setProperty>
+                    <to id="_to2" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="registrarMandatoFachRoute">
+			<from id="fromRegistrarMandatoFach" uri="direct:registrarMandatoFach" />
+			<doTry id="_doTry7">
+				<setProperty propertyName="canalLlamada">
+					<xpath resultType="String">//canalLlamada/text()</xpath>
+				</setProperty>
+				<setProperty propertyName="rut">
+					<xpath resultType="String">//rut/text()</xpath>
+				</setProperty>
+				<setProperty propertyName="userId">
+					<xpath resultType="String">//userId/text()</xpath>
+				</setProperty>
+				<setProperty propertyName="codEjecutivo">
+					<xpath resultType="String">//codEjecutivo/text()</xpath>
+				</setProperty>
+				<setProperty propertyName="mandato">
+					<xpath resultType="String">//mandato/text()</xpath>
+				</setProperty>
+				<setProperty propertyName="numeroSolicitud">
+					<xpath resultType="String">//numeroSolicitud/text()</xpath>
+				</setProperty>
+				<setProperty propertyName="numeroCliente">
+					<xpath resultType="String">//numeroCliente/text()</xpath>
+				</setProperty>
+				<bean id="validar" method="validarInput" ref="beanRouteFacade" />
+				<choice>
+					<when>
+						<simple>${headers.validacion} != null</simple>
+						<bean id="validarerror" method="validarIngresoError" ref="beanRouteFacade" />
+						<stop />
+					</when>
+				</choice>
+				<bean id="_bean10" method="crearJMSCorrelationId24" ref="beanRouteFacade" />
+				<bean id="_bean11" method="transformarFachIOC722501I" ref="beanRouteFacade" />
+				<marshal id="_marshal7">
+					<bindy
+						classType="cl.coopeuch.integracion.mandatosproductos.modelo.IOC722501I"
+						type="Fixed" />
+				</marshal>
+				<to id="_to8"
+					uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false" />
+				<choice id="_choice7">
+					<when id="_when7">
+						<simple>${body} contains 'ECNLERR'</simple>
+						<unmarshal id="_unmarshal8">
+							<bindy
+								classType="cl.coopeuch.integracion.mandatosproductos.modelo.IOCERROR"
+								type="Fixed" />
+						</unmarshal>
+						<bean id="errorIOCBean8" method="transformarIocErrorFach"
+							ref="beanRouteFacade" />
+					</when>
+					<otherwise id="_otherwise5">
+						<unmarshal id="_unmarshal8">
+							<bindy
+								classType="cl.coopeuch.integracion.mandatosproductos.modelo.IOC722501O"
+								type="Fixed" />
+						</unmarshal>
+						<bean id="_bean12" method="transformarIOC722501OFach" ref="beanRouteFacade" />
+					</otherwise>
+				</choice>
+				<doCatch id="_doCatch8">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="crearCodigoError4" propertyName="codigoError">
+						<simple resultType="Integer">500</simple>
+					</setProperty>
+					<to id="_to8" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

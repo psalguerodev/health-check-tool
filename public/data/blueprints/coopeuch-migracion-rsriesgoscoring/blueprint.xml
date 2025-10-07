@@ -1,0 +1,1711 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsriesgoscoring" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Local Beans -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="[{amq.broker.url}]"/>
+        <property name="userName" value="[{amq.username}]"/>
+        <property name="password" value="[{amq.password}]"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Configure IBM WebSphere MQ connection factory -->
+    <bean class="com.ibm.mq.jms.MQConnectionFactory" id="websphereConnectionFactory">
+        <property name="transportType" value="1"/>
+        <property name="hostName" value="[{ibm.mq.host}]"/>
+        <property name="port" value="[{ibm.mq.port}]"/>
+        <property name="queueManager" value="[{ibm.qm.name}]"/>
+        <property name="useConnectionPooling" value="true"/>
+        <property name="channel" value="[{ibm.qm.channel}]"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="websphereConfig">
+        <property name="connectionFactory" ref="websphereConnectionFactory"/>
+        <property name="concurrentConsumers" value="[{ibm.mq.concurrentConsumers.motor}]"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsComponent" id="websphere">
+        <property name="configuration" ref="websphereConfig"/>
+    </bean>
+    <!-- Conexion Base de datos -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSybase">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sybase.url.cache}];charset=iso_1"/>
+        <property name="username" value="[{jdbc.sybase.username.cache}]"/>
+        <property name="password" value="[{jdbc.sybase.password.cache}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sybase.timeBetweenEvictionRunsMillis.cache}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sybase.numTestsPerEvictionRun.cache}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sybase.minEvictableIdleTimeMillis.cache}]"/>
+        <property name="maxActive" value="[{jdbc.sybase.maxActive.cache}]"/>
+    </bean>
+    <bean class="cl.coopeuch.util.PropagadorCabeceras" id="HeadersPropagator"/>
+    <camelContext id="servicio-motor" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml id="jack" prettyPrint="true"/>
+        </dataFormats>
+        <!-- ruta de entrada por cola MQ de servicio motor -->
+        <route id="ColaMotorIBM">
+            <from id="MotorFrom" uri="websphere:queue:{{ibm.queueMotor.in}}"/>
+            <removeHeader headerName="JMS_IBM_Character_Set" id="_removeHeader1"/>
+            <removeHeader headerName="JMS_IBM_Encoding" id="_removeHeader2"/>
+            <removeHeader headerName="JMS_IBM_Format" id="_removeHeader3"/>
+            <removeHeader headerName="JMS_IBM_MsgType" id="_removeHeader4"/>
+            <removeHeader headerName="JMS_IBM_PutApplType" id="_removeHeader5"/>
+            <removeHeader headerName="JMS_IBM_PutDate" id="_removeHeader6"/>
+            <removeHeader headerName="JMS_IBM_PutTime" id="_removeHeader7"/>
+            <to id="_TOMainMotor1" uri="direct:MainMotor"/>
+        </route>
+        <!-- ruta de entrada por cola AMQ de servicio motor-->
+        <route id="AMQColaMotor">
+            <from id="AMQColaMotorFrom" uri="AMQ:{{amq.queueMotor.in}}"/>
+            <to id="_TOAMQColaMotor1" uri="direct:MainMotor"/>
+        </route>
+        <!-- ruta de entrada por cola AMQ de servicio motor para credito listo-->
+        <route id="MotorE1">
+            <from id="MotorE1From" uri="AMQ:{{amq.queue.MotorE1}}?disableReplyTo=false"/>
+            <setProperty id="_setHeader2CL" propertyName="BussinesObject">
+                <xpath resultType="String">//politica</xpath>
+            </setProperty>
+            <setProperty id="_setHeaderrs8" propertyName="canal">
+                <xpath resultType="String">//canal</xpath>
+            </setProperty>
+            <setProperty id="_setHeader131x" propertyName="idSol">
+                <xpath resultType="String">//idSol</xpath>
+            </setProperty>
+            <setProperty id="_setProperty1" propertyName="idSolicitud">
+                <xpath resultType="String">//idSolicitud</xpath>
+            </setProperty>
+            <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                id="backupBody2CL" method="respaldarCuerpo"/>
+            <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                id="_bean1" method="createJMSCorrelationId24"/>
+            <toD id="_toMotorE1" uri="direct:${header.BussinesObject}"/>
+        </route>
+        <!-- ruta principal de proceso para motor -->
+        <route id="Main">
+            <from id="_fromMainMotor" uri="direct:MainMotor"/>
+            <doTry id="MotorTry">
+                <convertBodyTo charset="UTF-8" id="MotorBodyTo1" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                    id="backupBody1" method="respaldarCuerpo"/>
+                <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                    id="createJMSCorrelationId" method="createJMSCorrelationId24"/>
+                <setProperty id="_setHeader1" propertyName="IdSolicitud">
+                    <xpath resultType="String">//IdSolicitud</xpath>
+                </setProperty>
+                <choice id="_choice2">
+                    <when id="_when3">
+                        <xpath>//E1/BussinesObject/CodMedioEval = 'PP'</xpath>
+                        <setProperty id="_setHeader2" propertyName="BussinesObject">
+                            <constant>PLANILLA</constant>
+                        </setProperty>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <setProperty id="_setHeader9" propertyName="BussinesObject">
+                            <xpath resultType="String">//E1/BussinesObject/text()</xpath>
+                        </setProperty>
+                    </otherwise>
+                </choice>
+                <choice id="_choice3">
+                    <when id="_when4">
+                        <xpath>//E1[not(Canal)]</xpath>
+                        <choice id="_choice4">
+                            <when id="_when5">
+                                <simple>${header.EntradaOrigen} == 'PDA'</simple>
+                                <setHeader headerName="canal" id="_setHeader10">
+                                    <constant>PDA</constant>
+                                </setHeader>
+                            </when>
+                            <otherwise id="_otherwise3">
+                                <setHeader headerName="canal" id="_setHeader11">
+                                    <constant>PlataformaVenta</constant>
+                                </setHeader>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="_otherwise4">
+                        <setHeader headerName="canal" id="_setHeader12">
+                            <xpath resultType="String">//E1/Canal/text()</xpath>
+                        </setHeader>
+                    </otherwise>
+                </choice>
+                <bean id="_bean10" method="insertarCabecera" ref="HeadersPropagator"/>
+                <setProperty id="_setHeader3" propertyName="UserId">
+                    <xpath resultType="String">//UserId</xpath>
+                </setProperty>
+                <choice id="ValidaPoliticaEntrada">
+                    <when id="ValidaPolitica">
+                        <simple>${header.BussinesObject} == 'DIRECTO' || ${header.BussinesObject} == 'PLANILLA' || ${header.BussinesObject} == 'AVALPLANILLA' || ${header.BussinesObject} == 'AVALDIRECTO' || ${header.BussinesObject} == 'TC' || ${header.BussinesObject} == 'RDIRECTO' || ${header.BussinesObject} == 'RPLANILL' || ${header.BussinesObject} == 'RETENCIONDIR'</simple>
+                        <to id="motorXml2trama" uri="xslt://transformations/in/xml2tramaIOC0020I_motor.xsl?saxon=true"/>
+                        <to id="activemq-Motor" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <transform id="MotorTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <log message="trama out ${body}"/>
+                        <to id="motorTrama2Xml" uri="xslt://transformations/out/trama2XmlIOC0020O_motor_precache.xsl?saxon=true"/>
+                        <choice id="respuestaIOC0020Resultado">
+                            <when id="respuestaIOC0020ResultadoOk">
+                                <xpath resultType="String">//formato='IOC002001O'</xpath>
+                                <bean id="_bean11"
+                                    method="obtenerCabecera" ref="HeadersPropagator"/>
+                                <setProperty id="_setHeader13" propertyName="idSolicitud">
+                                    <xpath resultType="String">//idSolicitud</xpath>
+                                </setProperty>
+								<bean beanType="cl.coopeuch.util.ObtenerRandom" id="obtenerNumeroRandom" method="numeroRandom"/>
+                                <setHeader headerName="idSol" id="_setHeader131">
+                                    <simple>${property.numeroRandom}</simple>
+                                </setHeader>
+								<log id="logidSol" message="idSol: ${header.idSol}   Numero Random: ${property.numeroRandom}"/>
+                                <bean
+                                    beanType="cl.coopeuch.util.RespaldarCuerpo"
+                                    id="backupBody2" method="respaldarCuerpo"/>
+                                <toD id="_toD1" uri="direct:${header.BussinesObject}"/>
+                            </when>
+                            <otherwise id="_otherwise1">
+                                <setHeader headerName="error_Cod" id="_setHeader4">
+                                    <xpath resultType="String">//codigoError</xpath>
+                                </setHeader>
+                                <setHeader headerName="error_Desc" id="_setHeader7">
+                                    <xpath resultType="String">//descripcionError</xpath>
+                                </setHeader>
+                                <to id="errorValidacionEntrada" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="validacionEntradaErronea">
+                        <choice id="_choice5">
+                            <when id="_when6">
+                                <xpath>normalize-space(//IdSolicitud/text()) = '' or normalize-space(//BussinesObject/text()) = '' or normalize-space(//UserId/text()) = ''</xpath>
+                                <setHeader headerName="error_Cod" id="_setHeader39">
+                                    <constant>002</constant>
+                                </setHeader>
+                            </when>
+                            <otherwise id="_otherwise5">
+                                <setHeader headerName="error_Cod" id="_setHeader30">
+                                    <constant>0004</constant>
+                                </setHeader>
+                            </otherwise>
+                        </choice>
+                        <to id="errorValidacionEntrada1" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <log id="_log9" message="Salida Motor ${body}"/>
+                <doCatch id="MotorCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                        id="ruteoOperacionesRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.util.error.InsertarError"
+                        id="ruteoOperacionesBodyError" method="insertarError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- ruta encargada de procesar politica de pago directo -->
+        <route id="DIRECTO">
+            <from id="DIRECTOFrom" uri="direct:DIRECTO"/>
+            <doTry id="DIRECTOTry">
+                <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                    id="backupE1" method="respaldarCuerpo"/>
+                <to id="DIRECTOXlsE1" uri="xslt://transformations/politicas/directo/Xml2Xml_DirectoE1.xsl?saxon=true"/>
+                <setHeader headerName="step" id="_setHeaderstep">
+                    <constant>E1</constant>
+                </setHeader>
+                <log id="_log1" message="Entrada motor Directo@@@@@@E1: ${body}"/>
+                <to id="ToGrabarColaAlmacenDeDatos" uri="direct:ColaAlmacenDeDatos"/>
+                <to id="DIRECTOTo1" uri="cxf:{{CoopStrategy.PagoDirecto.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo charset="ISO-8859-1" id="DIRECTOE1BodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.ReemplazarCaracteres"
+                    id="_bean4MotorUnicode" method="reemplazarCaracteresUnicode"/>
+                <setHeader headerName="step" id="_setHeaderstep">
+                    <constant>S1</constant>
+                </setHeader>
+                <log id="_log2" message="Salida motor Directo@@@@@@E1: ${body}"/>
+                <to id="ToGrabarColaAlmacenDeDatos3" uri="direct:ColaAlmacenDeDatos"/>
+                <to id="_toDIRECTOSH" uri="direct:SetHeaders"/>
+                <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                    id="backupBody3" method="restaurarCuerpo"/>
+                <to id="DIRECTOXlsE2" uri="xslt://transformations/politicas/directo/Xml2Xml_DirectoE2.xsl?saxon=true"/>
+                <setHeader headerName="step" id="_setHeaderstep">
+                    <constant>E2</constant>
+                </setHeader>
+                <log id="_log3" message="Entrada motor Directo@@@@@@E2: ${body}"/>
+                <to id="ToGrabarColaAlmacenDeDatos2" uri="direct:ColaAlmacenDeDatos"/>
+                <to id="DIRECTOTo2" uri="cxf:{{CoopStrategy.PagoDirecto.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo charset="ISO-8859-1" id="DIRECTOE2BodyTo" type="java.lang.String"/>
+                <log id="_log4" message="Salida motor Directo@@@@@@E2: ${body}"/>
+                <bean beanType="cl.coopeuch.util.ReemplazarCaracteres"
+                    id="_bean5MotorUnicode" method="reemplazarCaracteresUnicode"/>
+                <to id="_toDIRECTOSH" uri="direct:SalidaFinal"/>
+                <doCatch id="2 DIRECTOCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="DIRECTOFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <setHeader headerName="error_Cod" id="_setHeader308">
+                        <constant>0004</constant>
+                    </setHeader>
+                    <to id="errorValidacionEntrada18" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- ruta encargada de procesar politica de pago planilla -->
+        <route id="PLANILLA">
+            <from id="PLANILLAFrom" uri="direct:PLANILLA"/>
+            <doTry id="PLANILLATry">
+                <to id="PLANILLAXlsE1" uri="xslt://transformations/politicas/planilla/Xml2Xml_PlanillaE1.xsl?saxon=true"/>
+                <setHeader headerName="step" id="_setHeaderstepPLANILLA">
+                    <constant>E1</constant>
+                </setHeader>
+                <log id="_log5" message="Entrada motor Planilla@@@@@@E1: ${body}"/>
+                <to id="ToGrabarColaAlmacenDeDatosPLANILLA1" uri="direct:ColaAlmacenDeDatos"/>
+                <to id="PLANILLATo1" uri="cxf:{{CoopStrategy.Planilla.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo charset="ISO-8859-1"
+                    id="PLANILLAE1BodyTo" type="java.lang.String"/>
+                <log id="_log6" message="Salida motor Planilla@@@@@@E1: ${body}"/>
+                <bean beanType="cl.coopeuch.util.ReemplazarCaracteres"
+                    id="_bean6MotorUnicode" method="reemplazarCaracteresUnicode"/>
+                <setHeader headerName="step" id="_setHeaderstepPLANILLAS1">
+                    <constant>S1</constant>
+                </setHeader>
+                <to id="ToGrabarColaAlmacenDeDatosPLANILLAS1" uri="direct:ColaAlmacenDeDatos"/>
+                <bean
+                    beanType="cl.coopeuch.util.RespaldarCuerpoTemporal"
+                    id="backupBodyPLANILLAE1" method="respaldarCuerpo"/>
+                <to id="_toSH" uri="direct:SetHeaders"/>
+                <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                    id="backupBodyPLANILLA3" method="restaurarCuerpo"/>
+                <to id="PLANILLAXlsE2" uri="xslt://transformations/politicas/planilla/Xml2Xml_PlanillaE2.xsl?saxon=true"/>
+                <setHeader headerName="step" id="_setHeaderstepPLANILLA">
+                    <constant>E2</constant>
+                </setHeader>
+                <log id="_log7" message="Entrada motor Planilla@@@@@@E2: ${body}"/>
+                <to id="ToGrabarColaAlmacenDeDatosPLANILLAE2" uri="direct:ColaAlmacenDeDatos"/>
+                <to id="PLANILLATo2" uri="cxf:{{CoopStrategy.Planilla.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo charset="ISO-8859-1"
+                    id="PLANILLAE2BodyTo" type="java.lang.String"/>
+                <log id="_log8" message="Salida motor Planilla@@@@@@E2: ${body}"/>
+                <bean beanType="cl.coopeuch.util.ReemplazarCaracteres"
+                    id="_bean7MotorUnicode" method="reemplazarCaracteresUnicode"/>
+                <to id="_toPLANILLASH" uri="direct:SalidaFinal"/>
+                <doCatch id="PLANILLACatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="PLANILLAFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <setHeader headerName="error_Cod" id="_setHeader307">
+                        <constant>0004</constant>
+                    </setHeader>
+                    <to id="errorValidacionEntrada17" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- ruta encargada de procesar politica de pago aval planilla -->
+        <route id="AVALPLANILLA">
+            <from id="AVALPLANILLAFrom" uri="direct:AVALPLANILLA"/>
+            <doTry id="AVALPLANILLATry">
+                <to id="AVALPLANILLAXlsE1" uri="xslt://transformations/politicas/avalPlanilla/Xml2Xml_avalPlanillaE1.xsl?saxon=true"/>
+                <setHeader headerName="step" id="_setHeaderstepAVALPLANILLA">
+                    <constant>E1</constant>
+                </setHeader>
+                <to id="ToGrabarColaAlmacenDeDatosAVALPLANILLA1" uri="direct:ColaAlmacenDeDatos"/>
+                <to id="AVALPLANILLATo1" uri="cxf:{{CoopStrategy.AvalPlanilla.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo charset="ISO-8859-1"
+                    id="AVALPLANILLAE1BodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.ReemplazarCaracteres"
+                    id="_bean2MotorUnicode" method="reemplazarCaracteresUnicode"/>
+                <setHeader headerName="step" id="_setHeaderstepAVALPLANILLAS1">
+                    <constant>S1</constant>
+                </setHeader>
+                <to id="ToGrabarColaAlmacenDeDatosAVALPLANILLAS1" uri="direct:ColaAlmacenDeDatos"/>
+                <bean
+                    beanType="cl.coopeuch.util.RespaldarCuerpoTemporal"
+                    id="backupBodyAVALPLANILLAE1" method="respaldarCuerpo"/>
+                <to id="_toAVALPLANILLASH" uri="direct:SetHeaders"/>
+                <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                    id="backupBodyAVALPLANILLA3" method="restaurarCuerpo"/>
+                <to id="AVALPLANILLAXlsE2" uri="xslt://transformations/politicas/avalPlanilla/Xml2Xml_avalPlanillaE2.xsl?saxon=true"/>
+                <setHeader headerName="step" id="_setHeaderstepAVALPLANILLAE2">
+                    <constant>E2</constant>
+                </setHeader>
+                <to id="ToGrabarColaAlmacenDeDatosAVALPLANILLA1" uri="direct:ColaAlmacenDeDatos"/>
+                <to id="AVALPLANILLATo2" uri="cxf:{{CoopStrategy.AvalPlanilla.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo charset="ISO-8859-1"
+                    id="AVALPLANILLAE2BodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.ReemplazarCaracteres"
+                    id="_bean8MotorUnicode" method="reemplazarCaracteresUnicode"/>
+                <to id="_toAVALPLANILLASH" uri="direct:SalidaFinal"/>
+                <doCatch id="AVALPLANILLACatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="AVALPLANILLAFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <setHeader headerName="error_Cod" id="_setHeader306">
+                        <constant>0004</constant>
+                    </setHeader>
+                    <to id="errorValidacionEntrada16" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- ruta encargada de procesar politica de pago aval pago directo -->
+        <route id="AVALDIRECTO">
+            <from id="AVALDIRECTOFrom" uri="direct:AVALDIRECTO"/>
+            <doTry id="AVALDIRECTOTry">
+                <to id="AVALDIRECTOXlsE1" uri="xslt://transformations/politicas/avalDirecto/Xml2Xml_avalDirectoE1.xsl?saxon=true"/>
+                <setHeader headerName="step" id="_setHeaderstepAVALDIRECTOE1">
+                    <constant>E1</constant>
+                </setHeader>
+                <to id="ToGrabarColaAlmacenDeDatosAVALDIRECTOE1" uri="direct:ColaAlmacenDeDatos"/>
+                <to id="AVALDIRECTOTo1" uri="cxf:{{CoopStrategy.AvalPagoDirecto.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo charset="ISO-8859-1"
+                    id="AVALDIRECTOE1BodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.ReemplazarCaracteres"
+                    id="_bean9MotorUnicode" method="reemplazarCaracteresUnicode"/>
+                <setHeader headerName="step" id="_setHeaderstepAVALDIRECTOS1">
+                    <constant>S1</constant>
+                </setHeader>
+                <to id="ToGrabarColaAlmacenDeDatosAVALDIRECTOS1" uri="direct:ColaAlmacenDeDatos"/>
+                <bean
+                    beanType="cl.coopeuch.util.RespaldarCuerpoTemporal"
+                    id="backupBodyAVALDIRECTOE1" method="respaldarCuerpo"/>
+                <to id="_toAVALDIRECTOSH1" uri="direct:SetHeaders"/>
+                <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                    id="backupBodyAVALDIRECTO3" method="restaurarCuerpo"/>
+                <to id="AVALDIRECTOXlsE2" uri="xslt://transformations/politicas/avalDirecto/Xml2Xml_avalDirectoE2.xsl?saxon=true"/>
+                <setHeader headerName="step" id="_setHeaderstepAVALDIRECTOE2">
+                    <constant>E2</constant>
+                </setHeader>
+                <to id="ToGrabarColaAlmacenDeDatosAVALDIRECTOE2" uri="direct:ColaAlmacenDeDatos"/>
+                <to id="AVALDIRECTOTo2" uri="cxf:{{CoopStrategy.AvalPagoDirecto.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo charset="ISO-8859-1"
+                    id="AVALDIRECTOE2BodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.ReemplazarCaracteres"
+                    id="_bean10MotorUnicode" method="reemplazarCaracteresUnicode"/>
+                <to id="_toAVALDIRECTOSH" uri="direct:SalidaFinal"/>
+                <doCatch id="AVALDIRECTOCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="AVALDIRECTOFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <setHeader headerName="error_Cod" id="_setHeader305">
+                        <constant>0004</constant>
+                    </setHeader>
+                    <to id="errorValidacionEntrada15" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- ruta encargada de procesar politica de pago tarjeta de credito -->
+        <route id="TC">
+            <from id="TCFrom" uri="direct:TC"/>
+            <doTry id="TCTry">
+                <to id="TCXlsE1" uri="xslt://transformations/politicas/TC/Xml2Xml_TCE1.xsl?saxon=true"/>
+                <setHeader headerName="step" id="_setHeaderstepTC1">
+                    <constant>E1</constant>
+                </setHeader>
+                <to id="ToGrabarColaAlmacenDeDatosTC1" uri="direct:ColaAlmacenDeDatos"/>
+                <to id="TCTo1" uri="cxf:{{CoopStrategy.TarjetaCredito.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo charset="ISO-8859-1" id="TCE1BodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.ReemplazarCaracteres"
+                    id="_bean11MotorUnicode" method="reemplazarCaracteresUnicode"/>
+                <setHeader headerName="step" id="_setHeaderstepTCS1">
+                    <constant>S1</constant>
+                </setHeader>
+                <to id="ToGrabarColaAlmacenDeDatosTCS1" uri="direct:ColaAlmacenDeDatos"/>
+                <bean
+                    beanType="cl.coopeuch.util.RespaldarCuerpoTemporal"
+                    id="backupBodyTCE1" method="respaldarCuerpo"/>
+                <to id="_toTCSH" uri="direct:SetHeaders"/>
+                <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                    id="backupBodyTC3" method="restaurarCuerpo"/>
+                <to id="TCXlsE2" uri="xslt://transformations/politicas/TC/Xml2Xml_TCE2.xsl?saxon=true"/>
+                <setHeader headerName="step" id="_setHeaderstepTC2">
+                    <constant>E2</constant>
+                </setHeader>
+                <to id="ToGrabarColaAlmacenDeDatosTC2" uri="direct:ColaAlmacenDeDatos"/>
+                <to id="TCTo2" uri="cxf:{{CoopStrategy.TarjetaCredito.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo charset="ISO-8859-1" id="TCE2BodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.ReemplazarCaracteres"
+                    id="_bean12MotorUnicode" method="reemplazarCaracteresUnicode"/>
+                <to id="_toTCTOSH" uri="direct:SalidaFinal"/>
+                <doCatch id="TCCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="TCFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <setHeader headerName="error_Cod" id="_setHeader304">
+                        <constant>0004</constant>
+                    </setHeader>
+                    <to id="errorValidacionEntrada14" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- ruta encargada de procesar politica de pago renegociado directo -->
+        <route id="RDIRECTO">
+            <from id="RDIRECTOFrom" uri="direct:RDIRECTO"/>
+            <doTry id="RDIRECTOTry">
+                <to id="RDIRECTOXlsE1" uri="xslt://transformations/politicas/rDirecto/Xml2Xml_rDirectoE1.xsl?saxon=true"/>
+                <setHeader headerName="step" id="_setHeaderstepRDIRECTOE1">
+                    <constant>E1</constant>
+                </setHeader>
+                <to id="ToGrabarColaAlmacenDeDatosRDIRECTOE1" uri="direct:ColaAlmacenDeDatos"/>
+                <to id="RDIRECTOTo1" uri="cxf:{{CoopStrategy.RenegociadoPagoDirecto.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo charset="ISO-8859-1"
+                    id="RDIRECTOS1BodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.ReemplazarCaracteres"
+                    id="_bean13MotorUnicode" method="reemplazarCaracteresUnicode"/>
+                <setHeader headerName="step" id="_setHeaderstepRDIRECTOS1">
+                    <constant>S1</constant>
+                </setHeader>
+                <to id="ToGrabarColaAlmacenDeDatosRDIRECTOS1" uri="direct:ColaAlmacenDeDatos"/>
+                <bean
+                    beanType="cl.coopeuch.util.RespaldarCuerpoTemporal"
+                    id="backupBodyRDIRECTOE1" method="respaldarCuerpo"/>
+                <to id="_toRDIRECTOSH" uri="direct:SetHeaders"/>
+                <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                    id="backupBodyRDIRECTO3" method="restaurarCuerpo"/>
+                <to id="RDIRECTOXlsE2" uri="xslt://transformations/politicas/rDirecto/Xml2Xml_rDirectoE2.xsl?saxon=true"/>
+                <setHeader headerName="step" id="_setHeaderstepRDIRECTOE2">
+                    <constant>E2</constant>
+                </setHeader>
+                <to id="ToGrabarColaAlmacenDeDatosRDIRECTOE2" uri="direct:ColaAlmacenDeDatos"/>
+                <to id="RDIRECTOTo2" uri="cxf:{{CoopStrategy.RenegociadoPagoDirecto.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo charset="ISO-8859-1"
+                    id="RDIRECTOE2BodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.ReemplazarCaracteres"
+                    id="_bean14MotorUnicode" method="reemplazarCaracteresUnicode"/>
+                <to id="_toRDIRECTOSH" uri="direct:SalidaFinal"/>
+                <doCatch id="RDIRECTOCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="RDIRECTOFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <setHeader headerName="error_Cod" id="_setHeader302">
+                        <constant>0004</constant>
+                    </setHeader>
+                    <to id="errorValidacionEntrada11" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- ruta encargada de procesar politica de pago renegociado planilla -->
+        <route id="RPLANILL">
+            <from id="RPLANILLFrom" uri="direct:RPLANILL"/>
+            <doTry id="RPLANILLTry">
+                <to id="RPLANILLXlsE1" uri="xslt://transformations/politicas/rPlanill/Xml2Xml_rPlanillE1.xsl?saxon=true"/>
+                <setHeader headerName="step" id="_setHeaderstepRPLANILLE1">
+                    <constant>E1</constant>
+                </setHeader>
+                <to id="ToGrabarColaAlmacenDeDatosRPLANILLE1" uri="direct:ColaAlmacenDeDatos"/>
+                <to id="RPLANILLTo1" uri="cxf:{{CoopStrategy.RenegociadoPlanilla.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo charset="ISO-8859-1"
+                    id="RPLANILLE1BodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.ReemplazarCaracteres"
+                    id="_bean1MotorUnicode" method="reemplazarCaracteresUnicode"/>
+                <setHeader headerName="step" id="_setHeaderstepRPLANILLS1">
+                    <constant>S1</constant>
+                </setHeader>
+                <to id="ToGrabarColaAlmacenDeDatosRPLANILLS1" uri="direct:ColaAlmacenDeDatos"/>
+                <bean
+                    beanType="cl.coopeuch.util.RespaldarCuerpoTemporal"
+                    id="backupBodyRPLANILLE1" method="respaldarCuerpo"/>
+                <to id="_toRPLANILLSH" uri="direct:SetHeaders"/>
+                <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                    id="backupBodyRPLANILL3" method="restaurarCuerpo"/>
+                <to id="RPLANILLXlsE2" uri="xslt://transformations/politicas/rPlanill/Xml2Xml_rPlanillE2.xsl?saxon=true"/>
+                <setHeader headerName="step" id="_setHeaderstepRPLANILLE2">
+                    <constant>E2</constant>
+                </setHeader>
+                <to id="ToGrabarColaAlmacenDeDatosRPLANILLE2" uri="direct:ColaAlmacenDeDatos"/>
+                <to id="RPLANILLTo2" uri="cxf:{{CoopStrategy.RenegociadoPlanilla.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo charset="ISO-8859-1"
+                    id="RPLANILLE2BodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.ReemplazarCaracteres"
+                    id="_bean3MotorUnicode" method="reemplazarCaracteresUnicode"/>
+                <to id="_toRPLANILLSH" uri="direct:SalidaFinal"/>
+                <doCatch id="RPLANILLCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="RPLANILLFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <setHeader headerName="error_Cod" id="_setHeader303">
+                        <constant>0004</constant>
+                    </setHeader>
+                    <to id="errorValidacionEntrada12" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- ruta encargada de procesar politica de pago retencion directo -->
+        <route id="RETENCIONDIR1">
+            <from id="RETENCIONDIR" uri="direct:RETENCIONDIR"/>
+            <to id="TORETENCIONDIR" uri="direct:DIRECTO"/>
+        </route>
+        <!-- ruta encargada de asignar cabeceras de respuesta -->
+        <route id="SetHeaders">
+            <from id="SetHeadersFrom" uri="direct:SetHeaders"/>
+            <setHeader headerName="filtrospoliticasCategoriaDeDecision" id="_setHeaderS1_1x">
+                <xpath resultType="String">//filtrospoliticasCategoriaDeDecision</xpath>
+            </setHeader>
+            <setHeader headerName="filtrospoliticasDecision" id="_setHeaderS1_2x">
+                <xpath resultType="String">//filtrospoliticasDecision</xpath>
+            </setHeader>
+            <setHeader headerName="campanapd" id="_setHeaderS1_3x">
+                <xpath resultType="String">//VARAUX_L/campanapd</xpath>
+            </setHeader>
+            <setHeader headerName="productos" id="_setHeader5">
+                <xpath resultType="String">//DATSOL/datosGralesProductosTipoDeCredito</xpath>
+            </setHeader>
+            <setHeader headerName="campanacl" id="_setHeader6">
+                <xpath resultType="String">//DATSOL/variablesSpareLibreText2</xpath>
+            </setHeader>
+        </route>
+        <!-- ruta encargada de inyectar mensajes en cola de almacen de datos -->
+        <route id="ColaAlmacenDeDatos">
+            <from id="FromGrabarColaAlmacenDeDatos" uri="direct:ColaAlmacenDeDatos"/>
+            <doTry id="_doTry1">
+                <bean
+                    beanType="cl.coopeuch.util.RespaldarCuerpoTemporal"
+                    id="backupBodyColaAlmacenDeDatos1" method="respaldarCuerpo"/>
+                <choice id="_choice1">
+                    <when id="_when1">
+                        <simple>${header.step} in 'E1,E2'</simple>
+                        <to id="ToeliminarNamespacesE1y2" uri="xslt://transformations/in/eliminarNamespaces.xsl?saxon=true"/>
+                        <to id="ToXml2Xml_AlmacenE1" uri="xslt://transformations/AlmacenDatos/Xml2Xml_AlmacenE.xsl?saxon=true"/>
+                    </when>
+                    <when id="_when2">
+                        <simple>${header.step} in 'S1,S2'</simple>
+                        <to id="ToeliminarTagS1y2" uri="xslt://transformations/in/eliminarTagXsi.xsl?saxon=true"/>
+                        <to id="ToeliminarNamespacesS1y2" uri="xslt://transformations/in/eliminarNamespaces.xsl?saxon=true"/>
+                        <to id="ToXml2Xml_AlmacenS1" uri="xslt://transformations/AlmacenDatos/Xml2Xml_AlmacenS.xsl?saxon=true"/>
+                    </when>
+                </choice>
+                <to id="ColaAlmacenDeDatosTO" uri="AMQ:{{amq.queue.AlmacenDatos.in}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean
+                    beanType="cl.coopeuch.util.RespaldarCuerpoTemporal"
+                    id="backupBodyColaAlmacenDeDatos2" method="restaurarCuerpo"/>
+                <doCatch id="ErrorAlmacenCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setHeader headerName="error_Cod" id="_setHeader301">
+                        <constant>002</constant>
+                    </setHeader>
+                    <to id="errorValidacionEntrada13" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!--         ruta encargada de procesar salida final de motor de decisiones -->
+        <route id="SalidaFinal">
+            <from id="_fromGetCacheValores1" uri="direct:SalidaFinal"/>
+            <setHeader headerName="step" id="_setHeaderstepSalidaFinal">
+                <constant>S2</constant>
+            </setHeader>
+            <to id="ToGrabarColaAlmacenDeDatos“SalidaFinal" uri="direct:ColaAlmacenDeDatos"/>
+            <choice id="_choiceTransform">
+                <when id="_whenTransform1">
+                    <simple>${header.BussinesObject} in 'DIRECTO,AVALDIRECTO,RDIRECTO,RETENCIONDIR'</simple>
+                    <transform id="_transform1SalidaFinal">
+                        <simple>${body.replaceAll('RESPAGDI', 'NODOTARGET')}</simple>
+                    </transform>
+                </when>
+                <when id="_whenTransform2">
+                    <simple>${header.BussinesObject} in 'PLANILLA,AVALPLANILLA,RPLANILL' </simple>
+                    <transform id="_transform2SalidaFinal">
+                        <simple>${body.replaceAll('RESPLAN', 'NODOTARGET')}</simple>
+                    </transform>
+                </when>
+                <when id="_whenTransform3">
+                    <simple>${header.BussinesObject} in 'TC' </simple>
+                    <transform id="_transform3SalidaFinal">
+                        <simple>${body.replaceAll('RESTC', 'NODOTARGET')}</simple>
+                    </transform>
+                </when>
+            </choice>
+            <bean beanType="cl.coopeuch.util.RespaldarCuerpoTemporal"
+                id="backupBodySalidaFinalE1" method="respaldarCuerpo"/>
+            <to id="_toGetCacheValoresSalidaFinal" uri="direct:GetCacheValoresDirecto"/>
+            <bean beanType="cl.coopeuch.util.RespaldarCuerpoTemporal"
+                id="backupBodySalidaFinal1" method="restaurarCuerpo"/>
+            <to id="SalidaFinalXlsE3" uri="xslt://transformations/out/Xml2Xml_Motor.xsl?saxon=true"/>
+        </route>
+        <!--         ruta encargada de construir cache -->
+        <route id="construyeCacheMotor">
+            <from id="_from1" uri="{{quartz2.Cache.cron}}"/>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader3Motor">
+                <constant>CamelCacheDeleteAll</constant>
+            </setHeader>
+            <to id="_toMotor2" uri="{{cache.Motor}}"/>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader3MotorSernac">
+                <constant>CamelCacheDeleteAll</constant>
+            </setHeader>
+            <to id="_toMotorSernac2" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader3Sernac">
+                <constant>CamelCacheDeleteAll</constant>
+            </setHeader>
+            <to id="_toSernac2" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader3SFirmaCod_IBS">
+                <constant>CamelCacheDeleteAll</constant>
+            </setHeader>
+            <to id="_toSernac2" uri="{{cache.FirmaCod_IBS}}"/>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader3SFirmaDesc_IBS">
+                <constant>CamelCacheDeleteAll</constant>
+            </setHeader>
+            <to id="_toSernac2" uri="{{cache.FirmaDesc_IBS}}"/>
+            <to id="_toSQL1Motor" uri="sql:select idMotor, descripcion from EstadoFinanciero.dbo.Motor?dataSourceRef=dataSourceSybase"/>
+            <marshal id="consultarTokenResultset2xmlMotor" ref="jack"/>
+            <convertBodyTo charset="UTF-8" id="guardarCacheBodyToMotor" type="java.lang.String"/>
+            <split id="_split1AddCacheMotor" streaming="true">
+                <xpath>//item</xpath>
+                <to id="_to3" uri="direct:CacheAddMotor"/>
+            </split>
+            <to id="_toSQL2MotorSernac" uri="sql:select idMotor, idSernac from EstadoFinanciero.dbo.MotorSernac?dataSourceRef=dataSourceSybase"/>
+            <marshal id="consultarTokenResultset2xmlMotorSernac" ref="jack"/>
+            <convertBodyTo charset="UTF-8"
+                id="guardarCacheBodyToMotorSernac" type="java.lang.String"/>
+            <split id="_split1AddCacheMotorSernac" streaming="true">
+                <xpath>//item</xpath>
+                <to id="_to3" uri="direct:CacheAddMotorSernac"/>
+            </split>
+            <to id="_toSQL3Sernac" uri="sql:select idSernac, descripcion from EstadoFinanciero.dbo.Sernac?dataSourceRef=dataSourceSybase"/>
+            <marshal id="consultarTokenResultset2xmlSernac" ref="jack"/>
+            <convertBodyTo charset="UTF-8" id="guardarCacheBodyToSernac" type="java.lang.String"/>
+            <split id="_split1AddCacheSernac" streaming="true">
+                <xpath>//item</xpath>
+                <to id="_to3" uri="direct:CacheAddSernac"/>
+            </split>
+            <to id="_toSQL3FirmaCod_IBS" uri="sql:select * from EstadoFinanciero.dbo.FirmaCod_IBS?dataSourceRef=dataSourceSybase"/>
+            <marshal id="consultarTokenResultset2xmlFirmaCod_IBS" ref="jack"/>
+            <convertBodyTo charset="UTF-8"
+                id="guardarCacheBodyToFirmaCod_IBS" type="java.lang.String"/>
+            <split id="_split1AddCacheFirmaCod_IBS" streaming="true">
+                <xpath>//item</xpath>
+                <to id="_to3" uri="direct:CacheAddFirmaCod_IBS"/>
+            </split>
+            <to id="_toSQL3FirmaDesc_IBS" uri="sql:select * from EstadoFinanciero.dbo.FirmaDesc_IBS?dataSourceRef=dataSourceSybase"/>
+            <marshal id="consultarTokenResultset2xmlFirmaDesc_IBS" ref="jack"/>
+            <convertBodyTo charset="UTF-8"
+                id="guardarCacheBodyToFirmaDesc_IBS" type="java.lang.String"/>
+            <split id="_split1AddCacheFirmaDesc_IBS" streaming="true">
+                <xpath>//item</xpath>
+                <to id="_to3" uri="direct:CacheAddFirmaDesc_IBS"/>
+            </split>
+        </route>
+        <!--         ruta encargada de agregar cache Motor -->
+        <route id="CacheAddMotor">
+            <from id="_from3Motor" uri="direct:CacheAddMotor"/>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader4Motor">
+                <constant>CamelCacheAdd</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader5Motor">
+                <xpath resultType="String">//idMotor</xpath>
+            </setHeader>
+            <setBody id="_setBody1Motor">
+                <xpath resultType="String">normalize-space(//descripcion)</xpath>
+            </setBody>
+            <to id="_to4" uri="{{cache.Motor}}"/>
+        </route>
+        <!--         ruta encargada de agregar cache MotorSernac -->
+        <route id="CacheAddMotorSernac">
+            <from id="_from3otorSernac" uri="direct:CacheAddMotorSernac"/>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader4MotorSernac">
+                <constant>CamelCacheAdd</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader5MotorSernac">
+                <xpath resultType="String">//idMotor</xpath>
+            </setHeader>
+            <setBody id="_setBody1MotorSernac">
+                <xpath resultType="String">//idSernac</xpath>
+            </setBody>
+            <to id="_to4MotorSernac" uri="{{cache.MotorSernac}}"/>
+        </route>
+        <!--         ruta encargada de agregar cache Sernac -->
+        <route id="CacheAddSernac">
+            <from id="_from3Sernac" uri="direct:CacheAddSernac"/>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader4Sernac">
+                <constant>CamelCacheAdd</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader5Sernac">
+                <xpath resultType="String">//idSernac</xpath>
+            </setHeader>
+            <setBody id="_setBody1Sernac">
+                <xpath resultType="String">normalize-space(//descripcion)</xpath>
+            </setBody>
+            <to id="_to4Sernac" uri="{{cache.Sernac}}"/>
+        </route>
+        <!--         ruta encargada de agregar cache FirmaCod_IBS -->
+        <route id="CacheAddFirmaCod_IBS">
+            <from id="_from3FirmaCod_IBS" uri="direct:CacheAddFirmaCod_IBS"/>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader4FirmaCod_IBS">
+                <constant>CamelCacheAdd</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader5FirmaCod_IBS">
+                <xpath resultType="String">//idIBS</xpath>
+            </setHeader>
+            <setBody id="_setBody1FirmaCod_IBS">
+                <xpath resultType="String">normalize-space(//idMotor)</xpath>
+            </setBody>
+            <to id="_to4FirmaCod_IBS" uri="{{cache.FirmaCod_IBS}}"/>
+        </route>
+        <!--         ruta encargada de agregar cache FirmaDesc_IBS -->
+        <route id="CacheAddFirmaDesc_IBS">
+            <from id="_from3FirmaDesc_IBS" uri="direct:CacheAddFirmaDesc_IBS"/>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader4FirmaDesc_IBS">
+                <constant>CamelCacheAdd</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader5FirmaDesc_IBS">
+                <xpath resultType="String">//idIBS</xpath>
+            </setHeader>
+            <setBody id="_setBody1FirmaDesc_IBS">
+                <xpath resultType="String">normalize-space(//descMotor)</xpath>
+            </setBody>
+            <to id="_to4FirmaDesc_IBS" uri="{{cache.FirmaCod_IBS}}"/>
+        </route>
+        <!--         ruta encargada de capturar valores de cache -->
+        <route id="GetCacheValoresDirecto">
+            <from id="_fromGetCacheValores" uri="direct:GetCacheValoresDirecto"/>
+            <setHeader headerName="nivelFirma" id="nivelFirma">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/niveldefirmaNivelFirma)</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod1" id="Motor_cod1">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[1])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod2" id="Motor_cod2">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[2])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod3" id="Motor_cod3">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[3])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod4" id="Motor_cod4">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[4])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod5" id="Motor_cod5">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[5])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod6" id="Motor_cod6">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[6])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod7" id="Motor_cod7">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[7])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod8" id="Motor_cod8">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[8])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod9" id="Motor_cod9">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[9])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod10" id="Motor_cod10">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[10])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod11" id="Motor_cod11">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[11])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod12" id="Motor_cod12">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[12])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod13" id="Motor_cod13">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[13])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod14" id="Motor_cod14">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[14])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod15" id="Motor_cod15">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[15])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod16" id="Motor_cod16">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[16])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod17" id="Motor_cod17">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[17])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod18" id="Motor_cod18">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[18])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod19" id="Motor_cod19">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[19])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod20" id="Motor_cod20">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[20])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod21" id="Motor_cod21">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[21])</xpath>
+            </setHeader>
+            <setHeader headerName="Motor_cod22" id="Motor_cod22">
+                <xpath resultType="String" trim="true">normalize-space(//NODOTARGET/evaluaciondepoliticasMergeTablaDeReasonCodes[22])</xpath>
+            </setHeader>
+            <setBody id="_setBody1">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeaderv11y">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeadercy1">
+                <simple>${header.nivelFirma}</simple>
+            </setHeader>
+            <to id="_toc11" uri="{{cache.FirmaCod_IBS}}"/>
+            <setHeader headerName="FirmaCod_IBS" id="_setHeadercvy1">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody2">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeaderv11z">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeadercz1">
+                <simple>${header.nivelFirma}</simple>
+            </setHeader>
+            <to id="_toc11" uri="{{cache.FirmaDesc_IBS}}"/>
+            <setHeader headerName="FirmaDesc_IBS" id="_setHeadercvz1">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody3">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeaderv11x">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeaderc1">
+                <simple>${header.Motor_cod1}</simple>
+            </setHeader>
+            <to id="_toc11" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc1" id="_setHeadercv1">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody4">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeaderv12x">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeaderc12">
+                <simple>${header.Motor_cod1}</simple>
+            </setHeader>
+            <to id="_toc21" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod1" id="_setHeadercv2">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody5">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeaderv13x">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeaderc3">
+                <simple>${header.Sernac_cod1}</simple>
+            </setHeader>
+            <to id="_toc13" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc1" id="_setHeadercv3">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody6">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeaderv21x">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeaderc2">
+                <simple>${header.Motor_cod2}</simple>
+            </setHeader>
+            <to id="_toc21" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc2" id="_setHeadercv2">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody7">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeaderv22x">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeaderc22">
+                <simple>${header.Motor_cod2}</simple>
+            </setHeader>
+            <to id="_toc22" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod2" id="_setHeadercv2">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody8">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeaderv23x">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeaderc3">
+                <simple>${header.Sernac_cod2}</simple>
+            </setHeader>
+            <to id="_toc23" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc2" id="_setHeadercv3">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody9">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeaderv31x">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeaderc3">
+                <simple>${header.Motor_cod3}</simple>
+            </setHeader>
+            <to id="_toc31" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc3" id="_setHeadercv3">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody10">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeaderv33x">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeaderc33">
+                <simple>${header.Motor_cod3}</simple>
+            </setHeader>
+            <to id="_toc32" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod3" id="_setHeadercv3">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody11">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeaderv33x">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeaderc3">
+                <simple>${header.Sernac_cod3}</simple>
+            </setHeader>
+            <to id="_toc33" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc3" id="_setHeadercv3">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody12">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeaderv41x">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeaderc4">
+                <simple>${header.Motor_cod4}</simple>
+            </setHeader>
+            <to id="_toc41" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc4" id="_setHeadercv4">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody13">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeaderv43x">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeaderc43">
+                <simple>${header.Motor_cod4}</simple>
+            </setHeader>
+            <to id="_toc42" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod4" id="_setHeadercv4">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody14">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeaderv43x">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeaderc4">
+                <simple>${header.Sernac_cod4}</simple>
+            </setHeader>
+            <to id="_toc43" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc4" id="_setHeadercv4">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody15">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeaderv51x">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeaderc51">
+                <simple>${header.Motor_cod5}</simple>
+            </setHeader>
+            <to id="_toc51" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc5" id="_setHeadercv51">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody16">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeaderv53x">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeaderc53">
+                <simple>${header.Motor_cod5}</simple>
+            </setHeader>
+            <to id="_toc52" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod5" id="_setHeadercv5">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody17">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeaderv53x">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeaderc5">
+                <simple>${header.Sernac_cod5}</simple>
+            </setHeader>
+            <to id="_toc53" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc5" id="_setHeadercv5">
+                <simple>${body}</simple>
+            </setHeader>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader8">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader14">
+                <simple>${header.Motor_cod6}</simple>
+            </setHeader>
+            <to id="_to1" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc6" id="_setHeader15">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody18">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader16">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader17">
+                <simple>${header.Motor_cod6}</simple>
+            </setHeader>
+            <to id="_to2" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod6" id="_setHeader18">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody19">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader19">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader20">
+                <simple>${header.Sernac_cod6}</simple>
+            </setHeader>
+            <to id="_to5" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc6" id="_setHeader21">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody20">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader22">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader23">
+                <simple>${header.Motor_cod7}</simple>
+            </setHeader>
+            <to id="_to6" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc7" id="_setHeader24">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody21">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader25">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader26">
+                <simple>${header.Motor_cod7}</simple>
+            </setHeader>
+            <to id="_to7" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod7" id="_setHeader27">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody22">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader28">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader29">
+                <simple>${header.Sernac_cod7}</simple>
+            </setHeader>
+            <to id="_to8" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc7" id="_setHeader31">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody23">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader32">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader33">
+                <simple>${header.Motor_cod8}</simple>
+            </setHeader>
+            <to id="_to9" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc8" id="_setHeader34">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody24">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader35">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader36">
+                <simple>${header.Motor_cod8}</simple>
+            </setHeader>
+            <to id="_to10" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod8" id="_setHeader37">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody25">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader38">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader40">
+                <simple>${header.Sernac_cod8}</simple>
+            </setHeader>
+            <to id="_to11" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc8" id="_setHeader41">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody26">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader42">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader43">
+                <simple>${header.Motor_cod9}</simple>
+            </setHeader>
+            <to id="_to12" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc9" id="_setHeader44">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody27">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader45">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader46">
+                <simple>${header.Motor_cod9}</simple>
+            </setHeader>
+            <to id="_to13" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod9" id="_setHeader47">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody28">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader48">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader49">
+                <simple>${header.Sernac_cod9}</simple>
+            </setHeader>
+            <to id="_to14" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc9" id="_setHeader50">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody29">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader51">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader52">
+                <simple>${header.Motor_cod10}</simple>
+            </setHeader>
+            <to id="_to15" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc10" id="_setHeader53">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody30">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader54">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader55">
+                <simple>${header.Motor_cod10}</simple>
+            </setHeader>
+            <to id="_to16" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod10" id="_setHeader56">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody31">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader57">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader58">
+                <simple>${header.Sernac_cod10}</simple>
+            </setHeader>
+            <to id="_to17" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc10" id="_setHeader59">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody32">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader60">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader61">
+                <simple>${header.Motor_cod11}</simple>
+            </setHeader>
+            <to id="_to18" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc11" id="_setHeader62">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody33">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader63">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader64">
+                <simple>${header.Motor_cod11}</simple>
+            </setHeader>
+            <to id="_to19" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod11" id="_setHeader65">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody34">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader66">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader67">
+                <simple>${header.Sernac_cod11}</simple>
+            </setHeader>
+            <to id="_to20" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc11" id="_setHeader68">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody35">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader69">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader70">
+                <simple>${header.Motor_cod12}</simple>
+            </setHeader>
+            <to id="_to21" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc12" id="_setHeader71">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody36">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader72">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader73">
+                <simple>${header.Motor_cod12}</simple>
+            </setHeader>
+            <to id="_to22" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod12" id="_setHeader74">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody37">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader75">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader76">
+                <simple>${header.Sernac_cod12}</simple>
+            </setHeader>
+            <to id="_to23" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc12" id="_setHeader77">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody38">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader78">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader79">
+                <simple>${header.Motor_cod13}</simple>
+            </setHeader>
+            <to id="_to24" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc13" id="_setHeader80">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody39">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader81">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader82">
+                <simple>${header.Motor_cod13}</simple>
+            </setHeader>
+            <to id="_to25" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod13" id="_setHeader83">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody40">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader84">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader85">
+                <simple>${header.Sernac_cod13}</simple>
+            </setHeader>
+            <to id="_to26" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc13" id="_setHeader86">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody41">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader87">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader88">
+                <simple>${header.Motor_cod14}</simple>
+            </setHeader>
+            <to id="_to27" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc14" id="_setHeader89">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody42">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader90">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader91">
+                <simple>${header.Motor_cod14}</simple>
+            </setHeader>
+            <to id="_to28" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod14" id="_setHeader92">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody43">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader93">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader94">
+                <simple>${header.Sernac_cod14}</simple>
+            </setHeader>
+            <to id="_to29" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc14" id="_setHeader95">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody44">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader96">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader97">
+                <simple>${header.Motor_cod15}</simple>
+            </setHeader>
+            <to id="_to30" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc15" id="_setHeader98">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody45">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader99">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader100">
+                <simple>${header.Motor_cod15}</simple>
+            </setHeader>
+            <to id="_to31" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod15" id="_setHeader101">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody46">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader102">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader103">
+                <simple>${header.Sernac_cod15}</simple>
+            </setHeader>
+            <to id="_to32" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc15" id="_setHeader104">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody47">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader105">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader106">
+                <simple>${header.Motor_cod16}</simple>
+            </setHeader>
+            <to id="_to33" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc16" id="_setHeader107">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody48">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader108">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader109">
+                <simple>${header.Motor_cod16}</simple>
+            </setHeader>
+            <to id="_to34" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod16" id="_setHeader110">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody49">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader111">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader112">
+                <simple>${header.Sernac_cod16}</simple>
+            </setHeader>
+            <to id="_to35" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc16" id="_setHeader113">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody50">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader114">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader115">
+                <simple>${header.Motor_cod17}</simple>
+            </setHeader>
+            <to id="_to36" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc17" id="_setHeader116">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody51">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader117">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader118">
+                <simple>${header.Motor_cod17}</simple>
+            </setHeader>
+            <to id="_to37" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod17" id="_setHeader119">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody52">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader120">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader121">
+                <simple>${header.Sernac_cod17}</simple>
+            </setHeader>
+            <to id="_to38" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc17" id="_setHeader122">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody53">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader123">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader124">
+                <simple>${header.Motor_cod18}</simple>
+            </setHeader>
+            <to id="_to39" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc18" id="_setHeader125">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody54">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader126">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader127">
+                <simple>${header.Motor_cod18}</simple>
+            </setHeader>
+            <to id="_to40" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod18" id="_setHeader128">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody55">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader129">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader130">
+                <simple>${header.Sernac_cod18}</simple>
+            </setHeader>
+            <to id="_to41" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc18" id="_setHeader132">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody56">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader133">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader134">
+                <simple>${header.Motor_cod19}</simple>
+            </setHeader>
+            <to id="_to42" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc19" id="_setHeader135">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody57">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader136">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader137">
+                <simple>${header.Motor_cod19}</simple>
+            </setHeader>
+            <to id="_to43" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod19" id="_setHeader138">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody58">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader139">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader140">
+                <simple>${header.Sernac_cod19}</simple>
+            </setHeader>
+            <to id="_to44" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc19" id="_setHeader141">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody59">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader142">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader143">
+                <simple>${header.Motor_cod20}</simple>
+            </setHeader>
+            <to id="_to45" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc20" id="_setHeader144">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody60">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader145">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader146">
+                <simple>${header.Motor_cod20}</simple>
+            </setHeader>
+            <to id="_to46" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod20" id="_setHeader147">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody61">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader148">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader149">
+                <simple>${header.Sernac_cod20}</simple>
+            </setHeader>
+            <to id="_to47" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc20" id="_setHeader150">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody62">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader151">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader152">
+                <simple>${header.Motor_cod21}</simple>
+            </setHeader>
+            <to id="_to48" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc21" id="_setHeader153">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody63">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader154">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader155">
+                <simple>${header.Motor_cod21}</simple>
+            </setHeader>
+            <to id="_to49" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod21" id="_setHeader156">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody64">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader157">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader158">
+                <simple>${header.Sernac_cod21}</simple>
+            </setHeader>
+            <to id="_to50" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc21" id="_setHeader159">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody65">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader160">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader161">
+                <simple>${header.Motor_cod22}</simple>
+            </setHeader>
+            <to id="_to51" uri="{{cache.Motor}}"/>
+            <setHeader headerName="Motor_desc22" id="_setHeader162">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody66">
+                <constant>-1</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader163">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader164">
+                <simple>${header.Motor_cod22}</simple>
+            </setHeader>
+            <to id="_to52" uri="{{cache.MotorSernac}}"/>
+            <setHeader headerName="Sernac_cod22" id="_setHeader165">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody67">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader166">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader167">
+                <simple>${header.Sernac_cod22}</simple>
+            </setHeader>
+            <to id="_to53" uri="{{cache.Sernac}}"/>
+            <setHeader headerName="Sernac_desc22" id="_setHeader168">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody68">
+                <constant>Codigo No Encontrado</constant>
+            </setBody>
+        </route>
+    </camelContext>
+</blueprint>

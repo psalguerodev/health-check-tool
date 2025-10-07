@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd      http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cxf:cxfEndpoint address="/convenios/WSPlanillaConvenio"
+        id="servicioOrquestacionPlanillaEndpoint" wsdlURL="etc/wsdl/WSOrquestacionPlanilla.wsdl"/>
+    <cm:property-placeholder
+        id="property-placeholder-wsplanillaconvenio"
+        persistent-id="wsplanillaconvenio" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.planillaconvenio.util.RouteFacade" id="beanRouteFacade"/>
+    <camelContext id="servicio-planillaconvenio" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml id="jacksonTransform" prettyPrint="true"/>
+        </dataFormats>
+        <route id="cxf-inicio">
+            <from id="servicioDetallesPlanillaEndpointistener" uri="cxf:bean:servicioOrquestacionPlanillaEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="cxf-inicioTry">
+                <convertBodyTo id="cxf-inicioBodyTo" type="java.lang.String"/>
+                <bean id="backupBody" method="backupBody" ref="beanRouteFacade"/>
+                <choice id="routeOperations">
+                    <when id="consultarRequest">
+                        <simple>${body} contains 'consultarRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest1" propertyName="tipoRequest">
+                            <simple>ConsultarRequest</simple>
+                        </setProperty>
+                        <to id="toObtenerDetellesPlanilla" uri="direct:consultarRouteOperation"/>
+                    </when>
+                    <when id="consultarResumenRequestRequest">
+                        <simple>${body} contains 'consultarResumenRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest2" propertyName="tipoRequest">
+                            <simple>ConsultarResumenRequest</simple>
+                        </setProperty>
+                        <to id="toObtenerResumenPlanillaRequest" uri="direct:consultarResumenRouteOperation"/>
+                    </when>
+                </choice>
+                <doCatch id="cxf-inicioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="cxf-inicioPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="cxf-inicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Code to process planilla detailed List -->
+        <route id="consultarRouteOperation">
+            <from id="consultarRouteEndpointListener" uri="direct:consultarRouteOperation"/>
+            <doTry id="consultarTry">
+                <!-- prepare fuse detail planila request body -->
+                <convertBodyTo id="consultarRouteOperationBody" type="java.lang.String"/>
+                <setProperty id="requestUsuario" propertyName="requestUsuario">
+                    <xpath resultType="String">//usuario</xpath>
+                </setProperty>
+                <setProperty id="requestCanalDeLlamada" propertyName="requestCanalDeLlamada">
+                    <xpath resultType="String">//canalDeLlamada</xpath>
+                </setProperty>
+                <setProperty id="requestIdentidadIni" propertyName="requestIdentidadIni">
+                    <xpath resultType="String">//identidadIni</xpath>
+                </setProperty>
+                <setProperty id="requestIdentidadFin" propertyName="requestIdentidadFin">
+                    <xpath resultType="String">//identidadFin</xpath>
+                </setProperty>
+                <setProperty id="requestLineasADesplegarPm" propertyName="requestLineasADesplegar">
+                    <xpath resultType="String">//lineasADesplegar</xpath>
+                </setProperty>
+                <setProperty id="requestFlagAvanzarRetrocede" propertyName="requestFlagAvanzarRetrocede">
+                    <xpath resultType="String">//flagAvanzarRetrocede</xpath>
+                </setProperty>
+                <setProperty id="requestNumeroDePlanilla" propertyName="requestNumeroDePlanilla">
+                    <xpath resultType="String">//numeroDePlanilla</xpath>
+                </setProperty>
+                <setProperty id="requestCuotaMes" propertyName="requestCuotaMes">
+                    <xpath resultType="String">//cuotaMes</xpath>
+                </setProperty>
+                <setProperty id="requestCuotaAno" propertyName="requestCuotaAno">
+                    <xpath resultType="String">//cuotaAno</xpath>
+                </setProperty>
+                <setProperty id="requestIdentidad" propertyName="requestIdentidad">
+                    <xpath resultType="String">//identidad</xpath>
+                </setProperty>
+                <to id="requestBodyForPlanillaDetailRequest" uri="xslt://etc/xsl/request/getPlanillasListRequest.xsl"/>
+                <convertBodyTo
+                    id="ToRequestBodyForPlanillaDetailRequest" type="java.lang.String"/>
+                <removeHeaders id="removeHeader1" pattern="JMS*"/>
+                <to id="consultarFuseCall" uri="cxf:{{endpoint.planilla.detail.service.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="consultarResponse" type="java.lang.String"/>
+                <removeHeaders id="removeHeader1" pattern="*"/>
+                <setBody id="responseStr">
+                    <method
+                        beanType="cl.coopeuch.integracion.planillaconvenio.util.RouteFacade"
+                        id="detellesPlanillaResponseProcessor" method="processDetellesPlanillaResponse(${body})"/>
+                </setBody>
+                <doCatch id="consultarCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <setProperty id="consultarPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="consultarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarResumenRouteOperation">
+            <from id="consultarResumenRouteEndpointListener" uri="direct:consultarResumenRouteOperation"/>
+            <doTry id="consultarResumenTry">
+                <convertBodyTo id="consultarResumenRouteOperationBody" type="java.lang.String"/>
+                <setProperty id="inputRut1" propertyName="inputRut">
+                    <xpath resultType="String">//rut</xpath>
+                </setProperty>
+                <setProperty id="inputSolicitudId1" propertyName="inputSolicitudId">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setProperty>
+                <setProperty id="inputNumeroDePlanillaIn1" propertyName="inputNumeroDePlanillaIn">
+                    <xpath resultType="String">//numeroDePlanillaIn</xpath>
+                </setProperty>
+                <removeHeaders id="removeJmsHeader2" pattern="JMS*"/>
+                <to id="consultarResumenEmployeeDetailsRequestXsl" uri="xslt://etc/xsl/request/getContactInfo.xsl"/>
+                <log id="TBR1" message="consultarResumenRouteOperation contactinfo request: ${body}"/>
+                <removeHeaders id="removeSoapActionHeader413" pattern="SOAPAction*"/>
+                <to id="consultarResumenEmployeeDetailsRequest" uri="cxf:{{endpoint.consultar.service}}?dataFormat=MESSAGE"/>
+                <!-- utf8 -->
+                <convertBodyTo
+                    id="consultarResumenEmployeeDetailsResponse" type="java.lang.String"/>
+                <setProperty id="employeeEmail" propertyName="employeeEmail">
+                    <xpath resultType="String">//email</xpath>
+                </setProperty>
+                <setProperty id="employeeName" propertyName="employeeName">
+                    <xpath resultType="String">//nombres</xpath>
+                </setProperty>
+                <setProperty id="employeePhone" propertyName="employeePhone">
+                    <xpath resultType="String">//phone</xpath>
+                </setProperty>
+                <removeHeaders id="_removeHeaders2" pattern="JMS*"/>
+                <setProperty id="_setProperty9" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty10" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty11" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty12" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <removeHeaders id="removeJmsHeader3" pattern="JMS*"/>
+                <to id="requestBodyForObtenerResumenPlanillaRequest" uri="xslt://etc/xsl/request/searchPlanillasListRequest.xsl"/>
+                <convertBodyTo
+                    id="ToRequestBodyForObtenerResumenPlanillalRequest" type="java.lang.String"/>
+                <log id="TBR2" message="consultarResumenRouteOperation planilla list request: ${body}"/>
+                <removeHeaders id="removeHeader2" pattern="JMS*"/>
+                <to id="ObtenerResumenPlanillalFuseCall" uri="cxf:{{endpoint.planilla.detail.service.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="consultarResumenlResponse" type="java.lang.String"/>
+                <log id="TBR3" message="consultarResumenRouteOperation planilla list response ${body}"/>
+                <setBody id="responseStr1">
+                    <method
+                        beanType="cl.coopeuch.integracion.planillaconvenio.util.RouteFacade"
+                        id="consultarResumenResponseProcessor" method="processObtenerResumenPlanillalResponse(${body},${exchangeProperty.employeeEmail},${exchangeProperty.inputRut},${exchangeProperty.employeeName},${exchangeProperty.employeePhone})"/>
+                </setBody>
+                <doCatch id="consultarResumenCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <setProperty id="consultarResumenPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="consultarResumenExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

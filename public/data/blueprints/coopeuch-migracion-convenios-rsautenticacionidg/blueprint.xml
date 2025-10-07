@@ -1,0 +1,1716 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+    xmlns:sec="http://cxf.apache.org/configuration/security"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd      http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd                         http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd ">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder
+        id="property-placeholder-a76710a7-dd3c-4929-a9a0-0fcbdadc83c5" placeholder-prefix="[{"
+        placeholder-suffix="}]" persistent-id="wsautenticacionidg" update-strategy="reload"/>
+        
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+	<bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.portalweb}]/PortalWeb;charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.portalweb}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.portalweb}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.portalweb}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.portalweb}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.portalweb}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.portalweb}]"/>
+     </bean>	
+     <bean
+        class="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade" id="beanRouteFacade"/>
+    <cxf:cxfEndpoint address="/convenios/WSAutenticacionIDG"
+        id="servicioAutenticacionEndpoint"
+        serviceClass="cl.coopeuch.integracion.autenticacionidg.wsdl.WSAutenticacionIDGSoapPortType" wsdlURL="etc/wsdl/WSAutenticacionIDG.wsdl"/>
+	<cxf:cxfEndpoint address="[{endpoint.safesigner.auth.url}]"
+        id="endpointAuthSafesigner" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.autenticacionidg.wsdl.safesigner.AuthenticationWs" wsdlURL="etc/wsdl/AuthWs.wsdl" />
+    <cxf:cxfEndpoint address="[{endpoint.safesigner.sms.url}]"
+                     id="endpointSmsSafesigner" loggingFeatureEnabled="true"
+                     serviceClass="cl.coopeuch.integracion.autenticacionidg.wsdl.safesigner.sms.SmsWs" wsdlURL="etc/wsdl/SmsWs.wsdl" />
+    <cxf:cxfEndpoint address="[{endpoint.safesigner.card.url}]"
+                     id="endpointCardSafesigner" loggingFeatureEnabled="true"
+                     serviceClass="cl.coopeuch.integracion.autenticacionidg.wsdl.safesigner.card.CardWs" wsdlURL="etc/wsdl/CardWs.wsdl" />
+    <camelContext id="servicio-autenticacion-idg" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-inicio">
+            <from id="servicioAutenticacionEndpointListener" uri="cxf:bean:servicioAutenticacionEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean ref="beanRouteFacade" id="backupBody" method="backupBody"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutautenticar">
+                        <simple>${body} contains 'autenticar'</simple>
+                         <setProperty id="inicioSetTipoRequest1" propertyName="tipoRequest">
+                   				 <simple>AutenticarRequest</simple>
+                		</setProperty>
+                        <to id="autenticarTo" uri="direct:autenticar"/>
+                        <convertBodyTo id="loginresponsefromRoute" type="java.lang.String"/>
+                          <log id="loginresponse" loggingLevel="TRACE"  message="Loginresponse:${body}"/>
+                    </when>
+                    <when id="rutaCreaUsuario">
+                        <simple>${body} contains 'crear'</simple>
+                         <setProperty id="inicioSetTipoRequest2" propertyName="tipoRequest">
+                   				 <simple>CrearRequest</simple>
+                		</setProperty>
+                        <to id="crearTo" uri="direct:crear"/>
+                    </when>
+                    <when id="rutaDesbloquear">
+                        <simple>${body} contains 'desbloquear'</simple>
+                         <setProperty id="inicioSetTipoRequest3" propertyName="tipoRequest">
+                   				 <simple>DesbloquearRequest</simple>
+                		</setProperty>
+                        <to id="desbloquearTo" uri="direct:desbloquear"/>
+                    </when>
+                    <when id="rutaConsultarClave">
+                        <simple>${body} contains 'consultarClave'</simple>
+                         <setProperty id="inicioSetTipoRequest4" propertyName="tipoRequest">
+                   				 <simple>ConsultarClaveRequest</simple>
+                		</setProperty>
+                        <setProperty id="rutaConsultarClave-prop" propertyName="codigoDep">
+                            <simple>{{codigo.deprecado}}</simple>
+                        </setProperty>
+                        <to id="consultaDeprecate-to" uri="xslt://etc/xsl/error/errorConsultaClaveDep.xsl?saxon=true"/>
+                        <stop id="_stop5" />
+                    </when>
+                    <when id="rutaBloquear">
+                        <simple>${body} contains 'bloquear'</simple>
+                        <setProperty id="inicioSetTipoRequest5" propertyName="tipoRequest">
+                   				 <simple>BloquearRequest</simple>
+                		</setProperty>
+                        <to id="bloquearTo" uri="direct:bloquear"/>
+                    </when>
+                    <when id="rutaconsultarEstado">
+                        <simple>${body} contains 'consultarEstado'</simple>
+                         <setProperty id="inicioSetTipoRequest6" propertyName="tipoRequest">
+                   				 <simple>ConsultarEstadoRequest</simple>
+                		</setProperty>
+                        <to id="consultarEstadoTo" uri="direct:consultarEstado"/>
+                    </when>
+                    <when id="rutaActualizarClave">
+                        <simple>${body} contains 'actualizarClave'</simple>
+                         <setProperty id="inicioSetTipoRequest7" propertyName="tipoRequest">
+                   				 <simple>ActualizarClaveRequest</simple>
+                		</setProperty>
+                        <to id="actualizarClaveTo" uri="direct:actualizarClave"/>
+                    </when>
+                    <otherwise id="_otherwise1"/>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="log4"  message="ruteoOperaciones exception"/>
+                    <setProperty id="ruteoOperacionesPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteoOperacionesExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="autenticar">
+            <from id="autenticarFrom" uri="direct:autenticar" />
+            <setProperty propertyName="RUT" id="autenticarHeaderRut">
+                <xpath resultType="String">normalize-space(//Rut)</xpath>
+            </setProperty>
+            <setProperty propertyName="GroupId" id="autenticarGroupIdHeaderRut">
+                <xpath resultType="String">//GroupId</xpath>
+            </setProperty>
+            <setProperty propertyName="PASS" id="autenticarPasswordHeaderRut">
+                <xpath resultType="String">//Clave</xpath>
+            </setProperty>
+            <setProperty propertyName="CANAL" id="autenticarChannelHeaderRut">
+                <xpath resultType="String">//canal</xpath>
+            </setProperty>
+            <setProperty propertyName="SERVICIO" id="autenticarHeaderServicio">
+                <simple>Servicio Autenticacion</simple>
+            </setProperty>
+            <setProperty propertyName="ACCION" id="autenticarHeaderAccion">
+                <simple>crear</simple>
+            </setProperty>
+            <setProperty propertyName="migracion" id="autenticarHeaderMigracion">
+                <simple>{{migracion}}</simple>
+            </setProperty>
+            <setProperty propertyName="POLICY_SS" id="policySS-autenticar">
+                <simple>{{policy.safesigner}}</simple>
+            </setProperty>
+            <log id="_log15" message="Migracion: ${exchangeProperty.migracion}" />
+            <choice id="autenticar-choice">
+                <when id="autenticar-when">
+                    <simple>${exchangeProperty.migracion} == 1</simple>
+                    <to id="autenticarSS-to" uri="direct:autenticarSS" />
+                    <choice id="autenticarSS-choice">
+                        <when id="autenticarSS-when">
+                            <simple>${exchangeProperty.STATUS_AUTH} == 0</simple>
+                            <wireTap id="autenticarSS-bd-wiretap" uri="direct:insMigracionLog" />
+                            <removeHeaders id="autenticarSS-removeHeaders-other" pattern="*"/>
+                            <to id="probarConexion-IDG-To-autenticarSS-other" uri="direct:probarConexion"/>
+                            <to id="autenticarSS-xls" uri="xslt://etc/xsl/response/xml2xml_autenticar.xsl?saxon=true" />
+                        </when>
+                        <when id="autenticarSS-when-change-migra">
+                            <simple>${exchangeProperty.STATUS_AUTH} == 209</simple>
+                            <to id="changeRequiredValidate-auntenticaSS" uri="direct:changeRequiredValidate" />
+                        </when>
+                        <otherwise>
+                            <to id="autenticarIDG-to-otherwise" uri="direct:autenticarIDG" />
+                            <wireTap id="autenticarIDG-wiretap_otherwise" uri="direct:insMigracionLog" />
+                        </otherwise>
+                    </choice>
+                </when>
+                <otherwise id="autenticar-otherwise">
+                    <to id="autenticar-to-otherwise" uri="direct:autenticarSS" />
+                    <choice id="autenticarSS-choice-otherwise">
+                        <when id="autenticarSS-when-otherwise">
+                            <simple>${exchangeProperty.STATUS_AUTH} == 0</simple>
+                            <wireTap id="autenticarSS-wiretap-otherwise" uri="direct:insMigracionLog" />
+                            <to id="autenticarSS-xls-otherwise" uri="xslt://etc/xsl/response/xml2xml_autenticar.xsl?saxon=true" />
+                            <log id="aunteticar_log1" loggingLevel="TRACE"  message="Loginresponse:${body}"/>
+                            <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                            <stop />
+                        </when>
+                        <when id="autenticarSS-when-change">
+                            <simple>${exchangeProperty.STATUS_AUTH} == 209</simple>
+                            <to id="changeRequiredValidate-when-other" uri="direct:changeRequiredValidate" />
+                            <stop />
+                        </when>
+                        <otherwise id="autenticarSS-otherwise">
+                            <wireTap id="autenticarSS-wiretap_otherwise" uri="direct:insMigracionLog" />
+                            <to id="autenticarSS-otherwise-xsl" uri="xslt://etc/xsl/response/SS/xml2xml_AutenticateSafeSigner.xsl?saxon=true" />
+                            <log id="aunteticar_log4" loggingLevel="TRACE"  message="Loginresponse:${body}"/>
+                            <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                            <stop />
+                        </otherwise>
+                    </choice>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="changeRequiredValidate">
+            <from id="changeRequiredValidate" uri="direct:changeRequiredValidate" />
+            <bean id="requestAuthChange" ref="beanRouteFacade" method="requestAuthChange" />
+            <to id="cxfServiceAuthChange" uri="cxf:bean:endpointAuthSafesigner?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}" />
+            <bean id="responseAuthChange" ref="beanRouteFacade" method="responseAuthChange" />
+            <choice id="changeRequiredValidate-choice">
+                <when id="changeRequiredValidate-when">
+                    <simple>${exchangeProperty.STATUS_AUTH} == 203</simple>
+                    <setProperty id="autenticarSS-when-change-prop-migra" propertyName="aunthicateUserStatus">
+                        <simple>PASSWORD_CHANGE_REQUIRED</simple>
+                    </setProperty>
+                    <wireTap id="autenticarSS-wiretap-change-migra" uri="direct:insMigracionLog" />
+                    <to id="autenticarSS-xls-change-migra" uri="xslt://etc/xsl/error/errorAutenticar.xsl?saxon=true" />
+                    <log id="aunteticar_log2" loggingLevel="TRACE"  message="Loginresponse:${body}"/>
+                    <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                </when>
+                <otherwise id="changeRequiredValidate-other">
+                    <wireTap id="changeValidate-wiretap_otherwise" uri="direct:insMigracionLog" />
+                    <to id="changeValidate-otherwise-xsl" uri="xslt://etc/xsl/response/SS/xml2xml_AutenticateSafeSigner.xsl?saxon=true" />
+                    <log id="aunteticar_log3" loggingLevel="TRACE"  message="Loginresponse:${body}"/>
+                    <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                </otherwise>
+            </choice>
+        </route>
+        <route id="preAuthAssignSS">
+            <from id="preAuthAssignSSFrom" uri="direct:preAuthAssignSS" />
+            <setProperty propertyName="validaRut" id="preAuthAssignSSValidaRut">
+                <method beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                        id="preAuthAssignSSValidaRut" method="validaRut(${exchangeProperty.RUT})"/>
+            </setProperty>
+            <log message="validaRut: ${exchangeProperty.validaRut}" />
+            <choice>
+                <when>
+                    <simple>${exchangeProperty.validaRut} == 'Correcto'</simple>
+                    <to id="authAssignSS-to" uri="direct:authAssignSS" />
+                    <log id="preAuthAssignSS-log" message="Codigo Create: ${exchangeProperty.CREATE_USER}" />
+                    <choice id="preAuthAssignSS-choice">
+                        <when id="preAuthAssignSS-when">
+                            <simple>${exchangeProperty.CREATE_USER} == 0</simple>
+                            <wireTap id="smsCreate-wiretap" uri="direct:smsCreate" />
+                            <wireTap id="cardCreateUser-wiretap" uri="direct:cardCreateUser" />
+                        </when>
+                    </choice>
+                </when>
+                <otherwise id="preAuthAssignSS-otherwise">
+                    <to id="preAuthAssignSSValidaRutInvalid" uri="xslt://etc/xsl/error/invalidRutCrearUsuario.xsl?saxon=true"/>
+                    <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                    <stop id="_stop6" />
+                </otherwise>
+            </choice>
+        </route>
+        <route id="smsCreate">
+            <from id="smsCreateFrom" uri="direct:smsCreate" />
+            <bean id="requestSmsCreate" ref="beanRouteFacade" method="requestSmsActivation" />
+            <to id="cxfServiceSmsCreate" uri="cxf:bean:endpointSmsSafesigner?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}" />
+            <bean id="responseSmsCreate" ref="beanRouteFacade" method="responseSmsCreate" />
+            <log id="smsCreate-log" message="Estado SMS Create: ${exchangeProperty.STATUS_SMS_CREATE}" />
+        </route>
+        <route id="cardCreateUser">
+            <from id="cardCreateUserFrom" uri="direct:cardCreateUser" />
+            <bean id="requestCardCreateUser" ref="beanRouteFacade" method="requestCardCreateUser" />
+            <to id="cxfServiceCardCreate" uri="cxf:bean:endpointCardSafesigner?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}" />
+            <bean id="responseCardCreateUser" ref="beanRouteFacade" method="responseCardCreateUser" />
+            <log id="cardCreateUser-log" message="Estado CARD Create: ${exchangeProperty.STATUS_CARD_CREATE}" />
+        </route>
+        <route id="autenticarSS">
+            <from id="autenticarSSFrom" uri="direct:autenticarSS" />
+            <doTry>
+                <setProperty id="autenticarSS-framework_SS-DoTry" propertyName="framework">
+                    <constant>SS</constant>
+                </setProperty>
+                <bean id="requestAutenticarSS" method="requestAutenticarSS" ref="beanRouteFacade"/>
+                <to id="to-autenticarSS" uri="cxf:bean:endpointAuthSafesigner?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}"/>
+                <bean id="autenticarSS-Response-Bean" method="responseAutenticarSS" ref="beanRouteFacade"/>
+                <doCatch>
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="autenticarSS-SetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <setProperty id="autenticarSS-STATUS-Error" propertyName="STATUS_AUTH">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="autenticarSS-operacion-Error" propertyName="OPERACION">
+                        <constant>AUTHVALIDATE</constant>
+                    </setProperty>
+                    <setProperty id="autenticarSS-framework_SS-DoCatch" propertyName="framework">
+                        <constant>SS</constant>
+                    </setProperty>
+                    <setProperty id="autenticarSS-MENSAJE-Error" propertyName="MENSAJE">
+                        <constant>Error en la comunicación con el servicio interno Servicio WSAuthSafesigner - ${exchangeProperty.framework}</constant>
+                    </setProperty>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="autenticarIDG">
+            <from id="autenticarIDGFrom" uri="direct:autenticarIDG"/>
+            <doTry id="autenticarTry">
+                <setHeader headerName="SOAPAction" id="autenticarIDG-soapAction">
+                    <constant>autenticar</constant>
+                </setHeader>
+                <setProperty propertyName="inputRut" id="autenticarHeader">
+                    <xpath resultType="String">normalize-space(//Rut)</xpath>
+                </setProperty>
+                <setProperty propertyName="validaRut" id="autenticarHeaderValidaRut">
+                    <method beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                        id="autenticarValidaRut" method="validaRut(${exchangeProperty.inputRut})"/>
+                </setProperty>
+                <setProperty propertyName="rawInputClave" id="autenticarHeaderRawClave">
+                    <xpath resultType="String">//Clave</xpath>
+                </setProperty>
+                <setProperty propertyName="inputClave" id="autenticarHeaderClave">
+                	<method beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                                id="decodeClave" method="decode(${exchangeProperty.rawInputClave})"/>
+                </setProperty>
+                <setProperty propertyName="inputGroupId" id="autenticarHeaderGroupId">
+                    <xpath resultType="String">//GroupId</xpath>
+                </setProperty>
+                <log id="autenticarlog1"  loggingLevel="TRACE" message="Rut Id: ${exchangeProperty.inputRut}"/>
+                <log id="autenticarlog2"  loggingLevel="TRACE" message="Rut Validation: ${exchangeProperty.validaRut}"/>
+                <convertBodyTo id="ruteoOperacionesBodyTo_validateUser" type="java.lang.String"/>
+                <log id="autenticarlog3"  loggingLevel="TRACE" message="Request String from WEB API/Fuse :${body}"/>
+                <choice id="validateUserRutValidation">
+                    <when id="validateUserRutOk">
+                        <simple>${exchangeProperty.inputGroupId} != '' and ${exchangeProperty.inputRut} != '' and ${exchangeProperty.validaRut} == 'Correcto' </simple>
+                        <log id="autenticarlog21"  loggingLevel="TRACE" message="Validation is successfill"/>
+                        <setProperty propertyName="AuthenticationType" id="validaUserHeaderAuthenticationType">
+                            <simple>{{IDG.admin.tipoAutentica}}</simple>
+                        </setProperty>
+                        <setProperty propertyName="passwordName" id="validaUserHeaderPasswordName">
+                            <simple>${property.DatosCanal.descripcion}</simple>
+                        </setProperty>
+                        <log id="autenticarlog3"  loggingLevel="TRACE" message="Rut in request :${exchangeProperty.inputRut}"/>
+                        <to id="validaUserXml2xmlIDGAuthenticate1" uri="xslt://etc/xsl/request/xml2xml_IDGAuthenticate.xsl"/>
+                        <convertBodyTo id="validateUserRequestToIDG" type="java.lang.String"/>
+                        <log id="autenticarlog4"  loggingLevel="TRACE" message="Validate User Request To IDG :${body}"/>
+                        <to id="validauserIDGAuthTo" uri="cxf:{{endpoint.IDG.url.AuthService}}?dataFormat=MESSAGE&amp;loggingFeatureEnabled=true"/>
+                        <convertBodyTo id="validateUserResponseFromIDG" type="java.lang.String"/>
+                        <log id="autenticarlog5"  loggingLevel="INFO" message="Validate User Response from IDG :${body}"/>
+                        <setProperty propertyName="aunthicateUserResponse" id="aunthicateUserResponse">
+                            <method
+                                beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                                id="aunthicateUserResponseProcessor" method="checkAunthicateUserResponse(${body})"/>
+                        </setProperty>
+                         <log id="autenticarlog5"  loggingLevel="TRACE" message="aunthicateUserStatus :${exchangeProperty.aunthicateUserStatus}"/>
+                         
+                        <choice id="aunthicateUserStatusChoice">
+                            <when id="aunthicateUsertatusSuccess">
+                                <simple>${exchangeProperty.aunthicateUserResponse.status} == 'SUCCESS'</simple>
+                                 <setProperty propertyName="lastLogin" id="lastLogin">
+                         		   <simple>${exchangeProperty.aunthicateUserResponse.lastAuthDate}</simple>                         		   
+                      		    </setProperty>                      		    
+                                <to id="xml2xml_IDGAuthenticate" uri="xslt://etc/xsl/response/xml2xml_autenticar.xsl?saxon=true"/>
+                                <wireTap id="preAuthAssignSS-wiretap" uri="direct:preAuthAssignSS" />
+                            </when>
+                            <otherwise id="aunthicateUsertatusFailure">
+                               <setProperty propertyName="aunthicateUserStatus" id="aunthicateUserStatus">
+                         		   <simple>${exchangeProperty.aunthicateUserResponse.status}</simple>
+                      		  </setProperty>
+                                <to id="probarConexion-aunthicateUsertatusFailure" uri="direct:probarConexion"/>
+                                <to id="rutValidationfailed" uri="xslt://etc/xsl/error/errorAutenticar.xsl?saxon=true"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <to id="probarConexion-otherwise_" uri="direct:probarConexion"/>
+                        <to id="authicateRutInvalid" uri="xslt://etc/xsl/error/invalidRutAuthenticateRut.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="autenticarCatch">
+                   <exception>java.lang.Exception</exception>
+                    <log id="exceptionlog2"  message="autenticar exception"/>
+                    <setProperty id="ruteoautenticarPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteoAutenticarsExcepcion" uri="direct:excepcion"/>
+                    </doCatch>
+            </doTry>
+        </route>
+        <route id="crearSS">
+           <from id="" uri="direct:crear" />
+           <doTry id="crearSSTry">
+               <setProperty propertyName="RUT" id="createUserHeaderRut">
+                   <xpath resultType="String">normalize-space(//Rut)</xpath>
+               </setProperty>
+               <setProperty propertyName="GroupId" id="createUserGroupIdHeaderRut">
+                   <xpath resultType="String">//GroupId</xpath>
+               </setProperty>
+               <setProperty propertyName="CANAL" id="createUserChannelHeaderRut">
+                   <xpath resultType="String">//canal</xpath>
+               </setProperty>
+               <setProperty propertyName="SERVICIO" id="createUserHeaderServicio">
+                   <simple>Servicio Autenticacion</simple>
+               </setProperty>
+               <setProperty propertyName="ACCION" id="createUserHeaderAccion">
+                   <simple>crear</simple>
+               </setProperty>
+               <setProperty propertyName="migracion" id="createUserHeaderMigracion">
+                   <simple>{{migracion}}</simple>
+               </setProperty>
+               <setProperty propertyName="POLICY_SS" id="policySS-crearSS">
+                   <simple>{{policy.safesigner}}</simple>
+               </setProperty>
+               <log id="_log13" message="Migracion: ${exchangeProperty.migracion}" />
+               <choice id="migracion-choice">
+                   <when id="migracion-when">
+                       <simple>${exchangeProperty.migracion} == 1</simple>
+                       <to id="consultaEstadoSS-to" uri="direct:consultarEstadoSS" />
+                       <choice id="consultarEstado_Safesigner-choice">
+                           <when id="consultarEstado_Safesigner-choice">
+                               <simple>${exchangeProperty.CODIGO} == 4</simple>
+                               <to id="createUserSS-to" uri="direct:preAuthAssignSS"/>
+                               <choice id="authAssignSS-choice">
+                                   <when id="authAssignSS-when">
+                                       <simple>${exchangeProperty.CREATE_USER} == 0</simple>
+                                       <to id="changeRequired-to" uri="direct:authChangeRequiredSS" />
+                                       <wireTap id="wireTapcrearIDG" uri="direct:crearIDG" />
+                                       <wireTap id="wireTapcrearSS-bd" uri="direct:insMigracionLog"/>
+                                       <choice id="authChangeRequiredSS-choice">
+                                           <when id="authChangeRequiredSS-when">
+                                               <simple>${exchangeProperty.CHANGE_REQUIRED} == 0</simple>
+                                               <to id="probarConexion--authChangeRequiredSS" uri="direct:probarConexion"/>
+                                               <to id="authChangeRequiredSS-xsl" uri="xslt://etc/xsl/response/xml2xml_crearOk.xsl?saxon=true"/>
+                                               <wireTap id="getUserPortalConvenio-wireTap" uri="direct:userPortalConvenio" />
+                                               <wireTap id="actualizarClaveRequired-wireTap" uri="direct:actualizarClaveRequired" />
+                                           </when>
+                                           <otherwise>
+                                               <to id="probarConexion-authChangeRequiredSS-other" uri="direct:probarConexion"/>
+                                               <to id="authChangeRequiredSSXsl-other" uri="xslt://etc/xsl/error/errorChnagePassword.xsl?saxon=true"/>
+                                           </otherwise>
+                                       </choice>
+                                   </when>
+                                   <otherwise>
+                                       <to id="preCrearIDG-to" uri="direct:preCrearIDG" />
+                                       <wireTap id="wireTapcrearSS-IDGbd-other" uri="direct:insMigracionLog"/>
+                                   </otherwise>
+                               </choice>
+                           </when>
+                           <otherwise>
+                               <removeHeaders id="consultarEstado_Safesigner-removeHeaders" pattern="*"/>
+                               <to id="probarConexion-IDG-To-consultarEstadoSS" uri="direct:probarConexion"/>
+                               <to id="consultaEstadoSSXsl-other" uri="xslt://etc/xsl/response/SS/xml2xml_UserStatusSafeSigner.xsl?saxon=true"/>
+                           </otherwise>
+                       </choice>
+                   </when>
+                   <otherwise>
+                       <to id="consultaEstadoSS-to-other" uri="direct:consultarEstadoSS" />
+                       <choice id="consultarEstado_Safesigner-choice-other">
+                           <when id="consultarEstado_Safesigner-choice-other">
+                               <simple>${exchangeProperty.CODIGO} == 4</simple>
+                               <to id="createUserSS-to-other" uri="direct:preAuthAssignSS"/>
+                               <choice id="authAssignSS-choice-other">
+                                   <when id="authAssignSS-when-other">
+                                       <simple>${exchangeProperty.CREATE_USER} == 0</simple>
+                                       <to id="changeRequired-to-other" uri="direct:authChangeRequiredSS" />
+                                       <wireTap id="wireTapcrearSS-bd-when" uri="direct:insMigracionLog"/>
+                                       <choice id="authChangeRequiredSS-choice-other">
+                                           <when id="authChangeRequiredSS-when-other">
+                                               <simple>${exchangeProperty.CHANGE_REQUIRED} == 0</simple>
+                                               <to id="authChangeRequiredSS-xsl-other" uri="xslt://etc/xsl/response/xml2xml_crearOk.xsl?saxon=true"/>
+                                               <wireTap id="getUserPortalConvenio-to-other" uri="direct:userPortalConvenio" />
+                                               <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                                           </when>
+                                           <otherwise>
+                                               <to id="authChangeRequiredSSXsl-other-other" uri="xslt://etc/xsl/error/errorChnagePassword.xsl?saxon=true"/>
+                                               <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                                           </otherwise>
+                                       </choice>
+                                   </when>
+                                   <otherwise>
+                                       <wireTap id="wireTapcrearSS-bd-other" uri="direct:insMigracionLog"/>
+                                       <to id="authAssignSSXsl-other-other" uri="xslt://etc/xsl/error/errorCrearUsuario.xsl?saxon=true"/>
+                                       <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                                   </otherwise>
+                               </choice>
+                           </when>
+                           <otherwise>
+                               <to id="consultaEstadoSSXsl-other" uri="xslt://etc/xsl/response/SS/xml2xml_UserStatusSafeSigner.xsl?saxon=true"/>
+                               <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                           </otherwise>
+                       </choice>
+                   </otherwise>
+               </choice>
+           </doTry>
+        </route>
+        <route id="consultarEstadoSS">
+            <from id="consultarEstadoSSFrom" uri="direct:consultarEstadoSS" />
+            <doTry>
+                <setProperty id="consultarEstadoSS-framework_SS-DoTry" propertyName="framework">
+                    <constant>SS</constant>
+                </setProperty>
+                <bean id="requestconsultarEstadoSS" method="requestStatusUserSS" ref="beanRouteFacade"/>
+                <to id="to-consultarEstadoSS" uri="cxf:bean:endpointAuthSafesigner?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}"/>
+                <bean id="consultarEstadoSS-Response-Bean" method="responseStatusUserSS" ref="beanRouteFacade"/>
+                <doCatch>
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="consultarEstadoSS-SetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <setProperty id="consultarEstadoSS-codigo-Error" propertyName="CODIGO">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="consultarEstadoSS-operacion-Error" propertyName="OPERACION">
+                        <constant>AUTHUSERSTATUS</constant>
+                    </setProperty>
+                    <setProperty id="consultarEstadoSS-framework_SS-DoCatch" propertyName="framework">
+                        <constant>SS</constant>
+                    </setProperty>
+                    <choice id="_choice11">
+                        <when id="_when11">
+                            <simple>${exchangeProperty.migracion} == 0</simple>
+                            <to id="toXmlSalida-ServidorSafesigner-consultarEstadoSS" uri="xslt://etc/xsl/response/SS/errorErrorServidor.xsl?saxon=true"/>
+                            <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                            <stop id="_stop11"/>
+                        </when>
+                        <otherwise id="_otherwise17">
+                            <wireTap id="llamada_BD-ERROR-consultarEstadoSS" uri="direct:insMigracionLog"/>
+                            <to id="consultarEstadoSS-To-Error" uri="direct:preCrearIDG"/>
+                            <stop id="_stop12" />
+                        </otherwise>
+                    </choice>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="authAssignSS">
+            <from id="authAssignSS-from" uri="direct:authAssignSS" />
+            <doTry>
+                <setProperty id="authAssignSS-framework_SS-DoTry" propertyName="framework">
+                    <constant>SS</constant>
+                </setProperty>
+                <bean id="requestCrearUsuarioSS" ref="beanRouteFacade" method="requestAsignarUsuarioSS" />
+                <to id="cxfServiceCreateUser" uri="cxf:bean:endpointAuthSafesigner?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}" />
+                <bean id="responseCrearUsuarioSS" ref="beanRouteFacade" method="responseAsignarUsuarioSS" />
+                <doCatch>
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="authAssignSS-SetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <setProperty id="authAssignSS-codigo-Error" propertyName="CODIGO">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="authAssignSS-operacion-Error" propertyName="OPERACION">
+                        <constant>AUTHASSIGN</constant>
+                    </setProperty>
+                    <setProperty id="authAssignSS-framework_SS-DoCatch" propertyName="framework">
+                        <constant>SS</constant>
+                    </setProperty>
+                    <choice id="_choice10">
+                        <when id="_when10">
+                            <simple>${exchangeProperty.migracion} == 0</simple>
+                            <to id="toXmlSalida-ServidorSafesigner-authAssignSS" uri="xslt://etc/xsl/response/SS/errorErrorServidor.xsl?saxon=true"/>
+                            <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                            <stop id="_stop4"/>
+                        </when>
+                        <otherwise id="_otherwise16">
+                            <wireTap id="llamada_BD-ERROR-authAssignSS" uri="direct:insMigracionLog"/>
+                            <to id="preCrearIDG-To-Error" uri="direct:preCrearIDG"/>
+                            <stop id="_stop7" />
+                        </otherwise>
+                    </choice>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="preCrearIDG">
+            <from id="preCrearIDGFrom" uri="direct:preCrearIDG" />
+            <removeHeaders id="preCrearIDG-removeHeaders-other" pattern="*"/>
+            <setBody id="preCrearIDG-setBody">
+                <simple>${exchangeProperty.theoriginalbody}</simple>
+            </setBody>
+            <to id="crearIDG-To" uri="direct:crearIDG"/>
+            <choice id="preCrearIDG-choice">
+                <when id="preCrearIDG-when">
+                    <simple>${exchangeProperty.createUserStatus} == 'SUCCESS'</simple>
+                    <wireTap id="preConsultaClaveIDG-To-Error" uri="direct:preConsultaClaveIDG"/>
+                </when>
+            </choice>
+        </route>
+        <route id="preConsultaClaveIDG">
+            <from id="preConsultaClaveIDGFrom" uri="direct:preConsultaClaveIDG" />
+            <setBody>
+                <simple>${exchangeProperty.theoriginalbody}</simple>
+            </setBody>
+            <to id="consultarClaveIDG-To-Error" uri="direct:consultarClave"/>
+            <choice>
+                <when>
+                    <simple>${exchangeProperty.claveGenerada} != 'FAILURE' and ${exchangeProperty.claveGenerada} != 'USER_NOT_EXIST'</simple>
+                    <setProperty propertyName="genereatedPassword" id="genereatedPassword">
+                        <simple>${exchangeProperty.claveGenerada}</simple>
+                    </setProperty>
+                    <to id="userPortalConvenio-to-IDG" uri="direct:userPortalConvenio" />
+                </when>
+            </choice>
+        </route>
+        <route id="authChangeRequiredSS">
+            <from id="authChangeRequiredSS-from" uri="direct:authChangeRequiredSS" />
+            <bean id="requestCambiarClaveSS" ref="beanRouteFacade" method="requestCambiarClaveSS" />
+            <to id="cxfServiceChangeRequired" uri="cxf:bean:endpointAuthSafesigner?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}" />
+            <bean id="responseCambiarClaveSS" ref="beanRouteFacade" method="responseCambiarClaveSS" />
+        </route>
+        <route id="actualizarClaveRequired">
+            <from id="actualizarClaveRequiredFrom" uri="direct:actualizarClaveRequired" />
+            <setHeader headerName="SOAPAction" id="actualizarClaveRequired-SOAPAction">
+                <constant>actualizar</constant>
+            </setHeader>
+
+            <to id="actualizarClaveRequired_IDGLoginXSL" uri="xslt://etc/xsl/request/xml2xml_IDGLogin.xsl"/>
+            <to id="actualizarClaveRequired_IDGLoginTo" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+            <convertBodyTo id="actualizarClaveRequiredLoginResponse" type="java.lang.String"/>
+            <log id="actualizarClaveRequired.log3"  loggingLevel="TRACE" message="IDG Admin User Login Response:${body}"/>
+            <setHeader headerName="Cookie" id="actualizarClaveRequiredPropertyCookie">
+                <simple>${headers.Set-Cookie}</simple>
+            </setHeader>
+
+            <to id="actualizarClaveRequired_xml2xml" uri="xslt://etc/xsl/request/xml2xml_IDGUserPasswordSetRequired.xsl"/>
+            <convertBodyTo id="actualizarClaveRequiredRequest" type="java.lang.String"/>
+            <log id="actualizarClaveRequired-log1"  loggingLevel="TRACE" message="Change password Request:${body}"/>
+            <to id="actualizarClaveRequired-cxf" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+            <convertBodyTo id="actualizarClaveRequiredResponse" type="java.lang.String"/>
+            <log id="actualizarClaveRequired-log2"  loggingLevel="TRACE" message="Change Password Response:${body}"/>
+
+            <to id="actualizarClaveRequired_xml2xml_IDGLogoutXSL" uri="xslt://etc/xsl/request/xml2xml_IDGLogout.xsl"/>
+            <to id="actualizarClaveRequired_IDGLogoutTo" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+        </route>
+        <route id="userPortalConvenio">
+            <from id="userPortalConvenio-to" uri="direct:userPortalConvenio" />
+            <to id="getUserPortalConvenio-to" uri="direct:getUserPortalConvenio" />
+            <choice id="userPortalConvenio-choice">
+                <when id="userPortalConvenio-when">
+                    <simple>${exchangeProperty.ESTADO_PORTAL} == '200'</simple>
+                    <to id="enviarNotificacion-to" uri="direct:enviarNotificacion" />
+                </when>
+                <otherwise>
+                    <to id="userPortalConvenio-otherwise" uri="xslt://etc/xsl/error/errorPortalConvenioServer.xsl" />
+                </otherwise>
+            </choice>
+        </route>
+        <route id="getUserPortalConvenio">
+            <from id="getUserPortalConvenio-from" uri="direct:getUserPortalConvenio" />
+            <to id="getUserPortalConvenioXsl" uri="xslt://etc/xsl/request/xml2xml_GetUserPortalConvenio.xsl"/>
+            <convertBodyTo id="getUserPortalConvenioRequestBody" type="java.lang.String"/>
+            <log id="bodyUserPortalConvenio" message="body portal: ${body}" />
+            <to id="cxfgetUserPortalConvenioRequest" uri="cxf:{{endpoint.usuarioPortalConvenio.service}}?dataFormat=MESSAGE"/>
+            <convertBodyTo id="getUserPortalConvenioResponseBody" type="java.lang.String"/>
+            <bean id="responseGetUsuarioPortalConvenio" ref="beanRouteFacade" method="responseGetUsuarioPortalConvenio" />
+        </route>
+        <route id="enviarNotificacion">
+            <from id="enviarNotificacion-from" uri="direct:enviarNotificacion" />
+            <removeHeaders id="enviarNotificacion-removeHeader" pattern="*" />
+            <setProperty propertyName="plantilla" id="enviarNotificacion-plantilla">
+                <simple>{{nombre.plantilla.notificacion}}</simple>
+            </setProperty>
+            <setProperty propertyName="notificacion" id="enviarNotificacion-notificacion">
+                <simple>{{notificacion.id}}</simple>
+            </setProperty>
+            <setProperty propertyName="canalLLamada" id="enviarNotificacion-canal">
+                <simple>{{canal.llamada}}</simple>
+            </setProperty>
+            <setProperty propertyName="userId" id="enviarNotificacion-userId">
+                <simple>{{user.id}}</simple>
+            </setProperty>
+            <setProperty propertyName="asunto" id="enviarNotificacion-asunto">
+                <simple>{{asunto}}</simple>
+            </setProperty>
+            <to id="sendCreateUserEmailXsl" uri="xslt://etc/xsl/request/xml2xml_SendCreateUserEmail.xsl"/>
+            <convertBodyTo id="sendCreateUserEmailRequestBody" type="java.lang.String"/>
+            <log id="bodyEnviarNotificacion" message="body notificacion: ${body}" />
+            <to id="cxfsendCreateUserEmailRequest" uri="cxf:{{endpoint.notificacion.service}}?dataFormat=MESSAGE"/>
+            <bean id="responseEnvioNotificacion" method="responseEnvioNotificacion" ref="beanRouteFacade"/>
+        </route>
+        <route id="crearIDG">
+            <from id="crearIDGFrom" uri="direct:crearIDG"/>
+            <doTry id="crearTry">
+                <setHeader headerName="SOAPAction" id="crearIDG-SOAPAction">
+                    <constant>crear</constant>
+                </setHeader>
+                <setProperty propertyName="inputRut" id="crearHeaderRut">
+                    <xpath resultType="String">normalize-space(//Rut)</xpath>
+                </setProperty>
+                <setProperty propertyName="inputGroupId" id="crearHeaderGroupId">
+                    <xpath resultType="String">normalize-space(//GroupId)</xpath>
+                </setProperty>
+                <setProperty propertyName="validaRut" id="crearHeaderValidaRut">
+                    <method beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                        id="crearValidaRut" method="validaRut(${exchangeProperty.inputRut})"/>
+                </setProperty>
+                <log id="createUserlog1"  loggingLevel="TRACE" message="Rut Id: ${exchangeProperty.inputRut}"/>
+                <log id="createUserlog2"  loggingLevel="TRACE" message="Rut Validation: ${exchangeProperty.validaRut}"/>
+                <convertBodyTo id="ruteoOperacionesBodyTo_crear" type="java.lang.String"/>
+                <log id="createUserlog3"  loggingLevel="TRACE" message="Request String from WEB API/Fuse :${body}"/>
+                <choice id="crearValidaRutValida">
+                    <when id="crearRutOk">
+                        <simple>${exchangeProperty.validaRut} == 'Correcto'</simple>
+                     
+                   <convertBodyTo id="idgLoginRequest" type="java.lang.String"/>
+                        <log id="createUserlog4"  loggingLevel="TRACE" message="Invoke the IDG Login service"/>
+                        <setProperty propertyName="IDG.admin.user" id="create_user_IDG_User">
+                            <simple>{{IDG.admin.user}}</simple>
+                        </setProperty>
+                        <setProperty propertyName="IDG.admin.password" id="create_user_IDG_Password">
+                            <simple>{{IDG.admin.password}}</simple>
+                        </setProperty>
+                        <setProperty propertyName="IDG.admin.grupo.clientes" id="create_user_IDG_User">
+                            <simple>{{IDG.admin.grupo.clientes}}</simple>
+                        </setProperty>
+                        <to id="crear_usuario_xml2xml_IDGLoginXSL" uri="xslt://etc/xsl/request/xml2xml_IDGLogin.xsl"/>
+                        <log id="adminLoginLog" message="Admin user Login :${body}" />
+                        <to id="crear_usuario_IDGLoginTo" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                        <convertBodyTo id="create_user_idgLoginResponse" type="java.lang.String"/>
+                        <log id="createUserlog6"  loggingLevel="TRACE" message="IDG Admin User Login Response:${body}"/>
+                        <log id="createUserlog7"  loggingLevel="TRACE" message="The IDG Login service is successfull."/>
+                        <setHeader headerName="Cookie" id="create_user_setProperty11">
+                            <simple>${headers.Set-Cookie}</simple>
+                        </setHeader>
+                        <to id="crear_usuario_xml2xml_IDGUserCreate" uri="xslt://etc/xsl/request/xml2xml_IDGUserCreate.xsl"/>
+                        <convertBodyTo id="userCreateRequest" type="java.lang.String"/>
+                        <log id="createUserlog8"  loggingLevel="TRACE" message="Create User Request:${body}"/>
+                        <to id="crear_usuario_IDGUserCreate" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE&amp;loggingFeatureEnabled=true"/>
+                        <convertBodyTo id="userCreateResponse" type="java.lang.String"/>
+                        <log id="createUserlog9"  loggingLevel="TRACE" message="Create User Response:${body}"/>
+                        <setProperty propertyName="createUserStatus" id="createUserStatus">
+                            <method
+                                beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                                id="createUserResponseProcessor" method="checkCreateUserResponse(${body})"/>
+                        </setProperty>
+                        <log id="createUserlog10"  loggingLevel="TRACE" message="createUserStatus: ${exchangeProperty.createUserStatus}"/>
+                        <removeHeaders id="removeIdgPasswodHeader1" pattern="IDG.admin.password" />
+                        <choice id="crearLdapValida">
+                            <when id="crearLdapOk">
+                                <simple>${exchangeProperty.createUserStatus} == 'SUCCESS'</simple>
+                                <to id="xml2xml_IDGUserPasswordCreate" uri="xslt://etc/xsl/request/xml2xml_IDGUserPasswordCreate.xsl"/>
+                                <convertBodyTo id="userPasswordRequest" type="java.lang.String"/>
+                                <log id="createUserlog11"  loggingLevel="TRACE" message="Create Password Request:${body}"/>
+                                <to id="actualizarClaveIDGUserPasswordCreate" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                                <convertBodyTo id="userPasswordResponse" type="java.lang.String"/>
+                                <log id="createUserlog12"  loggingLevel="TRACE" message="Create Password Response:${body}"/>
+                                <setProperty
+                                    propertyName="createPasswordStatus" id="createPasswordStatus">
+                                    <method
+                                    beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                                    id="createPasswordResponseProcessor" method="checkCreatePasswordResponse(${body})"/>
+                                </setProperty>
+                                <to
+                                    id="creacion_usuario_xml2xml_IDGLogoutXSL" uri="xslt://etc/xsl/request/xml2xml_IDGLogout.xsl"/>
+                                <to id="creacion_usuario_IDGLogoutTo" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                                <log id="createUserlog13"  loggingLevel="TRACE" message="Create Password Status:${exchangeProperty.createPasswordStatus}"/>
+                                <choice id="createPasswordChoice">
+                                    <when id="createPasswordOk">
+                                    <simple>${exchangeProperty.createPasswordStatus} == 'SUCCESS'</simple>
+                                    <log id="createUserlog14"  loggingLevel="TRACE" message="Sending User Create Success Message"/>
+                                    <to
+                                    id="crearValidaRutSuccess" uri="xslt://etc/xsl/response/xml2xml_crearOk.xsl?saxon=true"/>
+                                    </when>
+                                    <otherwise id="crearLdapError">
+                                    <log id="createUserlog15"  loggingLevel="TRACE" message="Error occured while creating password."/>
+                                    <to
+                                    id="crearValidaRutError" uri="xslt://etc/xsl/response/xml2xml_crearOk.xsl?saxon=true"/>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <when id="crearUserexists">
+                                <simple>${exchangeProperty.createUserStatus} == 'USER_EXIST'</simple>
+                                <to id="crearValidaRutExists" uri="xslt://etc/xsl/error/errorExisteCrearUsuario.xsl?saxon=true"/>
+                            </when>
+                            <otherwise id="crearLdapError">
+                                <log id="createUserlog16"  loggingLevel="TRACE" message="Error occured while creating user."/>
+                                <to id="crearValidaRutException" uri="xslt://etc/xsl/error/errorCrearUsuario.xsl?saxon=true"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="crearRutError">
+                        <to id="probarConexion-crearRut-otherwise" uri="direct:probarConexion"/>
+                        <to id="crearValidaRutInvalid" uri="xslt://etc/xsl/error/invalidRutCrearUsuario.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="crearCatch">
+                   <exception>java.lang.Exception</exception>
+                    <log id="exceptionlog3"  message="autenticar exception"/>
+                    <setProperty id="ruteoCrearPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteoCrearExcepcion" uri="direct:excepcion"/>
+                    </doCatch>
+            </doTry>
+        </route>
+       
+        <route id="consultarClave">
+            <from id="consultarClaveFrom" uri="direct:consultarClave"/>
+            <doTry id="obtainPasswordTry">
+                <setProperty propertyName="inputRut" id="obtainPasswordHeaderRut">
+                    <xpath resultType="String">normalize-space(//Rut)</xpath>
+                </setProperty>
+                <setProperty propertyName="inputGroupId" id="obtainPasswordHeaderGroupId">
+                    <xpath resultType="String">normalize-space(//GroupId)</xpath>
+                </setProperty>
+                <setProperty propertyName="validaRut" id="obtainPasswordHeaderValidaRut">
+                    <method beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                        id="obtainPasswordValidaRut" method="validaRut(${exchangeProperty.inputRut})"/>
+                </setProperty>
+                <log id="obtainPasswordLlog1"  loggingLevel="TRACE" message="Rut Id: ${exchangeProperty.Rut}"/>
+                <log id="obtainPasswordLog2"  loggingLevel="TRACE" message="Rut Validation: ${exchangeProperty.validaRut}"/>
+                <convertBodyTo
+                    id="ruteoOperacionesBodyTo_obtainPassword" type="java.lang.String"/>
+                <log id="obtainPasswordLog3"  loggingLevel="TRACE" message="Request String from WEB API/Fuse :${body}"/>
+                <choice id="obtainPasswordValidaRutValida">
+                    <when id="obtainPasswordRutOk">
+                        <simple>${exchangeProperty.validaRut} == 'Correcto'</simple>
+                        <log id="obtainPasswordlog4"  loggingLevel="TRACE" message="Invoke the IDG Login service"/>
+                        <setProperty propertyName="IDG.admin.user" id="IDG_User">
+                            <simple>{{IDG.admin.user}}</simple>
+                        </setProperty>
+                        <setProperty propertyName="IDG.admin.password" id="IDG_Password">
+                            <simple>{{IDG.admin.password}}</simple>
+                        </setProperty>
+                        <setProperty propertyName="IDG.admin.grupo.clientes" id="IDG_User">
+                            <simple>{{IDG.admin.grupo.clientes}}</simple>
+                        </setProperty>
+                        <to id="obtainPassword_xml2xml_IDGLoginXSL" uri="xslt://etc/xsl/request/xml2xml_IDGLogin.xsl"/>
+                        <to id="obtainPassword_IDGLoginTo" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                        <convertBodyTo
+                            id="obtainPasswordIdgLoginResponse" type="java.lang.String"/>
+                        <log id="obtainPasswordLog6"  loggingLevel="TRACE" message="IDG Admin User Login Response:${body}"/>
+                        <log id="obtainPasswordLog7"  loggingLevel="TRACE" message="The IDG Login service is successfull."/>
+                        <setHeader headerName="Cookie" id="obtainPasswordHeader11">
+                            <simple>${headers.Set-Cookie}</simple>
+                        </setHeader>
+                        <to id="obtainPassword_xml2xml_obtainPassword" uri="xslt://etc/xsl/request/xml2xml_IDGUserPasswordGet.xsl"/>
+                        <convertBodyTo id="obtainPasswordRequest" type="java.lang.String"/>
+                        <log id="obtainPasswordLog8"  loggingLevel="TRACE" message="Obtain Password Request:${body}"/>
+                        <to id="obtainPassword_IDGObtainPassword" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                        <convertBodyTo id="obtainPasswordResponse" type="java.lang.String"/>
+                        <log id="obtainPassworLog9"  loggingLevel="TRACE" message="Obtain Password Response:${body}"/>
+                        <setProperty propertyName="obtainPasswordStatus" id="obtainPasswordStatus">
+                            <method
+                                beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                                id="obtainPasswordResponseProcessor" method="checkObtainPasswordResponse(${body})"/>
+                        </setProperty>
+                        <log id="obtainPasswordlog10"  loggingLevel="TRACE" message="obtainPasswordStatus: ${exchangeProperty.obtainPasswordStatus.password}"/>
+                        <removeHeaders id="removeIdgPasswodHeader2" pattern="IDG.admin.password" />
+                        <choice id="obtainPasswordStatusChoice">
+                            <when id="obtainPasswordStatusFailure">
+                                <simple>${exchangeProperty.obtainPasswordStatus.password} == 'FAILURE'</simple>
+                                <log id="obtainPasswordlog10"  loggingLevel="TRACE" message="Error occured while obtaining password."/>
+                                <to id="xml2xml_IDGUserPasswordGet" uri="xslt://etc/xsl/error/errorGetPassword.xsl"/>
+                            </when>
+                            <when id="obtainPasswordStatusFailure">
+                                <simple>${exchangeProperty.obtainPasswordStatus.password} == 'USER_NOT_EXIST'</simple>
+                                <log id="obtainPasswordlog10"  loggingLevel="TRACE" message="Error occured while obtaining password."/>
+                                <to id="xml2xml_IDGUserPasswordGet" uri="xslt://etc/xsl/error/errorGetPasswordUserNotExists.xsl"/>
+                            </when>
+                            <otherwise id="obtainPasswordOk">
+                                <log id="obtainPasswordlog10"  loggingLevel="TRACE" message="Sending Password"/>
+                                <setProperty
+                                    propertyName="claveGenerada" id="claveGenerada">
+                                    <simple>${exchangeProperty.obtainPasswordStatus.password}</simple>
+                                </setProperty>
+                                <setProperty propertyName="expiredyDate" id="expiredyDate">
+                                    <simple>${exchangeProperty.obtainPasswordStatus.expiredyDate}</simple>
+                                </setProperty>
+                                <setProperty propertyName="changeRequired" id="changeRequired">
+                                    <simple>${exchangeProperty.obtainPasswordStatus.changeRequired}</simple>
+                                </setProperty>
+                                <to id="obtainPasswordSuccess" uri="xslt://etc/xsl/response/xml2xml_getUserPassword.xsl?saxon=true"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="obtainPasswordRutError">
+                        <to id="probarConexion-obtainPasswordRut-otherwise" uri="direct:probarConexion"/>
+                        <to id="cobtainPasswordValidaRutError" uri="xslt://etc/xsl/error/invalidRutGetPassword.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="obtainPasswordCatch">
+                 <exception>java.lang.Exception</exception>
+                    <log id="exceptionlog4"  message="obtainPassword exception"/>
+                    <setProperty id="ruteoObtainPasswordPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteoObtainPasswordExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="actualizarClave">
+            <from id="actualizarClaveFrom" uri="direct:actualizarClave" />
+            <setProperty propertyName="RUT" id="actualizarClaveSSHeaderRut">
+                <xpath resultType="String">normalize-space(//Rut)</xpath>
+            </setProperty>
+            <setProperty propertyName="GroupId" id="actualizarClaveSSGroupIdHeaderRut">
+                <xpath resultType="String">//GroupId</xpath>
+            </setProperty>
+            <setProperty propertyName="CANAL" id="actualizarClaveSSChannelHeaderRut">
+                <xpath resultType="String">//canal</xpath>
+            </setProperty>
+            <setProperty propertyName="PASS" id="actualizarClaveSSPasswordHeaderRut">
+                <xpath resultType="String">//Clave</xpath>
+            </setProperty>
+            <setProperty propertyName="SERVICIO" id="actualizarClaveSSHeaderServicio">
+                <simple>Servicio Autenticacion</simple>
+            </setProperty>
+            <setProperty propertyName="ACCION" id="actualizarClaveSSHeaderAccion">
+                <simple>crear</simple>
+            </setProperty>
+            <setProperty propertyName="migracion" id="actualizarClaveSSHeaderMigracion">
+                <simple>{{migracion}}</simple>
+            </setProperty>
+            <setProperty propertyName="POLICY_SS" id="policySS-actualizarClaveSS">
+                <simple>{{policy.safesigner}}</simple>
+            </setProperty>
+            <log id="_log14" message="Migracion: ${exchangeProperty.migracion}" />
+            <choice id="actualizarClaveSS-choice_1">
+                <when id="actualizarClaveSS-when_1">
+                    <simple>${exchangeProperty.migracion} == 1</simple>
+                    <to id="actualizarClaveSS-to" uri="direct:actualizarClaveSS" />
+                    <choice id="actualizarClaveSS-choice_2">
+                        <when id="actualizarClaveSS-when_2">
+                            <simple>${exchangeProperty.STATUS_CHANGE} == 0</simple>
+                            <wireTap id="actualizarClaveIDG-wiretap" uri="direct:actualizarClaveIDG" />
+                            <wireTap id="actualizarClaveIDG-bd-wiretap" uri="direct:insMigracionLog" />
+                            <removeHeaders id="actualizarClaveSS-removeHeaders-other" pattern="*"/>
+                            <to id="probarConexion-IDG-To-actualizarClaveSS-other" uri="direct:probarConexion"/>
+                            <to id="actualizarClaveSS-xls" uri="xslt://etc/xsl/response/xml2xml_modificaClaveOk.xsl?saxon=true" />
+                        </when>
+                        <otherwise>
+                            <to id="actualizarClaveIDG-to-otherwise" uri="direct:actualizarClaveIDG" />
+                            <choice>
+                                <when>
+                                    <simple>${exchangeProperty.changePasswordStatus} == 'SUCCESS'</simple>
+                                    <wireTap id="preAuthAssignSS-wiretap-actualiza" uri="direct:preAuthAssignSS" />
+                                    <log id="preAuthAssignSS-log1" message="Estado Actualiza SS: ${exchangeProperty.CREATE_USER}" />
+                                    <log id="preAuthAssignSS-log2" message="Mensaje Actualiza SS: ${exchangeProperty.MENSAJE}" />
+                                </when>
+                            </choice>
+                            <wireTap id="actualizarClaveIDG-wiretap_otherwise" uri="direct:insMigracionLog" />
+                        </otherwise>
+                    </choice>
+                </when>
+                <otherwise id="actualizarClaveSS-otherwise">
+                    <to id="actualizarClaveSS-to-otherwise" uri="direct:actualizarClaveSS" />
+                    <choice id="actualizarClaveSS-choice-otherwise">
+                        <when id="actualizarClaveSS-when-otherwise">
+                            <simple>${exchangeProperty.STATUS_CHANGE} == 0</simple>
+                            <wireTap id="actualizarClaveSS-wiretap-otherwise" uri="direct:insMigracionLog" />
+                            <to id="actualizarClaveSS-xls-otherwise" uri="xslt://etc/xsl/response/xml2xml_modificaClaveOk.xsl?saxon=true" />
+                            <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                        </when>
+                        <otherwise id="actualizarClaveSS-otherwise">
+                            <to id="" uri="xslt://etc/xsl/response/SS/xml2xml_ChangePasswordSafeSigner.xsl?saxon=true" />
+                            <wireTap id="actualizarClaveSS-wiretap_otherwise" uri="direct:insMigracionLog" />
+                            <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                        </otherwise>
+                    </choice>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="actualizarClaveSS">
+            <from id="actualizarClaveSSFrom" uri="direct:actualizarClaveSS" />
+            <doTry>
+                <setProperty id="actualizarClaveSS-framework_SS-DoTry" propertyName="framework">
+                    <constant>SS</constant>
+                </setProperty>
+                <bean id="requestActualizarClaveSS" ref="beanRouteFacade" method="requestAsignarUsuarioSS" />
+                <to id="cxfServiceactualizarClaveSS" uri="cxf:bean:endpointAuthSafesigner?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}" />
+                <bean id="responseActualizarClaveSS" ref="beanRouteFacade" method="responseActualizarClaveSS" />
+                <doCatch id="actualizarClaveSS-doCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="actualizarClaveSS-SetBodyError">
+                        <simple>ERROR:${exception}: ${body}</simple>
+                    </setBody>
+                    <setProperty id="actualizarClaveSS-codigo-Error" propertyName="CODIGO">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="actualizarClaveSS-operacion-Error" propertyName="OPERACION">
+                        <constant>USER_STATUS</constant>
+                    </setProperty>
+                    <setProperty id="actualizarClaveSS-framework_SS-DoCatch" propertyName="framework">
+                        <constant>SS</constant>
+                    </setProperty>
+                    <choice id="_choice13">
+                        <when id="_when13">
+                            <simple>${exchangeProperty.migracion} == 0</simple>
+                            <to id="toXmlSalida-ServidorSafesigner-actualizarClaveSS" uri="xslt://etc/xsl/response/SS/errorErrorServidor.xsl?saxon=true"/>
+                            <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                            <stop id="_stop8"/>
+                        </when>
+                        <otherwise id="_otherwise12">
+                            <wireTap id="llamada_BD-ERROR-actualizarClaveSS" uri="direct:insMigracionLog"/>
+                            <to id="actualizarClaveSS-To-Error" uri="direct:actualizarClaveIDG"/>
+                            <stop id="_stop9" />
+                        </otherwise>
+                    </choice>
+                </doCatch>
+            </doTry>
+
+        </route>
+        <route id="actualizarClaveIDG">
+            <from id="actualizarClaveIDGFrom" uri="direct:actualizarClaveIDG"/>
+            <doTry id="changePasswordTry">
+                <setHeader headerName="SOAPAction" id="actualizarClaveIDG-SoapAction">
+                    <constant>actualizarClave</constant>
+                </setHeader>
+                <setProperty propertyName="inputRut" id="changePasswordHeaderRut">
+                    <xpath resultType="String">normalize-space(//Rut)</xpath>
+                </setProperty>
+                <setProperty propertyName="inputGroupId" id="changePasswordHeaderGroupId">
+                    <xpath resultType="String">//GroupId</xpath>
+                </setProperty>
+                <setProperty propertyName="rawInputClave" id="changePasswordHeaderRawClave">
+                    <xpath resultType="String">//Clave</xpath>
+                </setProperty>
+                <setProperty propertyName="inputClave" id="changePasswordHeaderClave">
+                	<method beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                                id="decodeModificarPwd" method="decode(${exchangeProperty.rawInputClave})"/>
+                </setProperty>
+                <setProperty propertyName="validaRut" id="changePasswordHeaderValidaRut">
+                    <method beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                        id="changePasswordValidaRut" method="validaRut(${exchangeProperty.inputRut})"/>
+                </setProperty>
+                <log id="changePasswordLlog1"  loggingLevel="TRACE" message="Rut Id: ${exchangeProperty.Rut}"/>
+                <log id="changePasswordLog2"  loggingLevel="TRACE" message="Rut Validation: ${exchangeProperty.validaRut}"/>
+                <convertBodyTo
+                    id="ruteoOperacionesBodyTo_changePassword" type="java.lang.String"/>
+                <log id="changePasswordLog3"  loggingLevel="TRACE" message="Request String from WEB API/Fuse :${body}"/>
+                <choice id="changePasswordValidaRutValida">
+                    <when id="changePasswordRutOk">
+                        <simple>${exchangeProperty.validaRut} == 'Correcto'</simple>
+                        <log id="changePasswordlog4"  loggingLevel="TRACE" message="Invoke the IDG Login service"/>
+                        <setProperty propertyName="IDG.admin.user" id="changepassword_IDG_User">
+                            <simple>{{IDG.admin.user}}</simple>
+                        </setProperty>
+                        <setProperty propertyName="IDG.admin.password" id="changepassword_IDG_Password">
+                            <simple>{{IDG.admin.password}}</simple>
+                        </setProperty>
+                        <setProperty propertyName="IDG.admin.grupo.clientes" id="changepassword_IDG_clientes">
+                            <simple>{{IDG.admin.grupo.clientes}}</simple>
+                        </setProperty>
+                        <to id="changePassword_xml2xml_IDGLoginXSL" uri="xslt://etc/xsl/request/xml2xml_IDGLogin.xsl"/>
+                        <to id="changePassword_IDGLoginTo" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                        <convertBodyTo
+                            id="chnagePasswordIdgLoginResponse" type="java.lang.String"/>
+                        <log id="changePasswordLog6"  loggingLevel="TRACE" message="IDG Admin User Login Response:${body}"/>
+                        <log id="changePasswordLog7"  loggingLevel="TRACE" message="The IDG Login service is successfull."/>
+                        <setHeader headerName="Cookie" id="changePasswordsetPropertyCookie">
+                            <simple>${headers.Set-Cookie}</simple>
+                        </setHeader>
+                        <to id="changePassword_xml2xml_changePassword" uri="xslt://etc/xsl/request/xml2xml_IDGUserPasswordSet.xsl"/>
+                        <convertBodyTo id="changePasswordRequest" type="java.lang.String"/>
+                        <log id="changePasswordLog8"  loggingLevel="TRACE" message="Chnage password Request:${body}"/>
+                        <to id="changePassword_IDGchangePassword" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                        <convertBodyTo id="changePasswordResponse" type="java.lang.String"/>
+                        <log id="changePasswordLog9"  loggingLevel="TRACE" message="Change Password Response:${body}"/>
+                        <setProperty propertyName="changePasswordStatus" id="changePasswordStatus">
+                            <method
+                                beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                                id="changePasswordResponseProcessor" method="checkChnagePasswordResponse(${body})"/>
+                        </setProperty>
+                        <log id="changePasswordlog10"  loggingLevel="TRACE" message="changePasswordStatus: ${exchangeProperty.changePasswordStatus}"/>
+                        <removeHeaders id="removeIdgPasswodHeader3" pattern="IDG.admin.password" />
+                        <choice id="changePasswordStatusChoice">
+                            <when id="changePasswordStatusFailure">
+                                <simple>${exchangeProperty.changePasswordStatus} == 'FAILURE'</simple>
+                                <log id="changePasswordlog10"  loggingLevel="TRACE" message="Error occured while changing password."/>
+                                <to id="probarConexion-To-actualizarClaveSS-failure" uri="direct:probarConexion"/>
+                                <to id="xml2xml_IDGUserPasswordChange" uri="xslt://etc/xsl/error/errorChnagePassword.xsl"/>
+                            </when>
+                            <when id="changePasswordStatusFailure">
+                                <simple>${exchangeProperty.changePasswordStatus} == 'USER_NOT_EXIST'</simple>
+                                <log id="changePasswordlog10"  loggingLevel="TRACE" message="Error occured while changing password."/>
+                                <to id="probarConexion-To-actualizarClaveSS-noexist" uri="direct:probarConexion"/>
+                                <to id="xml2xml_IDGUserPasswordChange" uri="xslt://etc/xsl/error/errorChnagePasswordUserNotExists.xsl"/>
+                            </when>
+                            <when id="changePasswordStatusFailure">
+                                <simple>${exchangeProperty.changePasswordStatus} == 'PWD_IN_HISTORY'</simple>
+                                <log id="changePasswordlog11"  loggingLevel="TRACE" message="Cannot repeat password from history."/>
+                                <to id="probarConexion-To-actualizarClaveSS-pwd" uri="direct:probarConexion"/>
+                                <to id="xml2xml_IDGUserPasswordChange" uri="xslt://etc/xsl/error/errorChangePasswordHistory.xsl"/>
+                            </when>
+                            <otherwise id="changePasswordOk">
+                                <log id="changePasswordlog10"  loggingLevel="TRACE" message="Password Updated Sucessfully"/>
+                                <to id="probarConexion-To-actualizarClaveSS-ok" uri="direct:probarConexion"/>
+                                <to id="changePasswordSuccess" uri="xslt://etc/xsl/response/xml2xml_modificaClaveOk.xsl?saxon=true"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="changePasswordRutError">
+                        <to id="probarConexion-To-actualizarClaveSS-otherwise" uri="direct:probarConexion"/>
+                        <to id="changePasswordValidaRutError" uri="xslt://etc/xsl/error/invalidRutChangePassword.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="changePasswordCatch">
+                   <exception>java.lang.Exception</exception>
+                    <log id="exceptionlog5"  message="changePassword exception"/>
+                    <setProperty id="ruteoChangePasswordPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteoChangePasswordExcepcion" uri="direct:excepcion"/>
+                    </doCatch>
+            </doTry>
+        </route>
+		
+		<route id="desbloqueo">
+			<from id="desbloqueoFrom" uri="direct:desbloquear"/>
+			<doTry id="_doTry1">
+                <setProperty propertyName="RUT" id="unsuspendUserHeaderRut">
+                    <xpath resultType="String">normalize-space(//Rut)</xpath>
+                </setProperty>
+                <setProperty propertyName="GroupId" id="unsuspendGroupIdHeaderRut">
+                    <xpath resultType="String">//GroupId</xpath>
+                </setProperty>
+                <setProperty propertyName="CANAL" id="unsuspendChannelHeaderRut">
+                    <xpath resultType="String">//canal</xpath>
+                </setProperty>
+                <setProperty propertyName="SERVICIO" id="unsuspendUserHeaderServicio">
+                    <simple>Servicio Autenticacion</simple>
+                </setProperty>
+                <setProperty propertyName="ACCION" id="unsuspendUserHeaderAccion">
+                    <simple>desbloqueo</simple>
+                </setProperty>
+                <setProperty propertyName="migracion" id="unsuspendUserHeaderMigracion">
+                    <simple>{{migracion}}</simple>
+                </setProperty>
+                <setProperty propertyName="POLICY_SS" id="policySS-desbloqueo">
+                    <simple>{{policy.safesigner}}</simple>
+                </setProperty>
+                <log id="_log1" message="Migracion: ${exchangeProperty.migracion}" />
+				<choice id="_choice1">
+					<when id="_when1">
+						<simple>${exchangeProperty.migracion} == 1</simple>
+                        <to id="desbloqueoSS-To" uri="direct:desbloqueo_Safesigner"/>
+						<choice id="_choice2">
+                            <when id="_when2">
+								<simple>${exchangeProperty.CODIGO} == 0</simple>
+                                <to id="toXmlSalida-Safesigner-Desbloquear" uri="xslt://etc/xsl/response/SS/xml2xml_UnSuspendSafeSigner.xsl?saxon=true"/>
+                                <setProperty id="bodyResponseSS-when-prop" propertyName="bodyResponseSS">
+                                    <simple>${body}</simple>
+                                </setProperty>
+                                <to id="probarConexion-IDG-To-Unsuspend-when" uri="direct:probarConexion"/>
+                                <setBody id="desbloqueoSetBody-when">
+                                    <simple>${exchangeProperty.bodyResponseSS}</simple>
+                                </setBody>
+                                <wireTap id="desbloqueoIDG-To" uri="direct:desbloquearIDG"/>
+								<wireTap id="llamada_BD-Desbloquear" uri="direct:insMigracionLog"/>
+                            </when>
+                            <otherwise id="_otherwise3">
+                                <to id="desbloqueoIDG-To" uri="direct:desbloquearIDG"/>
+								<wireTap id="llamada_BD-desbloqueo-other" uri="direct:insMigracionLog"/>
+                            </otherwise>
+                        </choice>
+					</when>
+                    <otherwise id="_otherwise4">
+                        <to id="other_desbloqueoSS-To" uri="direct:desbloqueo_Safesigner"/>
+                        <to id="other-toXmlSalida-Safesigner-Desbloquear" uri="xslt://etc/xsl/response/SS/xml2xml_UnSuspendSafeSigner.xsl?saxon=true"/>
+                        <log id="_log4" message="body: ${body}" />
+                        <wireTap id="llamada_BD-Desbloquear-other" uri="direct:insMigracionLog"/>
+                        <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                    </otherwise>
+				</choice>
+                <doCatch id="desbloqueo-catch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="desbloqueo-ss-To-Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+			</doTry>
+		</route>
+        <route id="probarConexionIDG">
+            <from id="probarConexionIDG-from" uri="direct:probarConexion"/>
+            <removeHeaders id="removeIdg_ProbarConexion" pattern="*"/>
+            <setBody id="_body_entrada02">
+                <simple>${property.theoriginalbody}</simple>
+            </setBody>
+            <setHeader headerName="SOAPAction" id="_setHeader_ProbarConexion">
+                <constant>{{IDG.soap.action}}</constant>
+            </setHeader>
+            <to id="probarConexionIDG-Xml2xml" uri="xslt://etc/xsl/request/IDG/xml2xmlin_probarConexionIDG.xsl"/>
+            <to id="cxf-probarConexionIDG" uri="cxf:{{endpoint.IDG.url.AuthService}}?dataFormat=MESSAGE"/>
+        </route>
+		<route id="desbloqueo_Safesigner">
+			<from id="desbloqueo_SafesignerFrom" uri="direct:desbloqueo_Safesigner" />
+            <doTry>
+                <setProperty id="unsuspend-framework_SS-DoTry" propertyName="framework">
+                    <constant>SS</constant>
+                </setProperty>
+                <bean id="requestDesbloqueoSS"
+                      method="requestDesbloqueoSS" ref="beanRouteFacade"/>
+                <to id="to-UnSuspend" uri="cxf:bean:endpointAuthSafesigner?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}"/>
+                <bean id="Desbloqueo-Response-Bean"
+                      method="responseDesbloqueoSS" ref="beanRouteFacade"/>
+                <log id="_log2" message="Salida Codigo: ${exchangeProperty.CODIGO}" />
+                <log id="_log3" message="Salida Mensaje: ${exchangeProperty.MENSAJE}" />
+                <doCatch id="DoCatch-unsuspendUsuarioSafesigner">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="SS-SetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <setProperty id="codigo-Error" propertyName="CODIGO">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="operacion-Error" propertyName="OPERACION">
+                        <constant>UNSUSPEND</constant>
+                    </setProperty>
+                    <setProperty id="unsuspend-framework_SS-DoCatch" propertyName="framework">
+                        <constant>SS</constant>
+                    </setProperty>
+                    <choice id="_choice3">
+                        <when id="_when3">
+                            <simple>${exchangeProperty.migracion} == 0</simple>
+                            <to id="toXmlSalida-ServidorSafesigner-unsuspend" uri="xslt://etc/xsl/response/SS/errorErrorServidor.xsl?saxon=true"/>
+                            <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                            <stop id="_stop1"/>
+                        </when>
+                        <otherwise id="_otherwise5">
+                            <wireTap id="llamada_BD-ERROR-unsuspend" uri="direct:insMigracionLog"/>
+                            <to id="desbloqueoIDG-To-Error" uri="direct:desbloquearIDG"/>
+                        </otherwise>
+                    </choice>
+                </doCatch>
+            </doTry>
+		</route>
+		
+		<route id="insMigracionLog">
+            <from id="insMigracionLog-from" uri="direct:insMigracionLog"/>
+            <doTry id="insMigracion-Try">
+                <to id="insMigracionLog-To" uri="sql-stored:classpath:etc/sql/pa_insMigracionSSLog.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseMigracion"/>
+                <doCatch id="insMigracion-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="desbloqueo-sp-To-Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="desbloquearIDG">
+            <from id="desbloquearFrom" uri="direct:desbloquearIDG"/>
+            <doTry id="unblockUserTry">
+                <setBody id="_body_entrada01">
+                    <simple>${property.theoriginalbody}</simple>
+                </setBody>
+                <setHeader headerName="SOAPAction" id="desbloquearIDG-SOAPAction">
+                    <constant>desbloquear</constant>
+                </setHeader>
+                <setProperty propertyName="inputGroupId" id="unblockUserHeaderGroupId">
+                    <xpath resultType="String">//GroupId</xpath>
+                </setProperty>
+                <setProperty propertyName="validaRut" id="unblockUserHeaderValidaRut">
+                    <method beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                        id="unblockUserValidaRut" method="validaRut(${exchangeProperty.RUT})"/>
+                </setProperty>
+                <log id="unblockUserLlog1"  loggingLevel="TRACE" message="Rut Id: ${exchangeProperty.Rut}"/>
+                <log id="unblockUserLog2"  loggingLevel="TRACE" message="Rut Validation: ${exchangeProperty.validaRut}"/>
+                <convertBodyTo id="ruteoOperacionesBodyTo_unblockUser" type="java.lang.String"/>
+                <log id="unblockUserLog3"  loggingLevel="TRACE" message="Request String from WEB API/Fuse :${body}"/>
+                <choice id="unblockUserValidaRutValida">
+                    <when id="unblockUserRutOk">
+                        <simple>${exchangeProperty.validaRut} == 'Correcto'</simple>
+                        <log id="unblockUserlog4"  loggingLevel="TRACE" message="Invoke the IDG Login service"/>
+                        <setProperty propertyName="IDG.admin.user" id="unblockUser_IDG_User">
+                            <simple>{{IDG.admin.user}}</simple>
+                        </setProperty>
+                        <setProperty propertyName="IDG.admin.password" id="unblockUser_IDG_Password">
+                            <simple>{{IDG.admin.password}}</simple>
+                        </setProperty>
+                        <setProperty propertyName="IDG.admin.grupo.clientes" id="unblockUser_IDG_clientes">
+                            <simple>{{IDG.admin.grupo.clientes}}</simple>
+                        </setProperty>
+                        <to id="unblockUser_xml2xml_IDGLoginXSL" uri="xslt://etc/xsl/request/xml2xml_IDGLogin.xsl"/>
+                        <to id="unblockUser_IDGLoginTo" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                        <convertBodyTo id="unblockUserIdgLoginResponse" type="java.lang.String"/>
+                        <log id="unblockUserLog6"  loggingLevel="TRACE" message="IDG Admin User Login Response:${body}"/>
+                        <log id="unblockUserLog7"  loggingLevel="TRACE" message="The IDG Login service is successfull."/>
+                        <setHeader headerName="Cookie" id="unblockUsersetPropertyCookie">
+                            <simple>${headers.Set-Cookie}</simple>
+                        </setHeader>
+                        <to id="unblockUser_xml2xml_unblockUser" uri="xslt://etc/xsl/request/xml2xml_UserLockoutSet.xsl"/>
+                        <convertBodyTo id="unblockUserRequest" type="java.lang.String"/>
+                        <log id="unblockUserLog8"  loggingLevel="TRACE" message="Unblock Password Request:${body}"/>
+                        <to id="unblockUser_IDGunblockUser" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                        <convertBodyTo id="unblockUserResponse" type="java.lang.String"/>
+                        <log id="unblockUserLog9"  loggingLevel="TRACE" message="Unblock Password Response:${body}"/>
+                        <setProperty propertyName="unblockUserStatus" id="unblockUserStatus">
+                            <method
+                                beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                                id="unblockUserResponseProcessor" method="checkUnBlockUserResponse(${body})"/>
+                        </setProperty>
+                        <log id="unblockUserlog10"  loggingLevel="TRACE" message="unblockUserStatus: ${exchangeProperty.unblockUserStatus}"/>
+                         <removeHeaders id="removeIdgPasswodHeader4" pattern="IDG.admin.password" />
+                        <choice id="unblockUserStatusChoice">
+                          
+                            <when id="unblockUserStatusFailure">
+                                <simple>${exchangeProperty.unblockUserStatus} == 'FAILURE' or ${exchangeProperty.unblockUserStatus} == 'NOT_PERMITTED'</simple>
+                                <log id="unblockUserlog10"  loggingLevel="TRACE" message="Error occured while unblcking user."/>
+                                 <to id="unblockUserFailure" uri="xslt://etc/xsl/error/errorUnblockuser.xsl"/>
+                            </when> 
+                            <when id="unblockUserStatusFailure">
+                                <simple>${exchangeProperty.unblockUserStatus} == 'USER_NOT_EXIST'</simple>
+                                <log id="unblockUserlog10"  loggingLevel="TRACE" message="Error occured while unblocking user."/>
+                                <to id="xml2xml_IDGUnblockUser" uri="xslt://etc/xsl/error/errorUnblcokUserNotExists.xsl"/>
+                            </when>
+                            <otherwise id="unblockUserOk">
+                                <log id="unblockUserlog10"  loggingLevel="TRACE" message="user unblcoked Sucessfully"/>
+                                <to id="unblockUserSuccess" uri="xslt://etc/xsl/response/xml2xml_UnblockUserOk.xsl?saxon=true"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="unblockUserRutError">
+                        <to id="probarConexion-To-unblockUser-otherwise" uri="direct:probarConexion"/>
+                        <to id="unblockUserValidaRutError" uri="xslt://etc/xsl/error/invalidRutUnblockUser.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="unblockUserCatch">
+                   <exception>java.lang.Exception</exception>
+                    <log id="exceptionlog6"  message="unblockUserexception"/>
+                    <setProperty id="ruteounblockUserPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteoUnblockUserExcepcion" uri="direct:excepcion"/>
+                    </doCatch>
+            </doTry>
+        </route>
+        <route id="bloquear">
+            <from id="bloquearFrom" uri="direct:bloquear"/>
+            <doTry id="_doTry2">
+                <setProperty propertyName="RUT" id="suspendUserHeaderRut">
+                    <xpath resultType="String">normalize-space(//Rut)</xpath>
+                </setProperty>
+                <setProperty propertyName="GroupId" id="suspendHeaderGroupId">
+                    <xpath resultType="String">//GroupId</xpath>
+                </setProperty>
+                <setProperty propertyName="CANAL" id="suspendChannelHeaderRut">
+                    <xpath resultType="String">//canal</xpath>
+                </setProperty>
+                <setProperty propertyName="SERVICIO" id="suspendUserHeaderServicio">
+                    <simple>Servicio Autenticacion</simple>
+                </setProperty>
+                <setProperty propertyName="ACCION" id="suspendUserHeaderAccion">
+                    <simple>bloquear</simple>
+                </setProperty>
+                <setProperty propertyName="migracion" id="suspendUserHeaderMigracion">
+                    <simple>{{migracion}}</simple>
+                </setProperty>
+                <setProperty propertyName="POLICY_SS" id="policySS-bloquear">
+                    <simple>{{policy.safesigner}}</simple>
+                </setProperty>
+                <log id="_log5" message="Migracion: ${exchangeProperty.migracion}" />
+                <choice id="_choice4">
+                    <when id="_when4">
+                        <simple>${exchangeProperty.migracion} == 1</simple>
+                        <to id="bloquearSS-To" uri="direct:bloquear_Safesigner"/>
+                        <choice id="_choice5">
+                            <when id="_when5">
+                                <simple>${exchangeProperty.CODIGO} == 0</simple>
+                                <to id="toXmlSalida-Safesigner-Bloquear" uri="xslt://etc/xsl/response/SS/xml2xml_SuspendSafeSigner.xsl?saxon=true"/>
+                                <setProperty id="bodyResponseBloqueoSS-when-prop" propertyName="bodyResponseSS">
+                                    <simple>${body}</simple>
+                                </setProperty>
+                                <to id="probarConexion-IDG-To-Suspend-when" uri="direct:probarConexion"/>
+                                <setBody id="bloquearSetBody-when">
+                                    <simple>${exchangeProperty.bodyResponseSS}</simple>
+                                </setBody>
+                                <wireTap id="bloquearIDG-To" uri="direct:bloquearIDG"/>
+                                <wireTap id="llamada_BD-Bloquear" uri="direct:insMigracionLog"/>
+                            </when>
+                            <otherwise id="_otherwise6">
+                                <to id="bloquearIDG-other-To" uri="direct:bloquearIDG"/>
+                                <wireTap id="llamada_BD-Bloquear-other" uri="direct:insMigracionLog"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="_otherwise7">
+                        <to id="other_bloqueoSS-To" uri="direct:bloquear_Safesigner"/>
+                        <to id="other-toXmlSalida-Safesigner-Bloquear" uri="xslt://etc/xsl/response/SS/xml2xml_SuspendSafeSigner.xsl?saxon=true"/>
+                        <log id="_log6" message="body: ${body}" />
+                        <wireTap id="llamada_BD-Bloquear-other" uri="direct:insMigracionLog"/>
+                        <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                    </otherwise>
+                </choice>
+                <doCatch id="bloquear-catch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="bloquear-ss-To-Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="bloquear_Safesigner">
+            <from id="bloquear_SafesignerFrom" uri="direct:bloquear_Safesigner" />
+            <doTry>
+                <setProperty id="suspend-framework_SS-DoTry" propertyName="framework">
+                    <constant>SS</constant>
+                </setProperty>
+                <bean id="requestBloquearSS"
+                      method="requestBloquearSS" ref="beanRouteFacade"/>
+                <to id="to-Suspend" uri="cxf:bean:endpointAuthSafesigner?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}"/>
+                <bean id="Bloquear-Response-Bean"
+                      method="responseBloquearSS" ref="beanRouteFacade"/>
+                <log id="_log7" message="Salida Codigo: ${exchangeProperty.CODIGO}" />
+                <log id="_log8" message="Salida Mensaje: ${exchangeProperty.MENSAJE}" />
+                <doCatch id="DoCatch-suspendUsuarioSafesigner">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="BloquearSS-SetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <setProperty id="Bloquear-codigo-Error" propertyName="CODIGO">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="Bloquear-operacion-Error" propertyName="OPERACION">
+                        <constant>SUSPEND</constant>
+                    </setProperty>
+                    <setProperty id="suspend-framework_SS-DoCatch" propertyName="framework">
+                        <constant>SS</constant>
+                    </setProperty>
+                    <choice id="_choice6">
+                        <when id="_when6">
+                            <simple>${exchangeProperty.migracion} == 0</simple>
+                            <to id="toXmlSalida-ServidorSafesigner-suspend" uri="xslt://etc/xsl/response/SS/errorErrorServidor.xsl?saxon=true"/>
+                            <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                            <stop id="_stop2"/>
+                        </when>
+                        <otherwise id="_otherwise8">
+                            <wireTap id="llamada_BD-ERROR-suspend" uri="direct:insMigracionLog"/>
+                            <to id="bloqueoIDG-To-Error" uri="direct:desbloquearIDG"/>
+                        </otherwise>
+                    </choice>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="bloquearIDG">
+            <from id="bloquearIDGFrom" uri="direct:bloquearIDG"/>
+            <doTry id="deleteUserTry">
+                <setBody id="_body_entrada03">
+                    <simple>${property.theoriginalbody}</simple>
+                </setBody>
+                <setHeader headerName="SOAPAction" id="bloquearIDG-SOAPAction">
+                    <constant>bloquear</constant>
+                </setHeader>
+                <setProperty propertyName="inputGroupId" id="deleteUserHeaderGroupId">
+                    <xpath resultType="String">//GroupId</xpath>
+                </setProperty>
+                <setProperty propertyName="validaRut" id="deleteUserHeaderValidaRut">
+                    <method beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                        id="deleteUserValidaRut" method="validaRut(${exchangeProperty.RUT})"/>
+                </setProperty>
+                <log id="deleteUserLlog1"  loggingLevel="TRACE" message="Rut Id: ${exchangeProperty.Rut}"/>
+                <log id="deleteUserLog2"  loggingLevel="TRACE" message="Rut Validation: ${exchangeProperty.validaRut}"/>
+                <convertBodyTo id="ruteoOperacionesBodyTo_deleteUser" type="java.lang.String"/>
+                <log id="deleteUserLog3"  loggingLevel="TRACE" message="Request String from WEB API/Fuse :${body}"/>
+                <choice id="deleteUserValidaRutValida">
+                    <when id="deleteUserRutOk">
+                        <simple>${exchangeProperty.validaRut} == 'Correcto'</simple>
+                        <log id="deleteUserlog4"  loggingLevel="TRACE" message="Invoke the IDG Login service"/>
+                        <setProperty propertyName="IDG.admin.user" id="deleteUser_IDG_User">
+                            <simple>{{IDG.admin.user}}</simple>
+                        </setProperty>
+                        <setProperty propertyName="IDG.admin.password" id="deleteUser_IDG_Password">
+                            <simple>{{IDG.admin.password}}</simple>
+                        </setProperty>
+                        <setProperty propertyName="IDG.admin.grupo.clientes" id="deleteUser_IDG_clientes">
+                            <simple>{{IDG.admin.grupo.clientes}}</simple>
+                        </setProperty>
+                        <to id="deleteUser_xml2xml_IDGLoginXSL" uri="xslt://etc/xsl/request/xml2xml_IDGLogin.xsl"/>
+                        <to id="deleteUser_IDGLoginTo" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                        <convertBodyTo id="deleteUserIdgLoginResponse" type="java.lang.String"/>
+                        <log id="deleteUserLog6"  loggingLevel="TRACE" message="IDG Admin User Login Response:${body}"/>
+                        <log id="deleteUserLog7"  loggingLevel="TRACE" message="The IDG Login service is successfull."/>
+                        <setHeader headerName="Cookie" id="deleteUsersetPropertyCookie">
+                            <simple>${headers.Set-Cookie}</simple>
+                        </setHeader>
+                        <to id="deleteUser_xml2xml_deleteUser" uri="xslt://etc/xsl/request/xml2xml_UserDelete.xsl"/>
+                        <convertBodyTo id="deleteUserRequest" type="java.lang.String"/>
+                        <log id="deleteUserLog8"  loggingLevel="TRACE" message="Delete user Request:${body}"/>
+                        <to id="deleteUser_IDGdeleteUser" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                        <convertBodyTo id="deleteUserResponse" type="java.lang.String"/>
+                        <log id="deleteUserLog9"  loggingLevel="TRACE" message="Delete user Response:${body}"/>
+                        <setProperty propertyName="deleteUserStatus" id="deleteUserStatus">
+                            <method
+                                beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                                id="deleteUserResponseProcessor" method="checkDeleteUserResponse(${body})"/>
+                        </setProperty>
+                        <log id="deleteUserlog10"  loggingLevel="TRACE" message="deleteUserStatus: ${exchangeProperty.deleteUserStatus}"/>
+                        <removeHeaders id="removeIdgPasswodHeader5" pattern="IDG.admin.password" />
+                        <choice id="deleteUserStatusChoice">
+                            <when id="deleteUserStatusFailure">
+                                <simple>${exchangeProperty.deleteUserStatus} == 'FAILURE' or ${exchangeProperty.deleteUserStatus} == 'NOT_PERMITTED'</simple>
+                                <log id="deleteUserlog10"  loggingLevel="TRACE" message="Error occured while deleting user."/>
+                                <to id="deleteUserSuccess" uri="xslt://etc/xsl/error/errorDeleteUser.xsl"/>
+                            </when>
+                            <when id="deleteUserStatusFailure">
+                                <simple>${exchangeProperty.deleteUserStatus} == 'USER_NOT_EXIST'</simple>
+                                <log id="deleteUserlog10"  loggingLevel="TRACE" message="Error occured while deleting user."/>
+                                <to id="xml2xml_IDGdeleteUser" uri="xslt://etc/xsl/error/errorDeleteUserNotExists.xsl"/>
+                            </when>
+                            <otherwise id="deleteUserOk">
+                                <log id="deleteUserlog10"  loggingLevel="TRACE" message="user deleted Sucessfully"/>
+                                <to id="deleteUserSuccess" uri="xslt://etc/xsl/response/xml2xml_DeleteUserOk.xsl?saxon=true"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="deleteUserRutError">
+                        <to id="probarConexion-IDG-deleteUserRutError" uri="direct:probarConexion"/>
+                        <to id="deleteUserValidaRutError" uri="xslt://etc/xsl/error/invalidRutDeleteUser.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="deleteUserCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="exceptionlog7"  message="deleteUser exception"/>
+                    <setProperty id="ruteoDeleteUserPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteoDeleteUserExcepcion" uri="direct:excepcion"/>
+                 </doCatch>   
+            </doTry>
+        </route>
+        <route id="consultarEstado">
+            <from id="consultarEstadoFrom" uri="direct:consultarEstado"/>
+            <doTry id="_doTry3">
+                <setProperty propertyName="RUT" id="statusUserHeaderRut">
+                    <xpath resultType="String">normalize-space(//Rut)</xpath>
+                </setProperty>
+                <setProperty propertyName="GroupId" id="consultarEstadoGroupIdHeaderRut">
+                    <xpath resultType="String">//GroupId</xpath>
+                </setProperty>
+                <setProperty propertyName="CANAL" id="statusChannelHeaderRut">
+                    <xpath resultType="String">//canal</xpath>
+                </setProperty>
+                <setProperty propertyName="SERVICIO" id="statusUserHeaderServicio">
+                    <simple>Servicio Autenticacion</simple>
+                </setProperty>
+                <setProperty propertyName="ACCION" id="statusUserHeaderAccion">
+                    <simple>consultarEstado</simple>
+                </setProperty>
+                <setProperty propertyName="migracion" id="statusUserHeaderMigracion">
+                    <simple>{{migracion}}</simple>
+                </setProperty>
+                <setProperty propertyName="POLICY_SS" id="policySS-consultarEstado">
+                    <simple>{{policy.safesigner}}</simple>
+                </setProperty>
+                <log id="_log9" message="Migracion: ${exchangeProperty.migracion}" />
+                <choice id="_choice7">
+                    <when id="_when7">
+                        <simple>${exchangeProperty.migracion} == 1</simple>
+                        <to id="statusSS-To" uri="direct:consultarEstado_Safesigner"/>
+                        <choice id="_choice8">
+                            <when id="_when8">
+                                <simple>${exchangeProperty.CODIGO} == 0</simple>
+                                <to id="toXmlSalida-Safesigner-Status" uri="xslt://etc/xsl/response/SS/xml2xml_UserStatusSafeSigner.xsl?saxon=true"/>
+                                <setProperty id="bodyResponseStatusSS-when-prop" propertyName="bodyResponseSS">
+                                    <simple>${body}</simple>
+                                </setProperty>
+                                <to id="probarConexion-IDG-To-Status-when" uri="direct:probarConexion"/>
+                                <setBody id="statusSetBody-when">
+                                    <simple>${exchangeProperty.bodyResponseSS}</simple>
+                                </setBody>
+                                <wireTap id="llamada_BD-ConsultarEstado" uri="direct:insMigracionLog"/>
+                            </when>
+                            <otherwise id="_otherwise9">
+                                <to id="consultarEstadoIDG-other-To" uri="direct:consultarEstadoIDG"/>
+                                <wireTap id="llamada_BD-ConsultarEstado-other" uri="direct:insMigracionLog"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="_otherwise10">
+                        <to id="other_statusSS-To" uri="direct:consultarEstado_Safesigner"/>
+                        <to id="other-toXmlSalida-Safesigner-Status" uri="xslt://etc/xsl/response/SS/xml2xml_UserStatusSafeSigner.xsl?saxon=true"/>
+                        <log id="_log10" message="body: ${body}" />
+                        <wireTap id="llamada_BD-Status-other" uri="direct:insMigracionLog"/>
+                        <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                    </otherwise>
+                </choice>
+                <doCatch id="status-catch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="status-ss-To-Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarEstado_Safesigner">
+            <from id="consultarEstado_SafesignerFrom" uri="direct:consultarEstado_Safesigner" />
+            <doTry>
+                <setProperty id="status-framework_SS-DoTry" propertyName="framework">
+                    <constant>SS</constant>
+                </setProperty>
+                <bean id="requestStatusSS"
+                      method="requestStatusUserSS" ref="beanRouteFacade"/>
+                <to id="to-Status" uri="cxf:bean:endpointAuthSafesigner?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}"/>
+                <bean id="Status-Response-Bean" method="responseStatusUserSS" ref="beanRouteFacade"/>
+                <log id="_log11" message="Salida Codigo: ${exchangeProperty.CODIGO}" />
+                <log id="_log12" message="Salida Mensaje: ${exchangeProperty.MENSAJE}" />
+                <doCatch id="DoCatch-statusUserSafesigner">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="StatusSS-SetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <setProperty id="Status-codigo-Error" propertyName="CODIGO">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="Status-operacion-Error" propertyName="OPERACION">
+                        <constant>USER_STATUS</constant>
+                    </setProperty>
+                    <setProperty id="status-framework_SS-DoCatch" propertyName="framework">
+                        <constant>SS</constant>
+                    </setProperty>
+                    <choice id="_choice9">
+                        <when id="_when9">
+                            <simple>${exchangeProperty.migracion} == 0</simple>
+                            <to id="toXmlSalida-ServidorSafesigner-status" uri="xslt://etc/xsl/response/SS/errorErrorServidor.xsl?saxon=true"/>
+                            <bean method="transformacionMensajeOut" ref="beanRouteFacade" />
+                            <stop id="_stop3"/>
+                        </when>
+                        <otherwise id="_otherwise11">
+                            <wireTap id="llamada_BD-ERROR-status" uri="direct:insMigracionLog"/>
+                            <to id="statusIDG-To-Error" uri="direct:consultarEstadoIDG"/>
+                        </otherwise>
+                    </choice>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarEstadoIDG">
+            <from id="consultarEstadoIDGFrom" uri="direct:consultarEstadoIDG"/>
+            <doTry id="getUserStatusTry">
+                <setHeader headerName="SOAPAction" id="consultarEstadoIDG-SoapAction">
+                    <constant>consultarEstado</constant>
+                </setHeader>
+                <setBody id="_body_entrada04">
+                    <simple>${property.theoriginalbody}</simple>
+                </setBody>
+                <setProperty propertyName="inputGroupId" id="getUserStatusHeaderGroupId">
+                    <xpath resultType="String">//GroupId</xpath>
+                </setProperty>
+                <setProperty propertyName="validaRut" id="getUserStatusHeaderValidaRut">
+                    <method beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                        id="getUserStatusValidaRut" method="validaRut(${exchangeProperty.RUT})"/>
+                </setProperty>
+                <log id="getUserStatusLlog1"  loggingLevel="TRACE" message="Rut Id: ${exchangeProperty.Rut}"/>
+                <log id="getUserStatusLog2"  loggingLevel="TRACE" message="Rut Validation: ${exchangeProperty.validaRut}"/>
+                <convertBodyTo id="ruteoOperacionesBodyTo_getUserStatus" type="java.lang.String"/>
+                <log id="getUserStatusLog3"  loggingLevel="TRACE" message="Request String from WEB API/Fuse :${body}"/>
+                <choice id="getUserStatusValidaRutValida">
+                    <when id="getUserStatusRutOk">
+                        <simple>${exchangeProperty.validaRut} == 'Correcto'</simple>
+                        <log id="getUserStatuslog4"  loggingLevel="TRACE" message="Invoke the IDG Login service"/>
+                        <setProperty propertyName="IDG.admin.user" id="getUserStatus_IDG_User">
+                            <simple>{{IDG.admin.user}}</simple>
+                        </setProperty>
+                        <setProperty propertyName="IDG.admin.password" id="getUserStatus_IDG_Password">
+                            <simple>{{IDG.admin.password}}</simple>
+                        </setProperty>
+                        <setProperty propertyName="IDG.admin.grupo.clientes" id="getUserStatus_IDG_clientes">
+                            <simple>{{IDG.admin.grupo.clientes}}</simple>
+                        </setProperty>
+                        <to id="getUserStatus_xml2xml_IDGLoginXSL" uri="xslt://etc/xsl/request/xml2xml_IDGLogin.xsl"/>
+                        <to id="getUserStatus_IDGLoginTo" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                        <convertBodyTo
+                            id="getUserStatusIdgLoginResponse" type="java.lang.String"/>
+                        <log id="getUserStatusLog6"  loggingLevel="TRACE" message="IDG Admin User Login Response:${body}"/>
+                        <log id="getUserStatusLog7"  loggingLevel="TRACE" message="The IDG Login service is successfull."/>
+                        <setHeader headerName="Cookie" id="getUserStatussetPropertyCookie">
+                            <simple>${headers.Set-Cookie}</simple>
+                        </setHeader>
+                        <to id="getUserStatus_xml2xml_getUserStatus" uri="xslt://etc/xsl/request/xml2xml_UserLockoutGet.xsl"/>
+                        <convertBodyTo id="getUserStatusRequest" type="java.lang.String"/>
+                        <log id="getUserStatusLog8"  loggingLevel="TRACE" message="Get user Status Request:${body}"/>
+                        <to id="getUserStatus_IDGgetUserStatus" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                        <convertBodyTo id="getUserStatusResponse" type="java.lang.String"/>
+                        <log id="getUserStatusLog9"  loggingLevel="TRACE" message="get user status Response:${body}"/>
+                        <setProperty propertyName="userStatus" id="userStatus">
+                            <method
+                                beanType="cl.coopeuch.integracion.autenticacionidg.util.RouteFacade"
+                                id="ResponseProcessor" method="checkGetUserStatusResponse(${body})"/>
+                        </setProperty>
+                        <log id="getUserStatuslog10"  loggingLevel="TRACE" message="getUserStatusStatus: ${exchangeProperty.userStatus}"/>
+                        <removeHeaders id="removeIdgPasswodHeader6" pattern="IDG.admin.password" />
+                        <choice id="getUserStatusStatusChoice">
+                            <when id="getUserStatusStatusFailure">
+                                <simple>${exchangeProperty.userStatus} == 'FAILURE'</simple>
+                                <log id="getUserStatuslog10"  loggingLevel="TRACE" message="Error occured while getting user details."/>
+                                <to id="xml2xml_IDGgetUserStatus" uri="xslt://etc/xsl/error/errorGetUserStatus.xsl"/>
+                            </when>
+                             <when id="getUserStatusStatusFailure">
+                                <simple>${exchangeProperty.userStatus} == 'USER_BLOCKED'</simple>
+                                <log id="getUserStatuslog10"  loggingLevel="TRACE" message="User is blocked."/>
+                                <to id="xml2xml_IDGgetUserStatus" uri="xslt://etc/xsl/response/xml2xml_getUserStatusBlocked.xsl"/>
+                            </when>
+                            <when id="getUserStatusStatusNoExists">
+                                <simple>${exchangeProperty.userStatus} == 'USER_NOT_EXIST'</simple>
+                                <log id="getUserStatuslog10"  loggingLevel="TRACE" message="Error occured while deleting user."/>
+                                <to id="xml2xml_IDGgetUserStatus" uri="xslt://etc/xsl/error/errorGetStatusUserNotExists.xsl"/>
+                            </when>
+                            <otherwise id="getUserStatusOk">
+                                <log id="getUserStatuslog10"  loggingLevel="TRACE" message="user status Ok"/>
+                                <to id="getUserStatusSuccess" uri="xslt://etc/xsl/response/xml2xml_getUserStatusOk.xsl?saxon=true"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="getUserStatusRutError">
+                        <to id="llamada-to-rutError" uri="direct:probarConexion" />
+                        <to id="getUserStatusValidaRutError" uri="xslt://etc/xsl/error/invalidRutGetUserStatus.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="getUserStatusCatch">
+                   <exception>java.lang.Exception</exception>
+                    <log id="exceptionlog8"  message="getUserStatus exception"/>
+                    <setProperty id="ruteogetUserStatusPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteogetUserStatusExcepcion" uri="direct:excepcion"/>
+                    </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                 <setBody id="exceptionBodyError">
+                        <simple>${body}</simple>
+                    </setBody>    
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

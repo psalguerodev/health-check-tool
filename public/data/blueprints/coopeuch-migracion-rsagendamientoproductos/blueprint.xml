@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyWsAgendamientoProductos"
+        persistent-id="wsagendamientoproductos" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.agendamientoproductos.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSAgendamientoProductos"
+        id="endpointWSAgendamientoProductos"
+        serviceClass="cl.coopeuch.integracion.agendamientoproductos.wsdl.WSAgendamientoProductosSOAPPortType" wsdlURL="etc/wsdl/WSAgendamientoProductos.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsClient address="[{generar.vtec.token.endpoint}]"
+        id="endpointRSobtenerToken" loggingFeatureEnabled="false">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient address="[{generar.vtec.guardar.socio.endpoint}]"
+        id="endpointRSGuardarSocio" loggingFeatureEnabled="false">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <camelcxf:rsServer address="/RSAgendamientoProductos"
+        id="endpointRSAgendamientoProductos" serviceClass="cl.coopeuch.integracion.agendamientoproductos.wsdl.WSAgendamientoProductosSOAPPortType"/>
+    <bean
+        class="cl.coopeuch.integracion.agendamientoproductos.agregadores.AgregadorGuardarSocioResponse" id="agregadorGuardarSocioResponse"/>
+    <camelContext id="servicio-agendamiento-productos" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSAgendamientoProductos"/>
+            <to id="soapToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSAgendamientoProductos"/>
+            <to id="restToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="iniciows">
+            <from id="iniciows" uri="direct:iniciows"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionGenerar">
+                        <simple>${header.operationName} == 'generar'</simple>
+                        <to id="toGenerar" uri="direct:generar"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="toConsultar" uri="direct:consultar"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generar">
+            <from id="generarFrom" uri="direct:generar"/>
+            <doTry id="generarTry">
+                <removeHeaders id="_removeHeaders1" pattern="*"/>
+                <setProperty id="_setProperty1" propertyName="cuerpo">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setHeader headerName="Exchange.HTTP_METHOD" id="_setHeader1">
+                    <constant>POST</constant>
+                </setHeader>
+                <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader2">
+                    <constant>application/x-www-form-urlencoded</constant>
+                </setHeader>
+                <setBody id="_setBody1">
+                    <constant>username={{generar.vtec.username}}&amp;password={{generar.vtec.password}}&amp;grant_type={{generar.vtec.grant_type}}</constant>
+                </setBody>
+                <to id="toRSObtenerToken" uri="cxfrs:bean:endpointRSobtenerToken"/>
+                <bean id="beanObtenerToken" method="obtenerToken" ref="beanRouteFacade"/>
+                <setBody id="_setBody3">
+                    <simple>${property.cuerpo}</simple>
+                </setBody>
+                <split id="_split1" parallelProcessing="true"
+                    stopOnException="true" strategyRef="agregadorGuardarSocioResponse">
+                    <simple>${body.get(0).entrada.cliente}</simple>
+                    <setHeader headerName="Exchange.HTTP_METHOD" id="_setHeader3">
+                        <constant>POST</constant>
+                    </setHeader>
+                    <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader4">
+                        <constant>application/x-www-form-urlencoded</constant>
+                    </setHeader>
+                    <setHeader headerName="Authorization" id="_setHeader5">
+                        <simple>${property.token.getToken_type()} ${property.token.getAccess_token()}</simple>
+                    </setHeader>
+                    <setProperty id="_setProperty2" propertyName="rut">
+                        <simple>${body.rut}</simple>
+                    </setProperty>
+                    <setBody id="_setBody2">
+                        <simple>Rut=${body.rut}&amp;Digito=${body.dv}&amp;Nombre=${body.nombre}&amp;ApellidoPaterno=${body.apellidoPaterno}&amp;ApellidoMaterno=${body.apellidoMaterno}&amp;Calle=${body.calle}&amp;Numero=${body.numero}&amp;Departamento=${body.departamento}&amp;Comuna=${body.comuna}&amp;Region=${body.region}&amp;Telefono=${body.telefono}</simple>
+                    </setBody>
+                    <to id="toRSGuardarSocio" uri="cxfrs:bean:endpointRSGuardarSocio?throwExceptionOnFailure=false"/>
+                    <bean id="_bean1" method="guardarSocioResponse" ref="beanRouteFacade"/>
+                </split>
+                <bean id="_bean2" method="salidaGuardarSocio" ref="beanRouteFacade"/>
+                <doCatch id="generarDoCatchHttp">
+                    <exception>java.io.IOException</exception>
+                    <log id="_log1" loggingLevel="ERROR" message="${property.CamelExceptionCaught}"/>
+                    <setProperty id="generarCodigoErrorHttp" propertyName="codigoError">
+                        <simple>504</simple>
+                    </setProperty>
+                    <to id="generarToExcepcionHttp" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="generarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log2" loggingLevel="ERROR" message="${property.CamelExceptionCaught}"/>
+                    <to id="generarToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultar">
+            <from id="consultarFrom" uri="direct:consultar"/>
+            <bean id="_bean3" method="operacionDeprecada" ref="beanRouteFacade"/>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

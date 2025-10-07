@@ -1,0 +1,618 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Configures the Camel Context -->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="wsconvenios"
+        persistent-id="wsconvenios" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Endpoint wsdl Servicio Convenios -->
+    <cxf:cxfEndpoint address="/ServicioConvenios"
+        id="servicioConveniosEndpoint"
+        serviceClass="cl.coopeuch.core.convenios.servicioconvenios.Convenios" wsdlURL="wsdl/ServicioConvenios.wsdl"/>
+    <!-- Conexion AMQ -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <cxf:rsServer address="/RSConvenios" id="conveniosRest" serviceClass="cl.coopeuch.core.convenios.util.ConveniosRest">
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsServer>
+    <bean class="com.fasterxml.jackson.jaxrs.json.JacksonJsonProvider" id="jsonProvider"/>
+    <bean class="cl.coopeuch.core.convenios.util.RouteFacade" id="routeFacade"/>
+    <bean
+        class="cl.coopeuch.core.convenios.util.AggregateConsultaPautaConvenio" id="aggregateConsultaPautaConvenio"/>
+    <camelContext id="servicio-convenios-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-routeSoap">
+            <from id="cxf-from" uri="cxf:bean:servicioConveniosEndpoint?DataFormat=MESSAGE"/>
+            <to id="cxf-to" uri="direct:inicio"/>
+        </route>
+        <route id="jms-route">
+            <from id="jms-from" uri="AMQ:queue:{{colas.servicio.convenio.in.temp}}?preserveMessageQos=true"/>
+            <to id="jms-to" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-rest">
+            <from id="fromRest" uri="cxfrs:bean:conveniosRest"/>
+            <setProperty id="_setProperty1" propertyName="request">
+                <simple>${body}</simple>
+            </setProperty>
+            <choice id="fromOperation">
+                <when id="consultarSociorest">
+                    <simple>${header.operationName} == 'consultarSociorest'</simple>
+                    <setHeader headerName="rest" id="_setHeader1">
+                        <simple>rest</simple>
+                    </setHeader>
+                    <unmarshal id="consultarEmpresaUnmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.convenios.rest.ConsultarConvenioSocioRequest"/>
+                    </unmarshal>
+                    <to id="consultarEmpresaRestToInicio" uri="direct:inicio"/>
+                    <choice id="_choice2">
+                        <when id="_when3">
+                            <simple>${body} contains 'ECNLERR'</simple>
+                            <convertBodyTo id="_convertBodyTo1" type="String"/>
+                            <marshal id="_marshal2">
+                                <xmljson forceTopLevelObject="true"
+                                    removeNamespacePrefixes="true"
+                                    skipNamespaces="true" trimSpaces="true"/>
+                            </marshal>
+                            <convertBodyTo id="_convertBodyTo3" type="String"/>
+                            <transform id="_transform3">
+                                <simple>${body.replace('[]', '""listadoico""')}</simple>
+                            </transform>
+                            <transform id="_transform4">
+                                <simple>${body.replace('listadoico', '')}</simple>
+                            </transform>
+                        </when>
+                        <otherwise id="_otherwise1">
+                            <convertBodyTo id="_convertBodyTo2" type="String"/>
+                            <setHeader headerName="codCliente" id="_setHeader2">
+                                <xpath resultType="Integer">//*[name() = 'codCliente'] </xpath>
+                            </setHeader>
+                            <setHeader headerName="codConvenio" id="_setHeader2">
+                                <xpath resultType="String">//*[name() = 'codConvenio'] </xpath>
+                            </setHeader>
+                            <setHeader headerName="nombreEmpresa" id="_setHeader2">
+                                <xpath resultType="String">//*[name() = 'nombreEmpresa'] </xpath>
+                            </setHeader>
+                            <setHeader headerName="codigoSubSector" id="_setHeader2">
+                                <xpath resultType="String">//*[name() = 'codigoSubSector'] </xpath>
+                            </setHeader>
+                            <setHeader headerName="nombreSubSector" id="_setHeader2">
+                                <xpath resultType="String">//*[name() = 'nombreSubSector'] </xpath>
+                            </setHeader>
+                            <setHeader headerName="nombre" id="_setHeader3">
+                                <xpath resultType="String">//*[name() = 'nombre'] </xpath>
+                            </setHeader>
+                            <setHeader headerName="nombreConvenio" id="_setHeader4">
+                                <xpath resultType="String">//*[name() = 'nombreConvenio'] </xpath>
+                            </setHeader>
+                            <setHeader headerName="minimoLiquidaciones" id="_setHeader5">
+                                <xpath resultType="Integer">//*[name() = 'minimoLiquidaciones']
+								</xpath>
+                            </setHeader>
+                            <setHeader headerName="maximoLiquidaciones" id="_setHeader6">
+                                <xpath resultType="Integer">//*[name() = 'maximoLiquidaciones']
+								</xpath>
+                            </setHeader>
+                            <setHeader headerName="numeroSolicitud" id="_setHeader7">
+                                <xpath resultType="Integer">//*[name() = 'numeroSolicitud'] </xpath>
+                            </setHeader>
+                            <setHeader headerName="codigoSector" id="_setHeader8">
+                                <xpath resultType="String">//*[name() = 'codigoSector'] </xpath>
+                            </setHeader>
+                            <setHeader headerName="nombreSector" id="_setHeader9">
+                                <xpath resultType="String">//*[name() = 'nombreSector'] </xpath>
+                            </setHeader>
+                            <setHeader
+                                headerName="porcentajeDstoPlanilla" id="_setHeader9">
+                                <xpath resultType="String">//*[name() = 'porcentajeDstoPlanilla']
+								</xpath>
+                            </setHeader>
+                            <setHeader
+                                headerName="porcentajeDstoAbonoMas" id="_setHeader9">
+                                <xpath resultType="String">//*[name() = 'porcentajeDstoAbonoMas']
+								</xpath>
+                            </setHeader>
+                            <setHeader headerName="fechaInicioConvenio" id="_setHeader10">
+                                <xpath resultType="int">//*[name() = 'fechaInicioConvenio']
+								</xpath>
+                            </setHeader>
+                            <setHeader headerName="fechaTerminoConvenio" id="_setHeader11">
+                                <xpath resultType="int">//*[name() = 'fechaTerminoConvenio']
+								</xpath>
+                            </setHeader>
+                            <setHeader
+                                headerName="fechaVencimientoConvenio" id="_setHeader12">
+                                <xpath resultType="int">//*[name() = 'fechaVencimientoConvenio']
+								</xpath>
+                            </setHeader>
+                            <setHeader headerName="convenioHabilitado" id="_setHeader13">
+                                <xpath resultType="String">//*[name() = 'convenioHabilitado']
+								</xpath>
+                            </setHeader>
+                            <setHeader headerName="sectorRegla" id="_setHeader17">
+                                <xpath resultType="Integer">//*[name() = 'sectorRegla']
+								</xpath>
+                            </setHeader>
+                             <setHeader headerName="unidad" id="_setHeader18">
+                                <xpath resultType="String">//detalleConvenio/*[name() = 'unidad']
+								</xpath>
+                            </setHeader>
+                             <setHeader headerName="anexoOficina" id="_setHeader19">
+                                <xpath resultType="String">//detalleConvenio/*[name() = 'anexoOficina']
+								</xpath>
+                            </setHeader>
+                             <setHeader headerName="grado" id="_setHeader20">
+                                <xpath resultType="String">//detalleConvenio/*[name() = 'grado']
+								</xpath>
+                            </setHeader>
+                             <setHeader headerName="numeroFuncionario" id="_setHeader21">
+                                <xpath resultType="String">//detalleConvenio/*[name() = 'numeroFuncionario']
+								</xpath>
+                            </setHeader>
+                            <bean
+                                beanType="cl.coopeuch.core.convenios.util.RouteFacade"
+                                id="_bean4" method="responseSocio"/>
+                        </otherwise>
+                    </choice>
+                </when>
+                <when id="whenConsultarPauta">
+                    <simple>${header.operationName} == 'consultarPauta'</simple>
+                    <unmarshal id="consultarPautaUnmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.convenios.rest.ConsultarPauta"/>
+                    </unmarshal>
+                    <bean id="consultarPautaRequest"
+                        method="consultarPautaRest" ref="routeFacade"/>
+                    <marshal id="consultarPautaMarshal">
+                        <jaxb contextPath="cl.coopeuch.core.convenios.rest"/>
+                    </marshal>
+                    <to id="consultarPautaRestToInicio" uri="direct:inicio"/>
+                    <unmarshal id="consultarPautaUnmarshal">
+                        <jaxb contextPath="cl.coopeuch.core.convenios.rest"/>
+                    </unmarshal>
+                    <bean id="consultarPautaResponse"
+                        method="consultarPautaResponseRest" ref="routeFacade"/>
+                    <choice id="_choice1">
+                        <when id="_when1">
+                            <simple>${exchangeProperty.error} == false</simple>
+                            <marshal id="consultarPautaResponseMarshal">
+                                <json include="NON_NULL"
+                                    library="Jackson" unmarshalTypeName="cl.coopeuch.core.convenios.rest.TraerConsultaPautaResponse"/>
+                            </marshal>
+                        </when>
+                        <when id="_when2">
+                            <simple>${exchangeProperty.error} == true</simple>
+                            <marshal id="consultarPautaResponseMarshal">
+                                <json include="NON_NULL"
+                                    library="Jackson" unmarshalTypeName="cl.coopeuch.core.convenios.rest.TraerConsultaPautaFault"/>
+                            </marshal>
+                        </when>
+                    </choice>
+                </when>
+                <when id="whenConsultaEmpresa">
+                    <simple>${header.operationName} == 'consultarEmpresa'</simple>
+                    <unmarshal id="consultarEmpresaUnmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.convenios.rest.ConsultarEmpresaRequest"/>
+                    </unmarshal>
+                    <bean id="consultarEmpresaRequest"
+                        method="consultarEmpresaRest" ref="routeFacade"/>
+                    <marshal id="consultarEmpresaMarshal">
+                        <jaxb contextPath="cl.coopeuch.core.convenios.rest"/>
+                    </marshal>
+                    <to id="consultarEmpresaRestToInicio" uri="direct:inicio"/>
+                    <unmarshal id="consultarEmpresaUnmarshal">
+                        <jaxb contextPath="cl.coopeuch.core.convenios.rest"/>
+                    </unmarshal>
+                    <bean id="consultarEmpresaResponse"
+                        method="consultarEmpresaResponseRest" ref="routeFacade"/>
+                    <marshal id="consultarEmpresaResponseMarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.convenios.rest.ConsultarEmpresaResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenTraerDetalleConvenioVigente">
+                    <simple>${header.operationName} == 'traerDetalleConvenioVigente'
+					</simple>
+                    <unmarshal id="traerDetalleConvenioVigenteUnmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.convenios.rest.TraerDetalleConvenioVigente"/>
+                    </unmarshal>
+                    <bean id="traerDetalleConvenioVigenteRequest"
+                        method="traerDetalleConvenioVigenteRest" ref="routeFacade"/>
+                    <marshal id="traerDetalleConvenioVigenteMarshal">
+                        <jaxb contextPath="cl.coopeuch.core.convenios.rest"/>
+                    </marshal>
+                    <to id="traerDetalleConvenioVigenteRestToInicio" uri="direct:inicio"/>
+                    <unmarshal id="traerDetalleConvenioVigenteUnmarshal">
+                        <jaxb contextPath="cl.coopeuch.core.convenios.rest"/>
+                    </unmarshal>
+                    <bean id="traerDetalleConvenioVigenteResponse"
+                        method="traerDetalleConvenioVigenteResponseRest" ref="routeFacade"/>
+                    <marshal id="traerDetalleConvenioVigenteResponseMarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.convenios.rest.TraerDetalleConvenioVigenteResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenTraerDatosConvenioDG">
+                    <simple>${header.operationName} == 'traerDatosConvenioDG'</simple>
+                    <unmarshal id="traerDatosConvenioDGUnmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.convenios.rest.TraerDatosConvenioDG"/>
+                    </unmarshal>
+                    <bean id="traerDatosConvenioDGRequest"
+                        method="traerDatosConvenioDGRest" ref="routeFacade"/>
+                    <marshal id="traerDatosConvenioDGMarshal">
+                        <jaxb contextPath="cl.coopeuch.core.convenios.rest"/>
+                    </marshal>
+                    <to id="traerDatosConvenioDGRestToInicio" uri="direct:inicio"/>
+                    <unmarshal id="traerDatosConvenioDGUnmarshal">
+                        <jaxb contextPath="cl.coopeuch.core.convenios.rest"/>
+                    </unmarshal>
+                    <bean id="traerDatosConvenioDGResponse"
+                        method="traerDatosConvenioDGResponseRest" ref="routeFacade"/>
+                    <marshal id="traerDatosConvenioDGResponseMarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.convenios.rest.TraerDatosConvenioDGResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenConsultarPautaConvenio">
+                    <simple>${header.operationName} == 'consultarPautaConvenio'</simple>
+                    <unmarshal id="_unmarshal4">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.convenios.rest.ConsultarPautaConvenioRequest"/>
+                    </unmarshal>
+                    <bean id="consultarPautaConvenioRequest"
+                        method="consultarPautaConvenioRest" ref="routeFacade"/>
+                    <marshal id="consultarPautaConvenioMarshal">
+                        <jaxb contextPath="cl.coopeuch.core.convenios.rest"/>
+                    </marshal>
+                    <to id="consultarPautaConvenioRestToInicio" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal5">
+                        <jaxb contextPath="cl.coopeuch.core.convenios.rest"/>
+                    </unmarshal>
+                    <bean id="consultarPautaConvenioResponse"
+                        method="consultarPautaConvenioResponseRest" ref="routeFacade"/>
+                    <marshal id="consultarPautaConvenioResponseMarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.convenios.rest.ConsultarPautaConvenioResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <!-- Ruta que invoca operaciones del servicio web -->
+        <route id="cxf-RuteoOperaciones">
+            <from id="servicioConveniosEndpointListener" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="createJMSCorrelationId" method="createJMSCorrelationId24"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaTraerDatosConvenioDG">
+                        <simple>${body} contains 'traerDatosConvenioDG'</simple>
+                        <!-- <to id="traerDatosConvenioDGValidator" uri="validator:xsd/soapTraerDatosConvenioDG.xsd"/> -->
+                        <to id="traerDatosConvenioDGTo" uri="direct:traerDatosConvenioDG"/>
+                    </when>
+                    <when id="consultarSocio">
+                        <simple>${body} contains 'consultarConvenioSocioRequest'</simple>
+                        <to id="_to1" uri="direct:consultarSocio"/>
+                    </when>
+                    <when id="rutaTraerDatosConvenio">
+                        <simple>${body} contains 'traerDatosConvenio'</simple>
+                        <!-- <to id="traerDatosConvenioValidator" uri="validator:xsd/soapTraerDatosConvenio.xsd"/> -->
+                        <to id="traerDatosConvenioTo" uri="direct:traerDatosConvenio"/>
+                    </when>
+                    <when id="rutaTraerDetalleConvenioVigente">
+                        <simple>${body} contains 'traerDetalleConvenioVigente'</simple>
+                        <!-- <to id="traerDetalleConvenioVigenteValidator" uri="validator:xsd/soapTraerDetalleConvenioVigente.xsd"/> -->
+                        <to id="traerDetalleConvenioVigenteTo" uri="direct:traerDetalleConvenioVigente"/>
+                    </when>
+                    <when id="rutaConsultarEmpresa">
+                        <simple>${body} contains 'consultarEmpresa'</simple>
+                        <to id="consultarEmpresaTo" uri="direct:consultarEmpresa"/>
+                    </when>
+                    <when id="rutaConsultarPautaConvenio">
+                        <simple>${body} contains 'consultarPautaConvenio'</simple>
+                        <to id="consultarPautaConvenioTo" uri="direct:consultarPautaConvenio"/>
+                    </when>
+                    <when id="rutaConsultarPauta">
+                        <simple>${body} contains 'consultarPauta'</simple>
+                        <to id="traerConsultarPautaValidator" uri="validator:xsd/soapConsultarPauta.xsd"/>
+                        <to id="traerConsultarPautaTo" uri="direct:traerConsultarPauta"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <removeHeaders id="_removeHeaders1" pattern="*"/>
+                <setProperty id="_setProperty19" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty20" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty21" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty22" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+            </doTry>
+        </route>
+        <route id="routeConsultarPautaConvenio">
+            <from id="fromConsultarPautaConvenio" uri="direct:consultarPautaConvenio"/>
+            <doTry id="_doTry2">
+                <setProperty id="_setProperty2" propertyName="cuerpoEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <to id="_to8" uri="direct:consultarSocioPC"/>
+                <when id="_when6">
+                    <simple>${property.codConvenio} == null or ${property.codConvenio} == ''</simple>
+                    <setProperty id="_setProperty5" propertyName="sinConvenio">
+                        <constant>El cliente no tiene convenio asociado</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty6" propertyName="codError">
+                        <constant>4019</constant>
+                    </setProperty>
+                    <marshal id="_marshal3">
+                        <jaxb contextPath="cl.coopeuch.core.convenios.jaxb"/>
+                    </marshal>
+                    <throwException exceptionType="java.lang.Exception"
+                        id="_throwException1" message="error"/>
+                </when>
+                <setBody id="_setBody2">
+                    <simple>${property.cuerpoEntrada}</simple>
+                </setBody>
+                <multicast id="_multicast1" parallelProcessing="true"
+                    stopOnException="true" strategyRef="aggregateConsultaPautaConvenio">
+                    <to id="_to5" uri="direct:traerDatosConvenioDGPC"/>
+                    <to id="_to7" uri="direct:traerConsultarPautaPC"/>
+                </multicast>
+                <bean id="_bean5"
+                    method="consultarPautaConvenioResponseBean" ref="routeFacade"/>
+                <marshal id="_marshal1">
+                    <jaxb contextPath="cl.coopeuch.core.convenios.jaxb"/>
+                </marshal>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log2" loggingLevel="ERROR" message="${property.CamelExceptionCaught}"/>
+                    <marshal id="_marshal4">
+                        <jaxb contextPath="cl.coopeuch.core.convenios.jaxb"/>
+                    </marshal>
+                    <to id="_to13" uri="xslt://transformations/error/errorToConsultarPauta.xsl?saxon=true"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeTraerConsultarPautaPC">
+            <from id="fromTraerConsultarPautaPC" uri="direct:traerConsultarPautaPC"/>
+            <to id="_to12" uri="xslt://transformations/mid/consultarPautaConvenioToConsultarPauta.xsl"/>
+            <bean beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                id="createJMSCorrelationId1" method="createJMSCorrelationId24"/>
+            <to id="toTraerConsultarPauta" uri="direct:traerConsultarPauta"/>
+            <unmarshal id="_unmarshal1">
+                <jaxb contextPath="cl.coopeuch.core.convenios.jaxb"/>
+            </unmarshal>
+        </route>
+        <route id="routeTraerDatosConvenioDGPC">
+            <from id="fromTraerDatosConvenioDGPC" uri="direct:traerDatosConvenioDGPC"/>
+            <to id="_to10" uri="xslt://transformations/mid/consultarPautaConvenioToTraerDatosConveniodg.xsl"/>
+            <bean beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                id="createJMSCorrelationId2" method="createJMSCorrelationId24"/>
+            <to id="_to11" uri="direct:traerDatosConvenioDG"/>
+            <unmarshal id="_unmarshal2">
+                <jaxb contextPath="cl.coopeuch.core.convenios.jaxb"/>
+            </unmarshal>
+        </route>
+        <route id="routeConsultarSocioPC">
+            <from id="fromConsultarSocioPC" uri="direct:consultarSocioPC"/>
+            <doTry id="_doTry3">
+                <to id="_to9" uri="xslt://transformations/mid/consultarPautaConvenioToConsultarSocio.xsl"/>
+                <to id="toConsultarSocio" uri="direct:consultarSocio"/>
+                <unmarshal id="_unmarshal3">
+                    <jaxb contextPath="cl.coopeuch.core.convenios.jaxb"/>
+                </unmarshal>
+                <setProperty id="_setProperty3" propertyName="consultarSocio">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="_setProperty4" propertyName="codConvenio">
+                    <simple>${property.consultarSocio.body.consultarSocioResponse.codConvenio}</simple>
+                </setProperty>
+                <doCatch id="_doCatch3">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty11" propertyName="sinConvenio">
+                        <constant>Rut invalido, El rut debe contener entre 4 y 9 digitos, no puede ser vacio o contener caracteres especiales</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty12" propertyName="codError">
+                        <constant>423</constant>
+                    </setProperty>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta que consume cola MQ IBS y retorna datos de Convenios registrados -->
+        <route id="traerDatosConvenioDG">
+            <from id="traerDatosConvenioDGFrom" uri="direct:traerDatosConvenioDG"/>
+            <doTry id="traerDatosConvenioDGTry">
+                <to id="traerDatosConvenioDGXml2trama" uri="xslt://transformations/in/xml2tramaIOC001000I_traerDatosConvenioDG.xsl"/>
+                <to id="activemq-traerDatosConvenioDG" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="traerDatosConvenioDGTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="traerDatosConvenioDGTrama2xml" uri="xslt://transformations/out/trama2xmlIOC001001O_traerDatosConvenioDG.xsl?saxon=true"/>
+                <doCatch id="traerDatosConvenioDGCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerDatosConvenioDGRestoreBody" method="restoreBody"/>
+                    <setBody id="traerDatosConvenioDGSetBodyError1">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerDatosConvenioDGFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="traerDatosConvenioDGSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerDatosConvenioDGFinally"/>
+            </doTry>
+        </route>
+        <route id="traerDetalleConvenioVigente">
+            <from id="traerDetalleConvenioVigenteFrom" uri="direct:traerDetalleConvenioVigente"/>
+            <doTry id="traerDetalleConvenioVigenteTry">
+                <to id="traerDetalleConvenioVigenteXml2trama" uri="xslt://transformations/in/xml2tramaIOC001000I_traerDetalleConvenioVigente.xsl"/>
+                <to id="activeMQ-traerDetalleConvenioVigente" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="traerDetalleConvenioVigenteTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="traerDetalleConvenioVigenteTrama2xml" uri="xslt://transformations/out/trama2xmlIOC001002O_traerDetalleConvenioVigente.xsl?saxon=true"/>
+                <doCatch id="traerDetalleConvenioVigenteCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerDetalleConvenioVigenteRestoreBody" method="restoreBody"/>
+                    <setBody id="traerDetalleConvenioVigenteSetBodyError3">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerDetalleConvenioVigenteFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="traerDetalleConvenioVigenteSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerDetalleConvenioVigenteFinally"/>
+            </doTry>
+        </route>
+        <route id="traerConsultaPauta">
+            <from id="_fromConsultarPauta" uri="direct:traerConsultarPauta"/>
+            <doTry id="TryConsultarPauta">
+                <setHeader headerName="convenio.ioc.entrada" id="_setPropertyIOC">
+                    <simple>{{convenio.ioc.entrada}}</simple>
+                </setHeader>
+                <setHeader headerName="convenio.ioc.banco" id="_setPropertyBanco">
+                    <simple>{{convenio.ioc.banco}}</simple>
+                </setHeader>
+                <unmarshal id="_unmarshalXML">
+                    <jaxb contextPath="cl.coopeuch.core.convenios.jaxb"/>
+                </unmarshal>
+                <bean beanType="cl.coopeuch.converter.Convertidores"
+                    id="_converterIOC" method="xml2tramaIOC731001I"/>
+                <marshal id="_marshalIOC">
+                    <bindy classType="cl.coopeuch.model.IOC731001I" type="Fixed"/>
+                </marshal>
+                <to id="activeMQ-traerConsultaPauta" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <bean beanType="cl.coopeuch.converter.Convertidores"
+                    id="_converterIOCSinSaltos" method="xml2tramaIOC731001OSinSaltos"/>
+                <unmarshal id="_unmarshalIOC">
+                    <bindy classType="cl.coopeuch.model.IOC731001O" type="Fixed"/>
+                </unmarshal>
+                <bean beanType="cl.coopeuch.converter.Convertidores"
+                    id="_converterXML" method="IOC731001OtoXML"/>
+                <marshal id="_marshalXML">
+                    <jaxb contextPath="cl.coopeuch.core.convenios.jaxb"/>
+                </marshal>
+                <doCatch id="ConsultaPautaCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <unmarshal id="_unmarshalECNLERR">
+                        <bindy classType="cl.coopeuch.model.ECNLERR" type="Fixed"/>
+                    </unmarshal>
+                    <bean beanType="cl.coopeuch.converter.Convertidores"
+                        id="_bean1" method="ECNLERRtoXML"/>
+                    <marshal id="_marshalError">
+                        <jaxb contextPath="cl.coopeuch.core.convenios.jaxb"/>
+                    </marshal>
+                    <to id="ConsultaPautaFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarEmpresa">
+            <from id="consultarEmpresaFrom" uri="direct:consultarEmpresa"/>
+            <doTry id="consultarEmpresaTry">
+                <to id="consultarEmpresaXml2trama" uri="xslt://transformations/in/xml2tramaIOC001003I_consultarEmpresa.xsl"/>
+                <to id="activeMQ-consultarEmpresa" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="consultarEmpresaTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <log id="_log1" message="${body}"/>
+                <to id="consultarEmpresaTrama2xml" uri="xslt://transformations/out/trama2xmlIOC001003O_consultarEmpresa.xsl?saxon=true"/>
+                <doCatch id="consultarEmpresaCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="consultarEmpresaRestoreBody" method="restoreBody"/>
+                    <setBody id="consultarEmpresaSetBodyError3">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarEmpresaFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="consultarEmpresaSetBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarSocioT">
+            <from id="_from1" uri="direct:consultarSocio"/>
+            <doTry id="_doTry1">
+                <setHeader headerName="canalLlamada" id="_setHeader14">
+                    <xpath resultType="String">//*[name() = 'canalLlamada'] </xpath>
+                </setHeader>
+                <setHeader headerName="rut" id="_setHeader15">
+                    <xpath resultType="String">//*[name() = 'rut'] </xpath>
+                </setHeader>
+                <setHeader headerName="userId" id="_setHeader16">
+                    <xpath resultType="String">//*[name() = 'userId'] </xpath>
+                </setHeader>
+                <bean
+                    beanType="cl.coopeuch.core.convenios.util.RouteFacade"
+                    id="_bean3" method="validarIngreso"/>
+                <choice id="_choice3">
+                    <when id="_when4">
+                        <simple>${headers.validacion}</simple>
+                        <when id="_when5">
+                            <simple>${headers.rest}</simple>
+                            <bean
+                                beanType="cl.coopeuch.core.convenios.util.RouteFacade"
+                                id="_bean3" method="excepcionAmq"/>
+                            <stop id="_stop1"/>
+                        </when>
+                        <otherwise id="_otherwise2">
+                            <bean
+                                beanType="cl.coopeuch.util.error.BodyValidacionError"
+                                id="_bean3" method="setBodyError"/>
+                            <stop id="_stop2"/>
+                        </otherwise>
+                    </when>
+                </choice>
+                <to id="_to2" uri="xslt://transformations/in/xml2tramaIOC0090_consultarSocio.xsl"/>
+                <to id="_to3" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="_log3" message="!!!!!!!!!!!!   Mensaje Salidad   ${body}"/>
+                <transform id="_transform1">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <log id="_log4" message="!!!!!!!!!!!  Mensaje  Salida  Body  ${body}"/>
+                <to id="_to4" uri="xslt://transformations/out/xml2tramaIOC0090_consultarSocio.xsl?saxon=true"/>
+                <log id="_log6" message="!!!!!!!!!!!  Mensaje  Salida2  ${body}"/>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="_bean2" method="restoreBody"/>
+                    <setBody id="_setBody1">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="_to6" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="_bean3" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

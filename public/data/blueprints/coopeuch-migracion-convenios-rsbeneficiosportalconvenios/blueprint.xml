@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0" xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd      http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cxf:cxfEndpoint address="/convenios/WSBeneficiosPortalConvenios" id="servicioEstadísticasBeneficiosEndpoint" wsdlURL="etc/wsdl/WSBeneficiosPortalConvenios.wsdl"/>
+    
+    <cm:property-placeholder id="propertyGlobal"
+        persistent-id="global"  update-strategy="reload"/>      
+        
+    <cm:property-placeholder id="property-placeholder-service-estadisticas-benificios" 
+    persistent-id="wsbeneficiosportalconvenios" update-strategy="reload" placeholder-prefix="{["
+        placeholder-suffix="]}" />
+    
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSource">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="${jdbc.url.usuarioConvenio};charset=iso_1"/>
+        <property name="username" value="${jdbc.username.usuarioConvenio}"/>
+        <property name="password" value="${jdbc.password.usuarioConvenio}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="${jdbc.timeBetweenEvictionRunsMillis.usuarioConvenio}"/>
+        <property name="numTestsPerEvictionRun" value="${jdbc.numTestsPerEvictionRun.usuarioConvenio}"/>
+        <property name="minEvictableIdleTimeMillis" value="${jdbc.minEvictableIdleTimeMillis.usuarioConvenio}"/>
+        <property name="maxActive" value="${jdbc.maxActive.usuarioConvenio}"/>
+    </bean>
+    
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>  
+    
+    <bean class="cl.coopeuch.integracion.beneficiosportalconvenios.util.RouteFacade" id="beanRouteFacade"/>
+    
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+    
+    <!-- Define the stored procedure bean with the input and output params -->
+    <bean class="cl.coopeuch.integracion.beneficiosportalconvenios.util.db.StoredProcedureBean" id="call_sp_get_partners_benifits_detail">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_get_partners_benefits"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="inputSolicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+        <property name="thresholdValue" value="{[graph.thresholdValue]}"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.beneficiosportalconvenios.util.db.DastacoStoredProcedureBean" id="call_sp_get_destacos_detail">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_get_destacos"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="inputSolicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.integracion.beneficiosportalconvenios.util.db.BeneficiosYAlianzasStoredProcedureBean" id="call_sp_get_beneficios_alianzas">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_get_BeneficiosAlinzas"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="inputSolicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="region"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="category"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <camelContext id="servicio-estadisticasbeneficios" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml id="jacksonTransform" prettyPrint="true"/>
+        </dataFormats>
+        
+        <route id="cxf-inicio">
+            <from id="servicioEstadísticasBeneficiosEndpointistener" uri="cxf:bean:servicioEstadísticasBeneficiosEndpoint?DataFormat=MESSAGE"/>
+           <doTry id="ruteoOperacionesTry">
+            <convertBodyTo id="routeOperationBody" type="java.lang.String"/>
+            <bean id="backupBody" method="backupBody" ref="beanRouteFacade"/>        
+            <choice id="routeOperations">
+                <when id="consultarDestacadosRequestParam">
+                    <simple>${body} contains 'consultarDestacadosRequest'</simple>
+                     <setProperty id="inicioSetTipoRequest1" propertyName="tipoRequest">
+                   		<simple>ObtenerDestacaRequest</simple>
+                	</setProperty>
+                    <to id="toGetDestaco" uri="direct:servicioDestacoRouteOperations"/>
+                </when>
+                <when id="consultarEstadisticasRequestParam">
+                    <simple>${body} contains 'consultarEstadisticasRequest'</simple>
+                    <setProperty id="inicioSetTipoRequest2" propertyName="tipoRequest">
+                   		<simple>EstadisticasBeneficiosRequest</simple>
+                	</setProperty>
+                    <to id="toGetEstadísticasBeneficios" uri="direct:servicioEstadisticasBenificiosRouteOperation"/>
+                </when>
+                <when id="consultarBeneficiosYAlianzasRequestParam">
+                    <simple>${body} contains 'consultarBeneficiosYAlianzasRequest'</simple>
+                     <setProperty id="inicioSetTipoRequest3" propertyName="tipoRequest">
+                   		<simple>ObtenerBeneficiosYAlianzasRequest</simple>
+                	</setProperty>
+                    <to id="toGetBeneficiosYAlianzas" uri="direct:servicioBeneficiosYAlianzasRouteOperations"/>
+                </when>                
+            </choice>
+             <doCatch id="cxf-inicioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="ruteoOperacionesPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="cxfinicioExcepcion" uri="direct:excepcion"/>
+             </doCatch>
+            </doTry>
+        </route>
+          
+        <route id="servicioEstadisticasBenificiosRouteOperation">
+            <from id="servicioEstadísticasBeneficiosEndpointListener" uri="direct:servicioEstadisticasBenificiosRouteOperation"/>
+            <doTry id="estadisticasBeneficiosTry">
+                <convertBodyTo id="estadisticasBenificiosRouteBody" type="java.lang.String"/>
+                <setHeader headerName="inputSolicitudId" id="inputSolicitudId">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <to id="to_call_sp_get_partners_benifits_detail" uri="bean:call_sp_get_partners_benifits_detail"/>
+                 <removeHeaders id="removeHeader1" pattern="*" />
+                <doCatch id="estadisticasBeneficiosCatch">
+                     <exception>java.lang.Exception</exception>
+                    <setProperty id="estadisticasBeneficiosPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="estadisticasBeneficiosExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+      
+        <route id="servicioDestacoRouteOperations">
+            <from id="servicioDestacoEndpointListener" uri="direct:servicioDestacoRouteOperations"/>
+            <doTry id="destacaTry">
+                <convertBodyTo id="routeOperationBody1" type="java.lang.String"/>
+                <setHeader headerName="inputSolicitudId" id="inputSolicitudId1">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <to id="to_call_sp_get_destacos_detail" uri="bean:call_sp_get_destacos_detail"/>
+                 <removeHeaders id="removeHeader2" pattern="*" />
+                <doCatch id="destacaCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="destacaPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="destacaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+         
+        <route id="servicioBeneficiosYAlianzasRouteOperations">
+            <from id="serviciooBeneficiosYAlianzasEndpointListener" uri="direct:servicioBeneficiosYAlianzasRouteOperations"/>
+            <doTry id="beneficiosYAlianzasTry">
+                <convertBodyTo id="routeOperationBody2" type="java.lang.String"/>
+                <setHeader headerName="inputSolicitudId" id="inputSolicitudIdForBeneficiosYAlianzas">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <setHeader headerName="region" id="inputSolicitudIdForBeneficiosYAlianzasRegion">
+                    <xpath resultType="String">//region</xpath>
+                </setHeader>
+                <setHeader headerName="category" id="inputSolicitudIdForBeneficiosYAlianzasCategory">
+                    <xpath resultType="String">//category</xpath>
+                </setHeader>
+                <to id="to_call_sp_get_beneficios_alianzas" uri="bean:call_sp_get_beneficios_alianzas"/>
+                 <removeHeaders id="removeHeader3" pattern="*" />
+                <doCatch id="beneficiosYAlianzasCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="beneficiosYAlianzasCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="beneficiosYAlianzasExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+       
+        <route id="consultarResumenOperations">
+            <from id="consultarResumenEndpointListener" uri="direct:consultarResumenOperations"/>
+            <doTry id="consultarResumenTry">
+                <convertBodyTo id="routeconsultarResumenBody2" type="java.lang.String"/>
+                <setHeader headerName="inputSolicitudId" id="consultarResumenSolicitudId">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <to id="to_call_sp_obtener_informacion_convenio" uri="bean:call_sp_obtener_informacion_convenio"/>
+                 
+                 <!-- utf8 --> 
+                <removeHeaders id="_removeHeadersconsultarResumen2" pattern="JMS*"/> 
+                <setProperty id="_setProperty9" propertyName="Exchange.HTTP_CHARACTER_ENCODING"> 
+                    <constant>utf-8</constant> 
+                </setProperty> 
+                <setProperty id="_setPropertyconsultarResumen10" propertyName="Exchange.CONTENT_TYPE"> 
+                    <constant>text/xml;charset=utf-8</constant> 
+                </setProperty> 
+                <setProperty id="_setPropertyconsultarResumen11" propertyName="Exchange.CONTENT_ENCODING"> 
+                    <constant>utf-8</constant> 
+                </setProperty> 
+                <setProperty id="_setPropertyconsultarResumen12" propertyName="Exchange.CHARSET_NAME"> 
+                    <constant>utf-8</constant> 
+                </setProperty> 
+
+                <doCatch id="consultarResumenCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="obtenerInformacionCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="obtenerInformacionExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>        
+                
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                 <setBody id="exceptionBodyError">
+                        <simple>${body}</simple>
+                    </setBody>    
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+
+</blueprint>

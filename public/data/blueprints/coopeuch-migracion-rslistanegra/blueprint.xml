@@ -1,0 +1,378 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd        http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd    http://camel.apache.org/schema/blueprint  http://camel.apache.org/schema/blueprint/camel-blueprint.xsd   http://cxf.apache.org/schemas/configuration/http-conf.xsd">
+    <cm:property-placeholder id="propertyGlobal"
+        persistent-id="globalmq" placeholder-prefix="{["
+        placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wslistasnegras" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <http-conf:conduit name="*.http-conduit">
+        <http-conf:client ConnectionTimeout="5000" ReceiveTimeout="5000"/>
+    </http-conf:conduit>
+    <cxf:cxfEndpoint address="/WSListasNegras"
+        id="endpointWSListasNegras"
+        serviceClass="cl.coopeuch.integracion.wslistasnegras.WSListasNegrasSOAPPortType" wsdlURL="wsdl/WSListasNegras.wsdl"/>
+    <cxf:rsServer address="/RSListasNegras" id="ListasNegrasRest" serviceClass="cl.coopeuch.integracion.listasnegras.rest.ListasNegrasRest"/>
+    <cxf:cxfEndpoint address="[{endpoint.listasnegras.url}]"
+        id="complianceTrackerEndpoint" serviceClass="org.tempuri.webservice1.service1.ComplianceTrackerSoap"/>
+    <!-- Conexion AMQ -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="listasNegrasSQL">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.listasnegras}]"/>
+        <property name="username" value="[{jdbc.sqlserver.username.listasnegras}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.listasnegras}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.listasnegras}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.listasnegras}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.listasnegras}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.listasnegras}]"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.personas]]"/>
+        <property name="password" value="[[jdbc.db2.password.personas]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.wslistasnegras}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.wslistasnegras}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.wslistasnegras}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.wslistasnegras}]"/>
+    </bean>
+    <!-- Configuracion IBM WebSphere MQ -->
+    <bean class="cl.coopeuch.integracion.util.RouteFacade" id="routeFacade"/>
+    <bean class="com.ibm.mq.jms.MQConnectionFactory" id="websphereConnectionFactory">
+        <property name="transportType" value="1"/>
+        <property name="hostName" value="{[ibm.mq.host]}"/>
+        <property name="port" value="{[ibm.mq.port]}"/>
+        <property name="queueManager" value="{[ibm.qm.name]}"/>
+        <property name="useConnectionPooling" value="true"/>
+        <property name="channel" value="{[ibm.qm.channel]}"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="websphereConfig">
+        <property name="connectionFactory" ref="websphereConnectionFactory"/>
+        <property name="concurrentConsumers" value="[{ibm.mq.concurrentConsumers}]"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsComponent" id="websphere">
+        <property name="configuration" ref="websphereConfig"/>
+    </bean>
+    <camelContext id="servicio-listas-negras-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-RuteoOperaciones-jms">
+            <from id="servicioEndpointListenerJms" uri="AMQ:queue:{{colas.servicio.listasnegras.in.temp}}?preserveMessageQos=true"/>
+            <to id="_to2_Inicio" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-InicioREST">
+            <from id="inicioFrom-REST" uri="cxfrs:bean:ListasNegrasRest"/>
+            <choice id="inicioChoiceOperacion-REST">
+                <when id="inicioWhenOperacionConsultar-REST">
+                    <simple>${header.operationName} == 'consultar'</simple>
+                    <unmarshal id="consultar_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.listasnegras.soap.DatosCliente"/>
+                    </unmarshal>
+                    <bean id="consultar_bean6"
+                        method="consultarRequestRest" ref="routeFacade"/>
+                    <marshal id="consultar_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.listasnegras.soap"/>
+                    </marshal>
+                    <to id="_to7" uri="direct:inicio"/>
+                    <unmarshal id="consultar_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.listasnegras.soap"/>
+                    </unmarshal>
+                    <bean id="consultar_bean7"
+                        method="consultarResponseRest" ref="routeFacade"/>
+                    <marshal id="consultar_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.listasnegras.soap.ConsultarResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenVerificar-REST">
+                    <simple>${header.operationName} == 'verificar'</simple>
+                    <unmarshal id="verificar_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.listasnegras.soap.DatosEntradaVerificar"/>
+                    </unmarshal>
+                    <bean id="verificar_bean6"
+                        method="verificarRequestRest" ref="routeFacade"/>
+                    <marshal id="verificar_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.listasnegras.soap"/>
+                    </marshal>
+                    <to id="verificar_to7" uri="direct:inicio"/>
+                    <unmarshal id="verificar_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.listasnegras.soap"/>
+                    </unmarshal>
+                    <bean id="verificar_bean7"
+                        method="verificarResponseRest" ref="routeFacade"/>
+                    <marshal id="verificar_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.listasnegras.soap.VerificarResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <route id="cx-RuteoOperaciones">
+            <from id="inicioFrom" uri="cxf:bean:endpointWSListasNegras?DataFormat=MESSAGE"/>
+            <to id="_toInicioWSDL" uri="direct:inicio"/>
+        </route>
+        <!-- Ruta que invoca operaciones del servicio web Listas Negras -->
+        <route id="cxf-Inicio">
+            <from id="inicioFrom" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <convertBodyTo id="_convertBodyTo2" type="java.lang.String"/>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${body} contains 'consultarRequest'</simple>
+                        <to id="toListasNegrasConsultar" uri="direct:listasNegrasConsultar"/>
+                    </when>
+                    <when id="whenVerificar">
+                        <simple>${body} contains 'verificar'</simple>
+                        <to id="toVerificar" uri="direct:verificar"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta que ejecuta operacion consultar el WS Listas Negras -->
+        <route id="consultar">
+            <from id="remoteCall_From" uri="direct:listasNegrasConsultar"/>
+            <doTry id="consultarTry">
+                <to id="consultaToSetProperties" uri="direct:setProperties"/>
+                <to id="consultarToPa" uri="direct:consultarPa"/>
+                <to id="consultaResponseIBSTo" uri="xslt://transformations/out/consultarResponse_Pa_consultar.xsl?saxon=true"/>
+                <doCatch id="consultarPaCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>java.lang.Exception</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <to id="timeoutP" uri="xslt://transformations/out/timeoutWSComplianceTracker.xsl?saxon=true"/>
+                    <to id="consultarFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </doCatch>
+                <doFinally id="consultarFinally"/>
+            </doTry>
+        </route>
+        <route id="consultarPa">
+            <from id="consultarPaFrom" uri="direct:consultarPa"/>
+            <to id="consultaToPa" uri="sql-stored:classpath:sql/PA_SEL_WSLISTASNEGRAS_CONSULTAR_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseConsultar"/>
+            <bean id="consultarPasResponse"
+                method="mapeoRespuestaPaConsultar" ref="routeFacade"/>
+        </route>
+        <route id="verificar">
+            <from id="verificarFrom" uri="direct:verificar"/>
+            <doTry id="verificarTry">
+                <to id="verificarToSetProperties" uri="direct:setProperties"/>
+                <to id="sqlListasNegrasTo" uri="direct:sqlListasNegras"/>
+                <choice id="verificarChoiceConsultaSQL">
+                    <when id="verificarWhenConsultaSQL">
+                        <simple>${exchangeProperty.consultaSQL} == false</simple>
+                        <to id="verificarIBSTo" uri="direct:ConsultaIBS"/>
+                        <to id="verificarResponseIBSTo" uri="xslt://transformations/out/verificarResponse_IBS.xsl?saxon=true"/>
+                        <setHeader headerName="codRespuesta" id="verificarCodRespuestaHeader">
+                            <xpath resultType="java.lang.String">//codigo/text()</xpath>
+                        </setHeader>
+                        <choice id="verificarChoice">
+                            <when id="verificarWhen">
+                                <simple>${headers.codRespuesta} == 0</simple>
+                                <to id="verificarToCompliance" uri="direct:consultaComplianceTracker"/>
+                                <to id="verificarResponseIBSTo" uri="xslt://transformations/out/verificarResponse_CMTR.xsl?saxon=true"/>
+                                <setProperty id="_setProperty9" propertyName="tipoBloqueo">
+                                    <xpath resultType="java.lang.String">//codigo</xpath>
+                                </setProperty>
+                                <to id="verificarBloqueaCliente" uri="direct:bloqueaCliente"/>
+                                <choice id="verificarChoiceBloqueaCliente">
+                                    <when id="verificarWhenBloqueaCliente">
+                                    <simple>${exchangeProperty.bloqueoCliente}</simple>
+                                    <to
+                                    id="verificarResponseBloqueoCliente" uri="xslt://transformations/out/verificarResponse_BloqueoCliente.xsl?saxon=true"/>
+                                    </when>
+                                </choice>
+                            </when>
+                        </choice>
+                        <wireTap id="verificarRegistroSQLWiretap" uri="direct:registroSqlListasNegras"/>
+                    </when>
+                </choice>
+                <doCatch id="verificarCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="verificarTimeout" uri="xslt://transformations/out/timeoutWSComplianceTracker_verificar.xsl?saxon=true"/>
+                    <to id="verificarFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta que realiza la consulta en EIBS (CURST) -->
+        <route id="consultaIBSIOC710001I">
+            <from id="consultaIBSFrom" uri="direct:ConsultaIBS"/>
+            <doTry id="consultaIBSTry">
+                <to id="consultaIBSXmlTrama" uri="xslt://transformations/in/IOC710001I_consultaIBS.xsl"/>
+                <bean beanType="cl.coopeuch.util.jms.IdCorrelativo"
+                    id="creaJMSIdCorrelativo" method="creaJMSIdCorrelativo"/>
+                <to id="activemq-consultaIBS" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="consultaIBSTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <doCatch id="consultaIBSCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.RespaldoBody"
+                        id="consultaIBSRestoreBody" method="restauraBody"/>
+                    <setBody id="consultaIBSSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultaIBSFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="consultaIBSSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultaIBSFinally"/>
+            </doTry>
+        </route>
+        <!--         Ruta que consume cola MQ IBS y Compliance Tracker -->
+        <route id="consultaListasNegras">
+            <from id="consultaListasNegrasFrom" uri="websphere:queue:{{ibm.queueBlist.in}}"/>
+            <convertBodyTo id="consultaListasNegrasBodyTo" type="java.lang.String"/>
+            <transform id="consultaListasNegrasTransform">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <to id="trama2xml_consultaListasNegras" uri="xslt://transformations/in/IOC008001I_consultaListasNegras.xsl?saxon=true"/>
+            <setHeader headerName="soapAction" id="setHeaderSoapAction">
+                <constant>http://tempuri.org/WebService1/Service1/search3</constant>
+            </setHeader>
+            <doTry id="complianceTrackerTry">
+                <to id="servicioListasNegrasEndpointClient" uri="cxf:bean:complianceTrackerEndpoint?dataFormat=MESSAGE&amp;LoggingFeatureEnabled=true"/>
+                <doCatch id="complianceTrackerCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <transform id="consultaListasNegrasTransform">
+                        <simple>&lt;search3Response&gt;&lt;/search3Response&gt;</simple>
+                    </transform>
+                </doCatch>
+                <doFinally id="complianceTrackerFinally"/>
+            </doTry>
+            <to id="xml2trama_consultaListasNegras" uri="xslt://transformations/out/IOC008001O_consultaListasNegras.xsl?saxon=true"/>
+        </route>
+        <!-- Ruta para llamar a Compliance Tracker desde la ruta verificar -->
+        <route id="complianceTracker">
+            <from id="cmtrFrom" uri="direct:consultaComplianceTracker"/>
+            <to id="trama2xml_cmtr" uri="xslt://transformations/in/consultarRequest.xsl?saxon=true"/>
+            <setHeader headerName="soapAction" id="cmtrSetHeader">
+                <constant>http://tempuri.org/WebService1/Service1/search3</constant>
+            </setHeader>
+            <to id="cmtrEndpointClient" uri="cxf:bean:complianceTrackerEndpoint?dataFormat=MESSAGE&amp;LoggingFeatureEnabled=true"/>
+            <convertBodyTo id="CTconvertBodyTo" type="java.lang.String"/>
+            <choice id="choiceResponseCT">
+                <when id="whenResponseCT">
+                    <simple>${body} contains 'search3Response'</simple>
+                </when>
+                <otherwise id="otherwhiseResponseCT">
+                    <throwException exceptionType="java.lang.Exception"
+                        id="errorCT" message="Error compliance Tracker"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Ruta que permite realizar el setter de parametros para las llamadas 
+			consultar y verificar -->
+        <route id="setProperties">
+            <!-- Filtro de Invocaciones EIBS o CMTR (Compliance Tracker) -->
+            <!-- Por incidencia se filtra nacionalidad CL - CHILENA - CHILENO y se reemplaza por el texto CHILE -->
+            <from id="setPropertiesFrom" uri="direct:setProperties"/>
+            <setProperty id="_setProperty1" propertyName="canalLLamada">
+                <xpath resultType="java.lang.String">//canalLLamada/text()</xpath>
+            </setProperty>
+            <setProperty id="_setProperty2" propertyName="idUsuarioSys">
+                <xpath resultType="java.lang.String">//idUsuarioSys/text()</xpath>
+            </setProperty>
+            <setProperty id="_setProperty3" propertyName="idUsuarioIBS">
+                <xpath resultType="java.lang.String">//idUsuarioIBS/text()</xpath>
+            </setProperty>
+            <setProperty id="_setProperty4" propertyName="rutCliente">
+                <xpath resultType="java.lang.String">//rutCliente/text()</xpath>
+            </setProperty>
+            <setProperty id="_setProperty5" propertyName="nombresCliente">
+                <xpath resultType="java.lang.String">//nombresCliente/text()</xpath>
+            </setProperty>
+            <setProperty id="_setProperty6" propertyName="apellidosCliente">
+                <xpath resultType="java.lang.String">//apellidosCliente/text()</xpath>
+            </setProperty>
+            <setProperty id="_setProperty7" propertyName="nacionalidadContingencia">
+                <xpath resultType="java.lang.String">//nacionalidadCliente/text()</xpath>
+            </setProperty>
+            <setProperty id="_setProperty10" propertyName="nacionalidadContingencia">
+                <simple>${property.nacionalidadContingencia.toUpperCase()}</simple>
+            </setProperty>
+            <when id="_when1">
+                <simple>${property.nacionalidadContingencia} == 'CHILENA' or ${property.nacionalidadContingencia} == 'CL' or ${property.nacionalidadContingencia} == 'CHILENO'</simple>
+                <setProperty id="_setProperty11" propertyName="nacionalidadContingencia">
+                    <simple>CHILE</simple>
+                </setProperty>
+            </when>
+            <setProperty id="_setProperty12" propertyName="nacionalidadCliente">
+                <simple>${property.nacionalidadContingencia}</simple>
+            </setProperty>
+            <setProperty id="_setProperty8" propertyName="codFteInfBloqueo">
+                <xpath resultType="java.lang.String">//codFteInfBloqueo/text()</xpath>
+            </setProperty>
+        </route>
+        <!-- Ruta que permite validar si el cliente ingresado es extranjero -->
+        <route id="bloqueaCliente">
+            <from id="fromBloqueaCliente" uri="direct:bloqueaCliente"/>
+            <bean id="beanValidaBloqueo" method="validaBloqueo" ref="routeFacade"/>
+            <removeHeaders id="bloqueoClienteRemoveHeaders" pattern="*"/>
+            <choice id="choiceBloqueaCliente">
+                <when id="whenBloqueaCliente">
+                    <simple>${exchangeProperty.bloqueoCliente}</simple>
+                    <to id="bloquearClienteXSLT" uri="xslt://transformations/in/IOC710001I_bloquearCliente.xsl?saxon=true"/>
+                    <bean beanType="cl.coopeuch.util.jms.IdCorrelativo"
+                        id="validaExtranjeroIdCorrelativo" method="creaJMSIdCorrelativo"/>
+                    <to id="validaExtranjeroToAmq" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                    <transform id="validaExtranjeroTransform">
+                        <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                    </transform>
+                </when>
+            </choice>
+        </route>
+        <route id="sqlListasNegras">
+            <from id="sqlListasNegrasFrom" uri="direct:sqlListasNegras"/>
+            <to id="toPa_selNotificaciones" uri="sql-stored:classpath:sql/pa_selNotificaciones.sql?dataSource=listasNegrasSQL&amp;outputHeader=responseNotificaciones"/>
+            <bean id="beanResponseNotificaciones"
+                method="respuestaSelNotificaciones" ref="routeFacade"/>
+            <choice id="choiceConsultaSQL">
+                <when id="whenConsultaSQL">
+                    <simple>${exchangeProperty.consultaSQL}</simple>
+                    <to id="toVerificarResponseSQL" uri="xslt://transformations/out/verificarResponse_SQL.xsl?saxon=true"/>
+                    <removeHeaders id="sqlListasNegrasRemoveHeaders" pattern="*"/>
+                </when>
+            </choice>
+        </route>
+        <route id="registroSqlListasNegras">
+            <from id="registroSqlListasNegrasFrom" uri="direct:registroSqlListasNegras"/>
+            <setProperty id="setPropertyOrigen" propertyName="origen">
+                <xpath resultType="java.lang.String">//origen/text()</xpath>
+            </setProperty>
+            <setProperty id="setPropertyCodigo" propertyName="codigo">
+                <xpath resultType="java.lang.String">//codigo/text()</xpath>
+            </setProperty>
+            <setProperty id="setPropertyDescripcion" propertyName="descripcion">
+                <xpath resultType="java.lang.String">//descripcion/text()</xpath>
+            </setProperty>
+            <choice id="choiceConsultaSQLSinBloqueo">
+                <when id="whenConsultaSQLSinBloqueo">
+                    <simple>${exchangeProperty.codigo} == 0</simple>
+                    <to id="toPa_insNotificaciones" uri="sql-stored:classpath:sql/pa_insNotificaciones.sql?dataSource=listasNegrasSQL&amp;outputHeader=responseRegistroNotificacion"/>
+                </when>
+            </choice>
+        </route>
+    </camelContext>
+</blueprint>

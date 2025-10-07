@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="amqactualizacionfinanciera"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSource">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.amq.actualizacionfinanciera}]/[{jdbc.sqlserver.database.amq.actualizacionfinanciera}];charset=iso_1;domain=coopeuch1;usentlmv2=true"/>
+        <property name="username" value="[{jdbc.sqlserver.username.amq.actualizacionfinanciera}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.amq.actualizacionfinanciera}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.amq.actualizacionfinanciera}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.amq.actualizacionfinanciera}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.amq.actualizacionfinanciera}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.amq.actualizacionfinanciera}]"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.amq.actualizacionfinanciera.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:rsClient
+        address="[{amq.actualizacion.wsdocumentos.endpoint}]"
+        id="endpointRSDocumento" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient
+        address="[{amq.actualizacion.cdig.wsfirmaTOC.endpoint}]"
+        id="endpointRSFirmaTOC" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <camelContext id="servicio-amq-actualizacion-financiera" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="estampaFirmaJsonRequest" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.amq.actualizacionfinanciera.wsdl.firma.estampa.ecert.GeneralRequest"/>
+            <json id="estampaFirmaJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.amq.actualizacionfinanciera.wsdl.firma.estampa.ecert.GeneralResponse"/>
+        </dataFormats>
+        <route id="inicio-amq">
+            <from id="amqInicio" uri="beanAMQ:{{amq.actualizacionfinanciera.req}}?transacted=true&amp;preserveMessageQos=true"/>
+            <unmarshal id="amqunMarshall">
+                <jaxb contextPath="cl.coopeuch.integracion.amq.actualizacionfinanciera.wsdl"/>
+            </unmarshal>
+            <setProperty id="amqInicioSetTipoRequest" propertyName="tipoRequest">
+                <simple>$simple{body.class.getSimpleName()}</simple>
+            </setProperty>
+            <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                <simple>${body}</simple>
+            </setProperty>
+            <bean id="obtenerdatosBean" method="obtenerdatos" ref="beanRouteFacade"/>
+            <to id="pa_selValidarEstadoProceso-To" uri="sql-stored:classpath:etc/sql/pa_selValidarEstadoProceso.sql?dataSource=dataSource&amp;outputHeader=responseValidarEstadoProceso"/>
+            <bean id="obtenerSolicitudAProcesar-Bean"
+                method="obtenerSolicitudAProcesar" ref="beanRouteFacade"/>
+            <choice id="_choice1">
+                <when id="_when1">
+                    <simple>${exchangeProperty.validacionProceso}</simple>
+                    <to id="amqToInicio" uri="direct:inicio"/>
+                </when>
+            </choice>
+            <convertBodyTo id="amqInicioConvertTo" type="java.lang.String"/>
+        </route>
+        <route id="iniciows">
+            <from id="iniciows" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionIndicadorCurseDG">
+                        <simple> ${exchangeProperty.tipoRequest} contains 'CrearDocumento'</simple>
+                        <to id="inicioTogenerarAuditoria" uri="direct:crearDocumento"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatchOperacion">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="inicioOperacionErrorCod" propertyName="codigoError">
+                        <constant>517</constant>
+                    </setProperty>
+                    <to id="inicioToExceptionOp" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="crearDocumento">
+            <!--             <doTry id="crearDocumentoDoTry"> -->
+            <from id="crearDocumentoFrom" uri="direct:crearDocumento"/>
+            <to id="wsPersonaTo" uri="direct:servicioPersona"/>
+            <choice id="_choice2">
+                <when id="_when2">
+                    <simple>${exchangeProperty.respuestaPersona} </simple>
+                    <to id="wsDocumentoTo" uri="direct:servicioDocumento"/>
+                    <wireTap id="ActualizacionDato-Documento-wireTap" uri="direct:guardarBaseDatos"/>
+                    <to id="to-FirmaTOC" uri="direct:servicioFirmaTOC"/>
+                    <wireTap
+                        id="ActualizacionDato-FirmaDocumento-wireTap" uri="direct:guardarBaseDatos"/>
+                    <to id="toGuardarDocumentoAws" uri="direct:guardarDocumento"/>
+                    <wireTap id="ActualizacionDato-DocumentoS3-wireTap" uri="direct:guardarBaseDatos"/>
+                </when>
+            </choice>
+            <!--                 <doCatch id="indicadorCurseDGIllegalDoCatch"> -->
+            <!--                     <exception>java.lang.IllegalArgumentException</exception> -->
+            <!--                     <to id="indicadorCurseDGToExcepcionSinCV" uri="direct:excepcion"/> -->
+            <!--                     <stop id="stopIndicadorCurseDG"/> -->
+            <!--                 </doCatch> -->
+            <!--                 <doCatch id="indicadorCurseDGDoCatch"> -->
+            <!--                     <exception>java.lang.Exception</exception> -->
+            <!--                     <setProperty id="indicadorCurseDGCodigoError" propertyName="codigoError"> -->
+            <!--                         <constant>500</constant> -->
+            <!--                     </setProperty> -->
+            <!--                     <to id="indicadorCurseDGToExcepcion" uri="direct:excepcion"/> -->
+            <!--                 </doCatch> -->
+            <!--             </doTry> -->
+        </route>
+        <route id="_route1">
+            <from id="guardarDocumentoFrom" uri="direct:guardarBaseDatos"/>
+            <to id="pa_updEstadoAutorizacion-To" uri="sql-stored:classpath:etc/sql/pa_updEstadoAutorizacion.sql?dataSource=dataSource&amp;outputHeader=response"/>
+        </route>
+        <route id="_route2">
+            <from id="actualizarEstadoProcesoFrom" uri="direct:actualizarEstadoProceso"/>
+            <to id="pa_updEstadoProcesoAutorizacion-To" uri="sql-stored:classpath:etc/sql/pa_updEstadoProcesoAutorizacion.sql?dataSource=dataSource&amp;outputHeader=response"/>
+        </route>
+        <route id="guardarDocumentoAws">
+            <!--             <doTry id="guardarDocumentoTry"> -->
+            <from id="guardarDocumentoFrom" uri="direct:guardarDocumento"/>
+            <removeHeaders id="guardarDocumentoRemoveHeader" pattern="*"/>
+            <bean id="guardarDocumentoBean" method="guardarDocumentoAws" ref="beanRouteFacade"/>
+            <setProperty id="estadoDocumento-S3" propertyName="estado">
+                <constant>G</constant>
+            </setProperty>
+            <!--                 <doCatch id="guardarDocumentoDoCatch"> -->
+            <!--                     <exception>java.lang.Exception</exception> -->
+            <!--                     <setProperty id="codigoErrorGuardarDocumento" propertyName="codigoError"> -->
+            <!--                         <constant>500</constant> -->
+            <!--                     </setProperty> -->
+            <!--                     <setProperty id="guardarDocumentoDoCatch-Error" propertyName="estadoProceso"> -->
+            <!--                         <constant>F</constant> -->
+            <!--                     </setProperty> -->
+            <!--                     <wireTap id="guardarDocumentoDoCatch-wireTap" uri="direct:actualizarEstadoProceso"/> -->
+            <!--                     <to id="toGuardarDocumentoExcepcion" uri="direct:excepcion"/> -->
+            <!--                 </doCatch> -->
+            <!--             </doTry> -->
+        </route>
+        <route id="servicioPersona-TraerDatosBasicos">
+            <from id="servicioPersonaFrom" uri="direct:servicioPersona"/>
+            <removeHeaders id="_removeHeaders_Persona" pattern="*"/>
+            <doTry id="servicioPersonaTry">
+                <bean id="datosPersona-Bean"
+                    method="llamarTraerDatosBasicos" ref="beanRouteFacade"/>
+                <marshal id="datosPersona-marshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.amq.actualizacionfinanciera.wsdl.persona"/>
+                </marshal>
+                <convertBodyTo id="DatosCliente-ConvertBodyToString" type="java.lang.String"/>
+                <bean id="DatosCliente-consultarUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="datosPersona-to-AMQ" uri="beanAMQ:{{colas.servicio.persona.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <to id="datosPersona-eliminarTag-XSLT" uri="xslt://etc/xsl/response/eliminarTag.xsl?saxon=true"/>
+                <convertBodyTo id="datosPersona-convertBodyTo" type="java.lang.String"/>
+                <log id="_log1" message="PERSONA: ${body}"/>
+                <convertBodyTo id="datosPersona-ConvertBodyToResponse" type="cl.coopeuch.integracion.amq.actualizacionfinanciera.wsdl.persona.TraerDatosBasicosResponse"/>
+                <bean id="datosPersona-BeanResponse"
+                    method="responseServicioPersona" ref="beanRouteFacade"/>
+                <setProperty id="_setProperty-ServicioPersona" propertyName="bodyPersona">
+                    <simple>${body}</simple>
+                </setProperty>
+                <doCatch id="wsPersonaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="wsPersona-ToException" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generarPDF">
+            <!--             <doTry id="generarPDFDoTry"> -->
+            <from id="generarPDF-From" uri="direct:servicioDocumento"/>
+            <bean id="generarPDFBeanRequest" method="generarPDFRequest" ref="beanRouteFacade"/>
+            <to id="generarPDFto" uri="cxfrs:bean:endpointRSDocumento?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+            <bean id="generarPDFBeanResponse"
+                method="generarPDFResponse" ref="beanRouteFacade"/>
+            <setProperty id="estadoDocumento-PDF" propertyName="estado">
+                <constant>D</constant>
+            </setProperty>
+            <!--                 <doCatch id="generarPDFNullDoCatch"> -->
+            <!--                     <exception>java.lang.NullPointerException</exception> -->
+            <!--                     <setProperty id="generarPDFNullDoCatch-Error" propertyName="estadoProceso"> -->
+            <!--                         <constant>F</constant> -->
+            <!--                     </setProperty> -->
+            <!--                     <wireTap id="generarPDFNullDoCatch-Error-wireTap" uri="direct:actualizarEstadoProceso"/> -->
+            <!--                     <to id="generarPDFToExcepcionErrorCV" uri="direct:excepcion"/> -->
+            <!--                     <stop id="stopDocumento"/> -->
+            <!--                 </doCatch> -->
+            <!--                 <doCatch id="generarPDF-IllegalDoCatch"> -->
+            <!--                     <exception>java.lang.IllegalArgumentException</exception> -->
+            <!--                     <setProperty id="generarPDF-IllegalDoCatch-Error" propertyName="estadoProceso"> -->
+            <!--                         <constant>F</constant> -->
+            <!--                     </setProperty> -->
+            <!--                     <wireTap -->
+            <!--                         id="generarPDF-IllegalDoCatch-Error-wireTap" uri="direct:actualizarEstadoProceso"/> -->
+            <!--                     <to id="generarPDF-ToExcepcionSinCV" uri="direct:excepcion"/> -->
+            <!--                     <stop id="stopSinDocumento"/> -->
+            <!--                 </doCatch> -->
+            <!--                 <doCatch id="generarPDF-DoCatch"> -->
+            <!--                     <exception>java.lang.Exception</exception> -->
+            <!--                     <setProperty id="codigoError-GenerarPDF" propertyName="codigoError"> -->
+            <!--                         <constant>500</constant> -->
+            <!--                     </setProperty> -->
+            <!--                     <setProperty id="generarPDF-DoCatch-Error" propertyName="estadoProceso"> -->
+            <!--                         <constant>F</constant> -->
+            <!--                     </setProperty> -->
+            <!--                     <wireTap id="generarPDF-DoCatch-Error-wireTap" uri="direct:actualizarEstadoProceso"/> -->
+            <!--                     <to id="to-generarPDF-Excepcion" uri="direct:excepcion"/> -->
+            <!--                     <stop id="stop-GenerarPDFGeneral"/> -->
+            <!--                 </doCatch> -->
+            <!--             </doTry> -->
+        </route>
+        <route id="EstampaFirma">
+            <!--             <doTry id="EstampaFirma-DoTry"> -->
+            <from id="EstampaFirma-From" uri="direct:servicioFirmaTOC"/>
+            <bean id="EstampaFirma-BeanRequest"
+                method="obtenerDatosFirmarEstampa" ref="beanRouteFacade"/>
+            <marshal id="marshall_requestEstampa" ref="estampaFirmaJsonRequest"/>
+            <convertBodyTo id="_convertBodyTo1" type="String"/>
+            <to id="EstampaFirma-to" uri="cxfrs:bean:endpointRSFirmaTOC?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+            <unmarshal id="unmarshal_estampaFirmaResponse" ref="estampaFirmaJson"/>
+            <bean id="EstampaFirma-BeanResponse"
+                method="obtenerPDFEstampado" ref="beanRouteFacade"/>
+            <setProperty id="estadoDocumento-Firma" propertyName="estado">
+                <constant>F</constant>
+            </setProperty>
+            <!--                 <doCatch id="EstampaFirma-DoCatch"> -->
+            <!--                     <exception>java.lang.Exception</exception> -->
+            <!--                     <setProperty id="codigoError-EstampaFirma" propertyName="codigoError"> -->
+            <!--                         <constant>500</constant> -->
+            <!--                     </setProperty> -->
+            <!--                     <setProperty id="EstampaFirma-DoCatch-Error" propertyName="estadoProceso"> -->
+            <!--                         <constant>F</constant> -->
+            <!--                     </setProperty> -->
+            <!--                     <wireTap id="EstampaFirma-DoCatch-wireTap" uri="direct:actualizarEstadoProceso"/> -->
+            <!--                     <to id="to-EstampaFirma-Excepcion" uri="direct:excepcion"/> -->
+            <!--                     <stop id="stop-EstampaFirma-General"/> -->
+            <!--                 </doCatch> -->
+            <!--             </doTry> -->
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

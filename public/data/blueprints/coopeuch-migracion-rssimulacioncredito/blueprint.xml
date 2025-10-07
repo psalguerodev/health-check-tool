@@ -1,0 +1,1156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wssimulacioncredito" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <cxf:cxfEndpoint address="/WSSimulacionCredito"
+        id="serviciosimulacioncreditoEndpoint"
+        serviceClass="cl.coopeuch.integracion.simulacioncredito.wsdl.SimuladorCreditoPortType" wsdlURL="wsdl/ServicioSimulacionCredito.wsdl"/>
+    <cxf:rsServer address="/RSSimulacionCredito"
+        id="endpointRSSimulacionCredito" serviceClass="cl.coopeuch.integracion.simulacioncredito.wsdl.SimuladorCreditoPortType"/>
+    <cxf:rsClient address="[{rest.servicio.convenio.in}]"
+        id="endpointRSConvenio" loggingFeatureEnabled="false"/>
+    <cxf:rsClient address="[{rest.servicio.evaluacioncredito.in}]"
+        id="endpointRSEvaluacionCredito" loggingFeatureEnabled="false">
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <cxf:rsClient
+        address="[{rest.servicio.evaluacioncredito.in.consultar}]"
+        id="endpointRSEvaluacionCreditoConsultar" loggingFeatureEnabled="false">
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <cxf:rsClient
+        address="[{rest.servicio.seguro.in.consultarcondicionesseguros}]"
+        id="endpointRSSeguro" loggingFeatureEnabled="true">
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <bean
+        class="cl.coopeuch.integracion.simuladorcredito.util.RouteFacade" id="beanRouteFacade"/>
+    <bean
+        class="cl.coopeuch.integracion.simulador.agregador.SumarSaldos" id="sumarSaldos"/>
+    <bean
+        class="cl.coopeuch.integracion.simuladorcredito.util.ComponerPMT" id="componerPMT"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.simuladorcredito.util.AggregatorSimulacion" id="agregadorSimulacion"/>
+    <bean
+        class="cl.coopeuch.integracion.simuladorcredito.util.AgregatorSimulacionPagoDirectoPlazo" id="agregatorSimulacionPagoDirectoPlazo"/>
+    <bean
+        class="cl.coopeuch.integracion.simuladorcredito.util.AgregatorSimularPlanillaPlazoDG" id="agregatorSimularPlanillaPlazoDG"/>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <camelContext id="servicio-simulacion-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="actualizarDeudaInternaRequestJson"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.esquema.evaluacioncredito.ActualizarDeudaInternaRequest"/>
+            <json id="actualizarDeudaInternaResponseJson"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.esquema.evaluacioncredito.Body"/>
+            <json id="consultarDeudaInternaRequestJson"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.esquema.evaluacioncredito.ConsultarDeudaInternaRequest"/>
+            <json id="consultarDeudaInternaResponseJson"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.esquema.evaluacioncredito.BodyConsultar"/>
+            <json id="consultarCondicionesSegurosRequestJson"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.cliente.seguro.ConsultarCondicionesSegurosRequest"/>
+            <json id="consultarCondicionesSegurosResponseJson"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.cliente.seguro.ConsultarCondicionesSegurosResponse"/>
+        </dataFormats>
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:serviciosimulacioncreditoEndpoint"/>
+            <to id="soapToInicioWs" uri="direct:inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSSimulacionCredito"/>
+            <to id="restToInicioWs" uri="direct:inicio"/>
+        </route>
+        <route id="cx-RuteoOperaciones">
+            <from id="inicioFromServicio" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <setProperty id="ruteoOperacionesSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="ruteoOperacionesSetRequestBigData" propertyName="requestBigData">
+                    <simple>${body.get(0)}</simple>
+                </setProperty>
+                <setProperty id="ruteoOperacionesSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="ruteoOperacionesSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <toD id="simulacionTo" uri="direct:${header.operationName}"/>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeSimulacionDG">
+            <from id="_fromSimularDG" uri="direct:simularDG"/>
+            <setProperty id="_setProperty18" propertyName="entrada">
+                <simple>${body}</simple>
+            </setProperty>
+            <setProperty id="_setProperty13" propertyName="montoLiquido">
+                <simple>${body.entrada.montoTotal}</simple>
+            </setProperty>
+            <to id="_to7" uri="direct:simulacionDGCompuesta"/>
+        </route>
+        <route id="routeSimulacionDG">
+            <from id="_fromSimulacionCompuestaDG" uri="direct:simulacionDGCompuesta"/>
+            <doTry id="_doTry8">
+                <setProperty id="_setProperty20" propertyName="creditosReliquidar">
+                    <simple>${body.entrada.creditosReliquidar}</simple>
+                </setProperty>
+                <bean id="_bean1"
+                    method="traerCreditosAReliquidarRequest" ref="beanRouteFacade"/>
+                <to id="_to18" uri="direct:obtenerSaldoInsoluto"/>
+                <unmarshal id="_unmarshal3">
+                    <jaxb contextPath="cl.coopeuch.integracion.esquema.creditoconsumo"/>
+                </unmarshal>
+                <split id="_split2" parallelProcessing="true" strategyRef="sumarSaldos">
+                    <simple>${body.body.traerCreditosAReliquidarResponse.salida.listaCreditosAReliquidar.credito}</simple>
+                    <bean id="_bean12" method="sumarCreditosReliquidar" ref="beanRouteFacade"/>
+                </split>
+                <setProperty id="_setProperty21" propertyName="creditosReliquidar">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setBody id="_setBody4">
+                    <simple>${property.entrada}</simple>
+                </setBody>
+                <setProperty id="_setProperty22" propertyName="montoTotalLiquido">
+                    <simple>${body.entrada.montoTotal}</simple>
+                </setProperty>
+                <setProperty id="_setProperty23" propertyName="montoCartera">
+                    <simple>${body.entrada.montoCartera}</simple>
+                </setProperty>
+                <setProperty id="_setProperty40" propertyName="montoTotalPortabilidad">
+                    <simple>${body.entrada.montoTotalPortabilidad}</simple>
+                </setProperty>
+                <bean id="_bean11" method="obtenerPMTRequest" ref="beanRouteFacade"/>
+                <to id="to-obtenerPMT1" uri="direct:obtenerPMT"/>
+                <setProperty id="_setProperty14" propertyName="pmtMaximo">
+                    <xpath resultType="Integer">//pmtMaximo</xpath>
+                </setProperty>
+                <setBody id="_setBody7">
+                    <simple>${property.entrada}</simple>
+                </setBody>
+                <to id="_to19" uri="direct:simularDGSeguro"/>
+                <bean id="_bean14" method="montoTasa" ref="beanRouteFacade"/>
+                <setBody id="_setBody5">
+                    <simple>${property.entrada}</simple>
+                </setBody>
+                <choice id="_choice14">
+                    <when id="_when20">
+                        <simple>${body.entrada.tasaSolicitada} != null</simple>
+                        <setProperty id="_setProperty45" propertyName="tasaPropuestaCredito">
+                            <simple>${body.entrada.tasaSolicitada}</simple>
+                        </setProperty>
+                        <to id="_to2" uri="direct:consultaTasas"/>
+                        <setProperty id="_setProperty49" propertyName="tasaPizarra">
+                            <xpath resultType="String">//tasaPropuestaCredito</xpath>
+                        </setProperty>
+                        <bean id="_bean16"
+                            method="validarTasaSolicitada" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <to id="_to20" uri="direct:consultaTasas"/>
+                        <setProperty id="_setProperty10" propertyName="tasaPropuestaCredito">
+                            <xpath resultType="String">//tasaPropuestaCredito</xpath>
+                        </setProperty>
+                    </otherwise>
+                </choice>
+                <setBody id="_setBody6">
+                    <simple>${property.entrada}</simple>
+                </setBody>
+                <bean id="_bean15" method="montoCuentas" ref="beanRouteFacade"/>
+                <to id="_to21" uri="direct:simulacionDGPorCuotas"/>
+                <setProperty id="_setProperty25" propertyName="numeroSimulacionPadre">
+                    <simple>${body.salida.simulaciones[0].numeroSimulacionPadre}</simple>
+                </setProperty>
+                <setProperty id="_setProperty28" propertyName="cantidadOcurrencias">
+                    <simple>${body.salida.simulaciones[0].cantidadOcurrencias}</simple>
+                </setProperty>
+                <setProperty id="_setProperty12" propertyName="salidaCompuesta">
+                    <simple>${body}</simple>
+                </setProperty>
+                <to id="toActualizarDeudaInternaDG" uri="direct:actualizarDeudaInterna"/>
+                <setBody id="_setBody11">
+                    <simple>${property.salidaCompuesta}</simple>
+                </setBody>
+                <split id="_splitComposicion" parallelProcessing="true"
+                    stopOnException="true" strategyRef="componerPMT">
+                    <simple>${body.salida.simulaciones[0].simulador}</simple>
+                    <setProperty id="_setProperty29" propertyName="simuladorDG">
+                        <simple>${body}</simple>
+                    </setProperty>
+                    <bean id="_bean10" method="obtenerPMTSplitRequest" ref="beanRouteFacade"/>
+                    <to id="to-obtenerPMT" uri="direct:obtenerPMT"/>
+                    <bean id="_bean24" method="componerSalida" ref="beanRouteFacade"/>
+                </split>
+                <bean id="_bean25" method="salidaServicio" ref="beanRouteFacade"/>
+                <setProperty id="_setProperty53" propertyName="salida">
+                    <simple>${body}</simple>
+                </setProperty>
+                <bean id="condicionesSegurosId2"
+                    method="filtrarCondicionesSegurosDG" ref="beanRouteFacade"/>
+                <choice id="_choice27">
+                    <when id="_when33">
+                        <simple>${body} == 'true'</simple>
+                        <bean id="consultarCondicionesSegurosRequestId2"
+                            method="consultarCondicionesSegurosRequestDG" ref="beanRouteFacade"/>
+                        <to id="condicionesSeguroTo2" uri="direct:condicionesSeguro"/>
+                        <bean id="responseId2"
+                            method="responseConCondicionesSeguroDG" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise13">
+                        <setBody id="_setBody13">
+                            <simple>${property.salida}</simple>
+                        </setBody>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch10">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to13" uri="direct:excepcion"/>
+                    <!--                     <stop id="_stop9"/> -->
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route1">
+            <from id="from-obtenerPMT" uri="direct:obtenerPMT"/>
+            <doTry id="_doTry7">
+                <setHeader headerName="operationName" id="_setHeader1">
+                    <constant>obtenerPMT</constant>
+                </setHeader>
+                <bean id="createJMSCorrelationIdSimuladorDG1"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <log id="_log12" message="Entrada PMT ${body}"/>
+                <to id="_toCalcularPMT" uri="AMQ:{{colas.servicio.wscalcularpmt.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <log id="_log2" message="Salida PMT ${body}"/>
+                <choice id="_choice6">
+                    <when id="_when8">
+                        <xpath>//formato = 'ECNLERR'</xpath>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException4" message="error"/>
+                    </when>
+                </choice>
+                <doCatch id="_doCatch7">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="_bean7" method="errorToXMLPMT" ref="beanRouteFacade"/>
+                    <!--                     <stop id="_stop8"/> -->
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeSimularPagoDirectoPlazo">
+            <from id="inicioSimularPagoDirectoPlazo" uri="direct:simularPagoDirectoPlazo"/>
+            <choice id="_choice33">
+                <when id="_when40">
+                    <simple>${body.entrada.plazos} != null</simple>
+                    <split id="_split4" parallelProcessing="true"
+                        stopOnException="true" strategyRef="agregatorSimulacionPagoDirectoPlazo">
+                        <simple>${body.entrada.plazos.plazo}</simple>
+                        <setProperty id="_setProperty37" propertyName="plazo">
+                            <simple>${body}</simple>
+                        </setProperty>
+                        <bean id="_bean33"
+                            method="transformarPlazoRequest" ref="beanRouteFacade"/>
+                        <log id="_log6" message="@@@@@@@@@@@@@@@@@@@@: ${body}"/>
+                        <to id="_to12" uri="direct:simularPagoDirecto"/>
+                    </split>
+                </when>
+                <otherwise id="_otherwise18">
+                    <setBody id="_setBody17">
+                        <simple>${body.entrada.simulacion}</simple>
+                    </setBody>
+                    <bean id="_bean39" method="transformarPlazoSinPlazo" ref="beanRouteFacade"/>
+                    <to id="_to30" uri="direct:simularPagoDirecto"/>
+                    <bean id="_bean40"
+                        method="transformarPlazoSinPlazoSalida" ref="beanRouteFacade"/>
+                </otherwise>
+            </choice>
+            <bean id="_bean43" method="salidaPlazoDirecto" ref="beanRouteFacade"/>
+        </route>
+        <route id="_routeSimularPlanillaPlazoDG">
+            <from id="inicioSimularPlanillaPlazoDG" uri="direct:simularPlanillaPlazoDG"/>
+            <choice id="_choice34">
+                <when id="_when42">
+                    <simple>${body.entrada.plazos} != null</simple>
+                    <split id="_split5" parallelProcessing="true"
+                        stopOnException="true" strategyRef="agregatorSimularPlanillaPlazoDG">
+                        <simple>${body.entrada.plazos.plazo}</simple>
+                        <setProperty id="_setProperty57" propertyName="plazo">
+                            <simple>${body}</simple>
+                        </setProperty>
+                        <bean id="_bean34"
+                            method="transformarPlanillaPlazoRequest" ref="beanRouteFacade"/>
+                        <to id="_to32" uri="direct:simuladorPlanilla"/>
+                    </split>
+                </when>
+                <otherwise id="_otherwise19">
+                    <setBody id="_setBody18">
+                        <simple>${body.entrada.simulacion}</simple>
+                    </setBody>
+                    <bean id="_bean41"
+                        method="transformarPlazoSinPlazoPlanilla" ref="beanRouteFacade"/>
+                    <to id="_to31" uri="direct:simuladorPlanilla"/>
+                    <bean id="_bean42"
+                        method="transformarPlazoSinPlazoSalidaPlanilla" ref="beanRouteFacade"/>
+                </otherwise>
+            </choice>
+            <bean id="_bean44" method="salidaPlazoPlanillaDG" ref="beanRouteFacade"/>
+        </route>
+        <route id="routeSimularPagoDirectoRequest">
+            <from id="fromSimularPagoDirectoRequest" uri="direct:simularPagoDirecto"/>
+            <doTry id="_doTry11">
+                <setProperty id="_setProperty31" propertyName="entrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="_setProperty32" propertyName="montoLiquido">
+                    <simple>${body.entrada.montoTotal}</simple>
+                </setProperty>
+                <setProperty id="_setProperty15" propertyName="creditosReliquidar">
+                    <simple>${body.entrada.creditosReliquidar}</simple>
+                </setProperty>
+                <setProperty id="_setProperty39" propertyName="montoTotalPortabilidad">
+                    <simple>${body.entrada.montoTotalPortabilidad}</simple>
+                </setProperty>
+                <bean id="_beanPagoDirecto"
+                    method="traerCreditosAReliquidarRequestPagoDirecto" ref="beanRouteFacade"/>
+                <to id="_to14" uri="direct:obtenerSaldoInsoluto"/>
+                <bean id="_bean36" method="validarCreditosReliquidar" ref="beanRouteFacade"/>
+                <unmarshal id="_unmarshal8">
+                    <jaxb contextPath="cl.coopeuch.integracion.esquema.creditoconsumo"/>
+                </unmarshal>
+                <split id="_split3" parallelProcessing="true" strategyRef="sumarSaldos">
+                    <simple>${body.body.traerCreditosAReliquidarResponse.salida.listaCreditosAReliquidar.credito}</simple>
+                    <bean id="_bean13" method="sumarCreditosReliquidar" ref="beanRouteFacade"/>
+                </split>
+                <setProperty id="_setProperty16" propertyName="creditosReliquidar">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setBody id="_setBody8">
+                    <simple>${property.entrada}</simple>
+                </setBody>
+                <setProperty id="_setProperty17" propertyName="montoTotalLiquido">
+                    <simple>${body.entrada.montoTotal}</simple>
+                </setProperty>
+                <setProperty id="_setProperty30" propertyName="montoCartera">
+                    <simple>${body.entrada.montoCartera}</simple>
+                </setProperty>
+                <bean id="simularPrivadoValidaBodySeguro"
+                    method="generarTramaSimuladorPrivadoSeguro" ref="beanRouteFacade"/>
+                <to id="_to15" uri="direct:simularSeguro"/>
+                <bean id="_bean26" method="montoTasaPagoDirecto" ref="beanRouteFacade"/>
+                <setBody id="_setBody9">
+                    <simple>${property.entrada}</simple>
+                </setBody>
+                <choice id="_choice13">
+                    <when id="_when19">
+                        <simple>${body.entrada.tasaSolicitada} != null</simple>
+                        <setProperty id="_setProperty38" propertyName="tasaPropuestaCredito">
+                            <simple>${body.entrada.tasaSolicitada}</simple>
+                        </setProperty>
+                        <to id="_toTasaPizarraDirecto" uri="direct:consultaTasasPagoDirecto"/>
+                        <setProperty id="_setProperty48" propertyName="tasaPizarra">
+                            <xpath resultType="String">//tasaPropuestaCredito</xpath>
+                        </setProperty>
+                        <bean id="_bean30"
+                            method="validarTasaSolicitada" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <to id="_to22" uri="direct:consultaTasasPagoDirecto"/>
+                        <setProperty id="_setProperty56" propertyName="tasaPropuestaCredito">
+                            <xpath resultType="String">//tasaPropuestaCredito</xpath>
+                        </setProperty>
+                    </otherwise>
+                </choice>
+                <bean id="_bean37" method="validarSalidaTasas" ref="beanRouteFacade"/>
+                <setBody id="_setBody10">
+                    <simple>${property.entrada}</simple>
+                </setBody>
+                <bean id="_bean27" method="montoCuentas" ref="beanRouteFacade"/>
+                <to id="_to23" uri="direct:simulacionPorCuotas"/>
+                <to id="toConsultarDeudaInterna" uri="direct:consultarDeudaInterna"/>
+                <bean id="_bean29"
+                    method="responseSimulacionPagoDirecto" ref="beanRouteFacade"/>
+                <to id="toObtenerDeudaSbif" uri="direct:actualizarDeudaInterna"/>
+                <bean id="beanObtenerPMT"
+                    method="obtenerPMTRequestPagoDirecto" ref="beanRouteFacade"/>
+                <to id="obtenerPMTPagoDirecto" uri="direct:obtenerPMT"/>
+                <setProperty id="_setProperty35" propertyName="obtenerPMT">
+                    <simple>${body}</simple>
+                </setProperty>
+                <bean id="beanObtenerPMT"
+                    method="responseSimulacionPagoDirectoCompuesto" ref="beanRouteFacade"/>
+                <setProperty id="_setProperty54" propertyName="salida">
+                    <simple>${body}</simple>
+                </setProperty>
+                <bean id="condicionesSegurosId1"
+                    method="filtrarCondicionesSegurosPagoDirecto" ref="beanRouteFacade"/>
+                <choice id="_choice28">
+                    <when id="_when34">
+                        <simple>${body} == 'true'</simple>
+                        <bean id="consultarCondicionesSegurosRequestId1"
+                            method="consultarCondicionesSegurosRequestPagoDirecto" ref="beanRouteFacade"/>
+                        <to id="condicionesSeguroTo1" uri="direct:condicionesSeguro"/>
+                        <bean id="responseId1"
+                            method="responseConCondicionesSeguroPagoDirecto" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise14">
+                        <setBody id="_setBody14">
+                            <simple>${property.salida}</simple>
+                        </setBody>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch8">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to25" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeConsultarDeudaInterna">
+            <from id="fromConsultarDeudaInterna" uri="direct:consultarDeudaInterna"/>
+            <removeHeaders id="_removeHeaders2" pattern="*"/>
+            <bean id="_bean32" method="consultarDeudaInternaRequest" ref="beanRouteFacade"/>
+            <marshal id="_marshal1" ref="consultarDeudaInternaRequestJson"/>
+            <convertBodyTo id="_convertBodyTo2" type="String"/>
+            <to id="_toConsultarDeudaInterna" uri="cxfrs:bean:endpointRSEvaluacionCreditoConsultar?exchangePattern=InOut&amp;bridgeEndpoint=true&amp;throwExceptionOnFailure=false"/>
+            <unmarshal id="_unmarshal11" ref="consultarDeudaInternaResponseJson"/>
+            <setProperty id="_setProperty50" propertyName="consultarDeudaInternaResponse">
+                <simple>${body}</simple>
+            </setProperty>
+            <setBody id="_setBody12">
+                <simple>${property.salidaCuotas}</simple>
+            </setBody>
+        </route>
+        <route id="_routeActualizarDeudaInterna">
+            <from id="fromActualizarDeudaInterna" uri="direct:actualizarDeudaInterna"/>
+            <removeHeaders id="_removeHeaders4" pattern="*"/>
+            <setHeader headerName="operationName" id="_setHeader2">
+                <constant>actualizarDeudaInterna</constant>
+            </setHeader>
+            <bean id="createJMSCorrelationIdSimuladorDG2"
+                method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+            <log id="_log15" message="${property.tipoRequest}"/>
+            <choice id="_choice2">
+                <when id="_when3">
+                    <simple>${property.tipoRequest} == 'SimularPagoDirectoRequest' or ${property.tipoRequest} == 'SimularPagoDirectoPlazo'</simple>
+                    <bean id="beanActualizarDeudaInternaRequest"
+                        method="actualizarDeudaInternaRequest" ref="beanRouteFacade"/>
+                </when>
+                <when id="_when4">
+                    <simple>${property.tipoRequest} == 'SimularRequest' or ${property.tipoRequest} == 'SimularPlanillaPlazoDG'</simple>
+                    <bean id="beanActualizarDeudaInternaRequestPlanilla"
+                        method="actualizarDeudaInternaRequestPlanilla" ref="beanRouteFacade"/>
+                </when>
+                <when id="_when18">
+                    <simple>${property.tipoRequest} == 'SimularDGRequest'</simple>
+                    <bean id="beanActualizarDeudaInternaRequestAbonomas"
+                        method="actualizarDeudaInternaRequestAbonomas" ref="beanRouteFacade"/>
+                </when>
+                <when id="when-SimularPlanillaPlazo">
+                    <simple>${property.tipoRequest} == 'SimularPlanillaPlazoRequest'</simple>
+                    <bean
+                        id="beanActualizarDeudaInterna-SimularPlanillaPlazo"
+                        method="actualizarDeudaInternaSimularPlanillaPlazoRequest" ref="beanRouteFacade"/>
+                </when>
+            </choice>
+            <marshal id="_marshal2" ref="actualizarDeudaInternaRequestJson"/>
+            <log id="_log13" message="Entrada sbif ${body}"/>
+            <convertBodyTo id="_convertBodyTo1" type="String"/>
+            <to id="_toActualizarDeudaInternaRequest" uri="cxfrs:bean:endpointRSEvaluacionCredito?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+            <choice id="_choice21">
+                <when id="_when27">
+                    <simple>${property.tipoRequest} == 'SimularPlanillaPlazoRequest'</simple>
+                    <convertBodyTo
+                        id="convertBodyTo_SimularPlanillaPlazoRequest" type="String"/>
+                    <choice id="_choice22">
+                        <when id="_when28">
+                            <simple>${body} contains 'ECNLERR'</simple>
+                            <!-- 							<bean id="beanErrorActualizarDeudaInterna-SimularPlanillaPlazo" -->
+                            <!--                         			method="errorActualizarDeudaInternaPlanillaPlazo" ref="beanRouteFacade"/> -->
+                            <log id="_log8" message="111111111111111ERROOORRRRRRR"/>
+                        </when>
+                        <otherwise id="_otherwise7">
+                            <unmarshal
+                                id="unmarshal_SimularPlanillaPlazoRequest" ref="actualizarDeudaInternaResponseJson"/>
+                        </otherwise>
+                    </choice>
+                </when>
+                <otherwise id="_otherwise8">
+                    <unmarshal id="_unmarshal9" ref="actualizarDeudaInternaResponseJson"/>
+                </otherwise>
+            </choice>
+            <setProperty id="_setProperty36" propertyName="actualizarDeudaInternaResponse">
+                <simple>${body}</simple>
+            </setProperty>
+        </route>
+        <route id="routeSimulacionPlanilla">
+            <from id="_fromSimular" uri="direct:simuladorPlanilla"/>
+            <doTry id="_doTry2">
+                <setProperty id="_setProperty6" propertyName="entrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="_setProperty41" propertyName="montoLiquido">
+                    <simple>${body.entrada.montoTotal}</simple>
+                </setProperty>
+                <setProperty id="_setProperty5" propertyName="creditosReliquidar">
+                    <simple>${body.entrada.creditosReliquidar}</simple>
+                </setProperty>
+                <setProperty id="_setProperty42" propertyName="montoTotalPortabilidad">
+                    <simple>${body.entrada.montoTotalPortabilidad}</simple>
+                </setProperty>
+				<setProperty propertyName="primerVencimientoRq">
+					<simple>${body.entrada.primerVencimiento}</simple>
+				</setProperty>
+                <bean id="_bean17"
+                    method="traerCreditosAReliquidarRequestPlanilla" ref="beanRouteFacade"/>
+                <to id="_to5" uri="direct:obtenerSaldoInsoluto"/>
+                <bean id="_bean35" method="validarCreditosReliquidar" ref="beanRouteFacade"/>
+                <unmarshal id="_unmarshal1">
+                    <jaxb contextPath="cl.coopeuch.integracion.esquema.creditoconsumo"/>
+                </unmarshal>
+                <split id="_split1" parallelProcessing="true" strategyRef="sumarSaldos">
+                    <simple>${body.body.traerCreditosAReliquidarResponse.salida.listaCreditosAReliquidar.credito}</simple>
+                    <bean id="_bean2" method="sumarCreditosReliquidar" ref="beanRouteFacade"/>
+                </split>
+                <setProperty id="_setProperty7" propertyName="creditosReliquidar">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setBody id="_setBody1">
+                    <simple>${property.entrada}</simple>
+                </setBody>
+                <setProperty id="_setProperty11" propertyName="montoTotalLiquido">
+                    <simple>${body.entrada.montoTotal}</simple>
+                </setProperty>
+                <setProperty id="_setProperty8" propertyName="montoCartera">
+                    <simple>${body.entrada.montoCartera}</simple>
+                </setProperty>
+                <bean id="_bean3" method="obtenerSeguros" ref="beanRouteFacade"/>
+                <to id="_to5" uri="direct:simularSeguro"/>
+                <bean id="_bean4" method="montoTasaPlanilla" ref="beanRouteFacade"/>
+                <setBody id="_setBody2">
+                    <simple>${property.entrada}</simple>
+                </setBody>
+                <choice id="_choice15">
+                    <when id="_when21">
+                        <simple>${body.entrada.tasaSolicitada} != null</simple>
+                        <setProperty id="_setProperty46" propertyName="tasaPropuestaCredito">
+                            <simple>${body.entrada.tasaSolicitada}</simple>
+                        </setProperty>
+                        <to id="_to3" uri="direct:consultaTasas"/>
+                        <setProperty id="_setProperty52" propertyName="tasaPizarra">
+                            <xpath resultType="String">//tasaPropuestaCredito</xpath>
+                        </setProperty>
+                        <bean id="_bean31"
+                            method="validarTasaSolicitada" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise3">
+                        <to id="_to9" uri="direct:consultaTasas"/>
+                        <setProperty id="_setProperty47" propertyName="tasaPropuestaCredito">
+                            <xpath resultType="String">//tasaPropuestaCredito</xpath>
+                        </setProperty>
+                    </otherwise>
+                </choice>
+                <setBody id="_setBody3">
+                    <simple>${property.entrada}</simple>
+                </setBody>
+                <bean id="_beanMontoCuentas" method="montoCuentas" ref="beanRouteFacade"/>
+                <to id="_to8" uri="direct:simulacionPorCuotas"/>
+                <choice id="_choice16">
+                    <when id="_when22">
+                        <simple>${property.tipoRequest} == 'SimularPlanillaPlazoRequest'</simple>
+                        <bean id="ArmaSalidaSimulacionSeguro-bean"
+                            method="salidaSimulacionPlanillaPlazo" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise4">
+                        <bean id="_bean5" method="salidaSimulacion" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <setProperty id="_setProperty43" propertyName="salidaSimulacion">
+                    <simple>${body}</simple>
+                </setProperty>
+                <to id="ObtenerDeudaInternaPlanilla" uri="direct:actualizarDeudaInterna"/>
+                <log id="_log1" message="Salida Despues Actualizar: ${body}"/>
+                <choice id="_choice17">
+                    <when id="_when23">
+                        <simple>${property.tipoRequest} == 'SimularPlanillaPlazoRequest'</simple>
+                        <choice id="_choice23">
+                            <when id="_when29">
+                                <simple>${body} contains 'error'</simple>
+                            </when>
+                            <otherwise id="_otherwise9">
+                                <bean id="beanObtenerPMTPlanilla"
+                                    method="obtenerPMTRequestPlanillaPLazo" ref="beanRouteFacade"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="_otherwise5">
+                        <bean id="beanObtenerPMTPlanilla"
+                            method="obtenerPMTRequestPlanilla" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <choice id="_choice24">
+                    <when id="_when30">
+                        <simple>${property.tipoRequest} == 'SimularPlanillaPlazoRequest'</simple>
+                        <choice id="_choice25">
+                            <when id="_when31">
+                                <simple>${body} contains 'error'</simple>
+                            </when>
+                            <otherwise id="_otherwise10">
+                                <to
+                                    id="obtenerPMTPlanilla-SimularPlanillaPlazo" uri="direct:obtenerPMT"/>
+                                <setProperty
+                                    id="_setProperty-SimularPlanillaPlazo" propertyName="obtenerPMT">
+                                    <simple>${body}</simple>
+                                </setProperty>
+                                <choice id="_choice18-SimularPlanillaPlazo">
+                                    <when id="_when24-SimularPlanillaPlazo">
+                                    <simple>${property.tipoRequest} == 'SimularPlanillaPlazoRequest'</simple>
+                                    <bean
+                                    id="beanObtenerPMTPlanillaPlazo-SimularPlanillaPlazo"
+                                    method="responseSimulacionPlanillaPlazoCompuesto" ref="beanRouteFacade"/>
+                                    </when>
+                                    <otherwise id="_otherwise6-SimularPlanillaPlazo">
+                                    <bean
+                                    id="beanObtenerPMTPlanilla-SimularPlanillaPlazo"
+                                    method="responseSimulacionPlanillaCompuesto" ref="beanRouteFacade"/>
+                                    </otherwise>
+                                </choice>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="_otherwise11">
+                        <to id="obtenerPMTPlanilla" uri="direct:obtenerPMT"/>
+                        <setProperty id="_setProperty44" propertyName="obtenerPMT">
+                            <simple>${body}</simple>
+                        </setProperty>
+                        <choice id="_choice18">
+                            <when id="_when24">
+                                <simple>${property.tipoRequest} == 'SimularPlanillaPlazoRequest'</simple>
+                                <!--                                 <bean id="beanObtenerPMTPlanillaPlazo" -->
+                                <!--                                     method="responseSimulacionPlanillaPlazoCompuesto" ref="beanRouteFacade"/> -->
+                            </when>
+                            <otherwise id="_otherwise6">
+                                <bean id="beanObtenerPMTPlanilla"
+                                    method="responseSimulacionPlanillaCompuesto" ref="beanRouteFacade"/>
+                            </otherwise>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <setProperty id="_setProperty55" propertyName="salida">
+                    <simple>${body}</simple>
+                </setProperty>
+                <choice id="_choice29">
+                    <when id="_when35">
+                        <simple>${property.tipoRequest} == 'SimularPlanillaPlazoRequest'</simple>
+                        <bean id="condicionesSegurosId4"
+                            method="filtrarCondicionesSegurosPlazoPlanilla" ref="beanRouteFacade"/>
+                        <choice id="_choice31">
+                            <when id="_when37">
+                                <simple>${body} == 'true'</simple>
+                                <bean
+                                    id="consultarCondicionesSegurosRequestId4"
+                                    method="consultarCondicionesSegurosRequestPlazo" ref="beanRouteFacade"/>
+                                <to id="condicionesSeguroTo4" uri="direct:condicionesSeguro"/>
+                                <bean id="responseId4"
+                                    method="responseConCondicionesSeguroPlazo" ref="beanRouteFacade"/>
+                            </when>
+                            <otherwise id="_otherwise17">
+                                <setBody id="_setBody16">
+                                    <simple>${property.salida}</simple>
+                                </setBody>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="_otherwise15">
+                        <bean id="condicionesSegurosId"
+                            method="filtrarCondicionesSeguros" ref="beanRouteFacade"/>
+                        <choice id="_choice30">
+                            <when id="_when36">
+                                <simple>${body} == 'true'</simple>
+                                <bean
+                                    id="consultarCondicionesSegurosRequestId"
+                                    method="consultarCondicionesSegurosRequest" ref="beanRouteFacade"/>
+                                <to id="condicionesSeguroTo" uri="direct:condicionesSeguro"/>
+                                <bean id="responseId"
+                                    method="responseConCondicionesSeguro" ref="beanRouteFacade"/>
+                            </when>
+                            <otherwise id="_otherwise16">
+                                <setBody id="_setBody15">
+                                    <simple>${property.salida}</simple>
+                                </setBody>
+                            </otherwise>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to27" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="condicionesSeguroRoute">
+            <from id="fromCondicionesSeguro" uri="direct:condicionesSeguro"/>
+            <removeHeaders id="_removeHeaders6" pattern="*"/>
+            <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader3">
+                <constant>application/json</constant>
+            </setHeader>
+            <marshal id="_marshal5" ref="consultarCondicionesSegurosRequestJson"/>
+            <convertBodyTo id="_convertBodyTo3" type="String"/>
+            <to id="_to4" uri="cxfrs:bean:endpointRSSeguro?exchangePattern=InOut&amp;bridgeEndpoint=true&amp;throwExceptionOnFailure=false"/>
+            <unmarshal id="_unmarshal12" ref="consultarCondicionesSegurosResponseJson"/>
+        </route>
+        <route id="obtenerTasaPagoDirecto">
+            <from id="_fromObtenerTasaPagoDirecto" uri="direct:consultaTasasPagoDirecto"/>
+            <doTry id="_doTry12">
+                <removeHeaders id="_removeHeaders5" pattern="*"/>
+                <bean id="createJMSCorrelationIdSimuladorPrivado4"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="_to28" uri="xslt://transformations/mid/consultaTasaParaCreditoPDARequest.xsl?saxon=true"/>
+                <to id="_to29" uri="AMQ:{{colas.servicio.consultatasas.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <log id="_log7" message="Salida Tasas ${body}"/>
+                <choice id="_choice8">
+                    <when id="_when9">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_unmarshal10">
+                            <jaxb contextPath="cl.coopeuch.integracion.esquema.tasas"/>
+                        </unmarshal>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException6" message="error"/>
+                    </when>
+                </choice>
+                <doCatch id="_doCatch9">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="_bean28" method="errorTasasPagoDirecto" ref="beanRouteFacade"/>
+                    <!--                     <stop id="_stop12"/> -->
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="obtenerTasa">
+            <from id="_fromObtenerTasa" uri="direct:consultaTasas"/>
+            <doTry id="_doTry3">
+                <removeHeaders id="_removeHeaders1" pattern="*"/>
+                <log id="_log14" message="Cuerpo para tasas ${body}"/>
+                <bean id="createJMSCorrelationIdSimuladorPrivado3"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="_to11" uri="xslt://transformations/mid/consultaTasaParaCreditoPDARequest.xsl?saxon=true"/>
+                <log id="_log9" message="Entrada Tasas ${body}"/>
+                <to id="_to10" uri="AMQ:{{colas.servicio.consultatasas.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <log id="_log3" message="Salida Tasas ${body}"/>
+                <choice id="_choice3">
+                    <when id="_when5">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_unmarshal2">
+                            <jaxb contextPath="cl.coopeuch.integracion.esquema.tasas"/>
+                        </unmarshal>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException1" message="error"/>
+                    </when>
+                </choice>
+                <doCatch id="_doCatch3">
+                    <exception>java.lang.Exception</exception>
+                    <choice id="_choice12">
+                        <when id="_when16">
+                            <simple>${property.tipoRequest} == 'SimularRequest' or ${property.tipoRequest} == 'SimularPlanillaPlazoDG'</simple>
+                            <bean id="_bean6"
+                                method="errorTasasPlanilla" ref="beanRouteFacade"/>
+                        </when>
+                        <when id="_when17">
+                            <simple>${property.tipoRequest} == 'SimularDGRequest'</simple>
+                            <bean id="_bean8" method="errorTasas" ref="beanRouteFacade"/>
+                        </when>
+                    </choice>
+                    <stop id="_stop4"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeObtenerSaldoInsoluto">
+            <from id="_from5" uri="direct:obtenerSaldoInsoluto"/>
+            <doTry id="_doTry4">
+                <bean id="createJMSCorrelationIdSimuladorPrivado2"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <log id="_log4" message="Entrada CreditoConsumo ${body}"/>
+                <to id="_to6" uri="AMQ:{{colas.servicio.creditoconsumo.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <log id="_log4" message="Salida CreditoConsumo ${body}"/>
+                <choice id="_choice5">
+                    <when id="_when7">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_unmarshal7">
+                            <jaxb contextPath="cl.coopeuch.integracion.esquema.creditoconsumo"/>
+                        </unmarshal>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException3" message="Error en conversion de archivo"/>
+                    </when>
+                </choice>
+                <doCatch id="_doCatch4">
+                    <exception>java.lang.Exception</exception>
+                    <choice id="_choice32">
+                        <when id="_when38">
+                            <simple>${property.tipoRequest} == 'SimularDGRequest'</simple>
+                            <bean id="_bean9"
+                                method="errorCreditosAReliquidarDG" ref="beanRouteFacade"/>
+                        </when>
+                        <when id="_when39">
+                            <simple>${property.tipoRequest} == 'SimularPagoDirectoRequest' or ${property.tipoRequest} == 'SimularPagoDirectoPlazo'</simple>
+                            <bean id="_bean9"
+                                method="errorCreditosAReliquidarPD" ref="beanRouteFacade"/>
+                        </when>
+                        <when id="_when41">
+                            <simple>${property.tipoRequest} == 'SimularRequest' or ${property.tipoRequest} == 'SimularPlanillaPlazoDG'</simple>
+                            <bean id="_bean38"
+                                method="errorCreditosAReliquidarPP" ref="beanRouteFacade"/>
+                        </when>
+                    </choice>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeSimulacionPorCuotas">
+            <from id="_fromSimulacionPorCuotas" uri="direct:simulacionPorCuotas"/>
+            <doTry id="_doTry5">
+                <setProperty id="_setProperty9" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="_setProperty33" propertyName="tipoProducto">
+                    <simple>${body.entrada.tipoProducto}</simple>
+                </setProperty>
+                <setBody id="simularPrivadoSetBody">
+                    <simple>${exchangeProperty.requestEntrada}</simple>
+                </setBody>
+                <removeHeaders id="simularPrivadoRemoveHeadersDos" pattern="*"/>
+                <choice id="_choice10">
+                    <when id="_when12">
+                        <simple>${property.tipoRequest} == 'SimularPagoDirectoRequest' or ${property.tipoRequest} == 'SimularPagoDirectoPlazo'</simple>
+                        <bean id="simularPrivadoValidaBody"
+                            method="generarTramaSimuladorPrivadoCuotas" ref="beanRouteFacade"/>
+                    </when>
+                    <when id="_when13">
+                        <simple>${property.tipoRequest} == 'SimularRequest' or ${property.tipoRequest} == 'SimularPlanillaPlazoDG'</simple>
+                        <bean id="simularPrivadoValidaBodyPlanilla"
+                            method="generarTramaSimuladorPrivadoCuotasPlanilla" ref="beanRouteFacade"/>
+                    </when>
+                    <when id="when-SimularPlanillaPlazoRequest">
+                        <simple>${property.tipoRequest} == 'SimularPlanillaPlazoRequest'</simple>
+                        <bean
+                            id="SimularPlanillaPlazoRequest-ValidaBodyPlanilla"
+                            method="generarTramaSimuladorPrivadoCuotasPlanilla" ref="beanRouteFacade"/>
+                    </when>
+                </choice>
+                <bean id="createJMSCorrelationIdSimuladorPrivado"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="activemq-simularPrivadoCuotas" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="simularPrivadoCuotasTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <choice id="_choice11">
+                    <when id="_when14">
+                        <simple>${property.tipoRequest} == 'SimularPagoDirectoRequest' or ${property.tipoRequest} == 'SimularPagoDirectoPlazo'</simple>
+                        <to id="simularPrivadoCuotasTrama2xml" uri="xslt://transformations/out/IOC020101O_simularPrivadoCuotas.xsl?saxon=true"/>
+                    </when>
+                    <when id="_when15">
+                        <simple>${property.tipoRequest} == 'SimularRequest' or ${property.tipoRequest} == 'SimularPlanillaPlazoDG'</simple>
+                        <to id="simularPrivadoCuotasTrama2xmlPlanilla" uri="xslt://transformations/out/IOC020101O_simularCuotasPlanilla.xsl?saxon=true"/>
+                    </when>
+                    <when id="when-">
+                        <simple>${property.tipoRequest} == 'SimularPlanillaPlazoRequest'</simple>
+                        <to
+                            id="simularPrivadoCuotasTrama2xml-SimularPlanillaPlazo" uri="xslt://transformations/out/IOC020101O_simularPlanillaPlazoCuotas.xsl?saxon=true"/>
+                    </when>
+                </choice>
+                <setProperty id="_setProperty34" propertyName="numeroSimulacion">
+                    <xpath resultType="String">//numeroSimulacion</xpath>
+                </setProperty>
+                <log id="_log5" message="Salida Cuotas ${body}"/>
+                <unmarshal id="simularPrivadoCuotasToResponse">
+                    <jaxb contextPath="cl.coopeuch.integracion.simulacioncredito.wsdl"/>
+                </unmarshal>
+                <setProperty id="_setProperty51" propertyName="salidaCuotas">
+                    <simple>${body}</simple>
+                </setProperty>
+                <doCatch id="_doCatch5">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to16" uri="direct:excepcion"/>
+                    <!--                     <stop id="_stop6"/> -->
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeSimulacionDGPorCuotas">
+            <from id="_fromSimulacionDGPorCuotas" uri="direct:simulacionDGPorCuotas"/>
+            <doTry id="_doTry9">
+                <setProperty id="_setProperty24" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <bean id="simularPrivadoDGSetPropiedades"
+                    method="setPropiedades" ref="beanRouteFacade"/>
+                <setBody id="simularDGSetBody">
+                    <simple>${exchangeProperty.requestEntrada}</simple>
+                </setBody>
+                <removeHeaders id="_removeHeaders3" pattern="*"/>
+                <bean id="_bean19"
+                    method="generarTramaSimuladorDGCuotas" ref="beanRouteFacade"/>
+                <bean id="createJMSCorrelationIdSimuladorDG"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <marshal id="_marshal3">
+                    <bindy
+                        classType="cl.coopeuch.integracion.simuladorcredito.modelo.IOC020102I" type="Fixed"/>
+                </marshal>
+                <log id="_log16" message="Por cuotas: ${body}"/>
+                <to id="_to24" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <choice id="_choice4">
+                    <when id="_when6">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_unmarshal4">
+                            <bindy
+                                classType="cl.coopeuch.integracion.simuladorcredito.modelo.IOCERROR" type="Fixed"/>
+                        </unmarshal>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException2" message="Error en conversion de archivo"/>
+                    </when>
+                </choice>
+                <unmarshal id="_unmarshal5">
+                    <bindy
+                        classType="cl.coopeuch.integracion.simuladorcredito.modelo.IOC020102O" type="Fixed"/>
+                </unmarshal>
+                <bean id="_bean20"
+                    method="transformarIOCtoXMLSalidaCuotas" ref="beanRouteFacade"/>
+                <doCatch id="_doCatch11">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="_bean18" method="errorToXML" ref="beanRouteFacade"/>
+                    <!--                     <stop id="_stop10"/> -->
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeSimularDGSeguro">
+            <from id="_fromSimularDGSeguro" uri="direct:simularDGSeguro"/>
+            <doTry id="_doTry10">
+                <setProperty id="_setProperty26" propertyName="idSimulacionPrivado">
+                    <simple>${body.entrada.idSimulacion}</simple>
+                </setProperty>
+                <bean id="createJMSCorrelationId1"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <bean id="_bean21" method="generarTramaSimuladorDG" ref="beanRouteFacade"/>
+                <marshal id="_marshal4">
+                    <bindy
+                        classType="cl.coopeuch.integracion.simuladorcredito.modelo.IOC020102I" type="Fixed"/>
+                </marshal>
+                <log id="_log10" message="Entrada Seguros ${body}"/>
+                <to id="_to26" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="_log11" message="Seguros ${body}"/>
+                <choice id="_choice7">
+                    <when id="_when11">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_unmarshal14">
+                            <bindy
+                                classType="cl.coopeuch.integracion.simuladorcredito.modelo.IOCERROR" type="Fixed"/>
+                        </unmarshal>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException5" message="Error en conversion de archivo"/>
+                    </when>
+                </choice>
+                <unmarshal id="_unmarshal6">
+                    <bindy
+                        classType="cl.coopeuch.integracion.simuladorcredito.modelo.IOC020102O" type="Fixed"/>
+                </unmarshal>
+                <bean id="_bean22" method="transformarIOCtoXMLSalida" ref="beanRouteFacade"/>
+                <setProperty id="_setProperty27" propertyName="responseSeguros">
+                    <simple>${body}</simple>
+                </setProperty>
+                <doCatch id="_doCatch12">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="_bean23" method="errorToXML" ref="beanRouteFacade"/>
+                    <!--                     <stop id="_stop13"/> -->
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeSimularSeguro">
+            <from id="_from2" uri="direct:simularSeguro"/>
+            <doTry id="_doTry6">
+                <bean id="createJMSCorrelationId"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <log id="_log20" message="PASO1: ${body}"/>
+                <to id="activemq-simularPrivadoSeguros" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="simularPrivadoSegurosTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <log id="_log17" message="Problema TRAMA: ${body}\n${property.tipoRequest}"/>
+                <choice id="_choice1">
+                    <when id="_when1">
+                        <simple>${property.tipoRequest} == 'SimularPagoDirectoRequest' or ${property.tipoRequest} == 'SimularPagoDirectoPlazo'</simple>
+                        <to id="simularPrivadoSegurosTrama2xml1" uri="xslt://transformations/out/IOC020101O_simularPrivadoSeguros.xsl?saxon=true"/>
+                    </when>
+                    <when id="_when2">
+                        <simple>${property.tipoRequest} == 'SimularRequest' or ${property.tipoRequest} == 'SimularPlanillaPlazoDG'</simple>
+                        <to id="simularPrivadoSegurosTrama2xml2" uri="xslt://transformations/out/IOC020101O_simularSegurosPlanilla.xsl?saxon=true"/>
+                    </when>
+                    <when id="_when2">
+                        <simple>${property.tipoRequest} == 'SimularPlanillaPlazoRequest'</simple>
+                        <choice id="_choice19">
+                            <when id="_when25">
+                                <simple>${body} contains 'ECNLERR'</simple>
+                                <to
+                                    id="simularPlanillaPlazoTrama2xml2-Error" uri="xslt://transformations/out/IOC020101O_simularSeguroPlanillaPlazo.xsl?saxon=true"/>
+                                <log id="_log18" message="Salida: ${body}"/>
+                                <bean
+                                    id="mapeoErrorsimularPrivadoSeguros"
+                                    method="enviarErrorSimulacionSeguro" ref="beanRouteFacade"/>
+                                <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="_throwException20" message="${property.tipoRequest}"/>
+                            </when>
+                        </choice>
+                        <to id="simularPlanillaPlazoTrama2xml2" uri="xslt://transformations/out/IOC020101O_simularSeguroPlanillaPlazo.xsl?saxon=true"/>
+                    </when>
+                </choice>
+                <choice id="_choice9">
+                    <when id="_when10">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="simularPrivadoCuotasToResponseSeguro">
+                            <jaxb contextPath="cl.coopeuch.integracion.simulacioncredito.wsdl"/>
+                        </unmarshal>
+                        <!--                         <stop id="_stop1"/> -->
+                    </when>
+                </choice>
+                <unmarshal id="simularPrivadoCuotasToResponseSeguro">
+                    <jaxb contextPath="cl.coopeuch.integracion.simulacioncredito.wsdl"/>
+                </unmarshal>
+                <setProperty id="_setProperty19" propertyName="responseSeguros">
+                    <simple>${body}</simple>
+                </setProperty>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to17" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="wsPersona">
+            <from id="wsPersonafrom" uri="direct:servicioPersonaSimulador"/>
+            <doTry id="wsPersonaTry">
+                <removeHeaders id="wsPersonatraerRemoveHeadersJMS" pattern="*"/>
+                <setProperty id="_setProperty1" propertyName="userId">
+                    <simple>{{simulador.servicio.persona.userId}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="codigoCliente">
+                    <simple>{{simulador.servicio.persona.codigoCliente}}</simple>
+                </setProperty>
+                <to id="_to1" uri="xslt://transformations/mid/traerDatosBasicosRequest.xsl?saxon=true"/>
+                <to id="wsPersonaToCxf" uri="AMQ:{{colas.servicio.persona.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <setProperty id="_setProperty3" propertyName="log.telefono">
+                    <xpath resultType="String">//telefono</xpath>
+                </setProperty>
+                <setProperty id="_setProperty4" propertyName="log.email">
+                    <xpath resultType="String">//correoElectronico</xpath>
+                </setProperty>
+                <doCatch id="wsPersonaLogCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="wsPersonaExcepcion" uri="direct:excepcion"/>
+                    <!--                     <stop id="stopServicioPersonas"/> -->
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeSimularPlanillaPlazoRequest">
+            <from id="fromSimularPlanillaPlazoRequest" uri="direct:simularPlanillaPlazo"/>
+            <doTry id="doTry-SimularPlanillaPlazo">
+                <setProperty
+                    id="setProperty-SimularPlanillaPlazo-entrada" propertyName="entradaSimuladorPlazo">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty
+                    id="setProperty-SimularPlanillaPlazo-creditosReliquidar" propertyName="creditosReliquidar">
+                    <simple>${body.creditosReliquidar}</simple>
+                </setProperty>
+                <setProperty
+                    id="setProperty-SimularPlanillaPlazo-montoTotalPortabilidad" propertyName="montoTotalPortabilidad">
+                    <simple>${body.montoTotalPortabilidad}</simple>
+                </setProperty>
+                <to id="llamada-WSConvenio" uri="direct:consultarSocioConvenio"/>
+                <choice id="_choice20">
+                    <when id="_when26">
+                        <simple>${exchangeProperty.resultadoConvenio}</simple>
+                        <setBody id="Request-SimularPlanillaPlazo-SetBody">
+                            <simple>${exchangeProperty.entradaSimuladorPlazo}</simple>
+                        </setBody>
+                        <bean id="validaCamposEntrada-Bean"
+                            method="validaCamposEntrada" ref="beanRouteFacade"/>
+                        <choice id="_choice26">
+                            <when id="_when32">
+                                <simple>${exchangeProperty.validarEntrada}</simple>
+                                <split id="splitPlazos"
+                                    parallelProcessing="true" strategyRef="agregadorSimulacion">
+                                    <tokenize token="plazosSimulacion" xml="true"/>
+                                    <setProperty
+                                    id="setProperty-plazoSimulacionPlazo" propertyName="plazoSimulacionPlazo">
+                                    <xpath resultType="String">//plazo</xpath>
+                                    </setProperty>
+                                    <setProperty
+                                    id="setProperty-montoSimulacionPlazo" propertyName="montoSimulacionPlazo">
+                                    <xpath resultType="String">//monto</xpath>
+                                    </setProperty>
+                                    <bean id="ArmarLLamadaSimular-Bean"
+                                    method="armarLLamadasimular" ref="beanRouteFacade"/>
+                                    <to id="llamada-simuladorPlanilla" uri="direct:simuladorPlanilla"/>
+                                </split>
+                                <bean
+                                    id="ArmarLLamadaSalidaSimular-Bean"
+                                    method="armarSalidasimularPlanillaPlazo" ref="beanRouteFacade"/>
+                            </when>
+                            <otherwise id="_otherwise12"/>
+                        </choice>
+                    </when>
+                </choice>
+                <doCatch id="doCatch-SimularPlanillaPlazo">
+                    <exception>java.lang.Exception</exception>
+                    <to id="to-SimularPlanillaPlazo-excepcion" uri="direct:excepcion"/>
+                    <!--                     <stop id="stop-SimularPlanillaPlazo"/> -->
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="route-ConsultarSocio-WSConvenio">
+            <from id="from-ConsultarSocio-WSConvenio" uri="direct:consultarSocioConvenio"/>
+            <doTry id="doTry-WSConvenio">
+                <bean id="consultarSocioConvenioRequest-Bean"
+                    method="consultarCovenioSocioRequest" ref="beanRouteFacade"/>
+                <bean id="createJMSCorrelationId-consultarSocioConvenio"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="to-llamada-consultarSocioConvenio" uri="cxfrs:bean:endpointRSConvenio?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <bean id="consultarSocioConvenioResponse-Bean"
+                    method="consultarCovenioSocioResponse" ref="beanRouteFacade"/>
+                <doCatch id="WSConvenio-Catch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="codigoError-ConsultarSocio-WSConvenio" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <to id="ConsultarSocio-WSConvenio-Excepcion" uri="direct:excepcion"/>
+                    <!--                     <stop id="stop-ConsultarSocio-WSConvenio"/> -->
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <bean id="excepcionBeanExcepcion" method="excepcionCrear" ref="beanRouteFacade"/>
+        </route>
+    </camelContext>
+</blueprint>

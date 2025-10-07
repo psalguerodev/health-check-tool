@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:sec="http://cxf.apache.org/configuration/security"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wssimuladorprivado" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <camelcxf:cxfEndpoint address="/WSSimuladorPrivado"
+        id="serviciosimuladorprivadoEndpoint"
+        serviceClass="cl.coopeuch.integracion.simuladorprivado.wsdl.WSSimuladorPrivadoSOAPPortType" wsdlURL="wsdl/WSSimuladorPrivado.wsdl"/>
+    <camelcxf:rsServer address="/RSSimuladorPrivado"
+        id="endpointRSSimuladorPrivado" serviceClass="cl.coopeuch.integracion.simuladorprivado.wsdl.WSSimuladorPrivadoSOAPPortType"/>
+    <camelcxf:cxfEndpoint
+        address="[{simulador.servicio.persona.endpoint}]"
+        id="endpointServicioPersona"
+        serviceClass="cl.coopeuch.integracion.simuladorprivado.wsdl.wspersona.PersonaPortType" wsdlURL="wsdl/ServicioPersona.wsdl"/>
+    <camelcxf:rsClient
+        address="[{simulador.servicio.wsprecio.endpoint}]"
+        id="endpointwsp" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProviderIn"/>
+        </camelcxf:providers>
+        <camelcxf:properties>
+            <entry key="throwExceptionOnFailure" value="false"/>
+        </camelcxf:properties>
+    </camelcxf:rsClient>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProviderIn"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.simuladorprivado.util.RouteFacade" id="beanRouteFacade"/>
+    <camelContext id="servicio-simuladorprivado-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:serviciosimuladorprivadoEndpoint"/>
+            <to id="soapToInicioWs" uri="direct:inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSSimuladorPrivado"/>
+            <to id="restToInicioWs" uri="direct:inicio"/>
+        </route>
+        <route id="cx-RuteoOperaciones">
+            <from id="inicioFromServicio" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <setProperty id="ruteoOperacionesSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="ruteoOperacionesSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="ruteoOperacionesSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaSimularPrivado">
+                        <simple>${header.operationName} == 'simular'</simple>
+                        <to id="simularPrivadoTo" uri="direct:simular"/>
+                    </when>
+                    <when id="rutaActualizarEstadoLog">
+                        <simple>${header.operationName} == 'actualizarEstadoLog'</simple>
+                        <to id="actualizarEstadoLogTo" uri="direct:actualizarEstadoLog"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="simular">
+            <from id="simularFrom" uri="direct:simular"/>   
+            <doTry id="simularTry">
+                <bean id="simularSetPropiedades" method="setPropiedades" ref="beanRouteFacade"/>
+                <to id="simularToPersona" uri="direct:servicioPersonaSimulador"/>
+                <choice id="simularChoice">
+                    <when id="sinIdSimulacionWhen">
+                        <simple>${exchangeProperty.idSimulacionPrivado} == 0</simple>
+                        <bean id="simularValidaBody"
+                            method="crearRequestInternoLog" ref="beanRouteFacade"/>
+                        <removeHeaders id="simularPrivadoRemoveHeaders" pattern="*"/>
+                        <log  loggingLevel="ERROR" message="!!!!!!!!!!     envio ha crear log  ${body}"></log>
+                        <to id="simularToCrearLog" uri="direct:crearLog"/>
+                        <bean id="simularResponseValidaLog"
+                            method="crearResponseInternoLog" ref="beanRouteFacade"/>
+                    </when>
+                </choice>
+                <setBody id="simularSetBody">
+                    <simple>${exchangeProperty.requestEntrada}</simple>
+                </setBody>
+                
+                                <log  loggingLevel="ERROR" message="!!!!!!!!!!!!!!  simualar  antes de   LOG   ${body}++++ ${exchangeProperty.requestEntrada}"></log>
+
+                <removeHeaders id="simularRemoveHeadersDos" pattern="*"/>
+                <setProperty id="idSimulacionSeguroSet" propertyName="idSimulacionPrivado">
+                    <simple>${body.get(0).entrada.idSimulacion}</simple>
+                </setProperty>
+                <bean id="createJMSCorrelationId"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <bean id="simularValidaBodySeguro"
+                    method="generarTramaSimuladorPrivado" ref="beanRouteFacade"/>
+                <to id="activemq-simularSeguros" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="simularSegurosTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                                <log  message="!!!!!!!!!!!!!!  salida antes de   simular   ${body}"></log>
+
+               <to id="simularSegurosTrama2xml" uri="xslt://transformations/out/IOC020101O_simularPrivadoSeguros.xsl?saxon=true"/>     
+               
+                                               <log  message="!!!!!!!!!!!!!!  salida despues de   simular   ${body}"></log>
+           
+                <unmarshal id="simularCuotasToResponseSeguro">
+                    <jaxb contextPath="cl.coopeuch.integracion.simuladorprivado.wsdl"/>
+                </unmarshal>
+                <doCatch id="simularCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="simularExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="crearLog">
+            <from id="crearLogFrom" uri="direct:crearLog"/>
+            <doTry id="crearLogTry">
+                <marshal id="crearMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.simuladorprivado.wsdl"/>
+                </marshal>
+                <convertBodyTo id="crearLogConvertBodyToString" type="java.lang.String"/>
+                <setProperty id="crearLogRequestToProperty" propertyName="requestCrearLog">
+                    <simple>${body}</simple>
+                </setProperty>
+                <bean id="crearUUID" method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                                <log  message="!!!!!!!!!!!!!!  salida antes de   LOG   ${body}"></log>
+
+                <to id="crearLogXml2Trama" uri="xslt://transformations/in/xml2tramaIOC020201I_crearLog.xsl"/>
+                <to id="activemq-crearLog" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="crearLogTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <log  message="!!!!!!!!!!!!!!  salida antes de   LOG   ${body}"></log>
+
+                <to id="crearLogTrama2xml" uri="xslt://transformations/out/IOC020201O_crearLog.xsl?saxon=true"/>
+                
+                   <setProperty  propertyName="NumeroSimulacion">
+                   <xpath resultType="String">//crearLogResponse/salida/idSimulacion</xpath>
+                </setProperty>
+                <unmarshal id="crearConvertBodyToResponse">
+                    <jaxb contextPath="cl.coopeuch.integracion.simuladorprivado.wsdl"/>
+                </unmarshal>
+                <log  message="!!!!!!!!!!!!!!  salida crear  LOG   ${body}"></log>
+                <doCatch id="crearLogCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="crearLogExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="actualizarEstadoLog">
+            <from id="actualizarEstadoLogFrom" uri="direct:actualizarEstadoLog"/>
+            <doTry id="actualizarEstadoLogTry">
+                <setProperty id="inicioPropertyEstado" propertyName="estado">
+                    <simple>${body.entrada.estado}</simple>
+                </setProperty>
+                <choice id="actualizarEstadoLogChoice">
+                    <when id="actualizarEstadoLogWhen">
+                        <simple>${exchangeProperty.estado} != '1'</simple>
+                        <marshal id="actualizarEstadoMarshal">
+                            <jaxb contextPath="cl.coopeuch.integracion.simuladorprivado.wsdl"/>
+                        </marshal>
+                        <convertBodyTo
+                            id="actualizarEstadoConvertBodyToString" type="java.lang.String"/>
+                        <bean id="crearUUIDActualizarLog"
+                            method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                                                            <log  message="!!!!!!!!!!!!!!  salida antes de   actulziar   ${body}"></log>
+
+                        <to id="actualizarEstadoLogXml2Trama" uri="xslt://transformations/in/xml2tramaIOC020201I_actualizarEstadoLog.xsl"/>
+                        <to id="activemq-actualizarEstadoLog" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <transform id="actualizarEstadoLogTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        
+                                                        <log  message="!!!!!!!!!!!!!!  salida despues  de   simular   ${body}"></log>
+
+                        <to id="actualizarEstadoLogTrama2xml" uri="xslt://transformations/out/IOC020201O_actualizarEstadoLog.xsl?saxon=true"/>
+                        <unmarshal id="actualizarEstadoConvertBodyToResponse">
+                            <jaxb contextPath="cl.coopeuch.integracion.simuladorprivado.wsdl"/>
+                        </unmarshal>
+                    </when>
+                    <otherwise id="otherwiseActualizarEstadoLog">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionActualizacion" message="No es posible realizar la operacion con Estado Actual"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="actualizarEstadoLogCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="actualizarEstadoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="wsPersona">
+            <from id="wsPersonafrom" uri="direct:servicioPersonaSimulador"/>
+            <doTry id="wsPersonaTry">
+                <removeHeaders id="wsPersonatraerRemoveHeadersJMS" pattern="*"/>
+                <setProperty id="_setProperty1" propertyName="userId">
+                    <simple>{{simulador.servicio.persona.userId}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="codigoCliente">
+                    <simple>{{simulador.servicio.persona.codigoCliente}}</simple>
+                </setProperty>
+                <to id="_to1" uri="xslt://transformations/mid/traerDatosBasicosRequest.xsl?saxon=true"/>
+                <to id="wsPersonaToCxf" uri="AMQ:{{colas.servicio.persona.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <setProperty id="_setProperty3" propertyName="log.telefono">
+                    <xpath resultType="String">//telefono</xpath>
+                </setProperty>
+                <setProperty id="_setProperty4" propertyName="log.email">
+                    <xpath resultType="String">//correoElectronico</xpath>
+                </setProperty>
+                <doCatch id="wsPersonaLogCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="wsPersonaExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopServicioPersonas"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <!--                 <marshal id="excepcionMarshalJson"> -->
+                <!--                     <json library="Jackson"/> -->
+                <!--                 </marshal> -->
+                <setProperty id="crearDescripcionError" propertyName="descripcion">
+                    <simple>${exception.message}</simple>
+                </setProperty>
+                <setProperty id="setCodigoError" propertyName="codigoError">
+                    <constant>500</constant>
+                </setProperty>
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

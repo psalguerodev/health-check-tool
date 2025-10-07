@@ -1,0 +1,329 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camel="http://camel.apache.org/schema/blueprint"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="        http://www.osgi.org/xmlns/blueprint/v1.0.0 http://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd        http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd        http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0 http://aries.apache.org/schemas/blueprint-cm/blueprint-cm-1.1.0.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder persistent-id="almacenDatos" update-strategy="reload"/>
+    <!-- Configure IBM WebSphere MQ connection factory -->
+    <bean class="com.ibm.mq.jms.MQConnectionFactory" id="websphereConnectionFactory">
+        <property name="transportType" value="1"/>
+        <property name="hostName" value="${ibm.mq.host}"/>
+        <property name="port" value="${ibm.mq.port}"/>
+        <property name="queueManager" value="${ibm.qm.name}"/>
+        <property name="useConnectionPooling" value="true"/>
+        <property name="channel" value="${ibm.qm.channel}"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="websphereConfig">
+        <property name="connectionFactory" ref="websphereConnectionFactory"/>
+        <property name="concurrentConsumers" value="${ibm.mq.concurrentConsumers.almacendatos}"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsComponent" id="websphere">
+        <property name="configuration" ref="websphereConfig"/>
+    </bean>
+    <!-- Local Beans -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Conexion Base de datos -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSybase">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="${jdbc.sybase.url.almacendedatos};charset=iso_1"/>
+        <property name="username" value="${jdbc.sybase.username.almacendedatos}"/>
+        <property name="password" value="${jdbc.sybase.password.almacendedatos}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="${jdbc.sybase.timeBetweenEvictionRunsMillis.almacendedatos}"/>
+        <property name="numTestsPerEvictionRun" value="${jdbc.sybase.numTestsPerEvictionRun.almacendedatos}"/>
+        <property name="minEvictableIdleTimeMillis" value="${jdbc.sybase.minEvictableIdleTimeMillis.almacendedatos}"/>
+        <property name="maxActive" value="${jdbc.sybase.maxActive.almacendedatos}"/>
+    </bean>
+    <bean class="cl.coopeuch.util.AggregatorStrategy" id="agregador"/>
+    <camelContext id="servicio-almacen-datos" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml id="jack" prettyPrint="true"/>
+        </dataFormats>
+        <!-- ruta que construye cache de motor -->
+        <route id="construyeCacheMotor">
+            <from id="_from1" uri="{{quartz2.Motor.cron}}"/>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader1">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader2">
+                <constant>datosMotor</constant>
+            </setHeader>
+            <to id="_to1" uri="cache://cacheMotor"/>
+            <choice id="_choice1">
+                <when id="_when1">
+                    <simple>${body} != ''</simple>
+                    <setHeader headerName="CamelCacheOperation" id="_setHeader3">
+                        <constant>CamelCacheDeleteAll</constant>
+                    </setHeader>
+                    <to id="_to2" uri="cache://cacheMotor"/>
+                </when>
+            </choice>
+            <to id="_to3" uri="sql:select idMotor, descripcion from Motor?dataSourceRef=dataSourceSybase"/>
+            <marshal id="consultarTokenResultset2xml" ref="jack"/>
+            <convertBodyTo charset="UTF-8" id="guardarCacheBodyTo" type="java.lang.String"/>
+            <to id="datosMotorXml2Xml" uri="xslt://transformations/mid/xml2xml_datosMotor.xsl?saxon=true"/>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader4">
+                <constant>CamelCacheAdd</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader5">
+                <constant>datosMotor</constant>
+            </setHeader>
+            <to id="_to4" uri="cache://cacheMotor"/>
+        </route>
+        <!-- ruta que obtiene cache de motor -->
+        <route id="obtieneCacheMotor">
+            <from id="_from2" uri="direct:obtieneCacheMotor"/>
+            <setHeader headerName="CamelCacheOperation" id="_setHeader6">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="_setHeader7">
+                <constant>datosMotor</constant>
+            </setHeader>
+            <to id="_to5" uri="cache://cacheMotor"/>
+        </route>
+        <!-- ruta de entrada por cola AMQ que procesa variables E/S de motor-->
+        <route id="guardarInfo">
+            <from id="guardarInfoFrom" uri="AMQ:{{amq.queueAlmacenDatos.in}}?disableReplyTo=true&amp;preserveMessageQos=true"/>
+            <doTry id="guardarInfoTry">
+                <enrich id="_enrich1" strategyRef="agregador">
+                    <constant>direct:sincache</constant>
+                </enrich>
+                <convertBodyTo charset="UTF-8" id="guardarInfoBodyTo" type="java.lang.String"/>
+                <setHeader headerName="AVALDIRECTO_AUPAGDIR" id="AVALDIRECTO_AUPAGDIR_HEADER">
+                    <constant>{{AVALDIRECTO_AUPAGDIR}}</constant>
+                </setHeader>
+                <setHeader headerName="AVALDIRECTO_DATBASEX" id="AVALDIRECTO_DATBASEX_HEADER">
+                    <constant>{{AVALDIRECTO_DATBASEX}}</constant>
+                </setHeader>
+                <setHeader headerName="AVALDIRECTO_DATBASIN" id="AVALDIRECTO_DATBASIN_HEADER">
+                    <constant>{{AVALDIRECTO_DATBASIN}}</constant>
+                </setHeader>
+                <setHeader headerName="AVALDIRECTO_DATSOL" id="AVALDIRECTO_DATSOL_HEADER">
+                    <constant>{{AVALDIRECTO_DATSOL}}</constant>
+                </setHeader>
+                <setHeader headerName="AVALDIRECTO_OCONTROL" id="AVALDIRECTO_OCONTROL_HEADER">
+                    <constant>{{AVALDIRECTO_OCONTROL}}</constant>
+                </setHeader>
+                <setHeader headerName="AVALDIRECTO_RESPAGDI" id="AVALDIRECTO_RESPAGDI_HEADER">
+                    <constant>{{AVALDIRECTO_RESPAGDI}}</constant>
+                </setHeader>
+                <!-- <to id="guardarInfoFault" uri="AMQ:TEST.OUT?jmsMessageType=Text&amp;exchangePattern=InOnly"/>
+             -->
+                <setHeader headerName="AVALDIRECTO_RESPLAN" id="AVALDIRECTO_RESPLAN_HEADER">
+                    <constant>{{AVALDIRECTO_RESPLAN}}</constant>
+                </setHeader>
+                <setHeader headerName="AVALDIRECTO_VARAUX_G" id="AVALDIRECTO_VARAUX_G_HEADER">
+                    <constant>{{AVALDIRECTO_VARAUX_G}}</constant>
+                </setHeader>
+                <setHeader headerName="AVALDIRECTO_VARAUX_L" id="AVALDIRECTO_VARAUX_L_HEADER">
+                    <constant>{{AVALDIRECTO_VARAUX_L}}</constant>
+                </setHeader>
+                <setHeader headerName="AVALPLANILLA_AUPLAN" id="AVALPLANILLA_AUPLAN_HEADER">
+                    <constant>{{AVALPLANILLA_AUPLAN}}</constant>
+                </setHeader>
+                <setHeader headerName="AVALPLANILLA_DATBASEX" id="AVALPLANILLA_DATBASEX_HEADER">
+                    <constant>{{AVALPLANILLA_DATBASEX}}</constant>
+                </setHeader>
+                <setHeader headerName="AVALPLANILLA_DATBASIN" id="AVALPLANILLA_DATBASIN_HEADER">
+                    <constant>{{AVALPLANILLA_DATBASIN}}</constant>
+                </setHeader>
+                <setHeader headerName="AVALPLANILLA_DATSOL" id="AVALPLANILLA_DATSOL_HEADER">
+                    <constant>{{AVALPLANILLA_DATSOL}}</constant>
+                </setHeader>
+                <setHeader headerName="AVALPLANILLA_OCONTROL" id="AVALPLANILLA_OCONTROL_HEADER">
+                    <constant>{{AVALPLANILLA_OCONTROL}}</constant>
+                </setHeader>
+                <setHeader headerName="AVALPLANILLA_RESPLAN" id="AVALPLANILLA_RESPLAN_HEADER">
+                    <constant>{{AVALPLANILLA_RESPLAN}}</constant>
+                </setHeader>
+                <setHeader headerName="AVALPLANILLA_VARAUX_G" id="AVALPLANILLA_VARAUX_G_HEADER">
+                    <constant>{{AVALPLANILLA_VARAUX_G}}</constant>
+                </setHeader>
+                <setHeader headerName="AVALPLANILLA_VARAUX_L" id="AVALPLANILLA_VARAUX_L_HEADER">
+                    <constant>{{AVALPLANILLA_VARAUX_L}}</constant>
+                </setHeader>
+                <setHeader headerName="DIRECTO_AUOTPROD" id="DIRECTO_AUOTPROD_HEADER">
+                    <constant>{{DIRECTO_AUOTPROD}}</constant>
+                </setHeader>
+                <setHeader headerName="DIRECTO_AUPAGDIR" id="DIRECTO_AUPAGDIR_HEADER">
+                    <constant>{{DIRECTO_AUPAGDIR}}</constant>
+                </setHeader>
+                <setHeader headerName="DIRECTO_DATBASEX" id="DIRECTO_DATBASEX_HEADER">
+                    <constant>{{DIRECTO_DATBASEX}}</constant>
+                </setHeader>
+                <setHeader headerName="DIRECTO_DATBASIN" id="DIRECTO_DATBASIN_HEADER">
+                    <constant>{{DIRECTO_DATBASIN}}</constant>
+                </setHeader>
+                <setHeader headerName="DIRECTO_DATSOL" id="DIRECTO_DATSOL_HEADER">
+                    <constant>{{DIRECTO_DATSOL}}</constant>
+                </setHeader>
+                <setHeader headerName="DIRECTO_OCONTROL" id="DIRECTO_OCONTROL_HEADER">
+                    <constant>{{DIRECTO_OCONTROL}}</constant>
+                </setHeader>
+                <setHeader headerName="DIRECTO_RESOTPRO" id="DIRECTO_RESOTPRO_HEADER">
+                    <constant>{{DIRECTO_RESOTPRO}}</constant>
+                </setHeader>
+                <setHeader headerName="DIRECTO_RESPAGDI" id="DIRECTO_RESPAGDI_HEADER">
+                    <constant>{{DIRECTO_RESPAGDI}}</constant>
+                </setHeader>
+                <setHeader headerName="DIRECTO_VARAUX_G" id="DIRECTO_VARAUX_G_HEADER">
+                    <constant>{{DIRECTO_VARAUX_G}}</constant>
+                </setHeader>
+                <setHeader headerName="DIRECTO_VARAUX_L" id="DIRECTO_VARAUX_L_HEADER">
+                    <constant>{{DIRECTO_VARAUX_L}}</constant>
+                </setHeader>
+                <setHeader headerName="GuardarLlamada1" id="GuardarLlamada1_HEADER">
+                    <constant>{{GuardarLlamada1}}</constant>
+                </setHeader>
+                <setHeader headerName="PLANILLA_AUOTPROD" id="PLANILLA_AUOTPROD_HEADER">
+                    <constant>{{PLANILLA_AUOTPROD}}</constant>
+                </setHeader>
+                <setHeader headerName="PLANILLA_AUPLAN" id="PLANILLA_AUPLAN_HEADER">
+                    <constant>{{PLANILLA_AUPLAN}}</constant>
+                </setHeader>
+                <setHeader headerName="PLANILLA_DATBASEX" id="PLANILLA_DATBASEX_HEADER">
+                    <constant>{{PLANILLA_DATBASEX}}</constant>
+                </setHeader>
+                <setHeader headerName="PLANILLA_DATBASIN" id="PLANILLA_DATBASIN_HEADER">
+                    <constant>{{PLANILLA_DATBASIN}}</constant>
+                </setHeader>
+                <setHeader headerName="PLANILLA_DATSOL" id="PLANILLA_DATSOL_HEADER">
+                    <constant>{{PLANILLA_DATSOL}}</constant>
+                </setHeader>
+                <setHeader headerName="PLANILLA_OCONTROL" id="PLANILLA_OCONTROL_HEADER">
+                    <constant>{{PLANILLA_OCONTROL}}</constant>
+                </setHeader>
+                <setHeader headerName="PLANILLA_RESOTPRO" id="PLANILLA_RESOTPRO_HEADER">
+                    <constant>{{PLANILLA_RESOTPRO}}</constant>
+                </setHeader>
+                <setHeader headerName="PLANILLA_RESPLAN" id="PLANILLA_RESPLAN_HEADER">
+                    <constant>{{PLANILLA_RESPLAN}}</constant>
+                </setHeader>
+                <setHeader headerName="PLANILLA_RESTC" id="PLANILLA_RESTC_HEADER">
+                    <constant>{{PLANILLA_RESTC}}</constant>
+                </setHeader>
+                <setHeader headerName="PLANILLA_VARAUX_G" id="PLANILLA_VARAUX_G_HEADER">
+                    <constant>{{PLANILLA_VARAUX_G}}</constant>
+                </setHeader>
+                <setHeader headerName="PLANILLA_VARAUX_L" id="PLANILLA_VARAUX_L_HEADER">
+                    <constant>{{PLANILLA_VARAUX_L}}</constant>
+                </setHeader>
+                <setHeader headerName="RDIRECTO_AUPAGDIR" id="RDIRECTO_AUPAGDIR_HEADER">
+                    <constant>{{RDIRECTO_AUPAGDIR}}</constant>
+                </setHeader>
+                <setHeader headerName="RDIRECTO_DATBASEX" id="RDIRECTO_DATBASEX_HEADER">
+                    <constant>{{RDIRECTO_DATBASEX}}</constant>
+                </setHeader>
+                <setHeader headerName="RDIRECTO_DATBASIN" id="RDIRECTO_DATBASIN_HEADER">
+                    <constant>{{RDIRECTO_DATBASIN}}</constant>
+                </setHeader>
+                <setHeader headerName="RDIRECTO_DATSOL" id="RDIRECTO_DATSOL_HEADER">
+                    <constant>{{RDIRECTO_DATSOL}}</constant>
+                </setHeader>
+                <setHeader headerName="RDIRECTO_OCONTROL" id="RDIRECTO_OCONTROL_HEADER">
+                    <constant>{{RDIRECTO_OCONTROL}}</constant>
+                </setHeader>
+                <setHeader headerName="RDIRECTO_RESPAGDI" id="RDIRECTO_RESPAGDI_HEADER">
+                    <constant>{{RDIRECTO_RESPAGDI}}</constant>
+                </setHeader>
+                <setHeader headerName="RDIRECTO_VARAUX_G" id="RDIRECTO_VARAUX_G_HEADER">
+                    <constant>{{RDIRECTO_VARAUX_G}}</constant>
+                </setHeader>
+                <setHeader headerName="RDIRECTO_VARAUX_L" id="RDIRECTO_VARAUX_L_HEADER">
+                    <constant>{{RDIRECTO_VARAUX_L}}</constant>
+                </setHeader>
+                <setHeader headerName="RPLANILLA_AUPLAN" id="RPLANILLA_AUPLAN_HEADER">
+                    <constant>{{RPLANILLA_AUPLAN}}</constant>
+                </setHeader>
+                <setHeader headerName="RPLANILLA_DATBASEX" id="RPLANILLA_DATBASEX_HEADER">
+                    <constant>{{RPLANILLA_DATBASEX}}</constant>
+                </setHeader>
+                <setHeader headerName="RPLANILLA_DATBASIN" id="RPLANILLA_DATBASIN_HEADER">
+                    <constant>{{RPLANILLA_DATBASIN}}</constant>
+                </setHeader>
+                <setHeader headerName="RPLANILLA_DATSOL" id="RPLANILLA_DATSOL_HEADER">
+                    <constant>{{RPLANILLA_DATSOL}}</constant>
+                </setHeader>
+                <setHeader headerName="RPLANILLA_OCONTROL" id="RPLANILLA_OCONTROL_HEADER">
+                    <constant>{{RPLANILLA_OCONTROL}}</constant>
+                </setHeader>
+                <setHeader headerName="RPLANILLA_RESPLAN" id="RPLANILLA_RESPLAN_HEADER">
+                    <constant>{{RPLANILLA_RESPLAN}}</constant>
+                </setHeader>
+                <setHeader headerName="RPLANILLA_VARAUX_G" id="RPLANILLA_VARAUX_G_HEADER">
+                    <constant>{{RPLANILLA_VARAUX_G}}</constant>
+                </setHeader>
+                <setHeader headerName="RPLANILLA_VARAUX_L" id="RPLANILLA_VARAUX_L_HEADER">
+                    <constant>{{RPLANILLA_VARAUX_L}}</constant>
+                </setHeader>
+                <setHeader headerName="TC_AUTC" id="TC_AUTC_HEADER">
+                    <constant>{{TC_AUTC}}</constant>
+                </setHeader>
+                <setHeader headerName="TC_DATBASEX" id="TC_DATBASEX_HEADER">
+                    <constant>{{TC_DATBASEX}}</constant>
+                </setHeader>
+                <setHeader headerName="TC_DATBASIN" id="TC_DATBASIN_HEADER">
+                    <constant>{{TC_DATBASIN}}</constant>
+                </setHeader>
+                <setHeader headerName="TC_DATSOL" id="TC_DATSOL_HEADER">
+                    <constant>{{TC_DATSOL}}</constant>
+                </setHeader>
+                <setHeader headerName="TC_OCONTROL" id="TC_OCONTROL_HEADER">
+                    <constant>{{TC_OCONTROL}}</constant>
+                </setHeader>
+                <setHeader headerName="TC_RESTC" id="TC_RESTC_HEADER">
+                    <constant>{{TC_RESTC}}</constant>
+                </setHeader>
+                <setHeader headerName="TC_VARAUX_G" id="TC_VARAUX_G_HEADER">
+                    <constant>{{TC_VARAUX_G}}</constant>
+                </setHeader>
+                <setHeader headerName="TC_VARAUX_L" id="TC_VARAUX_L_HEADER">
+                    <constant>{{TC_VARAUX_L}}</constant>
+                </setHeader>
+                <setHeader headerName="Flag" id="FLAG_HEADER">
+                    <xpath resultType="String">//datos/flag/text()</xpath>
+                </setHeader>
+                <choice id="_choice2">
+                    <when id="_when2">
+                        <simple>${header.GuardarLlamada1} == 'N' and ${header.Flag} == '1'</simple>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <to id="xml2xml_guardarInfo" uri="xslt://transformations/out/xml2xml_guardarInfo.xsl?saxon=true"/>
+                        <bean
+                            beanType="cl.coopeuch.util.ReemplazarString"
+                            id="_bean1" method="reemplazarCuerpo"/>
+                        <removeHeader headerName="JMSDestination" id="removeHeaderJMS"/>
+                        <removeHeader headerName="JMSReplyTo" id="removeHeaderRepyTo"/>
+                        <setHeader headerName="CamelJmsDestinationName" id="setHeaderCamelJMS">
+                            <constant>queue:///{{ibm.queueAlmacenDatosMotor.out}}?targetClient=1</constant>
+                        </setHeader>
+                        <setHeader headerName="JMS_IBM_Encoding" id="_setHeader8">
+                            <simple resultType="java.lang.Integer">785</simple>
+                        </setHeader>
+                        <setHeader headerName="JMS_IBM_Character_Set" id="_setHeader9">
+                            <simple>UTF-8</simple>
+                        </setHeader>
+                        <to id="guardarInfoTo" pattern="InOnly" uri="websphere:queue:{{ibm.queueAlmacenDatosMotor.out}}?jmsMessageType=Text&amp;preserveMessageQos=true&amp;disableReplyTo=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="guardarInfoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="guardarInfoFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route1">
+            <from id="_from3" uri="direct:sincache"/>
+            <to id="_to3e" uri="sql:select idMotor, descripcion from Motor?dataSourceRef=dataSourceSybase"/>
+            <marshal id="econsultarTokenResultset2xml" ref="jack"/>
+            <convertBodyTo charset="UTF-8" id="eguardarCacheBodyTo" type="java.lang.String"/>
+            <to id="edatosMotorXml2Xml" uri="xslt://transformations/mid/xml2xml_datosMotor.xsl?saxon=true"/>
+        </route>
+    </camelContext>
+</blueprint>

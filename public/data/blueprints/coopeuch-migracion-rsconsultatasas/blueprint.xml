@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Configures the Camel Context -->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsconsultatasas" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioConsultaTasas"
+        id="servicioConsultaTasasEndpoint"
+        serviceClass="cl.coopeuch.core.consultatasas.ConsultaTasas" wsdlURL="wsdl/ServicioConsultaTasas.wsdl"/>
+    <cxf:rsServer address="/RSConsultaTasas"
+                  id="endpointRSConsultaTasas" serviceClass="cl.coopeuch.core.service.rest.ConsultaTasasRest"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.transformaciones.CreaTramaConsultaTasaParaCredito" id="CreaTramaConsultaTasaParaCredito"/>
+    <bean
+        class="cl.coopeuch.transformaciones.CreaTramaConsultaTasaParaCreditoPDA" id="CreaTramaConsultaTasaParaCreditoPDA"/>
+    <bean class="cl.coopeuch.util.RouteFacade" id="routeFacade"/>
+    <camelContext id="servicio-consulta-tasas-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cx-RuteoOperaciones">
+            <from id="servicioConsultaTasasEndpointListener" uri="cxf:bean:servicioConsultaTasasEndpoint?DataFormat=MESSAGE"/>
+            <to id="_to1Inicio" uri="direct:inicio"/>
+        </route>
+        <route id="_route1">
+            <from id="_from1" uri="AMQ:queue:{{colas.servicio.consultatasas.in.temp}}?preserveMessageQos=true"/>
+            <to id="_to1" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-rest">
+            <from id="fromRest" uri="cxfrs:bean:endpointRSConsultaTasas"/>
+            <setProperty id="_setProperty1" propertyName="request">
+                <simple>${body}</simple>
+            </setProperty>
+            <doTry id="_doTry1">
+                <choice id="fromOperation">
+                    <when id="_when1">
+                        <simple>${header.operationName} == 'consultaTasaParaCreditoPDA'</simple>
+                        <setProperty propertyName="operacion">
+                            <simple>consultaTasaParaCreditoPDA</simple>
+                        </setProperty>
+                        <unmarshal id="_unmarshal3">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.jaxb.consultatasas.ConsultaTasasPDA"/>
+                        </unmarshal>
+                        <bean id="_bean1"
+                              method="consultaTasaParaCreditoPDARequest" ref="routeFacade"/>
+                        <marshal id="_marshal1">
+                            <jaxb contextPath="cl.coopeuch.jaxb.consultatasas"/>
+                        </marshal>
+                        <to id="_to2" uri="direct:inicio"/>
+                        <unmarshal id="_unmarshal4">
+                            <jaxb contextPath="cl.coopeuch.jaxb.consultatasas"/>
+                        </unmarshal>
+                        <bean id="_bean2"
+                              method="consultaTasaParaCreditoPDAResponse" ref="routeFacade"/>
+                        <marshal id="_marshal2">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.jaxb.consultatasas.ConsultaTasaParaCreditoPDAResponse"/>
+                        </marshal>
+                    </when>
+                    <when id="_when2">
+                        <simple>${header.operationName} == 'consultaTasaParaCredito'</simple>
+                        <setProperty propertyName="operacion">
+                            <simple>consultaTasaParaCredito</simple>
+                        </setProperty>
+                        <unmarshal id="_unmarshal5">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.jaxb.consultatasas.ConsultaTasas"/>
+                        </unmarshal>
+                        <bean id="_bean1"
+                              method="consultaTasaParaCreditoRequest" ref="routeFacade"/>
+                        <marshal id="_marshal1">
+                            <jaxb contextPath="cl.coopeuch.jaxb.consultatasas"/>
+                        </marshal>
+                        <to id="_to2" uri="direct:inicio"/>
+                        <unmarshal id="_unmarshal6">
+                            <jaxb contextPath="cl.coopeuch.jaxb.consultatasas"/>
+                        </unmarshal>
+                        <bean id="_bean2"
+                              method="consultaTasaParaCreditoResponse" ref="routeFacade"/>
+                        <marshal id="_marshal3">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.jaxb.consultatasas.ConsultaTasaParaCreditoResponse"/>
+                        </marshal>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                                exceptionType="java.lang.Exception"
+                                id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                          id="ruteoOperacionesRestoreBodyRest" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyErrorRest">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFaultRest" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                          id="ruteoOperacionesBodyErrorRest" method="setBodyError"/>
+                    <unmarshal id="_unmarshal7">
+                        <jaxb contextPath="cl.coopeuch.jaxb.consultatasas"/>
+                    </unmarshal>
+                    <choice id="exception-choice">
+                        <when id="exception-when-ctcpda">
+                            <simple>${header.operationName} == 'consultaTasaParaCreditoPDA'</simple>
+                            <bean id="_bean3"
+                                  method="consultaTasaParaCreditoPDAResponse" ref="routeFacade"/>
+                            <marshal id="_marshal4">
+                                <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.jaxb.consultatasas.ConsultaTasaParaCreditoPDAResponse"/>
+                            </marshal>
+                        </when>
+                        <when id="exception-when-ctc">
+                            <simple>${header.operationName} == 'consultaTasaParaCredito'</simple>
+                            <bean id="_bean4"
+                                  method="consultaTasaParaCreditoResponse" ref="routeFacade"/>
+                            <marshal id="_marshal5">
+                                <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.jaxb.consultatasas.ConsultaTasaParaCreditoResponse"/>
+                            </marshal>
+                        </when>
+                    </choice>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeInicio">
+            <from id="_fromInicio" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="createJMSCorrelationId" method="createJMSCorrelationId24"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaconsultaTasaParaCreditoPDA">
+                        <simple>${body} contains 'consultaTasaParaCreditoPDA'</simple>
+                        <to id="consultaTasaParaCreditoPDAValidator" uri="validator:xsd/soapConsultaPDA.xsd"/>
+                        <to id="consultaTasaParaCreditoPDATo" uri="direct:consultaTasaParaCreditoPDA"/>
+                    </when>
+                    <when id="rutaconsultaTasaParaCredito">
+                        <simple>${body} contains 'consultaTasaParaCredito'</simple>
+                        <to id="consultaTasaParaCreditoValidator" uri="validator:xsd/soapConsultaTasas.xsd"/>
+                        <to id="consultaTasaParaCreditoTo" uri="direct:consultaTasaParaCredito"/>
+                    </when>
+                    <otherwise id="_otherwise1"/>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <route id="consultaTasaParaCredito">
+            <!-- <to id="consultaTasaParaCreditoXml2trama" uri="xslt://transformations/in/xml2tramaIOC100501I_consultaTasaParaCredito.xsl"/> -->
+            <from id="consultaTasaParaCreditoFrom" uri="direct:consultaTasaParaCredito"/>
+            <doTry id="consultaTasaParaCreditoTry">
+                <unmarshal id="_unmarshal1">
+                    <jaxb contextPath="cl.coopeuch.jaxb.consultatasas"/>
+                </unmarshal>
+                <process id="_process1" ref="CreaTramaConsultaTasaParaCredito"/>
+                <to id="activemq-consultaTasaParaCredito" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="consultaTasaParaCreditoTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultaTasaParaCreditoTrama2xml" uri="xslt://transformations/out/trama2xmlIOC100501O_consultaTasaParaCredito.xsl?saxon=true"/>
+                <doCatch id="consultaTasaParaCreditoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="consultaTasaParaCreditoRestoreBody" method="restoreBody"/>
+                    <setBody id="consultaTasaParaCreditoSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultaTasaParaCreditoFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="consultaTasaParaCreditoSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultaTasaParaCreditoFinally"/>
+            </doTry>
+        </route>
+        <route id="consultaTasaParaCreditoPDA">
+            <from id="consultaTasaParaCreditoPDAFrom" uri="direct:consultaTasaParaCreditoPDA"/>
+            <doTry id="consultaTasaParaCreditoPDATry">
+                <!-- <to id="consultaTasaParaCreditoPDAXml2trama" uri="xslt://transformations/in/xml2tramaIOC100601I_consultaTasaParaCreditoPDA.xsl"/> -->
+                <unmarshal id="_unmarshal2">
+                    <jaxb contextPath="cl.coopeuch.jaxb.consultatasas"/>
+                </unmarshal>
+                <process id="_process2" ref="CreaTramaConsultaTasaParaCreditoPDA"/>
+                <to id="activeMQ-consultaTasaParaCreditoPDA" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="consultaTasaParaCreditoPDATransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultaTasaParaCreditoPDATrama2xml" uri="xslt://transformations/out/trama2xmlIOC100601O_consultaTasaParaCreditoPDA.xsl?saxon=true"/>
+                <doCatch id="consultaTasaParaCreditoPDACatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="consultaTasaParaCreditoPDARestoreBody" method="restoreBody"/>
+                    <setBody id="consultaTasaParaCreditoPDASetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultaTasaParaCreditoPDAFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="consultaTasaParaCreditoPDASetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultaTasaParaCreditoPDAFinally"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,246 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+	xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+	xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+	xmlns:http="http://cxf.apache.org/transports/http/configuration"
+	xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+	<cm:property-placeholder id="propertyGlobal"
+		persistent-id="global" placeholder-prefix="{[" placeholder-suffix="]}"
+		update-strategy="reload" />
+	<cm:property-placeholder id="propertyGlobalDb2"
+		persistent-id="globalDb2" placeholder-prefix="[[" placeholder-suffix="]]"
+		update-strategy="reload" />
+	<cm:property-placeholder id="propertyLocal"
+		persistent-id="rspostergacioncuotasweb" placeholder-prefix="[{"
+		placeholder-suffix="}]" update-strategy="reload" />
+	<bean class="org.apache.activemq.camel.component.ActiveMQComponent"
+		id="beanAMQ">
+		<property name="brokerURL" value="{[amq.broker.url]}" />
+		<property name="userName" value="{[amq.username]}" />
+		<property name="password" value="{[amq.password]}" />
+		<property name="usePooledConnection" value="true" />
+	</bean>
+	<bean class="org.apache.commons.dbcp.BasicDataSource"
+		destroy-method="close" id="dataSourceSqlDb2">
+		<property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver" />
+		<property name="url" value="[[jdbc.db2.url.servicio]]" />
+		<property name="username" value="[[jdbc.db2.username.creditos]]" />
+		<property name="password" value="[[jdbc.db2.password.creditos]]" />
+		<property name="timeBetweenEvictionRunsMillis"
+			value="[{jdbc.db2.timeBetweenEvictionRunsMillis.postergacioncuotasweb}]" />
+		<property name="numTestsPerEvictionRun"
+			value="[{jdbc.db2.numTestsPerEvictionRun.postergacioncuotasweb}]" />
+		<property name="minEvictableIdleTimeMillis"
+			value="[{jdbc.db2.minEvictableIdleTimeMillis.postergacioncuotasweb}]" />
+		<property name="maxActive" value="[{jdbc.db2.maxActive.postergacioncuotasweb}]" />
+	</bean>
+	<bean
+		class="cl.coopeuch.integracion.tarea.serviciorspostergacioncuotasweb.util.RouteFacade"
+		id="beanRouteFacade" />
+	<camelcxf:rsServer address="/RSPostergacionCuotasWeb"
+		id="endpointRSPostergacionCuotasWeb"
+		serviceClass="cl.coopeuch.integracion.tarea.wsdl.RSPostergacionCuotasWebSOAPPortType" />
+	<camelcxf:cxfEndpoint address="[{endpoint.crm.solicitudesweb}]"
+		id="endpointReprogramacionCuotas" loggingFeatureEnabled="true"
+		serviceClass="cl.coopeuch.integracion.tarea.wsdl.wsreprogramacioncuotas.WSReprogramacionCuotasSoap"
+		wsdlURL="etc/wsdl/WSReprogramacionCuotas.asmx.wsdl" />
+	<http-conf:conduit name="*.http-conduit">
+		<http-conf:client ConnectionTimeout="15000"
+			ReceiveTimeout="15000" />
+	</http-conf:conduit>
+	<camelContext id="servicio-rspostergacioncuotasweb"
+		xmlns="http://camel.apache.org/schema/blueprint">
+		<route id="inicio-rest">
+			<from id="restInicio" uri="cxfrs:bean:endpointRSPostergacionCuotasWeb" />
+			<to id="restToInicioWs" uri="direct:cxf-inicio" />
+		</route>
+		<route id="cxf-inicio">
+			<from id="inicioFromServicio" uri="direct:cxf-inicio" />
+			<doTry id="inicioTry">
+				<setProperty id="inicioSetRequest" propertyName="requestEntrada">
+					<simple>${body}</simple>
+				</setProperty>
+				<setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+					<simple>$simple{body.get(0).class.getSimpleName()}</simple>
+				</setProperty>
+				<setProperty id="inicioSetEstadoFormalizar"
+					propertyName="estadoFormalizar">
+					<simple>0</simple>
+				</setProperty>
+				<setBody id="inicioSetBody">
+					<simple>$simple{body.get(0)}</simple>
+				</setBody>
+				<choice id="inicioChoiceOperacion">
+					<when id="inicioWhenOperacionConsultarDatos">
+						<simple>${header.operationName} == 'consultarDatos'</simple>
+						<to id="toConsultarDatos" uri="direct:consultarDatos" />
+					</when>
+					<when id="inicioWhenOperacionreversarPostergacion">
+						<simple>${header.operationName} == 'reversarPostergacion'</simple>
+						<to id="toPostergar" uri="direct:reversarPostergacion" />
+					</when>
+					<when id="inicioWhenOperacionformalizarCrm">
+						<simple>${header.operationName} == 'formalizarCrm'</simple>
+						<to id="toFormalizarCrm" uri="direct:formalizarCrm" />
+					</when>
+					<otherwise id="inicioOtherwise">
+						<throwException exceptionType="java.lang.Exception"
+							id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida" />
+					</otherwise>
+				</choice>
+				<doCatch id="inicioDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="inicioCodigoError" propertyName="codigoError">
+						<constant>500</constant>
+					</setProperty>
+					<to id="inicioToExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="consultarDatos">
+			<from id="consultarDatosFrom" uri="direct:consultarDatos" />
+			<doTry id="consultarDatosTry">
+				<setProperty propertyName="H01USERID">
+					<xpath resultType="String">//userId/text()</xpath>
+				</setProperty>
+				<setProperty id="_setProperty2" propertyName="H01CODCAN">
+					<xpath resultType="String">//canalLlamada/text()</xpath>
+				</setProperty>
+				<setProperty propertyName="E01DEAACC">
+					<xpath resultType="String">//numeroCredito/text()</xpath>
+				</setProperty>
+				<to id="PA_SEL_POSTERGACIONCUOTASWEB_CONSULTARDATOS_WS_to"
+					uri="sql-stored:classpath:etc/sql/PA_SEL_POSTERGACIONCUOTASWEB_CONSULTARDATOS_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=dataResponse" />
+				<bean id="consultarPostergacionCuotasBean" method="respuestaPaPostergacionCuotas"
+					ref="beanRouteFacade" />
+				<marshal id="_marshal6">
+					<json include="NON_NULL" library="Jackson"
+						unmarshalTypeName="cl.coopeuch.integracion.tarea.wsdl.ConsultarDatosResponse" />
+				</marshal>
+				<doCatch id="consultarDatosDBDoCatch">
+					<exception>java.sql.SQLException</exception>
+					<log loggingLevel="ERROR"
+						message="Excepcion capturada: ${exception.message}. StackTrace: ${exception.stacktrace}" />
+					<setProperty id="consultarDatosDBCodigoError"
+						propertyName="codigoError">
+						<constant>505</constant>
+					</setProperty>
+					<to id="consultarDatosToExcepcion" uri="direct:excepcion" />
+				</doCatch>
+				<doCatch id="consultarDatosDoCatch">
+					<exception>java.lang.Exception</exception>
+					<log loggingLevel="ERROR"
+						message="Excepcion capturada: ${exception.message}. StackTrace: ${exception.stacktrace}" />
+					<setProperty id="consultarDatosCodigoError"
+						propertyName="codigoError">
+						<constant>500</constant>
+					</setProperty>
+					<to id="consultarDatosToExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="reversarPostergacion">
+			<from id="reversarPostergacionFrom" uri="direct:reversarPostergacion" />
+			<doTry id="reversarPostergacionTry">
+				<bean id="ReversarPostergacionRequestBean" method="requestReversarPostergacionRequest"
+					ref="beanRouteFacade" />
+				<marshal id="reversarPostergacionMarshal">
+					<jaxb contextPath="cl.coopeuch.integracion.tarea.wsdl" />
+				</marshal>
+				<convertBodyTo id="reversarPostergacionConvertBodyToString"
+					type="java.lang.String" />
+				<bean id="consultarUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade" />
+				<to id="reversarPostergacionToXSLTrama" uri="xslt://etc/xsl/request/IOC039302I_reversar.xsl" />
+				<log id="reversarPostergacionTrama" message="Trama generada = ${body}" />
+				<to id="reversarPostergacionToAmq"
+					uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false" />
+				<log id="reversarPostergacionTramaResponse" message="Trama recibida = ${body}" />
+				<transform id="reversarPostergacionTransformBody">
+					<simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+				</transform>
+				<to id="reversarPostergacionToXSLSOAP"
+					uri="xslt://etc/xsl/response/IOC039302O_reversar.xsl?saxon=true" />
+				<unmarshal>
+					<jaxb contextPath="cl.coopeuch.integracion.tarea.wsdl" />
+				</unmarshal>
+				<log message="4:(${body})" />
+				<doCatch id="reversarPostergacionDoCatchAMQ">
+					<exception>org.apache.camel.ExchangeTimedOutException</exception>
+					<setProperty id="postergarCodigoErrorAMQ" propertyName="codigoError">
+						<constant>502</constant>
+					</setProperty>
+					<to id="toReversarPostergacionExcepcionAMQ" uri="direct:excepcion" />
+				</doCatch>
+				<doCatch id="reversarPostergacionDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="reversarPostergacionCodigoError"
+						propertyName="codigoError">
+						<constant>500</constant>
+					</setProperty>
+					<to id="reversarPostergacionToExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="formalizarCrm">
+			<from id="formalizarCrmFrom" uri="direct:formalizarCrm" />
+			<doTry id="formalizarTry">
+				<bean id="formalizarSolicitudesRequestBean" method="requestSolicitudFormalizar"
+					ref="beanRouteFacade" />
+				<to id="formalizarTo" uri="cxf:bean:endpointReprogramacionCuotas" />
+				<log message="salida formalizar: ${body}"></log>
+				<bean id="generaResponseCrm" method="generaResponsePostergarCrm"
+					ref="beanRouteFacade" />
+				<stop />
+				<unmarshal>
+					<jaxb contextPath="cl.coopeuch.integracion.tarea.wsdl" />
+				</unmarshal>
+				<doCatch id="sinSolicitudCatch">
+					<exception>java.lang.NullPointerException</exception>
+					<setProperty id="otherPropertyCodigoErrorSinSolicitud"
+						propertyName="codigoError">
+						<constant>490</constant>
+					</setProperty>
+					<to id="ExcepcionToSinSolicitud" uri="direct:excepcion" />
+				</doCatch>
+				<doCatch id="formalizarDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="formalizarCodigoError" propertyName="codigoError">
+						<constant>500</constant>
+					</setProperty>
+					<to id="toFormalizarExcepcion" uri="direct:excepcion" />
+				</doCatch>
+				<doCatch id="noExisteCreditoCatch">
+					<exception>java.lang.NoSuchFieldException</exception>
+					<setProperty id="otherPropertyNoExisteCredito"
+						propertyName="codigoError">
+						<constant>489</constant>
+					</setProperty>
+					<to id="ExcepcionToNoExisteCredito" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="excepcion">
+			<from id="excepcionfrom" uri="direct:excepcion" />
+			<doTry id="excepcionTry">
+				<bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade" />
+				<marshal id="excepcionMarshalJson">
+					<json library="Jackson" />
+				</marshal>
+				<convertBodyTo id="excepcionConvertTo" type="java.lang.String" />
+				<to id="excepcionToAmqFault"
+					uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly" />
+				<bean id="excepcionBeanExcepcion" method="excepcionCrear" ref="beanRouteFacade" />
+				<doCatch id="excepcionDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setBody id="exceptionFinalSetBodyError">
+						<simple>${exception}, Body -&gt; ${body}</simple>
+					</setBody>
+					<log id="excepcionLog" loggingLevel="ERROR"
+						message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}" />
+				</doCatch>
+			</doTry>
+		</route>
+	</camelContext>
+</blueprint>

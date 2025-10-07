@@ -1,0 +1,278 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+           xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+           xmlns:http="http://cxf.apache.org/transports/http/configuration"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+                             placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2" persistent-id="globalDb2"
+                             placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>  
+    <cm:property-placeholder id="propertyLocal" persistent-id="wsproductospasivos"
+                             placeholder-prefix="{{" placeholder-suffix="}}" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+          destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[{jdbc.db2.url.servicio}]"/>
+        <property name="username" value="[{jdbc.db2.username.cuentas}]"/>
+        <property name="password" value="[{jdbc.db2.password.cuentas}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="{{jdbc.db2.timeBetweenEvictionRunsMillis.cuentas}}"/>
+        <property name="numTestsPerEvictionRun" value="{{jdbc.db2.numTestsPerEvictionRun.cuentas}}"/>
+        <property name="minEvictableIdleTimeMillis" value="{{jdbc.db2.minEvictableIdleTimeMillis.cuentas}}"/>
+        <property name="maxActive" value="{{jdbc.db2.maxActive.cuentas}}"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.productos.pasivos.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSProductosPasivos"
+                          id="endpointWSProductosPasivos"
+                          serviceClass="cl.coopeuch.integracion.productos.pasivos.wsdl.WSProductosPasivosSOAPPortType" wsdlURL="etc/wsdl/WSProductosPasivos.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    
+    <camelcxf:rsClient address="{{endpoint.parametrosgenerales.consultar}}"
+                       id="endpointRSParametrosGenerales" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProviderParametrosGenerales">
+                <property name="ignoreNamespaces" value="true"/>
+            </bean>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    
+    <camelcxf:rsServer address="/RSProductosPasivos"
+                       id="endpointRSProductosPasivos" serviceClass="cl.coopeuch.integracion.productos.pasivos.wsdl.WSProductosPasivosSOAPPortType">
+        <camelcxf:providers>
+            <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+                <property name="serializeAsArray" value="true"/>
+                <property name="arrayKeys">
+                    <list>
+                        <value>pagos</value>
+                    </list>
+                </property>
+            </bean>
+        </camelcxf:providers>
+    </camelcxf:rsServer>
+    
+    <camelContext id="servicio-productos-pasivos" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSProductosPasivos"/>
+            <to id="soapToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSProductosPasivos"/>
+            <to id="restToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="iniciows" uri="direct:iniciows"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setProperty id="inicioSetBody" propertyName="bodyEntrada">
+                    <simple>${body.get(0)}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="toConsultar" uri="direct:consultar"/>
+                    </when>
+                    <when id="inicioWhenOperacionObtenerInteresesReajustesPagados">
+                        <simple>${header.operationName} == 'obtenerInteresesReajustesPagados'</simple>
+                        <to id="toObtenerInteresesReajustesPagados" uri="direct:obtenerInteresesReajustesPagados"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodError" propertyName="codigoError">
+                        <simple>500</simple>
+                    </setProperty>
+                    <setHeader headerName="entra_fault" id="_headEntraFaultInicio">
+                        <simple>0</simple>
+                    </setHeader>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+            <removeHeaders id="_removeHeaders1" pattern="*"/>
+        </route>
+        <route id="routeConsultar">
+            <from id="fromConsultar" uri="direct:consultar"/>
+            <doTry id="_doTry1">
+                <setBody id="consultarSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="consultarMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.productos.pasivos.wsdl"/>
+                </marshal>
+                <convertBodyTo id="consultarConvertBodyToString" type="java.lang.String"/>
+                <bean id="consultarUUID"
+                      method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <log id="bodyEntrada" message="\n body Entrada: ${body}"/>
+                <to id="consultarToXSLTrama" uri="xslt://etc/xsl/in/IOC095001I_consultar.xsl"/>
+                <log id="consultarTrama" message="\n Trama generada = |${body}|"/>
+                <to id="consultarToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="consultarTramaResponse" message="\n Trama recibida = |${body}|"/>
+                <transform id="consultarTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarToXSLSOAP" uri="xslt://etc/xsl/out/IOC095001O_consultar.xsl?saxon=true"/>
+                <unmarshal id="consultarUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.productos.pasivos.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarCodError" propertyName="codigoError">
+                        <simple>501</simple>
+                    </setProperty>
+                    <setHeader headerName="entra_fault" id="_headEntraFaultConsultar">
+                        <simple>0</simple>
+                    </setHeader>
+                    <to id="toConsultarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="obtenerInteresesReajustesPagados">
+            <from id="obtenerInteresesReajustesPagadosFrom" uri="direct:obtenerInteresesReajustesPagados"/>
+            <doTry id="obtenerInteresesReajustesPagadosTry">
+                <log message="Request: ${body}"/>
+                <bean method="validarRequestObtenerInteresesReajustesPagados" ref="beanRouteFacade"/>
+                <setBody>
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <setProperty propertyName="userId">
+                    <simple>$simple{body.userId}</simple>
+                </setProperty>
+                <setProperty propertyName="canalLlamada">
+                    <simple>$simple{body.canalLlamada}</simple>
+                </setProperty>
+                <setProperty propertyName="banco">
+                    <constant>01</constant>
+                </setProperty>
+                <setProperty propertyName="producto">
+                    <simple>$simple{body.producto}</simple>
+                </setProperty>
+                <setProperty propertyName="fecha">
+                    <simple>${body.fecha}</simple>
+                </setProperty>
+                <to uri="direct:obtenerUltimoDiaHabilConsultandoCalendario"/> <!--  -->
+                <bean method="obtenerFechaContable" ref="beanRouteFacade"/>
+                <to uri="sql-stored:classpath:etc/sql/PA_SEL_AHORRO_INTERESES_REAJUSTES.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=obtenerInteresesReajustesPagadosPAResponse"/>
+                <bean method="generarResponseObtenerInteresesReajustesPagados" ref="beanRouteFacade"/>
+                <unmarshal>
+                    <jaxb contextPath="cl.coopeuch.integracion.productos.pasivos.wsdl"/>
+                </unmarshal>
+                <log message="Response body: ${body}"/>
+                <doCatch>
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch>
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty propertyName="codigoError">
+                        <constant>505</constant>
+                    </setProperty>
+                    <setProperty propertyName="descripcionError">
+                        <constant>Error en la comunicación con el servidor de base de datos</constant>
+                    </setProperty>
+                    <log message="Error: ${exception.stacktrace}"/>
+                    <to uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="obtenerInteresesReajustesPagadosDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="obtenerInteresesReajustesPagadosCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toObtenerInteresesReajustesPagadosExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route>
+            <from uri="direct:obtenerUltimoDiaHabilConsultandoCalendario"/>
+            <doTry>
+                <removeHeaders pattern="*"/>
+                <bean method="generarRequestConsultarCalendario" ref="beanRouteFacade"/>
+                <marshal>
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo type="java.lang.String"/>
+                <setHeader headerName="Http-Method">
+                    <constant>POST</constant>
+                </setHeader>
+                <setHeader headerName="Content-Type">
+                    <constant>application/json</constant>
+                </setHeader>
+                <to uri="cxfrs:bean:endpointRSParametrosGenerales?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <setProperty propertyName="diasHabiles">
+                    <jsonpath>$..dia</jsonpath>
+                </setProperty>
+                <when>
+                    <simple>${exchangeProperty.diasHabiles} == '[]'</simple>
+                    <throwException exceptionType="java.lang.IllegalArgumentException" message="diasHabiles no contiene elementos"/>
+                </when>
+                <doCatch>
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty propertyName="codigoError">
+                        <constant>418</constant>
+                    </setProperty>
+                    <setProperty propertyName="descripcionError">
+                        <constant>El servicio interno WSParametrosGenerales - consultarCalendario ha respondido con error</constant>
+                    </setProperty>
+                    <to uri="direct:excepcion"/>
+                    <stop/>
+                </doCatch>
+                <doCatch>
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.net.SocketException</exception>
+                    <exception>java.net.UnknownHostException</exception>
+                    <setProperty propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty propertyName="descripcionError">
+                        <constant>Error en la comunicación con el servicio interno WSParametrosGenerales - consultarCalendario</constant>
+                    </setProperty>
+                    <to uri="direct:excepcion"/>
+                    <stop/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <when id="_when1">
+                    <simple>${headers.entra_fault} == 0</simple>
+                    <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </when>
+                <bean id="excepcionBeanExcepcion"
+                      method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

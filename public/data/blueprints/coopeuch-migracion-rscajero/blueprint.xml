@@ -1,0 +1,1877 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Configures the Camel Context -->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyWSservicioCajero"
+        persistent-id="wsserviciocajero" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioCajero" id="serviciopagoEndpoint"
+        serviceClass="cl.coopeuch.core.cajero.serviciocajero.CajeroPortType" wsdlURL="wsdl/ServicioCajero.wsdl"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.cajero}]/[{jdbc.sqlserver.database.cajero}];charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.cajero}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.cajero}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.cajero}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.cajero}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.cajero}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.cajero}]"/>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.REGISTRAR_ATX_ATTRNJOUR">
+        <argument ref="dataSourceSqlServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.REGISTRAR_ATX_ATTRNJOUR"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="idUsuario"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="idSupervisor"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="codigoSemilla"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="codigoTransaccion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="fechaTransaccion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="horaTransaccion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="fechaApertura"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="montoOriginal"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="montoPagado"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="numeroCuenta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="nombreCliente"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="cuotasAcumuladas"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="valorCuotasAcumuladas"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="cuotasPendientes"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="valorCuotasPendientes"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="cotizacionPactada"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="valorCotizacionPactada"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="valorCuota"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="cantidadCuotasPagadas"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="ipUser"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="idEstadoTransaccion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="codigoError"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="descripcionError"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.logica.archivo.salida.CreacionArchivo" id="creacionArchivo"/>
+    <bean
+        class="cl.coopeuch.util.aggregation.AggregatorParametroProducto" id="aggregatorParametroProducto"/>
+    <bean class="cl.coopeuch.util.AggregatorSplit" id="aggregatorSplit"/>
+    <bean class="cl.coopeuch.util.ConcatenarConsultaHA" id="concatenarConsultaHA"/>
+    <camelContext id="servicio-cajero" xmlns="http://camel.apache.org/schema/blueprint">
+    	<properties>
+    		<property key="CamelLogDebugBodyMaxChars" value="0"/>
+    	</properties>
+        <!-- Ruta inicial por medio de wsdl -->
+        <route id="cx-RuteoOperaciones">
+            <from id="EndpointListener" uri="cxf:bean:serviciopagoEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo charset="Cp1252"
+                    id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <setProperty id="_setProperty1" propertyName="cuerpo">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="_setHeader4" propertyName="cajero.indicadorReversa">
+                    <simple>{{cajero.indicadorReversa}}</simple>
+                </setProperty>
+                <setProperty id="consultaRegistroRutHeaderRutCliente" propertyName="rut">
+                    <xpath resultType="String">//rut</xpath>
+                </setProperty>
+                <bean beanType="cl.coopeuch.util.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaconsultaRegistrosRut">
+                        <simple>${body} contains 'consultaRegistrosRut'</simple>
+                        <to id="consultaRegistroRutValidator" uri="validator:xsd/soapCajero.xsd"/>
+                        <to id="consultaRegistrosRutTo" uri="direct:consultaRegistrosRut"/>
+                    </when>
+                    <when id="rutaconfirmacionDepositoCuentaAhorro">
+                        <simple>${body} contains 'confirmacionDepositoCuentaAhorro'</simple>
+                        <to
+                            id="confirmacionDepositoCuentaAhorroValidator" uri="validator:xsd/soapCajero.xsd"/>
+                        <setProperty id="_setHeader5" propertyName="cajero.reversaDepositoCuentaAhorro.tipoOperacion">
+                            <simple>{{cajero.reversaDepositoCuentaAhorro.tipoOperacion}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader6" propertyName="cajero.reversaDepositoCuentaAhorro.codFamilia">
+                            <simple>{{cajero.reversaDepositoCuentaAhorro.codFamilia}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader7" propertyName="cajero.reversaDepositoCuentaAhorro.numCuota">
+                            <simple>{{cajero.reversaDepositoCuentaAhorro.numCuota}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader8" propertyName="cajero.reversaDepositoCuentaAhorro.numCliente">
+                            <simple>{{cajero.reversaDepositoCuentaAhorro.numCliente}}</simple>
+                        </setProperty>
+                        <bean
+                            beanType="cl.coopeuch.util.jms.CorrelationId"
+                            id="createJMSCorrelationId7" method="createJMSCorrelationId24"/>
+                        <to id="confirmacionDepositoCuentaAhorroTo" uri="direct:confirmacionDepositoCuentaAhorro"/>
+                    </when>
+                    <when id="rutareversaDepositoCuentaAhorro">
+                        <simple>${body} contains 'reversaDepositoCuentaAhorro'</simple>
+                        <to id="reversaDepositoCuentaAhorroValidator" uri="validator:xsd/soapCajero.xsd"/>
+                        <setProperty id="_setHeader9" propertyName="cajero.reversaDepositoCuentaAhorro.tipoOperacion">
+                            <simple>{{cajero.reversaDepositoCuentaAhorro.tipoOperacion}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader10" propertyName="cajero.reversaDepositoCuentaAhorro.codFamilia">
+                            <simple>{{cajero.reversaDepositoCuentaAhorro.codFamilia}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader11" propertyName="cajero.reversaDepositoCuentaAhorro.numCuota">
+                            <simple>{{cajero.reversaDepositoCuentaAhorro.numCuota}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader12" propertyName="cajero.reversaDepositoCuentaAhorro.numCliente">
+                            <simple>{{cajero.reversaDepositoCuentaAhorro.numCliente}}</simple>
+                        </setProperty>
+                        <setProperty id="_setProperty4" propertyName="idEstadoTransaccion">
+                            <constant>2</constant>
+                        </setProperty>
+                        <bean
+                            beanType="cl.coopeuch.util.jms.CorrelationId"
+                            id="createJMSCorrelationId8" method="createJMSCorrelationId24"/>
+                        <to id="reversaDepositoCuentaAhorroTo" uri="direct:reversaDepositoCuentaAhorro"/>
+                    </when>
+                    <when id="rutaconfirmacionGiroCuentaAhorro">
+                        <simple>${body} contains 'confirmacionGiroCuentaAhorro'</simple>
+                        <to id="confirmacionGiroCuentaAhorroValidator" uri="validator:xsd/soapCajero.xsd"/>
+                        <setProperty id="_setHeader13" propertyName="cajero.reversaGiroCuentaAhorro.tipoOperacion">
+                            <simple>{{cajero.reversaGiroCuentaAhorro.tipoOperacion}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader14" propertyName="cajero.reversaGiroCuentaAhorro.codFamilia">
+                            <simple>{{cajero.reversaGiroCuentaAhorro.codFamilia}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader15" propertyName="cajero.reversaGiroCuentaAhorro.codProducto">
+                            <simple>{{cajero.reversaGiroCuentaAhorro.codProducto}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader16" propertyName="cajero.reversaGiroCuentaAhorro.numCuota">
+                            <simple>{{cajero.reversaGiroCuentaAhorro.numCuota}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader17" propertyName="cajero.reversaGiroCuentaAhorro.numCliente">
+                            <simple>{{cajero.reversaGiroCuentaAhorro.numCliente}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader18" propertyName="cajero.reversaGiroCuentaAhorro.numTransaccion">
+                            <simple>{{cajero.reversaGiroCuentaAhorro.numTransaccion}}</simple>
+                        </setProperty>
+                        <bean
+                            beanType="cl.coopeuch.util.jms.CorrelationId"
+                            id="createJMSCorrelationId9" method="createJMSCorrelationId24"/>
+                        <to id="confirmacionGiroCuentaAhorroTo" uri="direct:confirmacionGiroCuentaAhorro"/>
+                    </when>
+                    <when id="rutareversaGiroCuentaAhorro">
+                        <simple>${body} contains 'reversaGiroCuentaAhorro'</simple>
+                        <to id="reversaGiroCuentaAhorroValidator" uri="validator:xsd/soapCajero.xsd"/>
+                        <setProperty id="_setHeader19" propertyName="cajero.reversaGiroCuentaAhorro.tipoOperacion">
+                            <simple>{{cajero.reversaGiroCuentaAhorro.tipoOperacion}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader19" propertyName="cajero.reversaGiroCuentaAhorro.codFamilia">
+                            <simple>{{cajero.reversaGiroCuentaAhorro.codFamilia}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader20" propertyName="cajero.reversaGiroCuentaAhorro.codProducto">
+                            <simple>{{cajero.reversaGiroCuentaAhorro.codProducto}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader21" propertyName="cajero.reversaGiroCuentaAhorro.numCuota">
+                            <simple>{{cajero.reversaGiroCuentaAhorro.numCuota}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader22" propertyName="cajero.reversaGiroCuentaAhorro.numCliente">
+                            <simple>{{cajero.reversaGiroCuentaAhorro.numCliente}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader23" propertyName="cajero.reversaGiroCuentaAhorro.numTransaccion">
+                            <xpath resultType="String">//num_transaccion</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty13" propertyName="codigoSemilla">
+                            <xpath resultType="String">//num_transaccion</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty6" propertyName="idEstadoTransaccion">
+                            <constant>2</constant>
+                        </setProperty>
+                        <bean
+                            beanType="cl.coopeuch.util.jms.CorrelationId"
+                            id="createJMSCorrelationId10" method="createJMSCorrelationId24"/>
+                        <to id="reversaGiroCuentaAhorroTo" uri="direct:reversaGiroCuentaAhorro"/>
+                    </when>
+                    <when id="rutaconfirmacionRecaudacionCuotaParticipacion">
+                        <simple>${body} contains 'confirmacionRecaudacionCuotaParticipacion'</simple>
+                        <to
+                            id="confirmacionRecaudacionCuotaParticipacionValidator" uri="validator:xsd/soapCajero.xsd"/>
+                        <setProperty id="_setHeader24" propertyName="cajero.reversaRecaudacionCuotaParticipacion.tipoOperacion">
+                            <simple>{{cajero.reversaRecaudacionCuotaParticipacion.tipoOperacion}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader25" propertyName="cajero.reversaRecaudacionCuotaParticipacion.codFamilia">
+                            <simple>{{cajero.reversaRecaudacionCuotaParticipacion.codFamilia}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader26" propertyName="cajero.reversaRecaudacionCuotaParticipacion.numCliente">
+                            <simple>{{cajero.reversaRecaudacionCuotaParticipacion.numCliente}}</simple>
+                        </setProperty>
+                        <bean
+                            beanType="cl.coopeuch.util.jms.CorrelationId"
+                            id="createJMSCorrelationId11" method="createJMSCorrelationId24"/>
+                        <to
+                            id="confirmacionRecaudacionCuotaParticipacionTo" uri="direct:confirmacionRecaudacionCuotaParticipacion"/>
+                    </when>
+                    <when id="rutareversaRecaudacionCuotaParticipacion">
+                        <simple>${body} contains 'reversaRecaudacionCuotaParticipacion'</simple>
+                        <to
+                            id="reversaRecaudacionCuotaParticipacionValidator" uri="validator:xsd/soapCajero.xsd"/>
+                        <setProperty id="_setHeader27" propertyName="cajero.reversaRecaudacionCuotaParticipacion.tipoOperacion">
+                            <simple>{{cajero.reversaRecaudacionCuotaParticipacion.tipoOperacion}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader28" propertyName="cajero.reversaRecaudacionCuotaParticipacion.codFamilia">
+                            <simple>{{cajero.reversaRecaudacionCuotaParticipacion.codFamilia}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader29" propertyName="cajero.reversaRecaudacionCuotaParticipacion.numCliente">
+                            <simple>{{cajero.reversaRecaudacionCuotaParticipacion.numCliente}}</simple>
+                        </setProperty>
+                        <setProperty id="_setProperty8" propertyName="idEstadoTransaccion">
+                            <constant>2</constant>
+                        </setProperty>
+                        <setProperty id="_setProperty16" propertyName="codigoSemilla">
+                            <xpath resultType="String">//num_transaccion</xpath>
+                        </setProperty>
+                        <bean
+                            beanType="cl.coopeuch.util.jms.CorrelationId"
+                            id="createJMSCorrelationId12" method="createJMSCorrelationId24"/>
+                        <to id="reversaRecaudacionCuotaParticipacionTo" uri="direct:reversaRecaudacionCuotaParticipacion"/>
+                    </when>
+                    <when id="rutaconfirmacionRecaudacionCreditoConsumo">
+                        <simple>${body} contains 'confirmacionRecaudacionCreditoConsumo'</simple>
+                        <to
+                            id="confirmacionRecaudacionCreditoConsumoValidator" uri="validator:xsd/soapCajero.xsd"/>
+                        <setProperty id="_setHeader30" propertyName="cajero.confirmacionRecaudacionCreditoConsumo.tipoOperacion">
+                            <simple>{{cajero.confirmacionRecaudacionCreditoConsumo.tipoOperacion}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader31" propertyName="cajero.confirmacionRecaudacionCreditoConsumo.codFamilia">
+                            <simple>{{cajero.confirmacionRecaudacionCreditoConsumo.codFamilia}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader32" propertyName="cajero.confirmacionRecaudacionCreditoConsumo.numCuota">
+                            <simple>{{cajero.confirmacionRecaudacionCreditoConsumo.numCuota}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader33" propertyName="cajero.confirmacionRecaudacionCreditoConsumo.numCliente">
+                            <simple>{{cajero.confirmacionRecaudacionCreditoConsumo.numCliente}}</simple>
+                        </setProperty>
+                        <bean
+                            beanType="cl.coopeuch.util.jms.CorrelationId"
+                            id="createJMSCorrelationId13" method="createJMSCorrelationId24"/>
+                        <to id="confirmacionRecaudacionCreditoConsumoTo" uri="direct:confirmacionRecaudacionCreditoConsumo"/>
+                    </when>
+                    <when id="rutareversaRecaudacionCreditoConsumo">
+                        <simple>${body} contains 'reversaRecaudacionCreditoConsumo'</simple>
+                        <to
+                            id="reversaRecaudacionCreditoConsumoValidator" uri="validator:xsd/soapCajero.xsd"/>
+                        <setProperty id="_setHeader34" propertyName="cajero.confirmacionRecaudacionCreditoConsumo.tipoOperacion">
+                            <simple>{{cajero.confirmacionRecaudacionCreditoConsumo.tipoOperacion}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader35" propertyName="cajero.confirmacionRecaudacionCreditoConsumo.codFamilia">
+                            <simple>{{cajero.confirmacionRecaudacionCreditoConsumo.codFamilia}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader36" propertyName="cajero.confirmacionRecaudacionCreditoConsumo.numCuota">
+                            <simple>{{cajero.confirmacionRecaudacionCreditoConsumo.numCuota}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader37" propertyName="cajero.confirmacionRecaudacionCreditoConsumo.numCliente">
+                            <simple>{{cajero.confirmacionRecaudacionCreditoConsumo.numCliente}}</simple>
+                        </setProperty>
+                        <setProperty id="_setProperty10" propertyName="idEstadoTransaccion">
+                            <constant>2</constant>
+                        </setProperty>
+                        <bean
+                            beanType="cl.coopeuch.util.jms.CorrelationId"
+                            id="createJMSCorrelationId14" method="createJMSCorrelationId24"/>
+                        <to id="reversaRecaudacionCreditoConsumoTo" uri="direct:reversaRecaudacionCreditoConsumo"/>
+                    </when>
+                    <when id="rutaconfirmacionCobroCreditoConsumo">
+                        <simple>${body} contains 'confirmacionCobroCreditoConsumo'</simple>
+                        <to
+                            id="confirmacionCobroCreditoConsumoValidator" uri="validator:xsd/soapCajero.xsd"/>
+                        <setProperty id="_setHeader42" propertyName="cajero.reversaCobroCreditoConsumo.tipoOperacion">
+                            <simple>{{cajero.reversaCobroCreditoConsumo.tipoOperacion}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader43" propertyName="cajero.reversaCobroCreditoConsumo.codFamilia">
+                            <simple>{{cajero.reversaCobroCreditoConsumo.codFamilia}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader44" propertyName="cajero.reversaCobroCreditoConsumo.numCuota">
+                            <simple>{{cajero.reversaCobroCreditoConsumo.numCuota}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader45" propertyName="cajero.reversaCobroCreditoConsumo.numCliente">
+                            <simple>{{cajero.reversaCobroCreditoConsumo.numCliente}}</simple>
+                        </setProperty>
+                        <bean
+                            beanType="cl.coopeuch.util.jms.CorrelationId"
+                            id="createJMSCorrelationId15" method="createJMSCorrelationId24"/>
+                        <to id="confirmacionCobroCreditoConsumoTo" uri="direct:confirmacionCobroCreditoConsumo"/>
+                    </when>
+                    <when id="rutareversaCobroCreditoConsumo">
+                        <simple>${body} contains 'reversaCobroCreditoConsumo'</simple>
+                        <to id="reversaCobroCreditoConsumoValidator" uri="validator:xsd/soapCajero.xsd"/>
+                        <setProperty id="_setHeader38" propertyName="cajero.reversaCobroCreditoConsumo.tipoOperacion">
+                            <simple>{{cajero.reversaCobroCreditoConsumo.tipoOperacion}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader39" propertyName="cajero.reversaCobroCreditoConsumo.codFamilia">
+                            <simple>{{cajero.reversaCobroCreditoConsumo.codFamilia}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader40" propertyName="cajero.reversaCobroCreditoConsumo.numCuota">
+                            <simple>{{cajero.reversaCobroCreditoConsumo.numCuota}}</simple>
+                        </setProperty>
+                        <setProperty id="_setHeader41" propertyName="cajero.reversaCobroCreditoConsumo.numCliente">
+                            <simple>{{cajero.reversaCobroCreditoConsumo.numCliente}}</simple>
+                        </setProperty>
+                        <setProperty id="_setProperty12" propertyName="idEstadoTransaccion">
+                            <constant>2</constant>
+                        </setProperty>
+                        <bean
+                            beanType="cl.coopeuch.util.jms.CorrelationId"
+                            id="createJMSCorrelationId16" method="createJMSCorrelationId24"/>
+                        <to id="reversaCobroCreditoConsumoTo" uri="direct:reversaCobroCreditoConsumo"/>
+                    </when>
+                    <otherwise id="_otherwise1"/>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.util.error.ProcesoObtenerError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Metodo consultar registros por Rut, llama a servicio persona, parametros, cuenta, productos y credito de consumo  -->
+        <route id="consultaRegistroRut">
+            <from id="consultaRegistroRutFrom" uri="direct:consultaRegistrosRut"/>
+            <setProperty id="setCodigoParametrosAH" propertyName="AHParametros">
+                <simple>{{cajero.consultaproductos.buscar.prod_fam_cta_ahorro}}</simple>
+            </setProperty>
+            <setProperty id="_setHeader1" propertyName="cajero.indExistenciaConvenio">
+                <simple>{{cajero.indExistenciaConvenio}}</simple>
+            </setProperty>
+            <setProperty id="setCodigoParametrosPC" propertyName="PCParametros">
+                <simple>{{cajero.consultaproductos.buscar.pc}}</simple>
+            </setProperty>
+            <setProperty id="setCodigoParametrosCP" propertyName="CPParametros">
+                <simple>{{cajero.consultaproductos.buscar.cuotaparticipacion}}</simple>
+            </setProperty>
+            <setProperty id="creaUsuarioHeaderValidaRut" propertyName="validaRut">
+                <method beanType="cl.coopeuch.util.Rut" id="ValidaRut" method="validaRut(${property.rut})"/>
+            </setProperty>
+            <choice id="EvaluarDatos">
+                <when id="DatosNoOK">
+                    <simple>${header.rut} == ' ' || ${header.rut} == '' || ${header.validaRut} == 'Incorrecto'</simple>
+                    <to id="errorDatoNoOK" uri="xslt://transformations/error/validarDatosEntrada.xsl?saxon=true"/>
+                </when>
+                <otherwise id="IdClienteNoVacio">
+<!--                     <doTry id="consultaRegistroRutTry"> -->
+                        <multicast id="traerDatosMulticast"
+                            parallelProcessing="true"
+                            stopOnException="true" strategyRef="aggregatorParametroProducto">
+                            <to
+                                id="consultaRegistroRutTraerDatosPersonaTo" uri="direct:remoteCall_traerDatosPersona"/>
+                            <to
+                                id="consultaRegistroRutConsultaParametrosTo" uri="direct:remoteCall_consultaParametros"/>
+                            <to id="consultaProductoToAH" uri="direct:remoteCall_consultaProductos"/>
+                        </multicast>
+                        <transform id="_transform1">
+                            <simple>&lt;Persona&gt;${body}&lt;/Persona&gt;</simple>
+                        </transform>
+                        <bean
+                            beanType="cl.coopeuch.util.BodyBackupProducto"
+                            id="backupBodyx1" method="backupBody"/>
+                        <choice id="_choice3">
+                            <when id="_when1">
+                                <xpath>//ListaParametro/ListaParametro/codigo/text() = //productos/Producto[tipoFamiliaProducto='AH']/codigoProducto/text()</xpath>
+                                <split id="_split1" strategyRef="aggregatorSplit">
+                                    <xpath>//productos/Producto[tipoFamiliaProducto='AH']</xpath>
+                                    <to id="_consultaSaldoCuentaTo1" uri="direct:remoteCall_consultaSaldoCuenta"/>
+                                </split>
+                            </when>
+                        </choice>
+                        <bean id="_concatenarConsultaCuentas"
+                            method="backupBody" ref="concatenarConsultaHA"/>
+                        <bean id="backupBodyAH" method="restoreBody" ref="concatenarConsultaHA"/>
+                        <to id="HA" uri="xslt://transformations/mid/xml2xml_AH.xsl?saxon=true"/>
+                        <transform id="_transform4">
+                            <simple>&lt;lista&gt;${body}&lt;/lista&gt;</simple>
+                        </transform>
+                        <to id="_to7" uri="xslt://transformations/mid/xml2xml_Count_AH.xsl?saxon=true"/>
+                        <bean beanType="cl.coopeuch.util.BodyBackupAH"
+                            id="backupBodyHA" method="backupBody"/>
+                        <bean
+                            beanType="cl.coopeuch.util.BodyBackupProducto"
+                            id="backupBodyx2" method="restoreBody"/>
+                        <convertBodyTo charset="Cp1252"
+                            id="_convertBodyTo4" type="String"/>
+                        <choice id="_choice4">
+                            <when id="_when4">
+                                <xpath>//ListaParametro/ListaParametro/codigo/text() = //productos/Producto[tipoFamiliaProducto='CP']/codigoProducto/text()</xpath>
+                                <split id="_split2" strategyRef="aggregatorSplit">
+                                    <xpath>//productos/Producto[tipoFamiliaProducto='CP']</xpath>
+                                    <to id="_consultaSaldoCuentaTo2" uri="direct:remoteCall_consultaSaldoCuenta"/>
+                                </split>
+                            </when>
+                        </choice>
+                        <bean
+                            beanType="cl.coopeuch.util.ConcatenarConsultaCP"
+                            id="bodyBackupCP" method="backupBody"/>
+                        <bean
+                            beanType="cl.coopeuch.util.ConcatenarConsultaCP"
+                            id="_concatenarConsultaCP" method="restoreBody"/>
+                        <to id="CP" uri="xslt://transformations/mid/xml2xml_CP.xsl?saxon=true"/>
+                        <transform id="_transform44">
+                            <simple>&lt;lista&gt;${body}&lt;/lista&gt;</simple>
+                        </transform>
+                        <to id="CPcount" uri="xslt://transformations/mid/xml2xml_Count_CP.xsl?saxon=true"/>
+                        <bean beanType="cl.coopeuch.util.BodyBackupCP"
+                            id="backupBodyCP" method="backupBody"/>
+                        <bean
+                            beanType="cl.coopeuch.util.BodyBackupProducto"
+                            id="backupBodyx3" method="restoreBody"/>
+                        <convertBodyTo charset="Cp1252"
+                            id="_convertBodyTo5" type="String"/>
+                        <choice id="_choice5">
+                            <when id="_when5">
+                                <xpath>//ListaParametro/ListaParametro/codigo/text() = //productos/Producto[tipoFamiliaProducto='PC']/codigoProducto/text()</xpath>
+                                <split id="_split3" strategyRef="aggregatorSplit">
+                                    <xpath>//productos/Producto[tipoFamiliaProducto='PC']</xpath>
+                                    <to id="_to1" uri="direct:remoteCall_SolicitudCredito"/>
+                                </split>
+                            </when>
+                        </choice>
+                        <transform id="_transform2">
+                            <simple>&lt;root&gt;${body}&lt;/root&gt;</simple>
+                        </transform>
+                        <to id="_to6" uri="xslt://transformations/mid/xml2xml_Count_PC.xsl?saxon=true"/>
+                        <bean beanType="cl.coopeuch.util.BodyBackupPC"
+                            id="backupBodyPC" method="backupBody"/>
+                        <removeHeaders id="_removeHeaders1" pattern="JMS*"/>
+                        <bean beanType="cl.coopeuch.util.aggregatorBody"
+                            id="aggregatorBody" method="restoreBody"/>
+<!--                         <doCatch id="consultaRegistroRutCatch"> -->
+<!--                             <exception>java.lang.Exception</exception> -->
+<!--                             <exception>java.io.IOException</exception> -->
+<!--                             <exception>java.net.ConnectException</exception> -->
+<!--                             <setOutHeader headerName="Content-Type" id="_setOutHeader2"> -->
+<!--                                 <constant>text/xml</constant> -->
+<!--                             </setOutHeader> -->
+<!--                             <bean beanType="cl.coopeuch.util.BodyBackup" -->
+<!--                                 id="consultaRegistroRutRestoreBody" method="restoreBody"/> -->
+<!--                             <setBody id="consultaRegistroRutSetBodyError11"> -->
+<!--                                 <simple>ERROR:${exception}:${body}</simple> -->
+<!--                             </setBody> -->
+<!--                             <to id="consultaRegistroRutFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/> -->
+<!--                             <bean -->
+<!--                                 beanType="cl.coopeuch.util.error.ProcesoObtenerError" -->
+<!--                                 id="consultaRegistroRutSetBodyError" method="setBodyError"/> -->
+<!--                         </doCatch> -->
+<!--                     </doTry> -->
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Metodo transaccionConfirmacionDepositoCuentaAhorro obtiene la informacion desde al AS400 por medio del conector de SYA -->
+        <route id="confirmacionDepositoCuentaAhorro">
+            <from id="confirmacionDepositoCuentaAhorroFrom" uri="direct:confirmacionDepositoCuentaAhorro"/>
+            <doTry id="confirmacionDepositoCuentaAhorroTry">
+                <choice id="_choice6">
+                    <when id="_when16">
+                        <simple>${header.rut} == ''</simple>
+                        <to id="errorDatoNoOK2" uri="xslt://transformations/error/error_consultaRegistrosRut.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <bean
+                            beanType="cl.coopeuch.util.CorregirNegativos"
+                            id="_bean6" method="corregirNegativos"/>
+                        <setProperty
+                            id="confirmacionDepositoCuentaAhorroHeadercodigoTrxTransferencia" propertyName="codigoTransaccion">
+                            <simple>{{Cajero.codtransaccion.DepositoCuentaAhorro}}</simple>
+                        </setProperty>
+                        <to id="_to8" uri="direct:GuardarDatos"/>
+                        <to
+                            id="confirmacionDepositoCuentaAhorroXml2trama" uri="xslt://transformations/in/xml2tramaIOC007101I_confirmacionDepositoCuentaAhorro.xsl"/>
+                        <to
+                            id="activemq-confirmacionDepositoCuentaAhorro" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <transform id="confirmacionDepositoCuentaAhorroTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <setProperty
+                            id="confirmacionDepositoCuentaAhorroHeaderfechaAperturaTransferencia" propertyName="fechaApertura">
+                            <xpath resultType="String">normalize-space(substring(trama,281,8))</xpath>
+                        </setProperty>
+                        <to
+                            id="confirmacionDepositoCuentaAhorroTrama2xml" uri="xslt://transformations/out/trama2xmlIOC007101O_confirmacionDepositoCuentaAhorro.xsl?saxon=true"/>
+                        <removeHeaders id="_removeHeaders4" pattern="JMS*"/>
+                        <setProperty id="_setProperty3" propertyName="idEstadoTransaccion">
+                            <constant>0</constant>
+                        </setProperty>
+                        <choice id="_choice10">
+                            <when id="_when28">
+                                <xpath>//cod_resp='0000'</xpath>
+                                <to id="_to3" uri="direct:GuardarDatosSalida"/>
+                                <wireTap id="_wireTap1" uri="direct:Regis_atx_attrnjour"/>
+                            </when>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="confirmacionDepositoCuentaAhorroCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.BodyBackup"
+                        id="confirmacionDepositoCuentaAhorroRestoreBody" method="restoreBody"/>
+                    <setBody id="confirmacionDepositoCuentaAhorroSetBodyError1">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="confirmacionDepositoCuentaAhorroFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.util.error.ProcesoObtenerError"
+                        id="confirmacionDepositoCuentaAhorroSetBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Metodo transaccionReversaDepositoCuentaAhorro obtiene la informacion desde al AS400 por medio del conector de SYA -->
+        <route id="reversaDepositoCuentaAhorro">
+            <from id="reversaDepositoCuentaAhorroFrom" uri="direct:reversaDepositoCuentaAhorro"/>
+            <doTry id="reversaDepositoCuentaAhorroTry">
+                <choice id="_choice17">
+                    <when id="_when17">
+                        <simple>${header.rut} == ''</simple>
+                        <to id="errorDatoNoOK17" uri="xslt://transformations/error/error_consultaRegistrosRut.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise17">
+                        <bean
+                            beanType="cl.coopeuch.util.CorregirNegativos"
+                            id="_bean7" method="corregirNegativos"/>
+                        <setProperty
+                            id="confirmacionDepositoCuentaAhorroHeadercodigoTransaccionTransferencia1" propertyName="codigoTransaccion">
+                            <simple>{{Cajero.codtransaccion.DepositoCuentaAhorro}}</simple>
+                        </setProperty>
+                        <setProperty id="_setProperty15" propertyName="codigoSemilla">
+                            <xpath resultType="String">//num_transaccion</xpath>
+                        </setProperty>
+                        <to id="_to81" uri="direct:GuardarDatos"/>
+                        <to id="reversaDepositoCuentaAhorroXml2trama" uri="xslt://transformations/in/xml2tramaIOC007101I_reversaDepositoCuentaAhorro.xsl"/>
+                        <to id="activemq-reversaDepositoCuentaAhorro" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <transform id="reversaDepositoCuentaAhorroTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="reversaDepositoCuentaAhorroTrama2xml" uri="xslt://transformations/out/trama2xmlIOC007101O_reversaDepositoCuentaAhorro.xsl?saxon=true"/>
+                        <removeHeaders id="_removeHeaders5" pattern="JMS*"/>
+                        <to id="_to31" uri="direct:GuardarDatosSalida"/>
+                        <wireTap id="_wireTap11" uri="direct:Regis_atx_attrnjour"/>
+                        <choice id="reversaDepositoCuentaAhorroRetorno">
+                            <when id="reversaDepositoCuentaAhorroRetornoError">
+                                <xpath>//formato='ECNLERR'</xpath>
+                            </when>
+                            <when id="reversaDepositoCuentaAhorroRetornoOk">
+                                <xpath>//formato='IOC520002O'</xpath>
+                            </when>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="reversaDepositoCuentaAhorroCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.BodyBackup"
+                        id="reversaDepositoCuentaAhorroRestoreBody" method="restoreBody"/>
+                    <setBody id="reversaDepositoCuentaAhorroSetBodyError2">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="reversaDepositoCuentaAhorroFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.util.error.ProcesoObtenerError"
+                        id="reversaDepositoCuentaAhorroSetBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Metodo transaccionConfirmacionGiroCuentaAhorro obtiene la informacion desde al AS400 por medio del conector de SYA -->
+        <route id="confirmacionGiroCuentaAhorro">
+            <from id="confirmacionGiroCuentaAhorroFrom" uri="direct:confirmacionGiroCuentaAhorro"/>
+            <doTry id="confirmacionGiroCuentaAhorroTry">
+                <setProperty id="_setProperty7" propertyName="idEstadoTransaccion">
+                    <constant>0</constant>
+                </setProperty>
+                <choice id="_choice18">
+                    <when id="_when18">
+                        <simple>${header.rut} == ''</simple>
+                        <to id="errorDatoNoOK18" uri="xslt://transformations/error/error_consultaRegistrosRut.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise18">
+                        <bean
+                            beanType="cl.coopeuch.util.CorregirNegativos"
+                            id="_bean8" method="corregirNegativos"/>
+                        <setProperty
+                            id="confirmacionDepositoCuentaAhorroHeadercodigoTransaccionTransferencia2" propertyName="codigoTransaccion">
+                            <simple>{{Cajero.codtransaccion.GiroCuentaAhorro}}</simple>
+                        </setProperty>
+                        <to id="_to82" uri="direct:GuardarDatos"/>
+                        <to id="confirmacionGiroCuentaAhorroXml2trama" uri="xslt://transformations/in/xml2tramaIOC007101I_confirmacionGiroCuentaAhorro.xsl"/>
+                        <to id="activemq-confirmacionGiroCuentaAhorro" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <transform id="confirmacionGiroCuentaAhorroTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="confirmacionGiroCuentaAhorroTrama2xml" uri="xslt://transformations/out/trama2xmlIOC007101O_confirmacionGiroCuentaAhorro.xsl?saxon=true"/>
+                        <setProperty id="_setProperty14" propertyName="codigoSemilla">
+                            <xpath resultType="String">//num_transaccion</xpath>
+                        </setProperty>
+                        <removeHeaders id="_removeHeaders6" pattern="JMS*"/>
+                        <choice id="_choice11">
+                            <when id="_when29">
+                                <xpath>//cod_resp='0000'</xpath>
+                                <to id="_to32" uri="direct:GuardarDatosSalida"/>
+                                <wireTap id="_wireTap12" uri="direct:Regis_atx_attrnjour"/>
+                            </when>
+                        </choice>
+                        <choice id="confirmacionGiroCuentaAhorroRetorno">
+                            <when id="confirmacionGiroCuentaAhorroRetornoError">
+                                <xpath>//formato='ECNLERR'</xpath>
+                            </when>
+                            <when id="confirmacionGiroCuentaAhorroRetornoOk">
+                                <xpath>//formato='IOC520002O'</xpath>
+                            </when>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="confirmacionGiroCuentaAhorroCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.BodyBackup"
+                        id="confirmacionGiroCuentaAhorroRestoreBody" method="restoreBody"/>
+                    <setBody id="confirmacionGiroCuentaAhorroSetBodyError3">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="confirmacionGiroCuentaAhorroFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.util.error.ProcesoObtenerError"
+                        id="confirmacionGiroCuentaAhorroSetBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Metodo transaccionReversaGiroCuentaAhorro obtiene la informacion desde al AS400 por medio del conector de SYA -->
+        <route id="reversaGiroCuentaAhorroRoute">
+            <from id="reversaGiroCuentaAhorroFrom" uri="direct:reversaGiroCuentaAhorro"/>
+            <doTry id="reversaGiroCuentaAhorroTry">
+                <choice id="_choice19">
+                    <when id="_when19">
+                        <simple>${header.rut} == ''</simple>
+                        <to id="errorDatoNoOK19" uri="xslt://transformations/error/error_consultaRegistrosRut.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise19">
+                        <bean
+                            beanType="cl.coopeuch.util.CorregirNegativos"
+                            id="_bean9" method="corregirNegativos"/>
+                        <setProperty
+                            id="confirmacionDepositoCuentaAhorroHeadercodigoTransaccionTransferencia3" propertyName="codigoTransaccion">
+                            <simple>{{Cajero.codtransaccion.GiroCuentaAhorro}}</simple>
+                        </setProperty>
+                        <to id="_to83" uri="direct:GuardarDatos"/>
+                        <to id="reversaGiroCuentaAhorroXml2trama" uri="xslt://transformations/in/xml2tramaIOC007101I_reversaGiroCuentaAhorro.xsl"/>
+                        <to id="activemq-reversaGiroCuentaAhorro" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <transform id="reversaGiroCuentaAhorroTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="respreversaGiroCuentaAhorroXml2trama" uri="xslt://transformations/out/trama2xmlIOC007101O_reversaGiroCuentaAhorro.xsl?saxon=true"/>
+                        <removeHeaders id="_removeHeaders7" pattern="JMS*"/>
+                        <to id="_to33" uri="direct:GuardarDatosSalida"/>
+                        <wireTap id="_wireTap13" uri="direct:Regis_atx_attrnjour"/>
+                        <choice id="reversaGiroCuentaAhorroRetorno">
+                            <when id="reversaGiroCuentaAhorroRetornoError">
+                                <xpath>//formato='ECNLERR'</xpath>
+                            </when>
+                            <when id="reversaGiroCuentaAhorroRetornoOk">
+                                <xpath>//formato='IOC520002O'</xpath>
+                            </when>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="reversaGiroCuentaAhorroCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.BodyBackup"
+                        id="reversaGiroCuentaAhorroRestoreBody" method="restoreBody"/>
+                    <setBody id="reversaGiroCuentaAhorroSetBodyError4">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="reversaGiroCuentaAhorroFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.util.error.ProcesoObtenerError"
+                        id="reversaGiroCuentaAhorroSetBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Metodo transaccionConfirmacionRecaudacionCuotaParticipacion obtiene la informacion desde al AS400 por medio del conector de SYA -->
+        <route id="confirmacionRecaudacionCuotaParticipacion">
+            <from id="confirmacionRecaudacionCuotaParticipacionFrom" uri="direct:confirmacionRecaudacionCuotaParticipacion"/>
+            <doTry id="confirmacionRecaudacionCuotaParticipacionTry">
+                <choice id="_choice26">
+                    <when id="_when26">
+                        <simple>${header.rut} == ''</simple>
+                        <to id="errorDatoNoOK26" uri="xslt://transformations/error/error_consultaRegistrosRut.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise26">
+                        <bean
+                            beanType="cl.coopeuch.util.CorregirNegativos"
+                            id="_bean10" method="corregirNegativos"/>
+                        <setProperty
+                            id="confirmacionDepositoCuentaAhorroHeadercodigoTransaccionTransferencia4" propertyName="codigoTransaccion">
+                            <simple>{{Cajero.codtransaccion.RecaudacionCuotaParticipacin}}</simple>
+                        </setProperty>
+                        <to id="_to84" uri="direct:GuardarDatos"/>
+                        <to
+                            id="confirmacionRecaudacionCuotaParticipacionXml2trama" uri="xslt://transformations/in/xml2tramaIOC007101I_confirmacionRecaudacionCuotaParticipacion.xsl"/>
+                        <to
+                            id="activemq-confirmacionRecaudacionCuotaParticipacion" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <transform id="confirmacionRecaudacionCuotaParticipacionTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to
+                            id="confirmacionRecaudacionCuotaParticipacionXml2tramaSalida" uri="xslt://transformations/out/trama2xmlIOC007101O_confirmacionRecaudacionCuotaParticipacion.xsl?saxon=true"/>
+                        <removeHeaders id="_removeHeaders8" pattern="JMS*"/>
+                        <setProperty id="_setProperty11" propertyName="idEstadoTransaccion">
+                            <constant>0</constant>
+                        </setProperty>
+                        <choice id="_choice12">
+                            <when id="_when30">
+                                <xpath>//cod_resp='0000'</xpath>
+                                <to id="_to34" uri="direct:GuardarDatosSalida"/>
+                                <wireTap id="_wireTap14" uri="direct:Regis_atx_attrnjour"/>
+                            </when>
+                        </choice>
+                        <choice id="confirmacionRecaudacionCuotaParticipacionRetorno">
+                            <when id="confirmacionRecaudacionCuotaParticipacionRetornoError">
+                                <xpath>//formato='ECNLERR'</xpath>
+                            </when>
+                            <when id="confirmacionRecaudacionCuotaParticipacionRetornoOk">
+                                <xpath>//formato='IOC520002O'</xpath>
+                            </when>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="confirmacionRecaudacionCuotaParticipacionCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.BodyBackup"
+                        id="confirmacionRecaudacionCuotaParticipacionRestoreBody" method="restoreBody"/>
+                    <setBody id="confirmacionRecaudacionCuotaParticipacionSetBodyError5">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to
+                        id="confirmacionRecaudacionCuotaParticipacionFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.util.error.ProcesoObtenerError"
+                        id="confirmacionRecaudacionCuotaParticipacionSetBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Metodo transaccionReversaRecaudacionCuotaParticipacion obtiene la informacion desde al AS400 por medio del conector de SYA -->
+        <route id="reversaRecaudacionCuotaParticipacion">
+            <from id="reversaRecaudacionCuotaParticipacionFrom" uri="direct:reversaRecaudacionCuotaParticipacion"/>
+            <doTry id="reversaRecaudacionCuotaParticipacionTry">
+                <choice id="_choice20">
+                    <when id="_when20">
+                        <simple>${header.rut} == ''</simple>
+                        <to id="errorDatoNoOK20" uri="xslt://transformations/error/error_consultaRegistrosRut.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise20">
+                        <setProperty
+                            id="confirmacionDepositoCuentaAhorroHeadercodigoTransaccionTransferencia5" propertyName="codigoTransaccion">
+                            <simple>{{Cajero.codtransaccion.RecaudacionCuotaParticipacin}}</simple>
+                        </setProperty>
+                        <to id="_to85" uri="direct:GuardarDatos"/>
+                        <to
+                            id="reversaRecaudacionCuotaParticipacionXml2trama" uri="xslt://transformations/in/xml2tramaIOC007101I_reversaRecaudacionCuotaParticipacion.xsl"/>
+                        <to
+                            id="activemq-reversaRecaudacionCuotaParticipacion" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <transform id="reversaRecaudacionCuotaParticipacionTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to
+                            id="reversaRecaudacionCuotaParticipacionXml2tramaSalida" uri="xslt://transformations/out/trama2xmlIOC007101O_reversaRecaudacionCuotaParticipacion.xsl?saxon=true"/>
+                        <to id="_to35" uri="direct:GuardarDatosSalida"/>
+                        <removeHeaders id="_removeHeaders9" pattern="JMS*"/>
+                        <wireTap id="_wireTap15" uri="direct:Regis_atx_attrnjour"/>
+                        <choice id="reversaRecaudacionCuotaParticipacionRetorno">
+                            <when id="reversaRecaudacionCuotaParticipacionRetornoError">
+                                <xpath>//formato='ECNLERR'</xpath>
+                            </when>
+                            <when id="reversaRecaudacionCuotaParticipacionRetornoOk">
+                                <xpath>//formato='IOC520002O'</xpath>
+                            </when>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="reversaRecaudacionCuotaParticipacionCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.BodyBackup"
+                        id="reversaRecaudacionCuotaParticipacionRestoreBody" method="restoreBody"/>
+                    <setBody id="reversaRecaudacionCuotaParticipacionSetBodyError6">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="reversaRecaudacionCuotaParticipacionFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.util.error.ProcesoObtenerError"
+                        id="reversaRecaudacionCuotaParticipacionSetBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Metodo transaccionConfirmacionRecaudacionCreditoConsumo obtiene la informacion desde al AS400 por medio del conector de SYA -->
+        <route id="confirmacionRecaudacionCreditoConsumo">
+            <from id="confirmacionRecaudacionCreditoConsumoFrom" uri="direct:confirmacionRecaudacionCreditoConsumo"/>
+            <doTry id="confirmacionRecaudacionCreditoConsumoTry">
+                <choice id="_choice22">
+                    <when id="_when22">
+                        <simple>${header.rut} == ''</simple>
+                        <to id="errorDatoNoOK22" uri="xslt://transformations/error/error_consultaRegistrosRut.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise22">
+                        <bean
+                            beanType="cl.coopeuch.util.CorregirNegativos"
+                            id="_bean11" method="corregirNegativos"/>
+                        <setProperty
+                            id="confirmacionDepositoCuentaAhorroHeadercodigoTransaccionTransferencia6" propertyName="codigoTransaccion">
+                            <simple>{{Cajero.codtransaccion.RecaudacionCreditoConsumo}}</simple>
+                        </setProperty>
+                        <to id="_to86" uri="direct:GuardarDatos"/>
+                        <to
+                            id="confirmacionRecaudacionCreditoConsumoXml2trama" uri="xslt://transformations/in/xml2tramaIOC007101I_confirmacionRecaudacionCreditoConsumo.xsl"/>
+                        <to
+                            id="activemq-confirmacionRecaudacionCreditoConsumo" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <transform id="confirmacionRecaudacionCreditoConsumoTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to
+                            id="confirmacionRecaudacionCreditoConsumoXml2tramaSalida" uri="xslt://transformations/out/trama2xmlIOC007101O_confirmacionRecaudacionCreditoConsumo.xsl?saxon=true"/>
+                        <removeHeaders id="_removeHeaders10" pattern="JMS*"/>
+                        <setProperty id="_setProperty20" propertyName="idEstadoTransaccion">
+                            <constant>0</constant>
+                        </setProperty>
+                        <choice id="_choice13">
+                            <when id="_when31">
+                                <xpath>//cod_resp='0000'</xpath>
+                                <to id="_to36" uri="direct:GuardarDatosSalida"/>
+                                <wireTap id="_wireTap16" uri="direct:Regis_atx_attrnjour"/>
+                            </when>
+                        </choice>
+                        <choice id="confirmacionRecaudacionCreditoConsumoRetorno">
+                            <when id="confirmacionRecaudacionCreditoConsumoRetornoError">
+                                <xpath>//formato='ECNLERR'</xpath>
+                            </when>
+                            <when id="confirmacionRecaudacionCreditoConsumoRetornoOk">
+                                <xpath>//formato='IOC520002O'</xpath>
+                            </when>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="confirmacionRecaudacionCreditoConsumoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.BodyBackup"
+                        id="confirmacionRecaudacionCreditoConsumoRestoreBody" method="restoreBody"/>
+                    <setBody id="confirmacionRecaudacionCreditoConsumoSetBodyError7">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="confirmacionRecaudacionCreditoConsumoFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.util.error.ProcesoObtenerError"
+                        id="confirmacionRecaudacionCreditoConsumoSetBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Metodo transaccionReversaRecaudacionCreditoConsumo obtiene la informacion desde al AS400 por medio del conector de SYA -->
+        <route id="reversaRecaudacionCreditoConsumo">
+            <from id="reversaRecaudacionCreditoConsumoFrom" uri="direct:reversaRecaudacionCreditoConsumo"/>
+            <doTry id="reversaRecaudacionCreditoConsumoTry">
+                <choice id="_choice23">
+                    <when id="_when23">
+                        <simple>${header.rut} == ''</simple>
+                        <to id="errorDatoNoOK23" uri="xslt://transformations/error/error_consultaRegistrosRut.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise23">
+                        <bean
+                            beanType="cl.coopeuch.util.CorregirNegativos"
+                            id="_bean12" method="corregirNegativos"/>
+                        <setProperty
+                            id="confirmacionDepositoCuentaAhorroHeadercodigoTransaccionTransferencia7" propertyName="codigoTransaccion">
+                            <simple>{{Cajero.codtransaccion.RecaudacionCreditoConsumo}}</simple>
+                        </setProperty>
+                        <to id="_to87" uri="direct:GuardarDatos"/>
+                        <to
+                            id="reversaRecaudacionCreditoConsumoXml2trama" uri="xslt://transformations/in/xml2tramaIOC007101I_reversaRecaudacionCreditoConsumo.xsl"/>
+                        <to
+                            id="activemq-reversaRecaudacionCreditoConsumo" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <transform id="reversaRecaudacionCreditoConsumoTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to
+                            id="reversaRecaudacionCreditoConsumoXml2tramaSalida" uri="xslt://transformations/out/trama2xmlIOC007101O_reversaRecaudacionCreditoConsumo.xsl?saxon=true"/>
+                        <removeHeaders id="_removeHeaders11" pattern="JMS*"/>
+                        <to id="_to37" uri="direct:GuardarDatosSalida"/>
+                        <wireTap id="_wireTap17" uri="direct:Regis_atx_attrnjour"/>
+                        <choice id="reversaRecaudacionCreditoConsumoRetorno">
+                            <when id="reversaRecaudacionCreditoConsumoRetornoError">
+                                <xpath>//formato='ECNLERR'</xpath>
+                            </when>
+                            <when id="reversaRecaudacionCreditoConsumoRetornoOk">
+                                <xpath>//formato='IOC520002O'</xpath>
+                            </when>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="reversaRecaudacionCreditoConsumoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.BodyBackup"
+                        id="reversaRecaudacionCreditoConsumoRestoreBody" method="restoreBody"/>
+                    <setBody id="reversaRecaudacionCreditoConsumoSetBodyError8">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="reversaRecaudacionCreditoConsumoFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.util.error.ProcesoObtenerError"
+                        id="reversaRecaudacionCreditoConsumoSetBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Metodo transaccionConfirmacionCobroCreditoConsumo obtiene la informacion desde al AS400 por medio del conector de SYA -->
+        <route id="confirmacionCobroCreditoConsumo">
+            <from id="confirmacionCobroCreditoConsumoFrom" uri="direct:confirmacionCobroCreditoConsumo"/>
+            <doTry id="confirmacionCobroCreditoConsumoTry">
+                <choice id="_choice24">
+                    <when id="_when24">
+                        <simple>${header.rut} == ''</simple>
+                        <to id="errorDatoNoOK24" uri="xslt://transformations/error/error_consultaRegistrosRut.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise24">
+                        <setProperty
+                            id="confirmacionDepositoCuentaAhorroHeadercodigoTransaccionTransferencia8" propertyName="codigoTransaccion">
+                            <simple>{{Cajero.codtransaccion.DesembolsoCreditoConsumo}}</simple>
+                        </setProperty>
+                        <to id="_to88" uri="direct:GuardarDatos"/>
+                        <to
+                            id="confirmacionCobroCreditoConsumoXml2trama" uri="xslt://transformations/in/xml2tramaIOC007101I_confirmacionCobroCreditoConsumo.xsl"/>
+                        <to
+                            id="activemq-confirmacionCobroCreditoConsumo" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <transform id="confirmacionCobroCreditoConsumoTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to
+                            id="confirmacionCobroCreditoConsumoXml2tramaSalida" uri="xslt://transformations/out/trama2xmlIOC007101O_confirmacionCobroCreditoConsumo.xsl?saxon=true"/>
+                        <removeHeaders id="_removeHeaders12" pattern="JMS*"/>
+                        <setProperty id="_setProperty22" propertyName="idEstadoTransaccion">
+                            <constant>0</constant>
+                        </setProperty>
+                        <choice id="_choice14">
+                            <when id="_when32">
+                                <xpath>//cod_resp='0000'</xpath>
+                                <to id="_to38" uri="direct:GuardarDatosSalida"/>
+                                <wireTap id="_wireTap18" uri="direct:Regis_atx_attrnjour"/>
+                            </when>
+                        </choice>
+                        <choice id="confirmacionCobroCreditoConsumoRetorno">
+                            <when id="confirmacionCobroCreditoConsumoRetornoError">
+                                <xpath>//formato='ECNLERR'</xpath>
+                            </when>
+                            <when id="confirmacionCobroCreditoConsumoRetornoOk">
+                                <xpath>//formato='IOC520002O'</xpath>
+                            </when>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="confirmacionCobroCreditoConsumoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.BodyBackup"
+                        id="confirmacionCobroCreditoConsumoRestoreBody" method="restoreBody"/>
+                    <setBody id="confirmacionCobroCreditoConsumoSetBodyError9">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="confirmacionCobroCreditoConsumoFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.util.error.ProcesoObtenerError"
+                        id="confirmacionCobroCreditoConsumoSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="confirmacionCobroCreditoConsumoFinally"/>
+            </doTry>
+        </route>
+        <!-- Metodo transaccionReversaRecaudacionCreditoConsumo obtiene la informacion desde al AS400 por medio del conector de SYA -->
+        <route id="reversaCobroCreditoConsumo">
+            <from id="reversaCobroCreditoConsumoFrom" uri="direct:reversaCobroCreditoConsumo"/>
+            <doTry id="reversaCobroCreditoConsumoTry">
+                <choice id="_choice25">
+                    <when id="_when25">
+                        <simple>${header.rut} == ''</simple>
+                        <to id="errorDatoNoOK25" uri="xslt://transformations/error/error_consultaRegistrosRut.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise25">
+                        <bean
+                            beanType="cl.coopeuch.util.CorregirNegativos"
+                            id="_bean13" method="corregirNegativos"/>
+                        <setProperty
+                            id="confirmacionDepositoCuentaAhorroHeadercodigoTransaccionTransferencia9" propertyName="codigoTransaccion">
+                            <simple>{{Cajero.codtransaccion.DesembolsoCreditoConsumo}}</simple>
+                        </setProperty>
+                        <to id="_to89" uri="direct:GuardarDatos"/>
+                        <to id="reversaCobroCreditoConsumoXml2trama" uri="xslt://transformations/in/xml2tramaIOC007101I_reversaCobroCreditoConsumo.xsl"/>
+                        <to id="activemq-reversaCobroCreditoConsumo" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <transform id="reversaCobroCreditoConsumoTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to
+                            id="reversaCobroCreditoConsumoXml2tramaSalida" uri="xslt://transformations/out/trama2xmlIOC007101O_reversaCobroCreditoConsumo.xsl?saxon=true"/>
+                        <removeHeaders id="_removeHeaders13" pattern="JMS*"/>
+                        <to id="_to39" uri="direct:GuardarDatosSalida"/>
+                        <wireTap id="_wireTap19" uri="direct:Regis_atx_attrnjour"/>
+                        <choice id="reversaCobroCreditoConsumoRetorno">
+                            <when id="reversaCobroCreditoConsumoRetornoError">
+                                <xpath>//formato='ECNLERR'</xpath>
+                            </when>
+                            <when id="reversaCobroCreditoConsumoRetornoOk">
+                                <xpath>//formato='IOC520002O'</xpath>
+                            </when>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="reversaCobroCreditoConsumoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.BodyBackup"
+                        id="reversaCobroCreditoConsumoRestoreBody" method="restoreBody"/>
+                    <setBody id="reversaCobroCreditoConsumoSetBodyError10">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="reversaCobroCreditoConsumoFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.util.error.ProcesoObtenerError"
+                        id="reversaCobroCreditoConsumoSetBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Llamada al servicio consulta parametros, solo el metodo consultaRegistrosRut lo solicita -->
+        <route id="remoteCall_consultaParametros">
+            <!--             <removeHeaders id="_removeHeaders2" pattern="JMS*"/> -->
+            <from id="remoteCall_consultaParametrosFrom" uri="direct:remoteCall_consultaParametros"/>
+            <convertBodyTo charset="Cp1252" id="remoteCall_PrarametroTo" type="java.lang.String"/>
+            <setProperty id="setuserIDParametros" propertyName="userIDParametros">
+                <simple>{{cajero.consultaparametros.set.userid}}</simple>
+            </setProperty>
+            <setProperty id="setCodigoParametros" propertyName="codigoParametros">
+                <simple>{{cajero.consultaparametros.set.codparametro}}</simple>
+            </setProperty>
+            <to id="remoteCall_consultaParametros2" uri="xslt://transformations/mid/remoteCall_consultaParametros.xsl?saxon=true"/>
+            <to id="remoteCall_consultaParametrosTo" uri="AMQ:{{colas.servicio.parametros.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+            <convertBodyTo charset="Cp1252"
+                id="remoteCall_consultaParametrosBodyTo" type="java.lang.String"/>
+            <setProperty
+                id="remoteCall_consultaParametrosHeaderParametro_TipoCuentaOrigen" propertyName="Parametro_TipoCuentaOrigen">
+                <xpath resultType="String">//ListaParametro/descripcion</xpath>
+            </setProperty>
+<!--             <filter> -->
+<!--             	<xpath>//ListaParametro/ListaParametro/codigo/text() == ''</xpath> -->
+<!--             </filter> -->
+        </route>
+        <!-- LLama a Servicio de Persona/traerDatosPersona para Obtener Nombres correo Electronico -->
+        <route id="remoteCall_traerDatosPersonaRoute">
+            <!--             <removeHeaders id="_removeHeaders1" pattern="JMS*"/> -->
+            <from id="remoteCall_traerDatosPersonaFrom" uri="direct:remoteCall_traerDatosPersona"/>
+            <convertBodyTo charset="Cp1252" id="remoteCall_PersonaTo" type="java.lang.String"/>
+            <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                id="createJMSCorrelationId1" method="createJMSCorrelationId24"/>
+            <setProperty id="setUserIDPpersona" propertyName="userIDPpersona">
+                <simple>{{cajero.persona.set.userid}}</simple>
+            </setProperty>
+            <setProperty id="setCodClientePersona" propertyName="codClientePersona">
+                <simple>{{cajero.persona.set.codcliente}}</simple>
+            </setProperty>
+            <to id="remoteCall_traerDatosPersona" uri="xslt://transformations/mid/remoteCall_traerDatosPersona.xsl?saxon=true"/>
+            <to id="remoteCall_traerDatosPersonaTo" uri="AMQ:{{colas.servicio.persona.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+            <convertBodyTo charset="Cp1252"
+                id="remoteCall_traerDatosPersonaBodyTo" type="java.lang.String"/>
+            <setProperty
+                id="remoteCall_traerDatosPersonaHeaderPrimerNombre" propertyName="primerNombre">
+                <xpath resultType="String">normalize-space(//primerNombre)</xpath>
+            </setProperty>
+            <setProperty
+                id="remoteCall_traerDatosPersonaHeaderApellidoPaterno" propertyName="apellidoPaterno">
+                <xpath resultType="String">normalize-space(//apellidoPaterno)</xpath>
+            </setProperty>
+            <setProperty
+                id="remoteCall_traerDatosPersonaHeaderApellidoMaterno" propertyName="apellidoMaterno">
+                <xpath resultType="String">normalize-space(//apellidoMaterno)</xpath>
+            </setProperty>
+            <setProperty id="remoteCall_traerDatosPersonaHeaderNombre" propertyName="nombre">
+                <simple>${header.primerNombre} ${header.apellidoPaterno} ${header.apellidoMaterno}</simple>
+            </setProperty>
+        </route>
+        <!-- Llamada al servicio consulta productos, solo el metodo consultaRegistrosRut lo solicita -->
+        <route id="remoteCall_traerDatosProductoCall">
+            <!--             <removeHeaders -->
+            <!--                 id="remoteCall_traerDatosProductoRemoveHeadersJMS" pattern="JMS*"/> -->
+            <from id="remoteCall_traerDatosProductoFrom" uri="direct:remoteCall_consultaProductos"/>
+            <convertBodyTo charset="Cp1252" id="remoteCall_ProdTo" type="java.lang.String"/>
+            <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                id="createJMSCorrelationId2" method="createJMSCorrelationId24"/>
+            <setProperty id="setUserIDProductos" propertyName="userIDProductos">
+                <simple>{{cajero.consultaproductos.set.userid}}</simple>
+            </setProperty>
+            <setProperty id="setNumeroUltimoRegistroProductos" propertyName="numeroUltimoRegistroProductos">
+                <simple>{{cajero.consultaproductos.set.numeroUltimoRegistro}}</simple>
+            </setProperty>
+            <setProperty id="setNumeroClienteProductos" propertyName="numeroClienteProductos">
+                <simple>{{cajero.consultaproductos.set.numeroCliente}}</simple>
+            </setProperty>
+            <to id="remoteCall_traerDatosProducto" uri="xslt://transformations/mid/remoteCall_consultaProductos.xsl?saxon=true"/>
+            <to id="remoteCall_traerDatosProductosTo" uri="AMQ:{{colas.servicio.producto.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+            <convertBodyTo charset="Cp1252"
+                id="remoteCall_traerDatosProductoBodyTo" type="java.lang.String"/>
+            <setProperty
+                id="remoteCall_traerDatosProductoHeaderPrimerNombre" propertyName="primerNombre1">
+                <xpath resultType="String">//primerNombre</xpath>
+            </setProperty>
+        </route>
+        <route id="remoteCall_ServicioCuentasForm">
+            <from id="remoteCall_consultaSaldoCuenta_From" uri="direct:remoteCall_consultaSaldoCuenta"/>
+            <convertBodyTo charset="Cp1252" id="_convertBodyTo2" type="String"/>
+            <setProperty id="_setSaldosCuentas" propertyName="setSaldosCuentaUserId">
+                <simple>{{cajero.consultasaldoscuenta.set.userid}}</simple>
+            </setProperty>
+            <choice id="_choice2">
+                <when id="_when2">
+                    <xpath>//tipoFamiliaProducto='AH'</xpath>
+                    <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                        id="createJMSCorrelationId3" method="createJMSCorrelationId24"/>
+                    <to id="_to2" uri="xslt://transformations/mid/remoteCall_consultaSaldoCuentaAhorro.xsl?saxon=true"/>
+                    <to id="remoteCall_ServicioCuentasAH" uri="AMQ:{{colas.servicio.cuenta.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                    <convertBodyTo charset="Cp1252" id="_convertBodyTo1" type="String"/>
+                    <!--                     <removeHeaders id="_removeHeaders3" pattern="JMS*"/> -->
+                </when>
+                <when id="_when3">
+                    <xpath>//tipoFamiliaProducto='CP'</xpath>
+                    <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                        id="createJMSCorrelationId4" method="createJMSCorrelationId24"/>
+                    <to id="_to22" uri="xslt://transformations/mid/remoteCall_consultaSaldoCuentaAhorro.xsl?saxon=true"/>
+                    <to id="remoteCall_ServicioCuentasCP" uri="AMQ:{{colas.servicio.cuenta.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                    <convertBodyTo charset="Cp1252"
+                        id="_convertBodyTo12" type="String"/>
+                    <!--                     <removeHeaders id="_removeHeaders32" pattern="JMS*"/> -->
+                </when>
+            </choice>
+        </route>
+        <!-- Llamada al servicio credito de consumo, solo el metodo consultaRegistrosRut lo solicita -->
+        <route id="_routeTraerCreaditos">
+            <from id="_from1" uri="direct:remoteCall_SolicitudCredito"/>
+            <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                id="createJMSCorrelationId5" method="createJMSCorrelationId24"/>
+            <setProperty id="_setHeader3" propertyName="creditoconsumoUserId">
+                <simple>{{cajero.consultacreditoconsumo.set.userid}}</simple>
+            </setProperty>
+            <convertBodyTo charset="Cp1252" id="_convertBodyTo22" type="String"/>
+            <bean beanType="cl.coopeuch.util.BodyBackupConsultaCredito"
+                id="_bean1" method="backupBodyConsulta"/>
+            <to id="_to41" uri="xslt://transformations/mid/remoteCall_traerDatosCreditosConsumo.xsl?saxon=true"/>
+            <to id="remoteCall_ServicioCreditoConsumo1" uri="AMQ:{{colas.servicio.creditoconsumo.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+            <bean beanType="cl.coopeuch.util.BodyBackupConsultaCredito"
+                id="_bean2" method="backupBodyTraerDatos"/>
+            <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                id="createJMSCorrelationId6" method="createJMSCorrelationId24"/>
+            <bean beanType="cl.coopeuch.util.BodyBackupConsultaCredito"
+                id="_bean5" method="restoreBodyOriginal"/>
+            <to id="_to42" uri="xslt://transformations/mid/remoteCall_traerDatosSolicitudCreditos.xsl?saxon=true"/>
+            <to id="remoteCall_ServicioCreditoConsumo2" uri="AMQ:{{colas.servicio.creditoconsumo.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+            <bean beanType="cl.coopeuch.util.BodyBackupConsultaCredito"
+                id="_bean3" method="backupBodyTraerDatosSolicitud"/>
+            <bean beanType="cl.coopeuch.util.BodyBackupConsultaCredito"
+                id="_bean4" method="restoreBody"/>
+            <to id="_to43" uri="xslt://transformations/mid/xml2xml_PC.xsl?saxon=true"/>
+        </route>
+        <!-- Registra en el Procedimiento almacenado dbo.REGISTRAR_ATX_ATTRNJOUR las llamadas realzadas por los metodos -->
+        <route id="Regis_atx_attrnjourRoute">
+            <from id="_from2" uri="direct:Regis_atx_attrnjour"/>
+            <setHeader headerName="idUsuario" id="_header2">
+                <simple>${property.userId}</simple>
+            </setHeader>
+            <setHeader headerName="idSupervisor" id="_header3">
+                <constant/>
+            </setHeader>
+            <setHeader headerName="codigoSemilla" id="_header21">
+                <simple>${property.codigoSemilla}</simple>
+            </setHeader>
+            <setHeader headerName="codigoTransaccion" id="_header4">
+                <simple>${property.codigoTransaccion}</simple>
+            </setHeader>
+            <setHeader headerName="fechaTransaccion" id="_header5">
+                <simple>${property.fechaTransaccion}</simple>
+            </setHeader>
+            <setHeader headerName="horaTransaccion" id="_header6">
+                <simple>${property.horaTransaccion}</simple>
+            </setHeader>
+            <choice id="_choice7">
+                <when id="_when21">
+                    <simple>${property.fechaApertura} == null</simple>
+                    <setHeader headerName="fechaApertura" id="_setHeader2">
+                        <constant>00000000</constant>
+                    </setHeader>
+                </when>
+                <otherwise id="_otherwise3">
+                    <setHeader headerName="fechaApertura" id="_header20">
+                        <simple>${property.fechaApertura}</simple>
+                    </setHeader>
+                </otherwise>
+            </choice>
+            <setHeader headerName="montoOriginal" id="_header7">
+                <simple>${property.montoOriginal}</simple>
+            </setHeader>
+            <setHeader headerName="montoPagado" id="_header8">
+                <simple>${property.montoPagado}</simple>
+            </setHeader>
+            <setHeader headerName="numeroCuenta" id="_header9">
+                <simple>${property.numeroCuenta}</simple>
+            </setHeader>
+            <setHeader headerName="nombreCliente" id="_header10">
+                <simple>${property.nombreCliente}</simple>
+            </setHeader>
+            <setHeader headerName="cuotasAcumuladas" id="_header11">
+                <simple>${property.cuotasAcumuladas}</simple>
+            </setHeader>
+            <setHeader headerName="valorCuotasAcumuladas" id="_header13">
+                <simple>${property.valorCuotasAcumuladas}</simple>
+            </setHeader>
+            <setHeader headerName="cuotasPendientes" id="_header14">
+                <simple>${property.cuotasPendientes}</simple>
+            </setHeader>
+            <setHeader headerName="valorCuotasPendientes" id="_header15">
+                <simple>${property.valorCuotasPendientes}</simple>
+            </setHeader>
+            <setHeader headerName="cotizacionPactada" id="_setHeader46">
+                <simple>${property.cotizacionPactada}</simple>
+            </setHeader>
+            <setHeader headerName="valorCotizacionPactada" id="_header16">
+                <simple>${property.valorCotizacionPactada}</simple>
+            </setHeader>
+            <setHeader headerName="valorCuota" id="_header17">
+                <simple>${property.valorCuota}</simple>
+            </setHeader>
+            <setHeader headerName="cantidadCuotasPagadas" id="_header18">
+                <simple>${property.cantidadCuotasPagadas}</simple>
+            </setHeader>
+            <setHeader headerName="ipUser" id="_header22">
+                <simple>${property.ipUser}</simple>
+            </setHeader>
+            <setHeader headerName="idEstadoTransaccion" id="_header19">
+                <simple>${property.idEstadoTransaccion}</simple>
+            </setHeader>
+            <setHeader headerName="codigoError" id="_header24">
+                <simple/>
+            </setHeader>
+            <setHeader headerName="descripcionError" id="_header23">
+                <simple>${property.descripcionError}</simple>
+            </setHeader>
+            <setHeader headerName="rut" id="_header1">
+                <simple>${property.rut}</simple>
+            </setHeader>
+            <log id="_log3" message="idUsuario ${header.idUsuario}"/>
+            <log id="_log4" message="idSupervisor ${header.idSupervisor}"/>
+            <log id="_log5" message="codigoSemilla ${header.codigoSemilla}"/>
+            <log id="_log6" message="codigoTransaccion ${header.codigoTransaccion}"/>
+            <log id="_log7" message="fechaTransaccion ${header.fechaTransaccion}"/>
+            <log id="_log8" message="horaTransaccion ${header.horaTransaccion}"/>
+            <log id="_log9" message="fechaApertura ${header.fechaApertura}"/>
+            <log id="_log10" message="montoOriginal ${header.montoOriginal}"/>
+            <log id="_log11" message="montoPagado ${header.montoPagado}"/>
+            <log id="_log12" message="numeroCuenta ${header.numeroCuenta}"/>
+            <log id="_log13" message="nombreCliente ${header.nombreCliente}"/>
+            <log id="_log14" message="cuotasAcumuladas ${header.cuotasAcumuladas}"/>
+            <log id="_log15" message="valorCuotasAcumuladas ${header.valorCuotasAcumuladas}"/>
+            <log id="_log16" message="cuotasPendientes ${header.cuotasPendientes}"/>
+            <log id="_log17" message="valorCuotasPendientes ${header.valorCuotasPendientes}"/>
+            <log id="_log18" message="cotizacionPactada ${header.cotizacionPactada}"/>
+            <log id="_log19" message="valorCotizacionPactada ${header.valorCotizacionPactada}"/>
+            <log id="_log20" message="valorCuota ${header.valorCuota}"/>
+            <log id="_log21" message="cantidadCuotasPagadas: ${header.cantidadCuotasPagadas}"/>
+            <log id="_log22" message="ipUser: ${header.ipUser}"/>
+            <log id="_log23" message="idEstadoTransaccion: ${header.idEstadoTransaccion}"/>
+            <log id="_log24" message="codigoError: ${header.codigoError}"/>
+            <log id="_log25" message="descripcionError: ${header.descripcionError}"/>
+            <log id="_log34" message="Rut: ${header.rut}"/>
+            <to id="PA_registrarCanalLogNavegacion" uri="bean:dbo.REGISTRAR_ATX_ATTRNJOUR"/>
+            <setHeader headerName="respuestaPA" id="_respuestaPA1">
+                <constant>0</constant>
+            </setHeader>
+            <process id="_process1" ref="creacionArchivo"/>
+            <to id="_to9" uri="file:{{Cajero.guardar.archivo.Logs}}"/>
+            <!--                 <doCatch id="_doCatch2"> -->
+            <!--                     <exception>java.lang.Exception</exception> -->
+            <!--                     <exception>java.io.IOException</exception> -->
+            <!--                     <bean beanType="cl.coopeuch.util.BodyBackup" -->
+            <!--                         id="remoteCall_GuardarArchivoRestoreBody" method="restoreBody"/> -->
+            <!--                     <setBody id="remoteCall_GuardarArchivoSetBodyError1"> -->
+            <!--                         <simple>ERROR:${exception}:${body}</simple> -->
+            <!--                     </setBody> -->
+            <!--                     <to id="remoteCall_GuardarArchivoFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/> -->
+            <!--                     <bean -->
+            <!--                         beanType="cl.coopeuch.util.error.ProcesoObtenerError" -->
+            <!--                         id="remoteCall_GuardarArchivoSetBodyError2" method="setBodyError"/> -->
+            <!--                 </doCatch> -->
+            <!--             </doTry> -->
+        </route>
+        <!-- Guarda el detalle del Request de los siguientes metodos transaccionConfirmacionCobroCreditoConsumo, transaccionConfirmacionDepositoCuentaAhorro, transaccionConfirmacionGiroCuentaAhorro, transaccionConfirmacionRecaudacionCreditoConsumo, transaccionConfirmacionRecaudacionCuotaParticipacion, transaccionReversaCobroCreditoConsumo, transaccionReversaDepositoCuentaAhorro, transaccionReversaGiroCuentaAhorro, transaccionReversaRecaudacionCreditoConsumo, transaccionReversaRecaudacionCuotaParticipacion -->
+        <route id="_guardarDatos">
+            <from id="_from3" uri="direct:GuardarDatos"/>
+            <choice id="_choic3">
+                <when id="_when6">
+                    <simple>${property.codigoTransaccion} == '0102'</simple>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeaderuserIdTransferencia1" propertyName="userId">
+                        <xpath resultType="String">//userId/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadermontoOriginalTransferencia1" propertyName="montoOriginal">
+                        <xpath resultType="Integer">//monto_deposito/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeaderfechaTransaccionTransferencia6" propertyName="fechaTransaccion">
+                        <xpath resultType="String">//fecha_deposito/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeaderhoraTransaccionTransferencia6" propertyName="horaTransaccion">
+                        <xpath resultType="String">//hora_deposito/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadernombreClienteTransferencia6" propertyName="nombreCliente">
+                        <xpath resultType="String">//nombre_cli/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercuotasAcumuladasTransferencia1" propertyName="cuotasAcumuladas">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCuotasAcumuladasTransferencia1" propertyName="valorCuotasAcumuladas">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercuotasPendientesTransferencia1" propertyName="cuotasPendientes">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCuotasPendientesTransferencia1" propertyName="valorCuotasPendientes">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercotizacionPactadaTransferencia1" propertyName="cotizacionPactada">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCotizacionPactadaTransferencia1" propertyName="valorCotizacionPactada">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCuotaTransferencia1" propertyName="valorCuota">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercantidadCuotasPagadasTransferencia1" propertyName="cantidadCuotasPagadas">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty id="_Property1" propertyName="ipUser">
+                        <constant/>
+                    </setProperty>
+                    <setProperty id="_Property2" propertyName="descripcionError">
+                        <constant/>
+                    </setProperty>
+                    <setProperty id="rutProperty1" propertyName="rut">
+                        <xpath resultType="String">//rut/text()</xpath>
+                    </setProperty>
+                </when>
+                <when id="_when7">
+                    <simple>${property.codigoTransaccion} == '9310'</simple>
+                    <setProperty id="rutProperty2" propertyName="rut">
+                        <xpath resultType="String">//rut/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeaderuserIdTransferencia2" propertyName="userId">
+                        <xpath resultType="String">//userId/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadermontoOriginalTransferencia2" propertyName="montoOriginal">
+                        <xpath resultType="Integer">//monto_apagar/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeaderfechaTransaccionTransferencia7" propertyName="fechaTransaccion">
+                        <xpath resultType="String">//fecha_pago/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeaderhoraTransaccionTransferencia7" propertyName="horaTransaccion">
+                        <xpath resultType="String">//hora_pago/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadernombreClienteTransferencia7" propertyName="nombreCliente">
+                        <xpath resultType="String">//nombre_cli/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercuotasAcumuladasTransferencia2" propertyName="cuotasAcumuladas">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCuotasAcumuladasTransferencia2" propertyName="valorCuotasAcumuladas">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercuotasPendientesTransferencia2" propertyName="cuotasPendientes">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCuotasPendientesTransferencia2" propertyName="valorCuotasPendientes">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercotizacionPactadaTransferencia2" propertyName="cotizacionPactada">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCotizacionPactadaTransferencia2" propertyName="valorCotizacionPactada">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCuotaTransferencia2" propertyName="valorCuota">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercantidadCuotasPagadasTransferencia2" propertyName="cantidadCuotasPagadas">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty id="_Property12" propertyName="ipUser">
+                        <constant/>
+                    </setProperty>
+                    <setProperty id="_Property22" propertyName="descripcionError">
+                        <constant/>
+                    </setProperty>
+                </when>
+                <when id="_when8">
+                    <simple>${property.codigoTransaccion} == '0130'</simple>
+                    <setProperty id="rutProperty3" propertyName="rut">
+                        <xpath resultType="String">//rut/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeaderuserIdTransferencia3" propertyName="userId">
+                        <xpath resultType="String">//userId/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadermontoOriginalTransferencia3" propertyName="montoOriginal">
+                        <xpath resultType="Integer">//monto_apagar/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeaderfechaTransaccionTransferencia8" propertyName="fechaTransaccion">
+                        <xpath resultType="String">//fecha_pago/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeaderhoraTransaccionTransferencia8" propertyName="horaTransaccion">
+                        <xpath resultType="String">//hora_pago/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadernombreClienteTransferencia8" propertyName="nombreCliente">
+                        <xpath resultType="String">//nombre_cli/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercuotasAcumuladasTransferencia3" propertyName="cuotasAcumuladas">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCuotasAcumuladasTransferencia3" propertyName="valorCuotasAcumuladas">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercuotasPendientesTransferencia3" propertyName="cuotasPendientes">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCuotasPendientesTransferencia3" propertyName="valorCuotasPendientes">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercotizacionPactadaTransferencia3" propertyName="cotizacionPactada">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCotizacionPactadaTransferencia3" propertyName="valorCotizacionPactada">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCuotaTransferencia3" propertyName="valorCuota">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercantidadCuotasPagadasTransferencia3" propertyName="cantidadCuotasPagadas">
+                        <xpath resultType="String">//num_cuota/text()</xpath>
+                    </setProperty>
+                    <setProperty id="_Property13" propertyName="ipUser">
+                        <constant/>
+                    </setProperty>
+                    <setProperty id="_Property23" propertyName="descripcionError">
+                        <constant/>
+                    </setProperty>
+                </when>
+                <when id="_when9">
+                    <simple>${property.codigoTransaccion} == '9370'</simple>
+                    <setProperty id="rutProperty4" propertyName="rut">
+                        <xpath resultType="String">//rut/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeaderuserIdTransferencia4" propertyName="userId">
+                        <xpath resultType="String">//userId/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadermontoOriginalTransferencia4" propertyName="montoOriginal">
+                        <xpath resultType="Integer">//monto_trans/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeaderfechaTransaccionTransferencia9" propertyName="fechaTransaccion">
+                        <xpath resultType="String">//fecha/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeaderhoraTransaccionTransferencia9" propertyName="horaTransaccion">
+                        <xpath resultType="String">//hora/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadernombreClienteTransferencia9" propertyName="nombreCliente">
+                        <xpath resultType="String">//nombre_cli/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercuotasAcumuladasTransferencia4" propertyName="cuotasAcumuladas">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCuotasAcumuladasTransferencia4" propertyName="valorCuotasAcumuladas">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercuotasPendientesTransferencia4" propertyName="cuotasPendientes">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCuotasPendientesTransferencia4" propertyName="valorCuotasPendientes">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercotizacionPactadaTransferencia4" propertyName="cotizacionPactada">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCotizacionPactadaTransferencia4" propertyName="valorCotizacionPactada">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCuotaTransferencia4" propertyName="valorCuota">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercantidadCuotasPagadasTransferencia4" propertyName="cantidadCuotasPagadas">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty id="_Property14" propertyName="ipUser">
+                        <constant/>
+                    </setProperty>
+                    <setProperty id="_Property24" propertyName="descripcionError">
+                        <constant/>
+                    </setProperty>
+                </when>
+                <when id="_when10">
+                    <simple>${property.codigoTransaccion} == '0202'</simple>
+                    <setProperty id="rutProperty5" propertyName="rut">
+                        <xpath resultType="String">//rut/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeaderuserIdTransferencia5" propertyName="userId">
+                        <xpath resultType="String">//userId/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadermontoOriginalTransferencia5" propertyName="montoOriginal">
+                        <xpath resultType="Integer">//monto_trans/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeaderfechaTransaccionTransferencia10" propertyName="fechaTransaccion">
+                        <xpath resultType="String">//fecha/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeaderhoraTransaccionTransferencia10" propertyName="horaTransaccion">
+                        <xpath resultType="String">//hora/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadernombreClienteTransferencia10" propertyName="nombreCliente">
+                        <constant/>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercuotasAcumuladasTransferencia5" propertyName="cuotasAcumuladas">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCuotasAcumuladasTransferencia5" propertyName="valorCuotasAcumuladas">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercuotasPendientesTransferencia5" propertyName="cuotasPendientes">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCuotasPendientesTransferencia5" propertyName="valorCuotasPendientes">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercotizacionPactadaTransferencia5" propertyName="cotizacionPactada">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCotizacionPactadaTransferencia5" propertyName="valorCotizacionPactada">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadervalorCuotaTransferencia5" propertyName="valorCuota">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadercantidadCuotasPagadasTransferencia5" propertyName="cantidadCuotasPagadas">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty id="_Property16" propertyName="ipUser">
+                        <constant/>
+                    </setProperty>
+                    <setProperty id="_Property26" propertyName="descripcionError">
+                        <constant/>
+                    </setProperty>
+                </when>
+            </choice>
+        </route>
+        <!-- Guarda el detalle del Response de los siguientes metodos transaccionConfirmacionCobroCreditoConsumo, transaccionConfirmacionDepositoCuentaAhorro, transaccionConfirmacionGiroCuentaAhorro, transaccionConfirmacionRecaudacionCreditoConsumo, transaccionConfirmacionRecaudacionCuotaParticipacion, transaccionReversaCobroCreditoConsumo, transaccionReversaDepositoCuentaAhorro, transaccionReversaGiroCuentaAhorro, transaccionReversaRecaudacionCreditoConsumo, transaccionReversaRecaudacionCuotaParticipacion -->
+        <route id="_GuardarDatosSalida">
+            <from id="_from4" uri="direct:GuardarDatosSalida"/>
+            <choice id="_choice1">
+                <when id="_when11">
+                    <simple>${property.codigoTransaccion} == '0102'</simple>
+                    <choice id="_choice8">
+                        <when id="_when27">
+                            <simple>${body} contains 'reversaDepositoCuentaAhorro'</simple>
+                            <setProperty
+                                id="confirmacionDepositoCuentaAhorroHeadermontoPagadoTransferencia6" propertyName="montoPagado">
+                                <constant>0</constant>
+                            </setProperty>
+                        </when>
+                        <otherwise id="_otherwise4">
+                            <setProperty
+                                id="confirmacionDepositoCuentaAhorroHeadermontoPagadoTransferencia61" propertyName="montoPagado">
+                                <xpath resultType="Integer">//monto_deposito/text()</xpath>
+                            </setProperty>
+                            <setProperty id="codigoSemilla6" propertyName="codigoSemilla">
+                                <xpath resultType="String">//num_transaccion/text()</xpath>
+                            </setProperty>
+                        </otherwise>
+                    </choice>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadernumeroCuentaTransferencia6" propertyName="numeroCuenta">
+                        <xpath resultType="String">//nro_cta/text()</xpath>
+                    </setProperty>
+                    <setProperty id="indError6" propertyName="indError">
+                        <xpath resultType="String">//cod_resp/text()</xpath>
+                    </setProperty>
+                </when>
+                <when id="_when12">
+                    <simple>${property.codigoTransaccion} == '9310'</simple>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadermontoPagadoTransferencia7" propertyName="montoPagado">
+                        <xpath resultType="Integer">//monto_apagar/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadernumeroCuentaTransferencia7" propertyName="numeroCuenta">
+                        <xpath resultType="String">//nro_dcto/text()</xpath>
+                    </setProperty>
+                    <setProperty id="codigoSemilla7" propertyName="codigoSemilla">
+                        <xpath resultType="String">//num_transaccion/text()</xpath>
+                    </setProperty>
+                    <setProperty id="indError7" propertyName="indError">
+                        <xpath resultType="String">//cod_resp/text()</xpath>
+                    </setProperty>
+                </when>
+                <when id="_when13">
+                    <simple>${property.codigoTransaccion} == '0130'</simple>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadernumeroCuentaTransferencia8" propertyName="numeroCuenta">
+                        <xpath resultType="String">//nro_cpar/text()</xpath>
+                    </setProperty>
+                    <setProperty id="indError8" propertyName="indError">
+                        <xpath resultType="String">//cod_resp/text()</xpath>
+                    </setProperty>
+                    <choice id="_choice9">
+                        <when id="_when27">
+                            <simple>${body} contains 'reversaRecaudacionCuotaParticipacion'</simple>
+                            <setProperty id="_setProperty17" propertyName="montoPagado">
+                                <constant>0</constant>
+                            </setProperty>
+                        </when>
+                        <otherwise id="_otherwise4">
+                            <setProperty
+                                id="confirmacionDepositoCuentaAhorroHeadermontoPagadoTransferencia8" propertyName="montoPagado">
+                                <xpath resultType="Integer">//monto_apagar/text()</xpath>
+                            </setProperty>
+                            <setProperty id="_setProperty18" propertyName="codigoSemilla">
+                                <xpath resultType="String">//num_transaccion/text()</xpath>
+                            </setProperty>
+                        </otherwise>
+                    </choice>
+                </when>
+                <when id="_when14">
+                    <simple>${property.codigoTransaccion} == '9370'</simple>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadermontoPagadoTransferencia9" propertyName="montoPagado">
+                        <xpath resultType="Integer">//monto_dcred/text()</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty2" propertyName="montoOriginal">
+                        <constant>0</constant>
+                    </setProperty>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadernumeroCuentaTransferencia9" propertyName="numeroCuenta">
+                        <xpath resultType="String">//nro_dcred/text()</xpath>
+                    </setProperty>
+                    <setProperty id="codigoSemilla9" propertyName="codigoSemilla">
+                        <xpath resultType="String">//num_transaccion/text()</xpath>
+                    </setProperty>
+                    <setProperty id="indError9" propertyName="indError">
+                        <xpath resultType="String">//cod_resp/text()</xpath>
+                    </setProperty>
+                </when>
+                <when id="_when15">
+                    <simple>${property.codigoTransaccion} == '0202'</simple>
+                    <choice id="_choice8">
+                        <when id="_when27">
+                            <simple>${body} contains 'reversaGiroCuentaAhorroResponse'</simple>
+                            <setProperty
+                                id="confirmacionDepositoCuentaAhorroHeadermontoPagadoTransferencia11" propertyName="montoPagado">
+                                <constant>0</constant>
+                            </setProperty>
+                        </when>
+                        <otherwise id="_otherwise4">
+                            <setProperty
+                                id="confirmacionDepositoCuentaAhorroHeadermontoPagadoTransferencia10" propertyName="montoPagado">
+                                <xpath resultType="Integer">//monto_trans/text()</xpath>
+                            </setProperty>
+                        </otherwise>
+                    </choice>
+                    <setProperty
+                        id="confirmacionDepositoCuentaAhorroHeadernumeroCuentaTransferencia10" propertyName="numeroCuenta">
+                        <xpath resultType="String">//nro_cta/text()</xpath>
+                    </setProperty>
+                    <setProperty id="codigoSemilla10" propertyName="codigoSemilla">
+                        <simple>${property.codigoSemilla}</simple>
+                    </setProperty>
+                    <setProperty id="indError10" propertyName="indError">
+                        <xpath resultType="String">//cod_resp/text()</xpath>
+                    </setProperty>
+                </when>
+            </choice>
+        </route>
+    </camelContext>
+</blueprint>

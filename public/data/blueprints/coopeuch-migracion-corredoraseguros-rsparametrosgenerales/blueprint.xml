@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+           xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+           xmlns:http="http://cxf.apache.org/transports/http/configuration"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+                             placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal" persistent-id="wsparametrosgenerales"
+                             placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+          destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{corredoraseguros.sqlserver.url}];charset=iso_1"/>
+        <property name="username" value="[{corredoraseguros.sqlserver.username}]"/>
+        <property name="password" value="[{corredoraseguros.sqlserver.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{corredoraseguros.sqlserver.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{corredoraseguros.sqlserver.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{corredoraseguros.sqlserver.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{corredoraseguros.sqlserver.maxActive}]"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.entidad.servicio.parametrosgenerales.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/corredoraseguros/WSParametrosGenerales"
+                          id="endpointWSParametrosGenerales"
+                          serviceClass="cl.coopeuch.integracion.entidad.servicio.parametrosgenerales.wsdl.WSParametrosGeneralesSOAPPortType" wsdlURL="etc/wsdl/WSParametrosGenerales.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/corredoraseguros/RSParametrosGenerales"
+                       id="WSParametrosGeneralesREST" serviceClass="cl.coopeuch.integracion.entidad.servicio.parametrosgenerales.wsdl.WSParametrosGeneralesSOAPPortType">
+        <camelcxf:providers>
+            <bean
+                class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+                <property name="dropRootElement" value="true"/>
+                <property name="supportUnwrapped" value="true"/>
+                <property name="serializeAsArray" value="true"/>
+                <property name="arrayKeys">
+                    <list>
+                        <value>ListaTipoPoliza</value>
+                        <value>ListaFrecuenciaPago</value>
+                        <value>ListaSeguroAsistencia</value>
+                        <value>ListaVigencia</value>
+                        <value>ListaBeneficiarios</value>
+                        <value>ListaEstadoCobertura</value>
+                        <value>ListaComision</value>
+                        <value>ListaTipoComision</value>
+                        <value>ListaEmpresaOrigen</value>
+                        <value>ListaFormaCalculoComision</value>
+                        <value>ListaMonedaMontoAsegurado</value>
+                        <value>ListaEnteRecaudador</value>
+                        <value>ListaTipoPrima</value>
+                        <value>ListaUnidadPrima</value>
+                        <value>ListaFormaCalculoPrima</value>
+                        <value>ListaOrigenVenta</value>
+                        <value>ListaCanalVentaPoliza</value>
+                        <value>ListaCanalVentaPropuesta</value>
+                        <value>ListaOficinaVenta</value>
+                        <value>ListaRolRut</value>
+                    </list>
+                </property>
+            </bean>
+        </camelcxf:providers>
+    </camelcxf:rsServer>
+    <camelContext id="servicio-parametrosgenerales" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSParametrosGenerales"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:WSParametrosGeneralesREST"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsultarRamoFecu">
+                        <simple>${header.operationName} == 'consultarRamoFecu'</simple>
+                        <to id="toConsultarRamoFecu" uri="direct:consultarRamoFecu"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarParentesco">
+                        <simple>${header.operationName} == 'consultarParentesco'</simple>
+                        <to id="toConsultarParentesco" uri="direct:consultarParentesco"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarParametrosGenerales">
+                        <simple>${header.operationName} == 'consultarParametrosGenerales'</simple>
+                        <to id="toConsultarParametrosGenerales" uri="direct:consultarParametrosGenerales"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarRamoFecu">
+            <from id="consultarRamoFecuFrom" uri="direct:consultarRamoFecu"/>
+            <doTry id="consultarRamoFecuTry">
+                <setProperty id="consultarRamoFecu-userId" propertyName="userId">
+                    <simple>$simple{body.userId}</simple>
+                </setProperty>
+                <setProperty id="consultarRamoFecu-canalLlamada" propertyName="canalLlamada">
+                    <simple>$simple{body.canalLlamada}</simple>
+                </setProperty>
+                <setProperty id="consultarRamoFecu-idRamoFecu" propertyName="idRamoFecu">
+                    <simple>$simple{body.idRamoFecu}</simple>
+                </setProperty>
+                <setProperty id="consultarRamoFecu-descripcionRamo" propertyName="descripcionRamo">
+                    <simple>$simple{body.descripcionRamo}</simple>
+                </setProperty>
+                <to id="spConsultarRamoFecu" uri="sql-stored:classpath:etc/sql/PA_SELRamoFecu.sql?outputHeader=consultarRamoFecuPaResponse&amp;dataSource=dataSourceSqlServer"/>
+                <bean id="consultarRamoFecuBeanProceso"
+                      method="procesoConsultarRamoFecuResponse" ref="beanRouteFacade"/>
+                <unmarshal id="unmarshalConsultarRamoFecu">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.servicio.parametrosgenerales.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultarRamoFecuDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarRamoFecuCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toConsultarRamoFecuExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarParentesco">
+            <from id="consultarParentescoFrom" uri="direct:consultarParentesco"/>
+            <doTry id="consultarParentescoTry">
+                <setProperty id="consultarParentesco-userId" propertyName="userId">
+                    <simple>$simple{body.userId}</simple>
+                </setProperty>
+                <setProperty id="consultarParentesco-canalLlamada" propertyName="canalLlamada">
+                    <simple>$simple{body.canalLlamada}</simple>
+                </setProperty>
+                <setProperty id="consultarParentesco-idParentesco" propertyName="idParentesco">
+                    <simple>$simple{body.idParentesco}</simple>
+                </setProperty>
+                <setProperty id="consultarParentesco-descParentesco" propertyName="descParentesco">
+                    <simple>$simple{body.descParentesco}</simple>
+                </setProperty>
+                <to id="spConsultarParentesco" uri="sql-stored:classpath:etc/sql/PA_SELParentesco.sql?outputHeader=consultarParentescoPaResponse&amp;dataSource=dataSourceSqlServer"/>
+                <bean id="consultarParentescoBeanProceso"
+                      method="procesoConsultarParentescoResponse" ref="beanRouteFacade"/>
+                <unmarshal id="unmarshalConsultarParentesco">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.servicio.parametrosgenerales.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultarParentescoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarParentescoCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toConsultarParentescoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarParametrosGenerales">
+            <from id="consultarParametrosGeneralesFrom" uri="direct:consultarParametrosGenerales"/>
+            <doTry id="consultarParametrosGeneralesTry">
+                <to id="consultarParametrosGeneralesTo" uri="mock:result"/>
+                <setProperty id="consultarParametrosGenerales-userId" propertyName="userId">
+                    <simple>$simple{body.userId}</simple>
+                </setProperty>
+                <setProperty
+                    id="consultarParametrosGenerales-canalLlamada" propertyName="canalLlamada">
+                    <simple>$simple{body.canalLlamada}</simple>
+                </setProperty>
+                <setProperty id="consultarParametrosGenerales-correo" propertyName="correos">
+                    <simple>{{corredoraseguros.correos}}</simple>
+                </setProperty>
+                <to id="spConsultarParametrosGeneralesSeguro" uri="sql-stored:classpath:etc/sql/PA_SELTablasParametricas.sql?outputHeader=consultarParametrosGeneralesPaResponse&amp;dataSource=dataSourceSqlServer"/>
+                <bean id="consultarParametrosGeneralesBeanProceso"
+                      method="procesoConsultarParametrosGeneralesResponse" ref="beanRouteFacade"/>
+                <unmarshal id="unmarshalConsultarParametrosGenerales">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.servicio.parametrosgenerales.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultarParametrosGeneralesDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="consultarParametrosGeneralesCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toConsultarParametrosGeneralesExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

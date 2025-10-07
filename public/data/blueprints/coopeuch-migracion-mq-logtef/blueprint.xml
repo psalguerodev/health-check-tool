@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal" persistent-id="mqlogtef"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{mqlogtef.sqlserver.url}];charset=iso_1"/>
+        <property name="username" value="[{mqlogtef.sqlserver.username}]"/>
+        <property name="password" value="[{mqlogtef.sqlserver.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{mqlogtef.sqlserver.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{mqlogtef.sqlserver.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{mqlogtef.sqlserver.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{mqlogtef.sqlserver.maxActive}]"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.mqlogtef.util.RouteFacade" id="beanRouteFacade"/>
+    <camelContext id="context-mqlogtef" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="ConsultaMensajes">
+            <from id="_from1" uri="quartz2:ejecutaProceso/proceso?cron={{cron.tiempo.programado}}"/>
+            <doTry id="_doTry2">
+                <setHeader headerName="proceso" id="_setHeader1">
+                    <simple>{{proceso}}</simple>
+                </setHeader>
+                <setHeader headerName="tipomensaje" id="_setHeader2">
+                    <simple>{{tipomensaje}}</simple>
+                </setHeader>
+                <to id="spSelectMen" uri="sql-stored:classpath:etc/sql/PA_SELMensajes.sql?dataSource=dataSourceSqlServer"/>
+                <setBody id="_setBody1">
+                    <simple>${body.get('#result-set-1')}</simple>
+                </setBody>
+                <split id="_split1">
+                    <simple>${body}</simple>
+                    <setHeader headerName="id" id="_setHeader3">
+                        <simple>${body.get('id')}</simple>
+                    </setHeader>
+                    <setHeader headerName="peticion" id="_setHeader4">
+                        <simple>${body.get('peticion')}</simple>
+                    </setHeader>
+                    <setBody id="_setBody3">
+                        <simple>${headers.peticion}</simple>
+                    </setBody>
+                    <to id="_to1" uri="direct:peticion"/>
+                </split>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="descRespuesta" propertyName="descRespuesta">
+                        <simple>${exception.message}</simple>
+                    </setProperty>
+                    <to id="route1ToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="peticionRequest">
+            <from id="readparse" uri="direct:peticion"/>
+            <doTry id="_doTry1">
+                <bean id="ChangeToLowercase" method="lowercase" ref="beanRouteFacade"/>
+                <choice id="_choice1">
+                    <when id="_when1">
+                        <simple>${body} contains 'soap' or ${body} contains 'xml' </simple>
+                        <choice id="_choice2">
+                            <when id="_when2">
+                                <simple>${body} contains 'cartolamovimientostransferencias'</simple>
+                                <setHeader headerName="cuentaOrigen" id="_setHeader5">
+                                    <xpath resultType="java.lang.String">//cuentaorigen/text()</xpath>
+                                </setHeader>
+                            </when>
+                            <otherwise id="_otherwise4">
+                                <setHeader headerName="userId" id="_setHeader6">
+                                    <xpath resultType="java.lang.String">//userid/text()</xpath>
+                                </setHeader>
+                                <setHeader headerName="cuentaOrigen" id="_setHeader7">
+                                    <xpath resultType="java.lang.String">//cuentaorigen/text()</xpath>
+                                </setHeader>
+                                <setHeader
+                                    headerName="InstFinancieraOrigen" id="_setHeader8">
+                                    <xpath resultType="java.lang.String">//instfinancieraorigen/text()</xpath>
+                                </setHeader>
+                                <setHeader headerName="rutOrigen" id="_setHeader9">
+                                    <xpath resultType="java.lang.String">//rutorigen/text()</xpath>
+                                </setHeader>
+                                <setHeader headerName="TipoCuentaOrigen" id="_setHeader10">
+                                    <xpath resultType="java.lang.String">//tipocuentaorigen/text()</xpath>
+                                </setHeader>
+                                <setHeader headerName="cuentaDestino" id="_setHeader11">
+                                    <xpath resultType="java.lang.String">//cuentadestino/text()</xpath>
+                                </setHeader>
+                                <setHeader
+                                    headerName="InstFinancieraDestino" id="_setHeader12">
+                                    <xpath resultType="java.lang.String">//instfinancieradestino/text()</xpath>
+                                </setHeader>
+                                <setHeader headerName="rutDestinatario" id="_setHeader13">
+                                    <xpath resultType="java.lang.String">//rutdestinatario/text()</xpath>
+                                </setHeader>
+                                <setHeader
+                                    headerName="TipoCuentaDestino" id="_setHeader14">
+                                    <xpath resultType="java.lang.String">//tipocuentadestino/text()</xpath>
+                                </setHeader>
+                                <setHeader
+                                    headerName="montoTransferencia" id="_setHeader15">
+                                    <xpath resultType="java.lang.String">//montotransferencia/text()</xpath>
+                                </setHeader>
+                                <setHeader headerName="IP" id="_setHeader16">
+                                    <xpath resultType="java.lang.String">//ip/text()</xpath>
+                                </setHeader>
+                                <choice id="_choice3">
+                                    <when id="_when3">
+                                    <simple>${body} contains 'transferenciaExterna' or ${body} contains 'transferenciaInternas'</simple>
+                                    <setHeader
+                                    headerName="factorSeguridad" id="_setHeader17">
+                                    <xpath resultType="java.lang.String">//factorseguridad/text()</xpath>
+                                    </setHeader>
+                                    <setHeader
+                                    headerName="mailOrigen" id="_setHeader18">
+                                    <xpath resultType="java.lang.String">//mailorigen/text()</xpath>
+                                    </setHeader>
+                                    <setHeader
+                                    headerName="mailDestinatario" id="_setHeader19">
+                                    <xpath resultType="java.lang.String">//maildestinatario/text()</xpath>
+                                    </setHeader>
+                                    </when>
+                                </choice>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <setHeader headerName="cuentaOrigen" id="_setHeader23">
+                            <jsonpath>$.entrada.cuentaorigen</jsonpath>
+                        </setHeader>
+                    </otherwise>
+                </choice>
+                <setHeader headerName="fechaRegistro" id="_setHeader24">
+                    <simple>${date:now:yyyy-MM-dd HH:mm:ss}</simple>
+                </setHeader>
+                <to id="spInsDet" uri="sql-stored:classpath:etc/sql/PA_INSDetalleMensajesTEF.sql?dataSource=dataSourceSqlServer"/>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="peticionRespuesta" propertyName="descRespuesta">
+                        <simple>${exception.message}</simple>
+                    </setProperty>
+                    <setHeader headerName="bodyerror" id="_setHeader20">
+                        <simple>${body}</simple>
+                    </setHeader>
+                    <setHeader headerName="fechaRegistro" id="_setHeader24">
+                        <simple>${date:now:yyyy-MM-dd HH:mm:ss}</simple>
+                    </setHeader>
+                    <to id="spInsDet" uri="sql-stored:classpath:etc/sql/PA_INSDetalleMensajesTEF.sql?dataSource=dataSourceSqlServer"/>
+                    <setBody id="_setBody2">
+                        <simple>${header.bodyerror}</simple>
+                    </setBody>
+                    <to id="peticionToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="colaErrorTry">
+                <bean id="colaErrorExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="colaErrorMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="colaErrorConvertTo" type="java.lang.String"/>
+                <removeHeaders id="_removeHeaders1" pattern="*"/>
+                <to id="colaErrorFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <doCatch id="colaErrorCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body} ${exception}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

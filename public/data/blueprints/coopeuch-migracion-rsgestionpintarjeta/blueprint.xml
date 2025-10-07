@@ -1,0 +1,637 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+    xmlns:jaxws="http://cxf.apache.org/blueprint/jaxws"
+    xmlns:p="http://cxf.apache.org/policy"
+    xmlns:rb="http://www.redbanc.cl/gat11"
+    xmlns:sec="http://cxf.apache.org/configuration/security"
+    xmlns:wsp="http://www.w3.org/ns/ws-policy"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsgestionpintarjeta" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.cuentas]]"/>
+        <property name="password" value="[[jdbc.db2.password.cuentas]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.wsgestionpintarjeta}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.wsgestionpintarjeta}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.wsgestionpintarjeta}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.wsgestionpintarjeta}]"/>
+    </bean>    
+    <bean
+        class="cl.coopeuch.integracion.tarea.gestionpintarjeta.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSGestionPinTarjeta"
+        id="endpointWSGestionPinTarjeta"
+        serviceClass="cl.coopeuch.integracion.tarea.wsdl.WSGestionPinTarjetaSOAPPortType" wsdlURL="etc/wsdl/WSGestionPinTarjeta.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSGestionPinTarjeta"
+        id="endpointRSGestionPinTarjeta" serviceClass="cl.coopeuch.integracion.tarea.wsdl.WSGestionPinTarjetaSOAPPortType">
+        <camelcxf:providers>
+            <bean
+                class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProviderRSServer">
+                <property name="ignoreNamespaces" value="true"/>
+                <property name="serializeAsArray" value="true"/>
+                <property name="arrayKeys">
+                    <list>
+                        <value>detalleError</value>
+                    </list>
+                </property>
+                <property name="ignoreEmptyArrayValues" value="true"/>
+            </bean>
+        </camelcxf:providers>
+    </camelcxf:rsServer>
+    <camelcxf:rsClient address="[{endpoint.login.clai}]"
+        id="endpointLoginClai" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient address="[{endpoint.updatepin.clai}]"
+        id="endpointUpdatePinClai" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient address="[{endpoint.calcoffset.clai}]"
+        id="endpointCalcOffsetClai" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+
+    <jaxws:client address="[{endpoint.gat.redbanc.url}]"
+        endpointName="rb:CardUpdatePort11BindingQSPort" id="wscliente"
+        serviceClass="cl.coopeuch.integracion.tarea.wsdl.gatredbanc.Gat11"
+        serviceName="rb:CardUpdatePort11BindingQSService" wsdlLocation="etc/wsdl/GAT_Redbanc.wsdl"
+        xmlns:e="http://service.jaxws.cxf.apache.org/endpoint" xmlns:s="http://service.jaxws.cxf.apache.org/service"
+        xmlns:gat="http://www.redbanc.cl/gat11">
+
+        <jaxws:inInterceptors>
+        	<bean class="org.apache.cxf.interceptor.LoggingInInterceptor"/>
+        	<bean class="cl.coopeuch.integracion.tarea.gestionpintarjeta.util.RedbancInInterceptor"/> 
+        </jaxws:inInterceptors>
+        
+       	<jaxws:outInterceptors>
+       		<bean class="org.apache.cxf.interceptor.LoggingOutInterceptor"/>
+            <bean class="org.apache.cxf.ws.security.wss4j.WSS4JOutInterceptor">
+            	<argument>
+                	<map>
+                		<entry key="user" value="[{jks.https.gat.redbanc.alias}]"/>  
+                		<entry key="action" value="Signature"/>    
+                        <entry key="passwordCallbackRef" value-ref="passwordCallback"/>
+                        <entry key="signaturePropFile" value="signature.properties"/>   
+                        <entry key="signatureKeyIdentifier" value="X509KeyIdentifier"/>
+
+                   		<!-- Firma y digest -->
+                		<entry key="signatureAlgorithm" value="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+                		<entry key="signatureDigestAlgorithm" value="http://www.w3.org/2001/04/xmlenc#sha256"/>
+
+                		<!-- Canonicalización con comentarios -->
+                		<entry key="signatureC14nAlgorithm" value="http://www.w3.org/2001/10/xml-exc-c14n#WithComments"/>
+
+                		<!-- Evita soap:mustUnderstand="true" -->
+                		<entry key="mustUnderstand" value="false"/> 
+                		
+                		<!-- Prueba de carga de certificados -->
+                		<entry key="org.apache.ws.security.crypto.merlin.load.certs" value="true"/>
+        		   	</map>
+            	</argument>
+          	</bean>
+ 		</jaxws:outInterceptors>
+ 		
+    </jaxws:client>
+    
+    <bean id="passwordCallback" class="cl.coopeuch.integracion.tarea.gestionpintarjeta.util.PasswordCallbackHandler">
+    	<property name="password" value="[{jks.https.gat.redbanc.private.password}]"/>
+    </bean>
+	
+    <http:conduit name="{http://www.redbanc.cl/gat11}CardUpdatePort11Binding.http-conduit">
+        <http:tlsClientParameters disableCNCheck="true">
+            <!-- <sec:certAlias>[{jks.https.gat.redbanc.alias}]</sec:certAlias> -->
+            <sec:trustManagers>
+                <sec:keyStore file="[{jks.https.gat.redbanc.file}]"
+                    password="[{jks.https.gat.redbanc.password}]" type="JKS"/>
+            </sec:trustManagers>
+            <sec:keyManagers keyPassword="[{jks.https.gat.redbanc.private.password}]">
+                <sec:keyStore file="[{jks.https.gat.redbanc.file}]"
+                    password="[{jks.https.gat.redbanc.password}]" type="JKS"/>
+            </sec:keyManagers>
+            <sec:cipherSuitesFilter>
+                <sec:include>.*_WITH_SHA256WITHRSA_.*</sec:include>
+                <sec:include>.*_WITH_X.509_.*</sec:include>
+                <sec:exclude>.*_WITH_NULL_.*</sec:exclude>
+                <sec:exclude>.*_DH_anon_.*</sec:exclude>
+            </sec:cipherSuitesFilter>
+        </http:tlsClientParameters>
+    </http:conduit>
+    
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <camelContext id="servicio-gestion-pin-tarjeta" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSGestionPinTarjeta"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSGestionPinTarjeta"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <bean id="validarDatosOperacionBean"
+                    method="validarDatosOperacion" ref="beanRouteFacade"/>
+                <choice id="validaErrorChoice">
+                    <when id="validaErrorWhen">
+                        <simple>${exchangeProperty.ERROR} == ''</simple>
+                        <choice id="inicioChoiceOperacion">
+                            <when id="inicioWhenOperacionActualizarPinDebito">
+                                <simple>${header.operationName} == 'actualizarPinDebito'</simple>
+                                <to id="toActualizarPinDebito" uri="direct:actualizarPinDebito"/>
+                            </when>
+                            <when id="inicioWhenOperacionActualizarPinCredito">
+                                <simple>${header.operationName} == 'actualizarPinCredito'</simple>
+                                <to id="toActualizarPinCredito" uri="direct:actualizarPinCredito"/>
+                            </when>
+                            <otherwise id="inicioOtherwise">
+                                <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="otherwiseError_300">
+                        <setProperty id="codigoErrorDatos" propertyName="codigoError">
+                            <constant>300</constant>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.UnsupportedOperationException"
+                            id="throwExceptionOperacionInvalida_300" message="Falta completar datos de entrada"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch-UnsupportedOperationException">
+                    <exception>java.lang.UnsupportedOperationException</exception>
+                    <to
+                        id="toInicioExcepcion-UnsupportedOperationException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="actualizarPinDebito">
+            <from id="actualizarPinDebitoFrom" uri="direct:actualizarPinDebito"/>
+            <doTry id="actualizarPinDebitoTry">
+                <to id="toObtenerTokenOAuth2ClaiDebito" uri="direct:obtenerTokenOAuth2Clai"/>
+                <to id="toUpdatePinClaiDebito" uri="direct:updatePinClai"/>
+                <doCatch id="actualizarPinDebitoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="actualizarPinDebitoCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="actualizarPinDebitoToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="obtenerTokenOAuth2Clai">
+            <from id="obtenerTokenAccesoClaiFrom" uri="direct:obtenerTokenOAuth2Clai"/>
+            <doTry id="obtenerTokenOAuth2Try">
+                <bean id="obtenerTokenOAuth2Bean"
+                    method="requestObtenerTokenOAuth2" ref="beanRouteFacade"/>
+                <log id="logObtenerTokenOAuth2Request"
+                    loggingLevel="INFO" message="Mensaje Entrada: ${body}"/>
+                <to id="obtenerTokenOAuth2-To" uri="cxfrs:bean:endpointLoginClai?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <convertBodyTo id="convertObtenerLoginOAuth2" type="java.lang.String"/>
+                <unmarshal id="unmarshalObtenerLoginOAuth2Response">
+                    <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tarea.rs.clai.AuthLoginResponse"/>
+                </unmarshal>
+                <doCatch id="obtenerTokenOAuth2Clai-UnsupportedOperationException">
+                    <exception>java.lang.UnsupportedOperationException</exception>
+                    <to
+                        id="toObtenerTokenOAuth2Clai-UnsupportedOperationException" uri="direct:excepcion"/>
+                    <stop id="stopObtenerTokenOAuth2Clai_1"/>
+                </doCatch>
+                <doCatch id="obtenerTokenOAuth2ClaiDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="obtenerTokenOAuth2ClaiCodigoError" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="obtenerTokenOAuth2DescripcionWS" propertyName="descripcionWS">
+                        <constant>/api/account-manager-bff/v1/auth/login</constant>
+                    </setProperty>
+                    <to id="obtenerTokenOAuth2ClaiToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopObtenerTokenOAuth2Clai_2"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="updatePinClai">
+            <from id="updatePinClaiFrom" uri="direct:updatePinClai"/>
+            <doTry id="updatePinClaiTry">
+                <bean id="updatePinClaiBean"
+                    method="requestUpdatePinClai" ref="beanRouteFacade"/>
+                <log id="logUpdatePinClaiRequest" loggingLevel="INFO" message="Mensaje Entrada: ${body}"/>
+                <to id="updatePinClai-To" uri="cxfrs:bean:endpointUpdatePinClai?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <convertBodyTo id="convertupdatePinClai" type="java.lang.String"/>
+                <unmarshal id="unmarshalUpdatePinClaiResponse">
+                    <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tarea.rs.clai.PinRestoreResponse"/>
+                </unmarshal>
+                <bean id="responseUpdatePinClaiBean"
+                    method="responseUpdatePinClai" ref="beanRouteFacade"/>
+                <doCatch id="updatePinClai-UnsupportedOperationException">
+                    <exception>java.lang.UnsupportedOperationException</exception>
+                    <to
+                        id="toUpdatePinClai-UnsupportedOperationException" uri="direct:excepcion"/>
+                    <stop id="stopUpdatePinClai_1"/>
+                </doCatch>
+                <doCatch id="updatePinClaiDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="updatePinClaiCodigoError" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="updatePinClaiDescripcionWS" propertyName="descripcionWS">
+                        <constant>/api/account-manager-bff/v1/proxy/pin</constant>
+                    </setProperty>
+                    <to id="updatePinClaiToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopUpdatePinClai_2"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="actualizarPinCredito">
+            <from id="actualizarPinCreditoFrom" uri="direct:actualizarPinCredito"/>
+            <doTry id="actualizarPinCreditoTry">
+            <!-- <bean id="dummyRequestFlujoCreditoBean"
+                    method="dummyRequestFlujoCredito" ref="beanRouteFacade"/> -->
+                <setProperty id="_setPropertyBody" propertyName="bodyProp">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="setPropertyUserId" propertyName="userIdProp">
+                    <xpath resultType="String">//userId</xpath>
+                </setProperty>
+                <setProperty id="setPropertyCanalLlamada" propertyName="canalLlamadaProp">
+                    <xpath resultType="String">//canalLlamada</xpath>
+                </setProperty>
+                <setProperty id="setPropertyRut" propertyName="rutProp">
+                     <xpath resultType="String">//rut</xpath>
+                </setProperty>
+                <setProperty id="setPropertyPan" propertyName="panProp">
+                     <xpath resultType="String">//pan</xpath>
+                </setProperty>
+                <choice id="choiceActualizarPinCreditoUnitario">
+                    <when id="whenActualizarPinClai">
+                        <simple>${exchangeProperty.CanalOrigen} == 'Clai'</simple>
+                        <log id="_logActualizarPinClai" message="Log = direct:obtenerPinOffsetClai"/>
+                        <to id="toObtenerPinOffsetClai_1" uri="direct:obtenerPinOffsetClai"/>
+                    </when>
+                    <when id="whenActualizrPinNexus">
+                        <simple>${exchangeProperty.CanalOrigen} == 'Nexus'</simple>
+                        <log id="_logActualizrPinNexus" message="Log = direct:updatePinNexus"/>
+                        <to id="toUpdatePinNexus_2" uri="direct:updatePinNexus"/>
+                    </when>
+                    <when id="whenViajeIOC">
+                        <simple>${exchangeProperty.CanalOrigen} == 'IOC'</simple>
+                        <log id="_logViajeIOC" message="Log = direct:updatePinIBS"/>
+                        <to id="toUpdatePinNexus_3" uri="direct:updatePinIBS"/>
+                    </when>
+                    <when id="whenViajeRedbanc">
+                        <simple>${exchangeProperty.CanalOrigen} == 'GAT'</simple>
+                        <log id="_logViajeRedbanc" message="Log = direct:updatePinRedbanc"/>
+                        <to id="toUpdatePinRedbanc_4" uri="direct:updatePinRedbanc"/>
+                    </when>
+                    <when id="whenViajePA">
+                        <simple>${exchangeProperty.CanalOrigen} == 'PA'</simple>
+                        <log id="_logViajePA" message="Log = direct:consultarPinIBS"/>
+                        <to id="toUpdatePinPA_5" uri="direct:consultarPinIBS"/>
+                    </when>
+                    <otherwise id="otherwiseActualizarTODO">
+                        <log id="_logOtherwiseActualizarTODO" message="Log = direct:actualizarTODO"/>
+                        <to id="toObtenerPinOffsetClai" uri="direct:obtenerPinOffsetClai"/>
+                        <to id="toUpdatePinNexus" uri="direct:updatePinNexus"/> 
+                        <to id="toUpdatePinRedbanc" uri="direct:updatePinRedbanc"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="actualizarPinCreditoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="actualizarPinCreditoCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="actualizarPinCreditoToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="obtenerPinOffsetClai">
+            <from id="obtenerPinOffsetClaiFrom" uri="direct:obtenerPinOffsetClai"/>
+            <doTry id="obtenerPinOffsetTry">
+                <bean id="obtenerPinOffsetBean"
+                    method="requestObtenerPinOffset" ref="beanRouteFacade"/>
+                <log id="logObtenerPinOffsetRequest" loggingLevel="INFO" message="Mensaje Entrada: ${body}"/>
+                <to id="obtenerPinOffset-To" uri="cxfrs:bean:endpointCalcOffsetClai?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <convertBodyTo id="convertObtenerPinOffset" type="java.lang.String"/>
+                <unmarshal id="unmarshalObtenerPinOffsetResponse">
+                    <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tarea.rs.clai.CalculoOffsetResponse"/>
+                </unmarshal>
+                <bean id="responseObtenerPinOffsetClaiBean"
+                    method="responseObtenerPinOffsetClai" ref="beanRouteFacade"/>
+                <doCatch id="obtenerPinOffsetClai-UnsupportedOperationException">
+                    <exception>java.lang.UnsupportedOperationException</exception>
+                    <to
+                        id="toObtenerPinOffsetClai-UnsupportedOperationException" uri="direct:excepcion"/>
+                    <stop id="stopObtenerPinOffsetClai_1"/>
+                </doCatch>
+                <doCatch id="obtenerPinOffsetClaiDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="obtenerPinOffsetClaiCodigoError" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="obtenerPinOffsetClaiDescripcionWS" propertyName="descripcionWS">
+                        <constant>/web/services/SWPOffset</constant>
+                    </setProperty>
+                    <to id="obtenerPinOffsetClaiToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopObtenerPinOffsetClai_2"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="updatePinNexus">
+            <from id="activarNexusFrom" uri="direct:updatePinNexus"/>
+            <doTry id="updatePinNexusTry">
+            <log id="_log1" message="Log = direct:updatePinNexus"/>
+                <removeHeaders
+                    excludePattern="Content*|User*|Connection"
+                    id="updatePinNexusRemoveHeadersLlamadaNexus" pattern="*"/>
+                <setHeader headerName="SOAPAction" id="updatePinNexusSetHeader">
+                    <constant>http://tempuri.org/IWSST247/MolST247Transacciones</constant>
+                </setHeader>
+                <setHeader headerName="Content-Encoding" id="updatePinNexusSetHeadersContentEncoding">
+                    <constant>identity</constant>
+                </setHeader>
+                <setBody>
+        			<simple>${exchangeProperty.bodyProp}</simple>
+    			</setBody>
+                <bean id="updatePinNexusSetPropiedades"
+                    method="datosOperacionMOLModificacionOffset" ref="beanRouteFacade"/>
+                <to id="updatePinNexusXml2trama" uri="xslt://etc/xsl/request/xml2xmlout_MolST247TransaccionesModificaOffset.xsl?saxon=true"/>
+                <log id="logUpdatePinNexusTCRequest" loggingLevel="INFO" message="Mensaje Entrada MOL Modificacion Offset: ${body}"/>
+                <to id="updatePinNexusCxf" uri="cxf:{{endpoint.nexus.mol.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="updatePinNexusBodyTo" type="java.lang.String"/>
+                <log id="logUpdatePinNexusTCResponse"
+                    loggingLevel="INFO" message="Mensaje Salida MOL Modificacion Offset: ${body}"/>
+                <setProperty id="updatePinNexusCodigoError" propertyName="molOffsetCodigoError">
+                    <xpath resultType="String">//*[local-name()='coderror']</xpath>
+                </setProperty>
+                <setProperty id="updatePinNexusDescripcionError" propertyName="molOffsetDescripcionError">
+                    <xpath resultType="String">//*[local-name()='msgerror']</xpath>
+                </setProperty>
+                <choice id="choiceUpdatePinNexus">
+                    <when id="whenUpdatePinNexus">
+                        <simple>${exchangeProperty.molOffsetCodigoError} == 0</simple>
+                        <setProperty id="updatePinNexusRespuesta" propertyName="molOffsetRespuesta">
+                            <xpath>//*[local-name()='XmlOutMol']</xpath>
+                        </setProperty>
+                        <setProperty id="updatePinNexusIdTrx" propertyName="molOffsetIdTrx">
+                             <xpath resultType="java.lang.String">//*[local-name()='MolST247TransaccionesResponse']/*[local-name()='idwsst247']/text()</xpath>
+                        </setProperty>
+                        <log id="_log4" message="Log = Modificacion Offset OK Nexus"/>
+                        <setProperty propertyName="CamelCXFDataFormat">
+                        	<constant>POJO</constant>
+                        </setProperty>
+                    </when>
+                    <otherwise id="otherwiseUpdatePinNexus">
+                        <setProperty
+                            id="updatePinNexusCodigoErrorTrxCatch" propertyName="codigoError">
+                            <simple>${exchangeProperty.molOffsetCodigoError}</simple>
+                        </setProperty>
+                        <setProperty
+                            id="updatePinNexusDescripcionWSExternoTrxCatch" propertyName="descripcionWSExterno">
+                            <simple>${exchangeProperty.molOffsetDescripcionError}</simple>
+                        </setProperty>
+                        <setProperty id="molOffsetCodigoDescripcionCompletoError" propertyName="molOffsetCodigoDescripcionCompletoError">
+                    		<simple>${exchangeProperty.molOffsetCodigoError} - ${exchangeProperty.molOffsetDescripcionError}</simple>
+                		</setProperty>
+                        <throwException
+                            exceptionType="java.lang.UnsupportedOperationException"
+                            id="throwExceptionUpdatePinNexus" message="Transaccion con respuesta erronea"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="activarNexusCatch-UnsupportedOperationException">
+                    <exception>java.lang.UnsupportedOperationException</exception>
+                    <setProperty id="_setProperty1" propertyName="CamelCXFDataFormat">
+                        <constant>POJO</constant>
+                    </setProperty>
+                    <to id="toInicioExcepcion-ExceptionUpdatePinNexus" uri="direct:excepcion"/>
+                    <stop id="stopUpdatePinNexusUnsupportedOperation"/>
+                </doCatch>
+                <doCatch id="updatePinNexusCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.net.SocketException</exception>
+                    <exception>java.net.UnknownHostException</exception>
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty2" propertyName="CamelCXFDataFormat">
+                        <constant>POJO</constant>
+                    </setProperty>
+                    <setProperty id="updatePinNexusCodigoErrorCatch" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty
+                        id="updatePinNexusDescripcionWSExternoCatch" propertyName="descripcionWSExterno">
+                        <constant>webservice.nexussa.cl/WST247</constant>
+                    </setProperty>
+                    <to id="updatePinNexusToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopUpdatePinNexus"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <!-- Ruta Redbanc -->
+        <route id="updatePinRedbanc">
+            <from id="updatePinRedbancFrom" uri="direct:updatePinRedbanc"/>
+            <doTry id="updatePinRedbancTry">
+            	<log id="_logUpdatePinRedbanc" message="Log = direct:updatePinRedbanc"/>
+            	<bean id="requestUpdatePinRedbancBean" method="requestUpdatePinRedbanc" ref="beanRouteFacade"/>
+            	<bean id="beanWSUpdatePinRedbanc" method="updatePin" ref="wscliente"/>
+            	<bean id="responseUpdatePinRedbancBean" method="responseUpdatePinRedbanc" ref="beanRouteFacade"/>
+            	<to id="toUpdatePinIBSRouteRedbanc" uri="direct:updatePinIBS"/>
+            <doCatch id="updatePinRedbancDoCatch">
+				<exception>java.lang.Exception</exception>
+            	<bean id="responseUpdatePinRedbancBeanError" method="responseUpdatePinRedbanc" ref="beanRouteFacade"/>
+            	<setBody>
+        			<constant></constant>
+    			</setBody>
+    			<removeHeaders pattern="*"/>
+            	<to id="toReestablecerPinRouteRedbanc" uri="direct:reestablecerPin"/> 
+            </doCatch>
+            </doTry>
+        </route>
+
+        <route id="updatePinIBS">
+            <from id="updatePinIBSFrom" uri="direct:updatePinIBS"/>
+            <doTry id="updatePinIBSTry">
+           		<setBody>
+        			<simple>${exchangeProperty.bodyProp}</simple>
+    			</setBody>
+                <marshal id="updatePinIBSMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tarea.wsdl"/>
+                </marshal>
+                <bean id="updatePinIBSUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="updatePinIBSToXSLTrama" uri="xslt://etc/xsl/request/IOC041001I_actualizar.xsl"/>
+                <log id="updatePinIBSTrama" message="Trama generada = ${body}"/>
+                <to id="updatePinIBSToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="updatePinIBSTramaResponse" message="Trama recibida = ${body}"/>
+                <transform id="updatePinIBSTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="updatePinIBSToXSLSOAP" uri="xslt://etc/xsl/response/IOC041001O_actualizar.xsl?saxon=true"/>
+                <choice id="validaRespuestaUpdatePinIBSChoice">
+                    <when id="validaRespuestaUpdatePinIBSWhen">
+                        <xpath>//idTransaccion/text() != ''</xpath>
+                        <setProperty id="setIdTransaccion" propertyName="idTransaccionIBS">
+                            <xpath>//idTransaccion/text()</xpath>
+                        </setProperty>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <unmarshal id="updatePinIBSUnmarshal">
+                            <jaxb contextPath="cl.coopeuch.integracion.tarea.wsdl"/>
+                        </unmarshal>
+                        <setProperty id="setBodyIOC041001O" propertyName="bodyIOC041001OProp">
+                            <simple>${body}</simple>
+                        </setProperty>
+                      <!--   <stop id="stopUpdatePinIBSOtherwise"/> -->
+                    </otherwise>
+                </choice>
+                 <convertBodyTo type="cl.coopeuch.integracion.tarea.wsdl.ActualizarPinCreditoResponse"/>
+				<bean id="responseActualizarPinCreditoBeanRutaUpdatePinIBS" method="responseActualizarPinCredito" ref="beanRouteFacade"/>
+				 <convertBodyTo type="cl.coopeuch.integracion.tarea.wsdl.ActualizarPinCreditoResponse"/>
+                <doCatch id="updatePinIBSDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty
+                        id="updatePinIBSCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="updatePinIBSToExcepcionAMQ" uri="direct:excepcion"/>
+                    <stop id="stopUpdatePinIBSAMQ"/>
+                </doCatch>
+                <doCatch id="updatePinIBSDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="generarAvanceIBSCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="updatePinIBSToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopUpdatePinIBS"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="reestablecerPin">
+            <from id="reestablecerPinFrom" uri="direct:reestablecerPin"/>
+            <doTry id="reestablecerPinTry">
+    		<to id="toConsultarPinIBS" uri="direct:consultarPinIBS"/>
+    		<to id="toActualizarPinNexus" uri="direct:updatePinNexus"/>
+            <bean id="responseActualizarPinCreditoBeanRutaReestablecerPin" method="responseActualizarPinCredito" ref="beanRouteFacade"/>
+            <unmarshal>
+            	<jaxb contextPath="cl.coopeuch.integracion.tarea.wsdl"/>
+            </unmarshal>
+            <doCatch id="reestablecerPinDoCatch">
+            	<exception>java.lang.Exception</exception>
+                <setProperty id="reestablecerPinCodigoError" propertyName="codigoError">
+                	<constant>500</constant>
+                </setProperty>
+                <to id="reestablecerPinToExcepcion" uri="direct:excepcion"/>
+            </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="consultarPinIBS">
+            <from id="consultarPinIBSFrom" uri="direct:consultarPinIBS"/>
+            <doTry id="consultarPinIBSTry">
+            	<convertBodyTo id="consultarPinIBSConvertBodyToString" type="java.lang.String"/>
+                <removeHeaders id="removeHeadersConsultarPinIBS" pattern="*"/>
+                <to id="consultarPinIBSToPa" uri="sql-stored:classpath:etc/sql/PA_SEL_GESTIONPINTARJETA_ACTUALIZARPINCREDITO_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseConsultarPinIBS"/>
+                <bean id="respuestaPaConsultarPinIBS" method="respuestaPaConsultarPinIBS" ref="beanRouteFacade"/>                   
+                <doCatch id="consultarPinIBSErrorDoCatch">
+                    <exception>java.lang.RuntimeException</exception>
+                    <log id="consultarPinIBSErrorPa"
+                        loggingLevel="ERROR" message="${exception}"/>
+                    <setProperty id="consultarPinIBSErrorCodigoError" propertyName="codigoError">
+                        <constant>509</constant>
+                    </setProperty>
+                    <setProperty id="consultarPinIBSErrorMensajeError" propertyName="descripcionError">
+                        <simple>Error al ejecutar procedimiento almacenado.</simple>
+                    </setProperty>
+                    <to id="toConsultarDetalleExcepcion1" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultarPinIBSErrorPADoCatch">
+                    <exception>java.sql.SQLException</exception>
+                    <log id="consultarPinIBSErrorPA"
+                        loggingLevel="ERROR" message="${exception}"/>
+                    <to id="toConsultarDetalleExcepcion1" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultarPinIBSDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarPinIBSCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="consultarPinIBSMensajeError" propertyName="mensajeError">
+                        <simple>Error interno del servidor.</simple>
+                    </setProperty>
+                    <to id="toConsultarDetalleExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+                
+                           
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <!--                 <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/> -->
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

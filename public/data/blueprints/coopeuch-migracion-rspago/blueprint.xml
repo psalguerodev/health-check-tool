@@ -1,0 +1,985 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyPagos" persistent-id="wspagos"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioPago" id="serviciopagoEndpoint"
+        serviceClass="cl.coopeuch.integracion.pago.wsdl.PagoPortType" wsdlURL="etc/wsdl/ServicioPagos.wsdl"/>
+    <cxf:rsServer address="/RSPago" id="PagoRest" serviceClass="cl.coopeuch.integracion.pagos.rest.PagosRest"/>
+    <cxf:rsClient address="[{rsnotificaciones.enviar.endpoint}]"
+        id="endpointRsNotificaciones" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="true"/>
+        </cxf:properties>
+    </cxf:rsClient>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="[{amq.broker.url}]"/>
+        <property name="userName" value="[{amq.username}]"/>
+        <property name="password" value="[{amq.password}]"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="com.ibm.mq.jms.MQConnectionFactory" id="websphereConnectionFactory">
+        <property name="transportType" value="1"/>
+        <property name="hostName" value="[{ibm.mq.host}]"/>
+        <property name="port" value="[{ibm.mq.port}]"/>
+        <property name="queueManager" value="[{ibm.qm.name}]"/>
+        <property name="useConnectionPooling" value="true"/>
+        <property name="channel" value="[{ibm.qm.channel}]"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="websphereConfig">
+        <property name="connectionFactory" ref="websphereConnectionFactory"/>
+        <property name="concurrentConsumers" value="[{ibm.mq.concurrentConsumers.pago}]"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsComponent" id="websphere">
+        <property name="configuration" ref="websphereConfig"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.util.RouteFacade" id="routeFacade"/>
+    <bean class="cl.coopeuch.util.aggregation.AdministrarCuerpo" id="SetProperties"/>
+    <bean class="cl.coopeuch.util.aggregation.PropagadorCabecera" id="HeadersPropagator"/>
+    <camelContext id="servicio-pagos" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-InicioREST">
+            <from id="inicioFrom-REST" uri="cxfrs:bean:PagoRest"/>
+            <choice id="inicioChoiceOperacion-REST">
+                <when id="inicioWhenOperacion-PagoCreditoConsumo-REST">
+                    <simple>${header.operationName} == 'pagoCreditoConsumo'</simple>
+                    <unmarshal id="pagoCreditoConsumo_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.pagos.soap.PagoCreditoConsumo"/>
+                    </unmarshal>
+                    <bean id="pagoCreditoConsumo_bean6"
+                        method="pagoCreditoConsumoRequestRest" ref="routeFacade"/>
+                    <marshal id="pagoCreditoConsumo_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+                    </marshal>
+                    <to id="pagoCreditoConsumo_to" uri="direct:inicio"/>
+                    <unmarshal id="pagoCreditoConsumo_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+                    </unmarshal>
+                    <bean id="pagoCreditoConsumo_bean7"
+                        method="pagoCreditoConsumoResponseRest" ref="routeFacade"/>
+                    <marshal id="pagoCreditoConsumo_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.pagos.soap.PagoCreditoConsumoResponse"/>
+                    </marshal>
+                </when>
+                <when id="inicioWhenOperacion-PagoTarjetaCredito-REST">
+                    <simple>${header.operationName} == 'pagoTarjetaCredito'</simple>
+                    <unmarshal id="pagoTarjetaCredito_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.pagos.soap.PagoTarjetaCredito"/>
+                    </unmarshal>
+                    <bean id="pagoTarjetaCredito_bean6"
+                        method="pagoTarjetaCreditoRequestRest" ref="routeFacade"/>
+                    <marshal id="pagoTarjetaCredito_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+                    </marshal>
+                    <to id="pagoTarjetaCredito_to" uri="direct:inicio"/>
+                    <unmarshal id="pagoTarjetaCredito_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+                    </unmarshal>
+                    <bean id="pagoTarjetaCredito_bean7"
+                        method="pagoTarjetaCreditoResponseRest" ref="routeFacade"/>
+                    <marshal id="pagoTarjetaCredito_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.pagos.soap.PagoTarjetaCreditoResponse"/>
+                    </marshal>
+                </when>
+                <when id="inicioWhenOperacion-PagoCuotasParticipacion-REST">
+                    <simple>${header.operationName} == 'pagoCuotasParticipacion'</simple>
+                    <unmarshal id="pagoCuotasParticipacion_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.pagos.soap.PagoCuotasParticipacion"/>
+                    </unmarshal>
+                    <bean id="pagoCuotasParticipacion_bean6"
+                        method="pagoCuotasParticipacionRequestRest" ref="routeFacade"/>
+                    <marshal id="pagoCuotasParticipacion_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+                    </marshal>
+                    <to id="pagoCuotasParticipacion_to" uri="direct:inicio"/>
+                    <unmarshal id="pagoCuotasParticipacion_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+                    </unmarshal>
+                    <bean id="pagoCuotasParticipacion_bean7"
+                        method="pagoCuotasParticipacionResponseRest" ref="routeFacade"/>
+                    <marshal id="pagoCuotasParticipacion_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.pagos.soap.PagoCuotasParticipacionResponse"/>
+                    </marshal>
+                </when>
+                <when id="inicioWhenOperacion-PagoCreditoHipotecario-REST">
+                    <simple>${header.operationName} == 'pagoCreditoHipotecario'</simple>
+                    <unmarshal id="pagoCreditoHipotecario_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.pagos.soap.PagoCreditoHipotecario"/>
+                    </unmarshal>
+                    <bean id="pagoCreditoHipotecario_bean6"
+                        method="pagoCreditoHipotecarioRequestRest" ref="routeFacade"/>
+                    <marshal id="pagoCreditoHipotecario_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+                    </marshal>
+                    <to id="pagoCreditoHipotecario_to7" uri="direct:inicio"/>
+                    <unmarshal id="pagoCreditoHipotecario_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+                    </unmarshal>
+                    <bean id="pagoCreditoHipotecario_bean7"
+                        method="pagoCreditoHipotecarioResponseRest" ref="routeFacade"/>
+                    <marshal id="pagoCreditoHipotecario_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.pagos.soap.PagoCreditoHipotecarioResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <route id="cx-RuteoOperaciones">
+            <from id="inicioFrom" uri="cxf:bean:serviciopagoEndpoint?DataFormat=MESSAGE"/>
+            <to id="_toInicioWSDL" uri="direct:inicio"/>
+        </route>
+        <route id="_routeCola">
+            <from id="_fromCola" uri="AMQ:queue:{{colas.servicio.pagos.in.temp}}?preserveMessageQos=true"/>
+            <bean id="createJMSCorrelationId-Cola"
+                method="crearJMSCorrelacionId24" ref="routeFacade"/>
+            <choice id="_choice6">
+                <when id="_when5">
+                    <simple>${body} contains 'pagoCreditoHipotecario'</simple>
+                    <unmarshal id="pagoCreditoHipotecario_unmarshal_MQ">
+                        <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+                    </unmarshal>
+                    <bean id="pagoCreditoHipotecario_bean6_MQ"
+                        method="pagoCreditoHipotecarioRequestRest" ref="routeFacade"/>
+                    <marshal id="pagoCreditoHipotecario_marshal5_MQ">
+                        <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+                    </marshal>
+                </when>
+                <when id="_when6">
+                    <simple>${body} contains 'pagoCreditoConsumo'</simple>
+                    <unmarshal id="pagoCreditoConsumo_unmarshal_MQ">
+                        <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+                    </unmarshal>
+                    <bean id="pagoCreditoConsumo_bean6_MQ"
+                        method="pagoCreditoConsumoRequestRest" ref="routeFacade"/>
+                    <marshal id="pagoCreditoConsumo_marshal5_MQ">
+                        <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+                    </marshal>
+                </when>
+                <when id="_when7">
+                    <simple>${body} contains 'pagoTarjetaCredito'</simple>
+                    <unmarshal id="pagoTarjetaCredito_unmarshal_MQ">
+                        <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+                    </unmarshal>
+                    <bean id="pagoTarjetaCredito_bean6_MQ"
+                        method="pagoTarjetaCreditoRequestRest" ref="routeFacade"/>
+                    <marshal id="pagoTarjetaCredito_marshal5_MQ">
+                        <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+                    </marshal>
+                </when>
+                <when id="_when8">
+                    <simple>${body} contains 'pagoCuotasParticipacion'</simple>
+                    <unmarshal id="pagoCuotasParticipacion_unmarshal_MQ">
+                        <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+                    </unmarshal>
+                    <bean id="pagoCuotasParticipacion_bean6_MQ"
+                        method="pagoCuotasParticipacionRequestRest" ref="routeFacade"/>
+                    <marshal id="pagoCuotasParticipacion_marshal5_MQ">
+                        <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+                    </marshal>
+                </when>
+            </choice>
+            <to id="_toInicioColas" uri="direct:inicio"/>
+        </route>
+        <route id="RuteoOperaciones-Soap">
+            <from id="EndpointListener" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                    id="backupBody" method="respaldarCuerpo"/>
+                <bean id="createJMSCorrelationId"
+                    method="crearJMSCorrelacionId24" ref="routeFacade"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutapagoCreditoConsumo">
+                        <simple>${body} contains 'pagoCreditoConsumo'</simple>
+                        <to id="pagoCreditoConsumoValidator" uri="validator:etc/xsd/soapPagos.xsd"/>
+                        <to id="pagoCreditoConsumoTo" uri="direct:pagoCreditoConsumo"/>
+                    </when>
+                    <when id="rutapagoTarjetaCredito">
+                        <simple>${body} contains 'pagoTarjetaCredito'</simple>
+                        <to id="pagoTarjetaCreditoValidator" uri="validator:etc/xsd/soapPagos.xsd"/>
+                        <log id="_log1" message="bodyTarjetaCredito: ${body}"/>
+                        <to id="pagoTarjetaCreditoTo" uri="direct:pagoTarjetaCredito"/>
+                    </when>
+                    <when id="rutapagoCuotasParticipacion">
+                        <simple>${body} contains 'pagoCuotasParticipacion'</simple>
+                        <to id="pagoCuotasParticipacionValidator" uri="validator:etc/xsd/soapPagos.xsd"/>
+                        <log id="_log2" message="bodyCuotas: ${body}"/>
+                        <to id="pagoCuotasParticipacionTo" uri="direct:pagoCuotasParticipacion"/>
+                    </when>
+                    <when id="rutapagoCreditoHipotecario">
+                        <simple>${body} contains 'pagoCreditoHipotecario'</simple>
+                        <to id="pagoCreditoHipotecarioValidator" uri="validator:etc/xsd/soapPagos.xsd"/>
+                        <to id="pagoCreditoHipotecarioTo" uri="direct:pagoCreditoHipotecario"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                        id="ruteoOperacionesRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.ObtenerError"
+                        id="ruteoOperacionesBodyError" method="ponerError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="pagoCreditoConsumo">
+            <from id="pagoCreditoConsumoFrom" uri="direct:pagoCreditoConsumo"/>
+            <setProperty id="operationName-pagoCreditoConsumo" propertyName="operationName">
+                <constant>pagoCreditoConsumo</constant>
+            </setProperty>
+            <unmarshal id="pagoCreditoConsumo_unmarshal-Datos">
+                <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+            </unmarshal>
+            <!-- choice para validar y enviar notificacion si corresponde -->
+            <bean id="validaRespuestaCPBean-pagoCreditoConsumo"
+                method="obtenerDatosOperacion" ref="routeFacade"/>
+            <marshal id="pagoCreditoConsumo_marshal-Datos">
+                <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+            </marshal>
+            <choice id="_choice7">
+                <when id="_when9">
+                    <simple>${exchangeProperty.canalLlamada} == ${exchangeProperty.canal.pagoexpress} and  ${exchangeProperty.cuentaOrigen} == 0</simple>
+                    <setProperty
+                        id="cuentaOrigen-CuentaContable-CreditoConsumo" propertyName="cuentaOrigen">
+                        <simple>${exchangeProperty.cuentaContable}</simple>
+                    </setProperty>
+                    <to id="pagoCreditoConsumo_CtaContable" uri="direct:pagoCreditoConsumoCtaContable"/>
+                </when>
+                <otherwise id="_otherwise4">
+                    <to id="pagoCreditoConsumo_CtaCoopeuch" uri="direct:pagoCreditoConsumoCtaCoopeuch"/>
+                </otherwise>
+            </choice>
+            <choice id="pagoCreditoConsumoValidaRespuestaOK">
+                <when id="pagoCreditoConsumoWhenOK">
+                    <xpath>//formato='IOC522001O' or //formato='IOC520002O'</xpath>
+                    <wireTap id="pagoCreditoConsumoEnvioNotificacion" uri="direct:validaEnvioNotificacion"/>
+                </when>
+            </choice>
+        </route>
+        <route id="pagoCreditoConsumo-CtaCoopeuch">
+            <from id="CtaCoopeuch-from" uri="direct:pagoCreditoConsumoCtaCoopeuch"/>
+            <to id="pagoCreditoConsumoXml2trama" uri="xslt://etc/xsl/request/xml2tramaIOC520002I_pagoCreditoConsumo.xsl"/>
+            <log id="_log6" message="AMQ: ${body}"/>
+            <bean id="pagoCreditoConsumo-JMSCorrelationId"
+                method="crearJMSCorrelacionId24" ref="routeFacade"/>
+            <to id="activemq-pagoCreditoConsumo" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+            <transform id="pagoCreditoConsumoTransform">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <to id="pagoCreditoConsumoTrama2xml" uri="xslt://etc/xsl/response/trama2xmlIOC520002O_pagoCreditoConsumo.xsl?saxon=true"/>
+            <log id="_log7" message="RESPUESTA AMQ: ${body}"/>
+        </route>
+        <route id="pagoCreditoConsumo-CtaContable">
+            <from id="CtaContable-from" uri="direct:pagoCreditoConsumoCtaContable"/>
+            <to id="CtaContable-pagoCreditoConsumoXml2trama" uri="xslt://etc/xsl/request/IOC522001I_pagoCreditoConsumo_CuentaContable.xsl"/>
+            <log id="_log8" message="AMQ: ${body}"/>
+            <bean id="CtaContable-pagoCreditoConsumo-JMSCorrelationId"
+                method="crearJMSCorrelacionId24" ref="routeFacade"/>
+            <to id="CtaContable-activemq-pagoCreditoConsumo" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+            <transform id="CtaContable-pagoCreditoConsumoTransform">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <to id="CtaContable-pagoCreditoConsumoTrama2xml" uri="xslt://etc/xsl/response/IOC522001I_pagoCreditoConsumo_CuentaContable.xsl?saxon=true"/>
+            <log id="_log9" message="RESPUESTA AMQ: ${body}"/>
+        </route>
+        <!-- Este metodo es llamado por medio del componente WireTap, esto implica que despues de hacer el pago del credito de consumo de forma independiente envia el correo sin importar el resultado arrojado -->
+        <route id="_route_envioEmailpagoCreditoConsumo">
+            <from id="_from1" uri="direct:envioEmailpagoCreditoConsumo"/>
+            <setHeader headerName="pago.mailtransferencia.from" id="_setHeader1">
+                <simple>{{pago.mailtransferencia.from}}</simple>
+            </setHeader>
+            <setProperty id="idNotificacionPagoConsumo" propertyName="idNotificacion">
+                <simple>{{rsnotificaciones.idnotificacion.pagoconsumo}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty1" propertyName="pago.mailtransferencia.creditoconsumo.subject">
+                <simple>{{pago.mailtransferencia.creditoconsumo.subject}}</simple>
+            </setProperty>
+            <setHeader
+                headerName="pago.mailtransferencia.creditoconsumo.nomPlantilla" id="_setHeaderpago.mailtransferencia.creditoconsumo.nomPlantilla">
+                <simple>{{pago.mailtransferencia.creditoconsumo.nomPlantilla}}</simple>
+            </setHeader>
+            <setHeader headerName="fechaAutorizacion" id="pagoCreditoConsumoHeaderFechaAutorizacion">
+                <xpath resultType="String">//fechaAutorizacion</xpath>
+            </setHeader>
+            <setHeader headerName="idTransaccion" id="pagoCreditoConsumoHeaderIdTransaccion">
+                <xpath resultType="String">//idTransaccion</xpath>
+            </setHeader>
+            <bean id="pagoCreditoConsumoHeadersGet"
+                method="obtenerHeader" ref="HeadersPropagator"/>
+            <bean id="pagoCreditoConsumoSetSetup" method="ponerCuerpo" ref="SetProperties"/>
+            <removeHeaders id="pagoCreditoConsumoRemoveHeadersJMS1" pattern="JMS*"/>
+            <to id="pagoCreditoConsumoConsultaParametrosTo" uri="direct:remoteCall_consultaParametros"/>
+            <removeHeaders id="pagoCreditoConsumoRemoveHeadersJMS2" pattern="JMS*"/>
+            <to id="pagoCreditoConsumoTraerDatosPersonaTo" uri="direct:remoteCall_traerDatosPersona"/>
+            <to id="remoteCall_envioEmailpagoCreditoConsumo2" uri="xslt://etc/xsl/mid/remoteCall_envioEmailpagoCreditoConsumo.xsl?saxon=true"/>
+            <convertBodyTo id="_convertBodyTo1" type="String"/>
+            <to id="envioEmailCreditoConsumo" uri="direct:enviarRsNotificaciones"/>
+        </route>
+        <!-- Realiza el pago de la tarjeta de credito conectandose por medio de AMQ y coloca la trama en el IOC520003I -->
+        <route id="pagoTarjetaCredito">
+            <from id="pagoTarjetaCreditoFrom" uri="direct:pagoTarjetaCredito"/>
+            <setProperty id="operationName-pagoTarjetaCredito" propertyName="operationName">
+                <constant>pagoTarjetaCredito</constant>
+            </setProperty>
+            <unmarshal id="pagoTarjetaCredito_unmarshal-Datos">
+                <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+            </unmarshal>
+            <bean id="TarjetaCredito-validaRespuestaCPBean"
+                method="obtenerDatosOperacion" ref="routeFacade"/>
+            <marshal id="pagoTarjetaCredito_marshal-Datos">
+                <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+            </marshal>
+            <choice id="_choice8">
+                <when id="_when10">
+                    <simple>${exchangeProperty.canalLlamada} == ${exchangeProperty.canal.pagoexpress} and  ${exchangeProperty.cuentaOrigen} == 0 </simple>
+                    <setProperty id="Property-body-SPUB" propertyName="body_tarjetaCredito">
+                        <simple>${body}</simple>
+                    </setProperty>
+                    <setProperty id="cuentaOrigen-CuentaContable-SPUB" propertyName="cuentaOrigen">
+                        <simple>${exchangeProperty.cuentaContable}</simple>
+                    </setProperty>
+                    <to id="validarPagoTarjetaCredito-To-SPUB" uri="direct:validarPagoTarjetaCredito"/>
+                    <setProperty id="formato-SPUB" propertyName="formato">
+                        <xpath resultType="String">//formato</xpath>
+                    </setProperty>
+                    <choice id="_choice2-SPUB">
+                        <when id="_when1-SPUB">
+                            <xpath>//formato='IOC745001O'</xpath>
+                            <to id="Monetario-To-SPUB" uri="direct:monetario"/>
+                            <choice id="_choice3-SPUB">
+                                <when id="_when2-SPUB">
+                                    <simple>${exchangeProperty.codError} == 0</simple>
+                                    <to
+                                    id="pagoTarjetaCredito_CtaContable-SPUB" uri="direct:pagoTarjetaCreditoCtaContable"/>
+                                </when>
+                                <otherwise id="_otherwise5">
+                                    <to id="SalidaError-Monetario-SPUB" uri="xslt://etc/xsl/response/trama2xmlIOC520003O_pagoTarjetaCredito.xsl?saxon=true"/>
+                                </otherwise>
+                            </choice>
+                        </when>
+                    </choice>
+                </when>
+                <otherwise id="_otherwise6">
+                    <bean id="validaRut-TarjetaCredito"
+                        method="validaRut" ref="routeFacade"/>
+                    <choice id="_choice5">
+                        <when id="_when4">
+                            <simple>${exchangeProperty.validaRut} == 'Correcto'</simple>
+                            <setProperty id="Property-body" propertyName="body_tarjetaCredito">
+                                <simple>${body}</simple>
+                            </setProperty>
+                            <to id="validarPagoTarjetaCredito-To" uri="direct:validarPagoTarjetaCredito"/>
+                            <setProperty id="formato" propertyName="formato">
+                                <xpath resultType="String">//formato</xpath>
+                            </setProperty>
+                            <choice id="_choice2">
+                                <when id="_when1">
+                                    <xpath>//formato='IOC745001O'</xpath>
+                                    <to id="Monetario-To" uri="direct:monetario"/>
+                                    <log id="_log3" message="${exchangeProperty.codError}"/>
+                                    <choice id="_choice3">
+                                    <when id="_when2">
+                                    <simple>${exchangeProperty.codError} == 0</simple>
+                                    <choice id="_choice4">
+                                    <when id="_when3">
+                                    <simple>${exchangeProperty.canalLlamada} == 'BRNC'</simple>
+                                    <to
+                                    id="SalidaError-Monetario" uri="xslt://etc/xsl/response/trama2xmlIOC520003O_pagoTarjetaCredito.xsl?saxon=true"/>
+                                    </when>
+                                    <otherwise id="_otherwise2">
+                                    <to
+                                    id="Monetario-To" uri="direct:pago_tarjeta_credito"/>
+                                    </otherwise>
+                                    </choice>
+                                    </when>
+                                    <otherwise id="_otherwise1">
+                                    <to
+                                    id="SalidaError-Monetario" uri="xslt://etc/xsl/response/trama2xmlIOC520003O_pagoTarjetaCredito.xsl?saxon=true"/>
+                                    </otherwise>
+                                    </choice>
+                                </when>
+                            </choice>
+                        </when>
+                        <otherwise id="_otherwise3">
+                            <to id="SalidaError-ValidaRut" uri="xslt://etc/xsl/response/trama2xmlIOC520003O_pagoTarjetaCredito.xsl?saxon=true"/>
+                        </otherwise>
+                    </choice>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="call_IOC7450">
+            <from id="IOC7450-From" uri="direct:validarPagoTarjetaCredito"/>
+            <to id="pagoTarjetaCreditoXml2trama-validacionDatos-Entrada" uri="xslt://etc/xsl/request/IOC745001I_ValidacionPagoTarjeta.xsl?saxon=true"/>
+            <bean id="pagoTarjetaCredito-IOC7450-JMSCorrelationId"
+                method="crearJMSCorrelacionId24" ref="routeFacade"/>
+            <to id="activeMQ-validador-pagoTarjetaCredito" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Shared&amp;replyTo={{amq.queue.res}}&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+            <transform id="validador-pagoTarjetaCredito-Transform">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <setProperty id="codigo_emisor" propertyName="codigo_emisor">
+                <simple>{{operacion.monetario.id_emisor_servicio}}</simple>
+            </setProperty>
+            <to id="pagoTarjetaCreditoXml2trama-validacionDatos-Salida" uri="xslt://etc/xsl/response/IOC745001O_ValidacionPagoTarjeta.xsl?saxon=true"/>
+            <setProperty id="fechaMol" propertyName="fechaMol">
+                <xpath>//fechaMol</xpath>
+            </setProperty>
+            <setProperty id="fecha" propertyName="fecha">
+                <xpath>//fecha</xpath>
+            </setProperty>
+            <setProperty id="hora" propertyName="hora">
+                <xpath>//hora</xpath>
+            </setProperty>
+            <setProperty id="fechaHora" propertyName="fechaHora">
+                <xpath>//fechaHora</xpath>
+            </setProperty>
+            <setProperty id="fechaContable" propertyName="fechaContable">
+                <xpath resultType="java.lang.String">//fechaContable</xpath>
+            </setProperty>
+            <bean id="transformacionFecha"
+                method="transformacionFechaContable" ref="routeFacade"/>
+        </route>
+        <route id="pagoTarjetaCredito-CtaContable">
+            <from id="pagoTarjetaCredito-CtaContable-from" uri="direct:pagoTarjetaCreditoCtaContable"/>
+            <log id="_log13" message="Entrada............."/>
+            <to id="CtaContable-pagoTarjetaCreditoXml2trama" uri="xslt://etc/xsl/request/IOC523001I_pagoTarjetaCredito_CuentaContable.xsl"/>
+            <log id="_log14" message="Entrada: ${body}"/>
+            <log id="_log15" message="AMQ: ${body}"/>
+            <bean id="pagoTarjetaCredito-CtaContable-JMSCorrelationId"
+                method="crearJMSCorrelacionId24" ref="routeFacade"/>
+            <to id="CtaContable-activemq-pagoTarjetaCredito" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+            <transform id="CtaContable-pagoTarjetaCreditoTransform">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <to id="CtaContable-ppagoTarjetaCreditooTrama2xml" uri="xslt://etc/xsl/response/IOC523001O_pagoTarjetaCredito_CuentaContable.xsl?saxon=true"/>
+            <log id="_log16" message="RESPUESTA AMQ: ${body}"/>
+            <choice id="CtaContable-pagoTarjetaCreditoRetorno">
+                <when id="CtaContable-pagoTarjetaCreditoRetornoOk">
+                    <xpath>//formato='IOC523001O'</xpath>
+                    <wireTap id="pagoTarjetaCreditoEnvioNotificacion" uri="direct:validaEnvioNotificacion"/>
+                </when>
+            </choice>
+        </route>
+        <route id="Pago_TarjetaCredito">
+            <from id="IOC5200-From" uri="direct:pago_tarjeta_credito"/>
+            <removeHeaders
+                id="Pago_TarjetaCredito-removeHeaders-LlamadaNexus" pattern="*"/>
+            <setBody id="_setBody1">
+                <simple>${exchangeProperty.body_tarjetaCredito}</simple>
+            </setBody>
+            <to id="pagoTarjetaCreditoXml2trama-IOC5200" uri="xslt://etc/xsl/request/xml2tramaIOC520003I_pagoTarjetaCredito.xsl?saxon=true"/>
+            <log id="_log4" message="Entrada AMQ TRAMA: ${body}"/>
+            <bean id="pagoTarjetaCredito-JMSCorrelationId"
+                method="crearJMSCorrelacionId24" ref="routeFacade"/>
+            <to id="activeMQ-pagoTarjetaCredito" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Shared&amp;replyTo={{amq.queue.res}}&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+            <transform id="pagoTarjetaCreditoTransform">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <log id="_log5" message="RESPUESTA AMQ TRAMA: ${body}"/>
+            <to id="pagoTarjetaCreditoTrama2xml" uri="xslt://etc/xsl/response/trama2xmlIOC520003O_pagoTarjetaCredito.xsl?saxon=true"/>
+            <choice id="pagoTarjetaCreditoRetorno">
+                <when id="pagoTarjetaCreditoOk">
+                    <xpath>//formato='IOC520003O'</xpath>
+                    <setProperty id="setPropEnvioMailTC" propertyName="flagEmailSpri">
+                        <simple>{{flag.envioemail.canal.spri}}</simple>
+                    </setProperty>
+                    <wireTap id="pagoTarjetaCreditoEnvioNotificacionTc" uri="direct:validaEnvioNotificacion"/>
+                </when>
+            </choice>
+        </route>
+        <route id="MOLMonetario-Route">
+            <from id="MOLMonetario-From" uri="direct:monetario"/>
+            <doTry id="MOLMonetario-Try">
+                <removeHeaders
+                    excludePattern="Content*|User*|Connection"
+                    id="MOLMonetario-removeHeaders-LlamadaNexus" pattern="*"/>
+                <setHeader headerName="SOAPAction" id="MOLMonetario-setHeader">
+                    <constant>http://tempuri.org/IWSST247/MolST247Transacciones</constant>
+                </setHeader>
+                <setHeader headerName="Content-Encoding" id="MOLMonetario-setHeaders-Content-Encoding">
+                    <constant>identity</constant>
+                </setHeader>
+                <bean id="MOLMonetario-GuardarPropiedades"
+                    method="datosOperacionMOL" ref="routeFacade"/>
+                <to id="MOLMonetario-Xml2trama" uri="xslt://etc/xsl/request/xml2xmlout_MolST247Transacciones.xsl?saxon=true"/>
+                <to id="MOLMonetario-cxf" uri="cxf:{{endpoint.nexus.url.mol}}?dataFormat=MESSAGE&amp;loggingFeatureEnabled=true"/>
+                <convertBodyTo id="MOLMonetario-BodyTo" type="java.lang.String"/>
+                <setProperty id="codigoError-MOL" propertyName="codError">
+                    <xpath resultType="String">//*[local-name()='coderror']</xpath>
+                </setProperty>
+                <setProperty id="descripcionError-MOL" propertyName="DescripcionError">
+                    <xpath resultType="String">//*[local-name()='msgerror']</xpath>
+                </setProperty>
+                <doCatch id="Socket-MOLMonetario-Catch">
+                    <exception>java.net.SocketException</exception>
+                    <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                        id="Socket-MOLMonetario-RestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="Socket-MOLMonetario-SetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="Socket-MOLMonetario-Fault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.ObtenerError"
+                        id="Socket-MOLMonetario-SetBodyError" method="setErrorSocket"/>
+                    <stop id="_stop1"/>
+                </doCatch>
+                <doCatch id="MOLMonetario-Catch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                        id="MOLMonetario-RestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="MOLMonetario-SetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="MOLMonetario-Fault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <setProperty id="CodigoError" propertyName="codigoError">
+                        <simple>504</simple>
+                    </setProperty>
+                    <bean beanType="cl.coopeuch.util.error.ObtenerError"
+                        id="MOLMonetario-SetBodyError" method="ponerError"/>
+                    <stop id="_stop2"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Realiza el pago de las cuotas de participacion conectandose por medio de AMQ y coloca la trama en el IOC520001I -->
+        <route id="pagoCuotasParticipacion1">
+            <from id="pagoCuotasParticipacionFrom" uri="direct:pagoCuotasParticipacion"/>
+            <setProperty id="operationName-pagoCuotasParticipacion" propertyName="operationName">
+                <constant>pagoCuotasParticipacion</constant>
+            </setProperty>
+            <unmarshal id="pagoCuotasParticipacion_unmarshal-Datos">
+                <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+            </unmarshal>
+            <bean id="validaRespuestaCPBean-pagoCuotasParticipacion"
+                method="obtenerDatosOperacion" ref="routeFacade"/>
+            <marshal id="pagoCuotasParticipacion_marshal-Datos">
+                <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+            </marshal>
+            <choice id="_choice9">
+                <when id="_when11">
+                    <simple>${exchangeProperty.canalLlamada} == ${exchangeProperty.canal.pagoexpress} and  ${exchangeProperty.cuentaOrigen} == 0 </simple>
+                    <setProperty
+                        id="cuentaOrigen-CuentaContable-CuotaParticipacion" propertyName="cuentaOrigen">
+                        <simple>${exchangeProperty.cuentaContable}</simple>
+                    </setProperty>
+                    <to id="pagoCuotasParticipaciono_CtaContable" uri="direct:pagoCuotasParticipacionCtaContable"/>
+                </when>
+                <otherwise id="_otherwise7">
+                    <to id="pagoCuotasParticipacion_CtaCoopeuch" uri="direct:pagoCuotasParticipacionCtaCoopeuch"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Realiza el pago de las cuotas de credito hipotecario conectandose por medio de SOAP al servicio creditohipotecario -->
+        <route id="pagoCreditoHipotecario">
+            <from id="pagoCreditoHipotecarioFrom" uri="direct:pagoCreditoHipotecario"/>
+            <setProperty id="operationName-pagoCreditoHipotecario" propertyName="operationName">
+                <constant>pagoCreditoHipotecario</constant>
+            </setProperty>
+            <unmarshal id="pagoCreditoHipotecario_unmarshal-Datos">
+                <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+            </unmarshal>
+            <bean id="validaRespuestaCPBean-pagoCreditoHipotecario"
+                method="obtenerDatosOperacion" ref="routeFacade"/>
+            <marshal id="pagoCreditoHipotecario_marshal-Datos">
+                <jaxb contextPath="cl.coopeuch.integracion.pagos.soap"/>
+            </marshal>
+            <choice id="_choice10">
+                <when id="_when12">
+                    <simple>${exchangeProperty.canalLlamada} == ${exchangeProperty.canal.pagoexpress} and  ${exchangeProperty.cuentaOrigen} == 0 </simple>
+                    <setProperty
+                        id="cuentaOrigen-CuentaContable-pagoCreditoHipotecario" propertyName="cuentaOrigen">
+                        <simple>${exchangeProperty.cuentaContable}</simple>
+                    </setProperty>
+                    <to id="pagoCreditoHipotecario_CtaContable" uri="direct:pagoCreditoHipotecarioCtaContable"/>
+                </when>
+                <otherwise id="_otherwise8">
+                    <to id="pagoCreditoHipotecario_CtaCoopeuch" uri="direct:pagoCreditoHipotecarioCtaCoopeuch"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Llama al servicio parametros para obtener los tipos de cuenta -->
+        <route id="remoteCall_consultaParametros">
+            <from id="remoteCall_consultaParametrosFrom" uri="direct:remoteCall_consultaParametros"/>
+            <doTry id="remoteCall_consultaParametrosTry">
+                <setProperty id="_setProperty5" propertyName="pago.consultaParametros.userID">
+                    <simple>{{pago.consultaParametros.userID}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty6" propertyName="pago.consultaParametros.codigo">
+                    <simple>{{pago.consultaParametros.codigo}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty7" propertyName="pago.consultaParametros.elemento">
+                    <simple>{{pago.consultaParametros.elemento}}</simple>
+                </setProperty>
+                <to id="remoteCall_consultaParametros2" uri="xslt://etc/xsl/mid/remoteCall_consultaParametros.xsl?saxon=true"/>
+                <removeHeaders
+                    id="remoteCall_consultaParametrosremoveHeaders" pattern="JMS*"/>
+                <to id="remoteCall_consultaParametrosTo" uri="cxf:{{endpoint.servicioparametro.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="remoteCall_consultaParametrosBodyTo" type="java.lang.String"/>
+                <setHeader headerName="Parametro_TipoCuentaOrigen" id="remoteCall_consultaParametrosHeaderParametro_TipoCuentaOrigen">
+                    <xpath resultType="String">//ListaParametro/descripcion</xpath>
+                </setHeader>
+                <doCatch id="remoteCall_consultaParametrosCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                        id="remoteCall_consultaParametrosRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="remoteCall_consultaParametrosSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="remoteCall_consultaParametrosFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.ObtenerError"
+                        id="remoteCall_consultaParametrosSetBodyError" method="ponerError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Llama al servicio persona para obtener el nombre completo y su correo electronico  -->
+        <route id="remoteCall_traerDatosPersona1">
+            <from id="remoteCall_traerDatosPersonaFrom" uri="direct:remoteCall_traerDatosPersona"/>
+            <doTry id="remoteCall_traerDatosPersonaTry">
+                <setProperty id="_setProperty8" propertyName="pago.traerDatosBasicos.userId">
+                    <simple>{{pago.traerDatosBasicos.userId}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty9" propertyName="pago.traerDatosBasicos.codigoCliente">
+                    <simple>{{pago.traerDatosBasicos.codigoCliente}}</simple>
+                </setProperty>
+                <to id="remoteCall_traerDatosPersona" uri="xslt://etc/xsl/mid/remoteCall_traerDatosPersona.xsl?saxon=true"/>
+                <removeHeaders
+                    id="remoteCall_traerDatosPersonaRemoveHeadersJMS" pattern="JMS*"/>
+                <to id="remoteCall_traerDatosPersonaTo" uri="cxf:{{endpoint.serviciopersona.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="remoteCall_traerDatosPersonaBodyTo" type="java.lang.String"/>
+                <setHeader headerName="primerNombre" id="remoteCall_traerDatosPersonaHeaderPrimerNombre">
+                    <xpath resultType="String">//primerNombre</xpath>
+                </setHeader>
+                <setHeader headerName="apellidoPaterno" id="remoteCall_traerDatosPersonaHeaderApellidoPaterno">
+                    <xpath resultType="String">//apellidoPaterno</xpath>
+                </setHeader>
+                <setHeader headerName="apellidoMaterno" id="remoteCall_traerDatosPersonaHeaderApellidoMaterno">
+                    <xpath resultType="String">//apellidoMaterno</xpath>
+                </setHeader>
+                <setHeader headerName="nombre" id="remoteCall_traerDatosPersonaHeaderNombre">
+                    <simple>${header.primerNombre} ${header.apellidoPaterno}</simple>
+                </setHeader>
+                <choice id="_choice12">
+                    <when id="_when14">
+                        <simple>${exchangeProperty.flagEmailSpri} == true and ${exchangeProperty.canalLlamada} == 'SPRI' and ${exchangeProperty.email} != ''</simple>
+                        <setHeader headerName="correoElectronico" id="remoteCall_traerDatosPersonaHeaderCorreoElectronico">
+                            <simple>${exchangeProperty.email}</simple>
+                        </setHeader>
+                    </when>
+                    <otherwise id="_otherwise9">
+                        <setHeader headerName="correoElectronico" id="remoteCall_traerDatosPersonaHeaderCorreoElectronico">
+                            <xpath resultType="String">//correoElectronico</xpath>
+                        </setHeader>
+                    </otherwise>
+                </choice>
+                <doCatch id="remoteCall_traerDatosPersonaCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                        id="remoteCall_traerDatosPersonaRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="remoteCall_traerDatosPersonaSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="remoteCall_traerDatosPersonaFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.ObtenerError"
+                        id="remoteCall_traerDatosPersonaSetBodyError" method="ponerError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Este metodo es llamado por medio del componente WireTap, esto implica que despues de hacer el pago la tarjeta de credito de forma independiente envia el correo sin importar el resultado arrojado -->
+        <route id="_route_envioEmailpagoTarjetaCredito">
+            <from id="_from2" uri="direct:envioEmailpagoTarjetaCredito"/>
+            <setHeader headerName="pago.mailtransferencia.from" id="_setHeader12">
+                <simple>{{pago.mailtransferencia.from}}</simple>
+            </setHeader>
+            <setProperty id="idNotificacionPagoTarjeta" propertyName="idNotificacion">
+                <simple>{{rsnotificaciones.idnotificacion.pagotarjeta}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty2" propertyName="pago.mailtransferencia.tarjetacredito.subject">
+                <simple>{{pago.mailtransferencia.tarjetacredito.subject}}</simple>
+            </setProperty>
+            <setHeader
+                headerName="pago.mailtransferencia.tarjetacredito.nomPlantilla" id="_setpago.mailtransferencia.tarjetacredito.nomPlantilla">
+                <simple>{{pago.mailtransferencia.tarjetacredito.nomPlantilla}}</simple>
+            </setHeader>
+            <setHeader headerName="fechaAutorizacion" id="pagoTarjetaCreditoFechaAutorizacion">
+                <xpath resultType="String">//fechaAutorizacion</xpath>
+            </setHeader>
+            <setHeader headerName="idTransaccion" id="pagoTarjetaCreditoHeaderIdTranaccion">
+                <xpath resultType="String">//idTransaccion</xpath>
+            </setHeader>
+            <bean id="pagoTarjetaCreditoHeadersGet"
+                method="obtenerHeader" ref="HeadersPropagator"/>
+            <bean id="pagoTarjetaCreditoSetSetup" method="ponerCuerpo" ref="SetProperties"/>
+            <removeHeaders id="pagoTarjetaCreditoRemoveHeadersJMS1" pattern="JMS*"/>
+            <to id="pagoTarjetaCreditoConsultaParametrosTo" uri="direct:remoteCall_consultaParametros"/>
+            <removeHeaders id="pagoTarjetaCreditoRemoveHeadersJMS2" pattern="JMS*"/>
+            <to id="pagoTarjetaCreditoTraerDatosPersonaTo" uri="direct:remoteCall_traerDatosPersona"/>
+            <to id="remoteCall_envioEmailpagoCreditoConsumo" uri="xslt://etc/xsl/mid/remoteCall_envioEmailpagoTarjetaCredito.xsl?saxon=true"/>
+            <convertBodyTo id="_convertBodyTo2" type="String"/>
+            <to id="envioEmailTarjetaCredito" uri="direct:enviarRsNotificaciones"/>
+        </route>
+        <!-- Este metodo es llamado por medio del componente WireTap, esto implica que despues de hacer el pago del credito hipotecario de forma independiente envia el correo sin importar el resultado arrojado -->
+        <route id="_route_envioEmailpagoCreditoHipotecario">
+            <from id="_from3" uri="direct:envioEmailpagoCreditoHipotecario"/>
+            <setHeader headerName="pago.mailtransferencia.from" id="_setHeader13">
+                <simple>{{pago.mailtransferencia.from}}</simple>
+            </setHeader>
+            <setProperty id="idNotificacionPagoHipotecario" propertyName="idNotificacion">
+                <simple>{{rsnotificaciones.idnotificacion.pagohipotecario}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty4" propertyName="pago.mailtransferencia.creditohipotecario.subject">
+                <simple>{{pago.mailtransferencia.creditohipotecario.subject}}</simple>
+            </setProperty>
+            <setHeader
+                headerName="pago.mailtransferencia.creditohipotecario.nomPlantilla" id="_setHeader5">
+                <simple>{{pago.mailtransferencia.creditohipotecario.nomPlantilla}}</simple>
+            </setHeader>
+            <setHeader headerName="fechaAutorizacion" id="pagoCreditoHipotecarioHeaderFechaAutorizacion">
+                <xpath resultType="String">concat(//fechaPago,' ',//horaPago)</xpath>
+            </setHeader>
+            <setHeader headerName="codigoAutorizacion" id="pagoCreditoHipotecarioHeaderCodigoAutorizacion">
+                <xpath resultType="String">//codigoAutorizacion</xpath>
+            </setHeader>
+            <setHeader headerName="valorCuota" id="pagoCreditoHipotecarioHeaderValorCuota">
+                <xpath resultType="String">//valorCuota</xpath>
+            </setHeader>
+            <bean id="pagoCreditoHipotecarioHeadersGet"
+                method="obtenerHeader" ref="HeadersPropagator"/>
+            <bean id="pagoCreditoHipotecarioSetSetup"
+                method="ponerCuerpo" ref="SetProperties"/>
+            <removeHeaders id="pagoCreditoHipotecarioremoveHeadersJMS1" pattern="JMS*"/>
+            <to id="pagoCreditoHipotecarioConsultaParametrosTo" uri="direct:remoteCall_consultaParametros"/>
+            <removeHeaders id="pagoCreditoHipotecarioremoveHeadersJMS2" pattern="JMS*"/>
+            <to id="pagoCreditoHipotecarioTraerDatosPersonaTo" uri="direct:remoteCall_traerDatosPersona"/>
+            <to id="remoteCall_envioEmailpagoCreditoHipotecario" uri="xslt://etc/xsl/mid/remoteCall_envioEmailpagoCreditoHipotecario.xsl?saxon=true"/>
+            <convertBodyTo id="_convertBodyTo3" type="String"/>
+            <to id="envioEmailCreditoHipotecario" uri="direct:enviarRsNotificaciones"/>
+        </route>
+        <!-- Este metodo es llamado por medio del componente WireTap, esto implica que despues de hacer el pago de las cuotas de participacion de forma independiente envia el correo sin importar el resultado arrojado -->
+        <route id="_route_envioEmailpagoCuotasParticipacion">
+            <from id="_from4" uri="direct:envioEmailpagoCuotasParticipacion"/>
+            <setHeader headerName="pago.mailtransferencia.from" id="_setHeader14">
+                <simple>{{pago.mailtransferencia.from}}</simple>
+            </setHeader>
+            <setProperty id="idNotificacionPagoCuotaParticipacion" propertyName="idNotificacion">
+                <simple>{{rsnotificaciones.idnotificacion.pagocuotaparticipacion}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty3" propertyName="pago.mailtransferencia.cuotasparticipacion.subject">
+                <simple>{{pago.mailtransferencia.cuotasparticipacion.subject}}</simple>
+            </setProperty>
+            <setHeader
+                headerName="pago.mailtransferencia.cuotasparticipacion.nomPlantilla" id="_setHeader3">
+                <simple>{{pago.mailtransferencia.cuotasparticipacion.nomPlantilla}}</simple>
+            </setHeader>
+            <setHeader headerName="fechaAutorizacion" id="pagoCuotasParticipacionHeaderFechaAutorizacion">
+                <xpath resultType="String">//fechaAutorizacion</xpath>
+            </setHeader>
+            <setHeader headerName="idTransaccion" id="pagoCuotasParticipacionHeaderIdTransaccion">
+                <xpath resultType="String">//idTransaccion</xpath>
+            </setHeader>
+            <setHeader headerName="valorCuota" id="pagoCuotasParticipacionHeaderValorCuota">
+                <xpath resultType="String">//valorCuota</xpath>
+            </setHeader>
+            <bean id="pagoCuotasParticipacion" method="obtenerHeader" ref="HeadersPropagator"/>
+            <setHeader headerName="montoTransferencia" id="pagoCuotasParticipacionHeaderMontoTransferencia">
+                <xpath resultType="String">//montoTransferencia</xpath>
+            </setHeader>
+            <bean id="pagoCuotasParticipacionSetSetup"
+                method="ponerCuerpo" ref="SetProperties"/>
+            <removeHeaders id="pagoCuotasParticipacionremoveHeadersJMS1" pattern="JMS*"/>
+            <to id="pagoCuotasParticipacionConsultaParametrosTo" uri="direct:remoteCall_consultaParametros"/>
+            <removeHeaders id="pagoCuotasParticipacionremoveHeadersJMS2" pattern="JMS*"/>
+            <to id="pagoCuotasParticipacionTraerDatosPersonaTo" uri="direct:remoteCall_traerDatosPersona"/>
+            <to id="remoteCall_envioEmailpagoCreditoConsumo3" uri="xslt://etc/xsl/mid/remoteCall_envioEmailpagoCuotasParticipacion.xsl?saxon=true"/>
+            <convertBodyTo id="_convertBodyTo4" type="String"/>
+            <to id="envioEmailCuotaParticipacion" uri="direct:enviarRsNotificaciones"/>
+        </route>
+        <route id="Pagos-MQ">
+            <from id="Pagos-MQ-From" uri="websphere:queue:{{ibm.queueBlist.in.pagos}}"/>
+            <convertBodyTo id="Pagos-MQ-BodyTo" type="java.lang.String"/>
+            <choice id="_choice1">
+                <when id="Pagos-MQ-rutapagoCreditoConsumo">
+                    <simple>${body} contains 'pagoCreditoConsumo'</simple>
+                    <to id="pagoCreditoConsumo-MQ-To" uri="xslt://etc/xsl/MQ/mq2xml_pagoCreditoConsumo.xsl?saxon=true"/>
+                    <marshal id="pagoCreditoConsumo_marshal_prueba">
+                        <jaxb contextPath="cl.coopeuch.integracion.pago.wsdl"/>
+                    </marshal>
+                </when>
+                <when id="Pagos-MQ-rutapagoTarjetaCredito">
+                    <simple>${body} contains 'pagoTarjetaCredito'</simple>
+                    <to id="Pagos-MQ-To" uri="xslt://etc/xsl/MQ/mq2xml_pagoTarjetaCredito.xsl?saxon=true"/>
+                    <marshal id="pagoTarjetaCredito_marshal_prueba">
+                        <jaxb contextPath="cl.coopeuch.integracion.pago.wsdl"/>
+                    </marshal>
+                </when>
+                <when id="Pagos-MQ-rutapagoCuotasParticipacion">
+                    <simple>${body} contains 'pagoCuotasParticipacion'</simple>
+                    <to id="pagoCuotasParticipacion-MQ-To" uri="xslt://etc/xsl/MQ/mq2xml_pagoCuotasParticipacion.xsl?saxon=true"/>
+                    <marshal id="pagoCuotasParticipacion_marshal_prueba">
+                        <jaxb contextPath="cl.coopeuch.integracion.pago.wsdl"/>
+                    </marshal>
+                </when>
+                <when id="Pagos-MQ-rutapagoCreditoHipotecario">
+                    <simple>${body} contains 'pagoCreditoHipotecario'</simple>
+                    <to id="Pagos-MQ-To" uri="xslt://etc/xsl/MQ/mq2xml_pagoCreditoHipotecario.xsl?saxon=true"/>
+                    <marshal id="pagoCreditoConsumo_marshal_prueba">
+                        <jaxb contextPath="cl.coopeuch.integracion.pago.wsdl"/>
+                    </marshal>
+                </when>
+            </choice>
+            <setBody id="Pagos-MQ-SetBody">
+                <simple>${body}</simple>
+            </setBody>
+            <to id="Pagos-MQ-Ruta" uri="direct:inicio"/>
+        </route>
+        <route id="pagoCuotasParticipacion-CtaCoopeuch">
+            <from id="CtaContable-from" uri="direct:pagoCuotasParticipacionCtaCoopeuch"/>
+            <to id="pagoCuotasParticipacionCtaCoopeuchXml2trama" uri="xslt://etc/xsl/request/xml2tramaIOC520001I_pagoCuotasParticipacion.xsl"/>
+            <bean
+                id="pagoCuotasParticipacion-CtaCoopeuch-JMSCorrelationId"
+                method="crearJMSCorrelacionId24" ref="routeFacade"/>
+            <to id="activeMQ-pagoCuotasParticipacionCtaCoopeuch" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Shared&amp;replyTo={{amq.queue.res}}&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+            <transform id="pagoCuotasParticipacion-CtaCoopeuch-Transform">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <to id="pagoCuotasParticipacion-CtaCoopeuch-Trama2xml" uri="xslt://etc/xsl/response/trama2xmlIOC520001O_pagoCuotasParticipacion.xsl?saxon=true"/>
+            <choice id="pagoCuotasParticipacion-CtaCoopeuch-Retorno">
+                <when id="pagoCuotasParticipacion-CtaCoopeuch-Ok">
+                    <xpath>//formato='IOC520001O'</xpath>
+                    <setProperty id="_setProperty10" propertyName="flagEmailSpri">
+                        <simple>{{flag.envioemail.canal.spri}}</simple>
+                    </setProperty>
+                    <log id="_log23" message="${exchangeProperty.flagEmailSpri}"/>
+                    <wireTap
+                        id="pagoCuotaParticipacionCtaCoopeuchEnvioNotificacion" uri="direct:validaEnvioNotificacion"/>
+                </when>
+            </choice>
+        </route>
+        <route id="pagoCuotasParticipacion-CtaContable">
+            <from id="pagoCuotasParticipacion-CtaContable-from" uri="direct:pagoCuotasParticipacionCtaContable"/>
+            <to id="CtaContable-pagoCuotasParticipacion-Xml2trama" uri="xslt://etc/xsl/request/IOC521001I_pagoCuotasParticipacion_CuentaContable.xsl"/>
+            <log id="_log10" message="AMQ: ${body}"/>
+            <bean
+                id="pagoCuotasParticipacion-CtaContable-JMSCorrelationId"
+                method="crearJMSCorrelacionId24" ref="routeFacade"/>
+            <to id="CtaContable-activemq-pagoCuotasParticipacion" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+            <transform id="CtaContable-pagoCuotasParticipacion-Transform">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <log id="_log11" message="RESPUESTA AMQ TRAMA: ${body}"/>
+            <to id="CtaContable-pagoCuotasParticipacion-Trama2xml" uri="xslt://etc/xsl/response/IOC521001O_pagoCuotasParticipacion_CuentaContable.xsl?saxon=true"/>
+            <log id="_log12" message="RESPUESTA AMQ: ${body}"/>
+            <choice id="CtaContable-pagoCuotasParticipacion-Retorno">
+                <when id="CtaContable-pagoCuotasParticipacion-RetornoOk">
+                    <xpath>//formato='IOC521001O'</xpath>
+                    <wireTap
+                        id="pagoCuotaParticipacionCtaContableEnvioNotificacion" uri="direct:validaEnvioNotificacion"/>
+                </when>
+            </choice>
+        </route>
+        <route id="pagoCreditoHipotecario-CtaCoopeuch">
+            <from id="CtaContable-from" uri="direct:pagoCreditoHipotecarioCtaCoopeuch"/>
+            <to id="pagoCreditoHipotecarioXml2trama" uri="xslt://etc/xsl/mid/remoteCall_pagoCreditoHipotecario.xsl"/>
+            <log id="_log17" message="Entrada ${body}"/>
+            <removeHeaders id="pagoCreditoHipotecarioRemoveHeadersJMS1" pattern="*"/>
+            <bean
+                id="pagoCreditoHipotecario-CtaCoopeuch-JMSCorrelationId"
+                method="crearJMSCorrelacionId24" ref="routeFacade"/>
+            <to id="pagoCreditoHipotecarioto-CtaCoopeuch" uri="cxf:{{endpoint.serviciocreditohipotecario.url}}?dataFormat=MESSAGE"/>
+            <removeHeaders id="pagoCreditoHipotecarioRemoveHeadersJMS1" pattern="JMS*"/>
+            <convertBodyTo id="pagoCreditoHipotecariobefore2" type="java.lang.String"/>
+            <log id="_log18" message="Salida ${body}"/>
+            <choice id="pagoCreditoHipotecarioRetorno">
+                <when id="pagoCreditoHipotecarioError">
+                    <xpath>//formato ='ECNLERR'</xpath>
+                    <to id="pagoCreditoHipotecarioError" uri="xslt://etc/xsl/error/error_pagoCreditoConsumo.xsl?saxon=true"/>
+                    <log id="_log19" message="Error ${body}"/>
+                </when>
+                <when id="pagoCreditoHipotecarioOk">
+                    <xpath>//nombreFormato ='IOC097003O'</xpath>
+                    <to id="pagoCreditoHipotecarioxml2xml" uri="xslt://etc/xsl/response/xml2xml_pagoCreditoHipotecario.xsl?saxon=true"/>
+                    <log id="_log20" message="Salida ${body}"/>
+                    <convertBodyTo id="pagoCreditoHipotecarioBodyTo" type="java.lang.String"/>
+                    <wireTap
+                        id="pagoCreditoHipotecarioCtaCoopeuchEnvioNotificacion" uri="direct:validaEnvioNotificacion"/>
+                </when>
+            </choice>
+        </route>
+        <route id="pagoCreditoHipotecario-CtaContable">
+            <from id="pagoCreditoHipotecario-CtaContable-from" uri="direct:pagoCreditoHipotecarioCtaContable"/>
+            <to id="CtaContable-pagoCreditoHipotecario-Xml2trama" uri="xslt://etc/xsl/request/IOC524001I_pagoCreditoHipotecario_CuentaContable.xsl"/>
+            <log id="_log21" message="AMQ: ${body}"/>
+            <bean
+                id="pagoCreditoHipotecario-CtaContable-JMSCorrelationId"
+                method="crearJMSCorrelacionId24" ref="routeFacade"/>
+            <to id="CtaContable-activemq-pagoCreditoHipotecario" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+            <transform id="CtaContable-pagoCreditoHipotecario-Transform">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <to id="CtaContable-pagoCreditoHipotecario-Trama2xml" uri="xslt://etc/xsl/response/IOC524001O_pagoCreditoHipotecario_CuentaContable.xsl?saxon=true"/>
+            <log id="_log22" message="RESPUESTA AMQ: ${body}"/>
+            <choice id="CtaContable-pagoCreditoHipotecario-Retorno">
+                <when id="CtaContable-pagoCreditoHipotecario-RetornoOk">
+                    <xpath>//formato='IOC524001O'</xpath>
+                    <wireTap
+                        id="pagoCreditoHipotecarioCtaContableEnvioNotificacion" uri="direct:validaEnvioNotificacion"/>
+                </when>
+            </choice>
+        </route>
+        <route id="enviarRsNotificacionesRoute">
+            <from id="enviarRsNotificacionesFrom" uri="direct:enviarRsNotificaciones"/>
+            <log id="enviarRsNotificacionesLogEntrada" message="\nServicio Pagos: Entrada a enviarRsNotificacionesRoute"/>
+            <convertBodyTo id="envioEmailConvertToString" type="java.lang.String"/>
+            <setBody id="envioEmailSetBodyEntradaXSLT">
+                <xpath>//entrada</xpath>
+            </setBody>
+            <bean id="requestNotificacion" method="requestNotificacion" ref="routeFacade"/>
+            <to id="envioNotificacion" uri="cxfrs://bean://endpointRsNotificaciones"/>
+            <log id="enviarRsNotificacionesLogSalida" message="ServicioPagos: Salida enviarRsNotificacionesRoute"/>
+        </route>
+        <!-- ruta para validar el tipo de pago y si la notificacion se puede enviar por el canal de llamada -->
+        <route id="validaEnvioNotificacionRoute">
+            <from id="validaEnvioNotificacionFrom" uri="direct:validaEnvioNotificacion"/>
+            <log id="validaEnvioNotificacionLogEntrada" message="Servicio Pagos: Entrada a validaEnvioNotificacionRoute"/>
+            <log id="validaEnvioNotificacionLogCanalLlamada" message="Canal Llamada: ${exchangeProperty.canalLlamada}"/>
+            <log id="validaEnvioNotificacionLogOperationName" message="Operation Name: ${exchangeProperty.operationName}"/>
+            <choice id="validaEnvioNotificacionChoice">
+                <when id="validaEnvioNotificacionPagoCreditoConsumoWhen">
+                    <simple>${property.operationName} == 'pagoCreditoConsumo' and ${property.canalLlamada} not in ${property.canalNoHabilitado}</simple>
+                    <log id="validaEnvioNotificacionLogConsumoEntrada" message="Entro a enviar notificacion Credito Consumo"/>
+                    <to id="validaEnvioNotificacionConsumo" uri="direct:envioEmailpagoCreditoConsumo"/>
+                    <log id="validaEnvioNotificacionLogConsumoSalida" message="Salida de enviar notificacion Credito Consumo"/>
+                </when>
+                <when id="validaEnvioNotificacionPagoTarjetaCreditoWhen">
+                    <simple>${property.operationName} == 'pagoTarjetaCredito' and ${property.canalLlamada} not in ${property.canalNoHabilitado}</simple>
+                    <log
+                        id="validaEnvioNotificacionLogTarjetaCreditoEntrada" message="Entro a enviar notificacion Tarjeta Credito"/>
+                    <to id="validaEnvioNotificacionPagoTarjetaCredito" uri="direct:envioEmailpagoTarjetaCredito"/>
+                    <log
+                        id="validaEnvioNotificacionLogTarjetaCreditoSalida" message="Salida de enviar notificacion Tarjeta Credito"/>
+                </when>
+                <when id="validaEnvioNotificacionPagoCuotasParticipacionWhen">
+                    <simple>${property.operationName} == 'pagoCuotasParticipacion' and ${property.canalLlamada} not in ${property.canalNoHabilitado}</simple>
+                    <log id="validaEnvioNotificacionLogCuotasEntrada" message="Entro a enviar notificacion Cuotas Participacion"/>
+                    <to
+                        id="validaEnvioNotificacionPagoCuotasParticipacion" uri="direct:envioEmailpagoCuotasParticipacion"/>
+                    <log id="validaEnvioNotificacionLogCuotasSalida" message="Salida de enviar notificacion Cuotas Participacion"/>
+                </when>
+                <when id="validaEnvioNotificacionPagoCreditoHipotecarioWhen">
+                    <simple>${property.operationName} == 'pagoCreditoHipotecario' and ${property.canalLlamada} not in ${property.canalNoHabilitado}</simple>
+                    <log
+                        id="validaEnvioNotificacionLogHipotecarioEntrada" message="Entro a enviar notificacion Credito Hipotecario"/>
+                    <to
+                        id="validaEnvioNotificacionPagoCreditoHipotecario" uri="direct:envioEmailpagoCreditoHipotecario"/>
+                    <log
+                        id="validaEnvioNotificacionLogHipotecarioSalida" message="Salida de enviar notificacion Credito Hipotecario"/>
+                </when>
+            </choice>
+            <log id="validaEnvioNotificacionLogSalida" message="ServicioPagos: Salida de validaEnvioNotificacionRoute"/>
+        </route>
+    </camelContext>
+</blueprint>

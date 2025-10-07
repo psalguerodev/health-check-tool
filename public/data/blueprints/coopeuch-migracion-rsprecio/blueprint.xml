@@ -1,0 +1,321 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <cm:property-placeholder persistent-id="wspricingprecio"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <camelcxf:cxfEndpoint address="[{pricing.precio.producto.endpoint}]"
+        id="endpointServicioProducto" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.producto.wsdl.ServicioProductos" wsdlURL="etc/wsdl/ServicioProductos.wsdl"/>
+    <camelcxf:cxfEndpoint address="[{wsusuario.endpoint}]"
+        id="endpointWSUsuario" serviceClass="cl.coopeuch.integracion.pricing.wsusuario.wsdl.WSUsuarioPortType"/>
+    <camelcxf:cxfEndpoint address="[{wsejecutivo.endpoint}]"
+        id="endpointWSEjecutivo" serviceClass="cl.coopeuch.integracion.pricing.wsejecutivo.wsdl.WSEjecutivoPortType"/>
+    <camelcxf:cxfEndpoint address="/WSPrecio" id="endpointPricingPrecio"
+        loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.pricing.precio.wsdl.PricingPrecioSOAPPortType" wsdlURL="etc/wsdl/pricing-precio.wsdl"/>
+    <camelcxf:cxfEndpoint
+        address="[{pricing.precio.tasa.pizarra.endpoint}]"
+        id="endpointPricingTasaPizarra"
+        serviceClass="cl.coopeuch.integracion.pricing.tasa.pizarra.wsdl.TasaPizarraPortType" wsdlURL="etc/wsdl/pricing-tasa-pizarra.wsdl"/>
+    <camelcxf:cxfEndpoint
+        address="[{pricing.precio.in.pricing.endpoint}]"
+        id="endpointInPricing_olService" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.pricing.wsdl.InPricingOl" wsdlURL="etc/wsdl/InPricing_ol.wsdl"/>
+    <camelcxf:rsServer address="/WSPrecioREST" id="epPricingPrecioREST" serviceClass="cl.coopeuch.integracion.pricing.precio.wsdl.PricingPrecioSOAPPortType"/>
+    <bean class="cl.coopeuch.integracion.util.RouteFacade" id="beanRouteFacade"/>
+    <bean
+        class="cl.coopeuch.integracion.pricing.wsusuario.wsdl.ConsultarRequest" id="beanUsuario"/>
+    <bean
+        class="cl.coopeuch.integracion.pricing.wsejecutivo.wsdl.ConsultarRequest" id="beanEjecutivo"/>
+    <camelContext id="contextPricingPrecios" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="routeREST">
+            <from id="fromREST" uri="cxfrs:bean:epPricingPrecioREST"/>
+            <to id="toREST" uri="direct:pricingPrecio"/>
+        </route>
+        <route id="routeSOAP">
+            <from id="fromSOAP" uri="cxf:bean:endpointPricingPrecio"/>
+            <to id="ToSOAP" uri="direct:pricingPrecio"/>
+        </route>
+        <route id="routePricingPrecios">
+            <from id="fromPricingPrecios" uri="direct:pricingPrecio"/>
+            <doTry id="doTryPricingPrecios">
+                <setBody id="setBodyPricingPrecios">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="marshalPricingPrecios">
+                    <jaxb contextPath="cl.coopeuch.integracion.pricing.precio.wsdl"/>
+                </marshal>
+                <setProperty id="setPropertyPricingPrecios" propertyName="bodyInPricinPrecio">
+                    <simple>$simple{body}</simple>
+                </setProperty>
+                <unmarshal id="unmarshalPricingPrecios">
+                    <jaxb contextPath="cl.coopeuch.integracion.pricing.precio.wsdl"/>
+                </unmarshal>
+                <bean id="beanPricingPrecios" method="parametrosValida" ref="beanRouteFacade"/>
+                <bean id="beanUsuaio" method="usuario" ref="beanRouteFacade"/>
+                <choice id="choiceCanal">
+                    <when id="whenCanal">
+                        <simple>${exchange.getProperty('canal')} == 'CRM'</simple>
+                        <to id="toUsuario" uri="direct:usuario"/>
+                        <log id="_log1" message="Usuario: ${body}"/>
+                    </when>
+                </choice>
+                <to id="toEjecutivo" uri="direct:ejecutivo"/>
+                <to id="toConsultaIBS" uri="direct:consultaIBS"/>
+                <to id="toInPricing" uri="direct:inPricing_olService"/>
+                <doCatch id="catchConsultar">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toExceptionCons" uri="direct:exception"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeWSUsuario">
+            <from id="fromWSUsuario" uri="direct:usuario"/>
+            <log id="logWSUsuario" message="Consultando Usuario con canal CRM."/>
+            <doTry id="doTryWSUsuario">
+                <setBody id="setBodyWSUsuario">
+                    <simple>${ref:beanUsuario}</simple>
+                </setBody>
+                <script id="scriptWSUsuarioCanal">
+                    <ognl>
+						request.getBody().setCanalLlamada(getProperty('canal'))
+					</ognl>
+                </script>
+                <script id="scriptWSUsuarioUs">
+                    <ognl>
+						request.getBody().setCuenta(getProperty('usuario'))
+					</ognl>
+                </script>
+                <script id="scriptWSUsuarioRut">
+                    <ognl>
+						request.getBody().setRut('')
+					</ognl>
+                </script>
+                <removeHeaders id="removeHeadersWsUsuario" pattern="*"/>
+                <setHeader headerName="operationNamespace" id="setHeaderOpeNameSpWSUsuario">
+                    <constant>{{wsusuario.namespace}}</constant>
+                </setHeader>
+                <setHeader headerName="operationName" id="setHeaderOpNameWSUsuario">
+                    <constant>{{wsusuario.operationname}}</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="setHeaderSOAPActWsUsuario">
+                    <constant>{{wsusuario.soapaction}}</constant>
+                </setHeader>
+                <to id="toWsUsuarioEndPoint" uri="cxf:bean:endpointWSUsuario"/>
+                <choice id="choiceWSUsuario">
+                    <when id="whenWSUsuarioRut">
+                        <simple>$simple{body.size()} == 1 &amp;&amp; $simple{body.get(0).getRut()} != null</simple>
+                        <setProperty id="setPropertyEjeRut" propertyName="ejecutivoRut">
+                            <simple>$simple{body.get(0).getRut()}</simple>
+                        </setProperty>
+                        <log id="logUsuarioCRM" message="Usuario CRM encontrado con rut: ${body.get(0).getRut()}"/>
+                    </when>
+                    <otherwise id="otherwiseUsuarioNF">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionUsuarioNF" message="{{wspricingprecio.usernotfound}}"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="doCatchWSUsuario">
+                    <exception>java.lang.Exception</exception>
+                    <throwException exceptionType="java.lang.Exception"
+                        id="throwExceptionUsuarioJE" message="Occurio un problema al buscar el usuario: ${exception}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeWSEjecutivo">
+            <from id="fromWSEjecutivo" uri="direct:ejecutivo"/>
+            <log id="logWSEjecutivoConsulta" message="Consultando por el Ejecutivo."/>
+            <doTry id="doTryWSEjecutivo">
+                <setBody id="setBodyWSEjecutivo">
+                    <simple>${ref:beanEjecutivo}</simple>
+                </setBody>
+                <script id="scriptWSEjecutivoUserID">
+                    <ognl>
+						request.getBody().setUserId('SRVMBK')
+					</ognl>
+                </script>
+                <script id="scriptWSEjecutivoCanal">
+                    <ognl>
+						request.getBody().setCanalLlamada(getProperty('canal'))
+					</ognl>
+                </script>
+                <choice id="choiceWSEjecutivo">
+                    <when id="whenWSEjecutivoRut">
+                        <simple>${exchange.getProperty('ejecutivoRut')} != null</simple>
+                        <script id="scriptWSEjecutivoRut1">
+                            <ognl>
+							request.getBody().setRut(getProperty('ejecutivoRut'))
+						</ognl>
+                        </script>
+                        <script id="scriptWSEjecutivoEje1">
+                            <ognl>
+							request.getBody().setEjecutivo('')
+						</ognl>
+                        </script>
+                        <log id="logWSEjecutivoRut" message="Buscando Ejecutivo por RUT: ${body.getRut()}"/>
+                    </when>
+                    <otherwise id="otherwiseUsuario">
+                        <script id="scriptWSEjecutivoEje2">
+                            <ognl>
+							request.getBody().setEjecutivo(getProperty('usuario'))
+						</ognl>
+                        </script>
+                        <script id="scriptWSEjecutivoRut2">
+                            <ognl>
+							request.getBody().setRut('')
+						</ognl>
+                        </script>
+                        <log id="logWSEjecutivoEje" message="Buscando Ejecutivo por EJECUTIVO: ${body.getEjecutivo()}"/>
+                    </otherwise>
+                </choice>
+                <removeHeaders id="removeHeadersWsEjecutivo" pattern="*"/>
+                <setHeader headerName="operationNamespace" id="setHeaderOpeNameSPWSEjecutivo">
+                    <constant>{{wsejecutivo.namespace}}</constant>
+                </setHeader>
+                <setHeader headerName="operationName" id="setHeaderOpNameWSEjecutivo">
+                    <constant>{{wsejecutivo.operationname}}</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="setHeaderSOAPActWSEjecutivo">
+                    <constant>{{wsejecutivo.soapaction}}</constant>
+                </setHeader>
+                <to id="toWsEjecutivoEndPoint" uri="cxf:bean:endpointWSEjecutivo"/>
+                <choice id="choiceWSEjecutivo">
+                    <when id="whenWSEjecutivoCanalV">
+                        <simple>$simple{body.size()} == 1 &amp;&amp; $simple{body.get(0).getCanalVenta()} != null &amp;&amp; $simple{body.get(0).getCanalVenta()} != 0 &amp;&amp; $simple{body.get(0).getCanalVenta()} != ''</simple>
+                        <setProperty id="setPropertyCanalV" propertyName="usuarioCanalVenta">
+                            <simple>$simple{body.get(0).getCanalVenta()}</simple>
+                        </setProperty>
+                        <log id="logEjecutivoNF" message="Ejecutivo encontrado con el ID canal de venta: ${exchange.getProperty('usuarioCanalVenta')}"/>
+                    </when>
+                    <otherwise id="otherwiseWSEjecutivoNF">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionEjecutivoNF" message="{{wspricingprecio.executivenotfount}}"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="doCatchEjecutivo">
+                    <exception>java.lang.Exception</exception>
+                    <throwException exceptionType="java.lang.Exception"
+                        id="throwExceptionEjecutivoJE" message="Ocurrio un error al buscar el Ejecutivo: ${exception.getMessage()}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeConsultaIBS">
+            <from id="ConsultaIBSfrom" uri="direct:consultaIBS"/>
+            <log id="logConsultaIBSLLamada" message="Llamando al IBS."/>
+            <doTry id="ConsultaIBSdoTry">
+                <setBody id="ConsultaIBSsetBody">
+                    <simple>${exchange.getProperty('bodyInPricinPrecio')}</simple>
+                </setBody>
+                <to id="ConsultaIBStoReq" uri="xslt://etc/xsl/IOC727601I_consultar.xsl?saxon=true"/>
+                <removeHeaders id="_removeHeaders1" pattern="*"/>
+                <bean id="ConsultaIBSbean" method="idJMS" ref="beanRouteFacade"/>
+                <log id="entradaIBS" message="#### TRAMA entrada IBS:|${body}|"/>
+                <to id="ConsultaIBStoAMQ" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="ConsultaIBSTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <log id="respIBS" message="#### TRAMA respuesta IBS:|${body}|"/>
+                <to id="ConsultaIBStoResp" uri="xslt://etc/xsl/IOC727601O_consultar.xsl?saxon=true"/>
+                <setProperty id="_setProperty1" propertyName="plazoProperty">
+                    <xpath resultType="String">//plazo</xpath>
+                </setProperty>
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="cl.coopeuch.integracion.util.respuestaIBS"/>
+                <bean id="RespuestaIBSbean" method="respIBS" ref="beanRouteFacade"/>
+                <choice id="ConsultaIBSchoice">
+                    <when id="ConsultaIBSwhen">
+                        <simple>$simple{body} contains 'OTHERERROR'</simple>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="ConsultaIBSthrowException" message="El servidor lanzo un error, vuelva a intentarlo mas tarde."/>
+                    </when>
+                </choice>
+                <doCatch id="ConsultaIBSdoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="ConsultaIBStoEx" uri="direct:exception"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeInPricing_olService">
+            <from id="fromPricing" uri="direct:inPricing_olService"/>
+            <log id="logInPricingLLamada" message="Llamando a Pricing..."/>
+            <doTry id="doTryInPricing_olService">
+                <setBody id="setBodyInPricing">
+                    <simple>${exchange.getProperty('bodyInPricinPrecio')}</simple>
+                </setBody>
+                <bean id="beanCrearBodyPricing" method="creaBodyPricing" ref="beanRouteFacade"/>
+                <removeHeaders id="removeHeadersInPricing" pattern="*"/>
+                <setHeader headerName="operationName" id="InPricing_olServiceOperationName">
+                    <constant>{{pricing.precio.in.pricing.operationname}}</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="InPricing_olServiceSOAPAction">
+                    <constant>{{pricing.precio.in.pricing.soapaction}}</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="InPricing_olServiceOperationNamespace">
+                    <constant>{{pricing.precio.in.pricing.namespace}}</constant>
+                </setHeader>
+                <to id="toInPricing_olService" uri="cxf:bean:endpointInPricing_olService"/>
+                <bean id="beanResponsePricing" method="responsePricing" ref="beanRouteFacade"/>
+                <setProperty id="_setProperty2" propertyName="mensajeSalida">
+                    <simple>${body.salida.glosaRetorno}</simple>
+                </setProperty>
+                <choice id="_choiceRutaTasaPizarra">
+                    <when id="_whenTasaPizarraNOOK">
+                        <simple>${body.salida.codigoRetorno} == '-1' || ${body.salida.codigoRetorno} == '3'</simple>
+                        <log id="_log3" message="Paso por aca"/>
+                        <to id="_toErrorolService" uri="direct:tasaPizarra"/>
+                    </when>
+                </choice>
+                <log id="logInPricingRespuesta" message="El servicio Pricing a contestado."/>
+                <doCatch id="doCatchInPricing">
+                    <exception>java.lang.Exception</exception>
+                    <log id="logErrorInPricing" message="Ocurrio un error al invocar al servicio Pricing: ${exception}"/>
+                    <to id="toInPricingTasaPizarra" uri="direct:tasaPizarra"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routePricingTasaPizarra">
+            <from id="fromPricingTasa" uri="direct:tasaPizarra"/>
+            <log id="logTasaPizarraLLamada" message="Llamando al servicio TasaPizarra."/>
+            <doTry id="doTryTasaPizarra">
+                <bean id="beanTasaPizarra" method="requestTasaPizarra" ref="beanRouteFacade"/>
+                <removeHeaders id="_removeHeaders3" pattern="*"/>
+                <setHeader headerName="operationName" id="PricingTasaPizarraOperationName">
+                    <constant>{{pricing.precio.tasa.pizarra.operationname}}</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="PricingTasaPizarraSOAPAction">
+                    <constant>{{pricing.precio.tasa.pizarra.soapaction}}</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="PricingTasaPizarraOperationNamespace">
+                    <constant>{{pricing.precio.tasa.pizarra.namespace}}</constant>
+                </setHeader>
+                <to id="toEndpointPricingTasaPizarra" uri="cxf:bean:endpointPricingTasaPizarra"/>
+                <bean id="beanTasaPizarraRespuesta"
+                    method="responsePricingTasaPizarra" ref="beanRouteFacade"/>
+                <log id="logTasaPizarraR" message="TasaPizarra respondio."/>
+                <doCatch id="doCatchTasaPizarra">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toTasaPizarraE" uri="direct:exception"/>
+                </doCatch>
+                <stop id="stopTasaPizarra"/>
+            </doTry>
+        </route>
+        <route id="routeException">
+            <from id="fromException" uri="direct:exception"/>
+            <log id="logException" loggingLevel="ERROR" message="${exception.getMessage()}"/>
+            <bean id="beanException" method="excepcionCrear" ref="beanRouteFacade"/>
+            <stop id="stopException"/>
+        </route>
+    </camelContext>
+</blueprint>

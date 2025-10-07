@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsencuesta" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.encuesta.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:rsClient address="[{wsencuesta.mailinglists.endpoint}]"
+        id="endpoint" loggingFeatureEnabled="true"/>
+    <camelcxf:rsClient address="[{wsencuesta.contacts.endpoint}]"
+        id="endpointContacts" loggingFeatureEnabled="true"/>
+    <camelcxf:rsClient address="[{wsencuesta.distributions.endpoint}]"
+        id="endpointDistribucion" loggingFeatureEnabled="true"/>
+    <camelcxf:cxfEndpoint address="/WSEncuesta" id="endpointWSEncuesta"
+        serviceClass="cl.coopeuch.integracion.encuesta.wsdl.WSEncuestaSOAPPortType" wsdlURL="etc/wsdl/WSEncuesta.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSEncuesta" id="endpointRSEncuesta"
+        loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.encuesta.wsdl.WSEncuestaSOAPPortType"/>
+    <camelContext id="servicio-encuesta" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioSOAPServicio" uri="cxf:bean:endpointWSEncuesta"/>
+            <to id="soapToInicioWs" uri="direct:inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSEncuesta"/>
+            <to id="restToInicioWs" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionCrear">
+                        <simple>${header.operationName} == 'crearLista'</simple>
+                        <removeHeaders id="inicioLimpiaHeaderCL" pattern="*"/>
+                        <to id="toCrearLista" uri="direct:crearLista"/>
+                    </when>
+                    <when id="inicioWhenOperacionActualizar">
+                        <simple>${header.operationName} == 'importarContacto'</simple>
+                        <removeHeaders id="inicioLimpiaHeaderIC" pattern="*"/>
+                        <to id="toImportarContacto" uri="direct:importarContacto"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'crearDistribucion'</simple>
+                        <removeHeaders id="inicioLimpiaHeaderCD" pattern="*"/>
+                        <to id="toCrearDistribucion" uri="direct:crearDistribucion"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <removeHeaders id="inicioEliminacionHeaders" pattern="*"/>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="crearLista">
+            <from id="crearListaFrom" uri="direct:crearLista"/>
+            <doTry id="crearListaTry">
+                <setHeader headerName="CamelHttpMethod" id="crearListaCamelMetodo">
+                    <constant>POST</constant>
+                </setHeader>
+                <setHeader headerName="X-API-TOKEN" id="crearListaToken">
+                    <constant>{{wsencuesta.qualtrics.apitoken}}</constant>
+                </setHeader>
+                <setHeader headerName="Content-Type" id="crearListaContentType">
+                    <constant>application/json</constant>
+                </setHeader>
+                <bean id="crearListaRequestMail"
+                    method="generarRequestMailinglists" ref="beanRouteFacade"/>
+                <marshal id="crearListaRequestToObject">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="crearListaToString" type="java.lang.String"/>
+                <to id="crearListaToServicioExterno" uri="cxfrs:bean:endpoint?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <unmarshal id="crearListaResponseToObject">
+                    <json library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.encuesta.json.response.MailinglistResponse"/>
+                </unmarshal>
+                <bean id="crearListaResponseServicio"
+                    method="crearListaResponse" ref="beanRouteFacade"/>
+                <doCatch id="crearListaDoCatchServicioExterno">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="crearCodigoErrorServicioExterno" propertyName="codigoError">
+                        <constant>432</constant>
+                    </setProperty>
+                    <to id="crearListaToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="crearListaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="crearCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="crearListaToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="importarContacto">
+            <from id="importarContactoFrom" uri="direct:importarContacto"/>
+            <doTry id="importarContactoTry">
+                <setHeader headerName="CamelHttpMethod" id="importarContactoCamelMetodo">
+                    <constant>POST</constant>
+                </setHeader>
+                <setHeader headerName="X-API-TOKEN" id="importarContactoToken">
+                    <constant>{{wsencuesta.qualtrics.apitoken}}</constant>
+                </setHeader>
+                <setHeader headerName="Content-Type" id="importarContactoContentType">
+                    <constant>application/json</constant>
+                </setHeader>
+                <bean id="importarContactoRequest"
+                    method="generarRequestContacts" ref="beanRouteFacade"/>
+                <marshal id="importarContactoRequestToObject">
+                    <json library="Jackson"/>
+                </marshal>
+                <setHeader headerName="CamelDestinationOverrideUrl" id="importarContactoCamelDestinationOverrideUrl">
+                    <simple>{{wsencuesta.contacts.endpoint}}/${exchangeProperty.mailingListId}/contacts</simple>
+                </setHeader>
+                <convertBodyTo id="importarContactoToString" type="java.lang.String"/>
+                <to id="importarContactoToServicioExterno" uri="cxfrs:bean:endpointContacts?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <unmarshal id="importarContactoResponseToObject">
+                    <json library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.encuesta.json.response.ContactsResponse"/>
+                </unmarshal>
+                <bean id="importarContactoResponseServicio"
+                    method="importarContactoResponse" ref="beanRouteFacade"/>
+                <doCatch id="importarContactoDoCatchServicioExterno">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty
+                        id="importarContactoCodigoErrorServicioExterno" propertyName="codigoError">
+                        <constant>432</constant>
+                    </setProperty>
+                    <to id="importarContactoToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="importarContactoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="importarContactoCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="importarContactoToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="crearDistribucion">
+            <from id="crearDistribucionFrom" uri="direct:crearDistribucion"/>
+            <doTry id="crearDistribucionTry">
+                <setHeader headerName="CamelHttpMethod" id="crearDistribucionCamelMetodo">
+                    <constant>POST</constant>
+                </setHeader>
+                <setHeader headerName="X-API-TOKEN" id="crearDistribucionToken">
+                    <constant>{{wsencuesta.qualtrics.apitoken}}</constant>
+                </setHeader>
+                <setHeader headerName="Content-Type" id="crearDistribucionContentType">
+                    <constant>application/json</constant>
+                </setHeader>
+                <bean id="crearDistribucionRequest"
+                    method="generarRequestDistributions" ref="beanRouteFacade"/>
+                <marshal id="crearDistribucionRequestToObject">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="crearDistribucionToString" type="java.lang.String"/>
+                <to id="crearDistribucionToServicioExterno" uri="cxfrs:bean:endpointDistribucion?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <unmarshal id="crearDistribucionResponseToObject">
+                    <json library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.encuesta.json.response.DistributionsResponse"/>
+                </unmarshal>
+                <bean id="crearDistribucionResponseServicio"
+                    method="crearDistribucionResponse" ref="beanRouteFacade"/>
+                <doCatch id="crearDistribucionDoCatchParametro">
+                    <exception>java.lang.NullPointerException</exception>
+                    <setProperty
+                        id="crearDistribucionCodigoErrorParametro" propertyName="codigoError">
+                        <constant>424</constant>
+                    </setProperty>
+                    <to id="crearDistribucionParametroToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="crearDistribucionDoCatchServicioExterno">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty
+                        id="crearDistribucionCodigoErrorServicioExterno" propertyName="codigoError">
+                        <constant>432</constant>
+                    </setProperty>
+                    <to id="crearDistribucionSEToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="crearDistribucionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="crearDistribucionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="crearDistribucionToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

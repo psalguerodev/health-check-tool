@@ -1,0 +1,674 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder persistent-id="wsfirmatoc"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSource">
+        <property name="driverClassName" value="[{firmatoc.jdbc.driverClassName}]"/>
+        <property name="url" value="[{firmatoc.jdbc.url}]/[{firmatoc.jdbc.database}];charset=iso_1;domain=coopeuch1;usentlmv2=true"/>
+        <property name="username" value="[{firmatoc.jdbc.username}]"/>
+        <property name="password" value="[{firmatoc.jdbc.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{firmatoc.jdbc.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{firmatoc.jdbc.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{firmatoc.jdbc.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{firmatoc.jdbc.maxActive}]"/>
+    </bean>
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.firmatoc.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/cdig/WSFirmaToc"
+        id="endpointWSFirmaToc" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.firmatoc.wsdl.WSFirmaTocSOAPPortType" wsdlURL="etc/wsdl/WSFirmaToc.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/cdig/RSFirmaToc"
+        id="endpointRSFirmaToc" serviceClass="cl.coopeuch.integracion.firmatoc.wsdl.WSFirmaTocSOAPPortType"/>
+    <camelcxf:cxfEndpoint
+        address="{{firmatoc.firmar.servicioTOC.endpoint}}"
+        id="servicioToc" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.firmatoc.wsdl.toc.WSTOCSOAPPortType" wsdlURL="etc/wsdl/WSTOC.wsdl"/>
+    <camelcxf:cxfEndpoint
+        address="[{firmartoc.firmar.serviciopersona.endpoint}]"
+        id="servicioPersona" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.firmatoc.wsdl.servicioPersona.PersonaPortType" wsdlURL="etc/wsdl/ServicioPersona.wsdl"/>
+    <camelcxf:cxfEndpoint
+        address="[{firmatoc.firmar.documentSigner.endpoint}]"
+        id="servicioDocumentSigner" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.firmatoc.wsdl.documentsigner.DocumentSigner" wsdlURL="etc/wsdl/DocumentSigner.wsdl"/>
+     <camelcxf:cxfEndpoint
+        address="[{firmatoc.firmar.estampa.endpoint}]"
+        id="servicioEstampaSigner" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.firmatoc.wsdl.firmaEstampa.Signer" wsdlURL="etc/wsdl/EstampaTOC.wsdl"/>
+    <camelContext id="servicio-firma-toc" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSFirmaToc"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSFirmaToc"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionCrear">
+                        <simple>${header.operationName} == 'generarToken'</simple>
+                        <to id="toGenerarToken" uri="direct:generarToken"/>
+                    </when>
+                    <when id="inicioWhenOperacionActualizar">
+                        <simple>${header.operationName} == 'consultarTransaccion'</simple>
+                        <to id="toConsultarTransaccion" uri="direct:consultarTransaccion"/>
+                    </when>
+                    <when id="inicioWhenOperacionAutenticar">
+                        <simple>${header.operationName} == 'autenticar'</simple>
+                        <to id="toAutenticar" uri="direct:autenticar"/>
+                    </when>
+                    <when id="inicioWhenOperacionFirmar">
+                        <simple>${header.operationName} == 'firmar'</simple>
+                        <to id="toFirmar" uri="direct:firmar"/>
+                    </when>
+                    <when id="inicioWhenOperacionObtenerDatos">
+                        <simple>${header.operationName} == 'obtenerDatos'</simple>
+                        <to id="toObtenerDatos" uri="direct:obtenerDatos"/>
+                    </when>
+                    <when id="inicioWhenOperacionObtenerDatos">
+                        <simple>${header.operationName} == 'firmarEstampa'</simple>
+                        <to id="toObtenerDatos" uri="direct:firmarEstampa"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <removeHeaders id="inicioEliminaHeaders" pattern="*"/>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generarToken">
+            <from id="generarTokenFrom" uri="direct:generarToken"/>
+            <doTry id="generarTokenTry">
+                <bean id="generarTokenBean" method="requestGenerarToken" ref="beanRouteFacade"/>
+                <to id="pa_insFlujoFirmaBiometrica_InsertTokenTo" uri="sql-stored:classpath:etc/sql/pa_insFlujoFirmaBiometrica_InsertToken.sql?outputHeader=dataPaInsertToken&amp;dataSource=#dataSource"/>
+                <bean id="beanRespuestaPaIdentidadBiometrica"
+                    method="responseGenerarToken" ref="beanRouteFacade"/>
+                <doCatch id="generarTokenDoCatchPa">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="generarTokenToExcepcionPa" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="generarTokenDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="generarTokenCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="generarTokenToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarTransaccionToken">
+            <from id="consultarTransaccionTokenFrom" uri="direct:consultarTransaccion"/>
+            <doTry id="consultarTransaccionTokenTry">
+                <bean id="consultarTransaccionBeanRequest"
+                    method="requestConsultarTransaccion" ref="beanRouteFacade"/>
+                <to id="pa_selFlujoFirmaBiometricaTo" uri="sql-stored:classpath:etc/sql/pa_selFlujoFirmaBiometrica.sql?outputHeader=dataPaSelToken&amp;dataSource=#dataSource"/>
+                <bean id="consultarTransaccionBeanResponse"
+                    method="responseConsultarTransaccion" ref="beanRouteFacade"/>
+                <doCatch id="consultarTransaccionDoCatchPa">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="consultarTransaccionToExcepcionPa" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultarTransaccionTokenDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarTransaccionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="consultarTransaccionToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="autenticar">
+            <from id="autenticarFrom" uri="direct:autenticar"/>
+            <doTry id="autenticarTry">
+                <bean id="autenticarBeanRequest"
+                    method="requestAutenticarPa" ref="beanRouteFacade"/>
+                <to
+                    id="autenticarToPa_updFlujoFirmaBiometrica_datosflujo" uri="sql-stored:classpath:etc/sql/pa_updFlujoFirmaBiometrica_datosFlujo.sql?outputHeader=dataPaAutentica&amp;dataSource=#dataSource"/>
+                <bean id="autenticarBeanResponse"
+                    method="responseAutenticarPa" ref="beanRouteFacade"/>
+                <choice id="autenticarValidacionIOC">
+                    <when id="validacionIOC">
+                        <simple>${exchangeProperty.validacionIOC} == true</simple>
+                        <to id="autenticarToConsultarIOC" uri="direct:consultarIOC"/>
+                    </when>
+                </choice>
+                <when id="whenIOCOK">
+                    <simple>${exchangeProperty.ejecucionIOCOK} == 'true' </simple>
+                    <to id="autenticarToValidarTrx" uri="direct:validarTrx"/>
+                    <choice id="autenticarChoice">
+                        <when id="autenticarValidacionRut">
+                            <simple>${exchangeProperty.validacionIOC} == true</simple>
+                            <bean id="autenticarBeanValidarRut"
+                                method="validarRut" ref="beanRouteFacade"/>
+                        </when>
+                    </choice>
+                    <to id="autenticarToPa_pa_selValidacionTiempo" uri="sql-stored:classpath:etc/sql/pa_selValidacionTiempo.sql?outputHeader=dataPaTiempo&amp;dataSource=#dataSource"/>
+                    <bean id="autenticarBeanValidarTiempoTrx"
+                        method="validacionesTiempo" ref="beanRouteFacade"/>
+                    <setProperty id="autenticarActualizarEstado" propertyName="estadoFlujo">
+                        <constant>2</constant>
+                    </setProperty>
+                    <to id="autenticarToActualizarFlujo" uri="direct:cambiarEstadoFlujo"/>
+                    <bean id="autenticarBeanResponse"
+                        method="generarResponseAutenticar" ref="beanRouteFacade"/>
+                </when>
+                <doCatch id="autenticarDoCatchPa">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="autenticarToExcepcionPa" uri="direct:excepcion"/>
+                    <stop id="autenticarPaStop"/>
+                </doCatch>
+                <doCatch id="autenticarDoCatchValTiempo">
+                    <exception>java.lang.NumberFormatException</exception>
+                    <exception>java.lang.IllegalStateException</exception>
+                    <to id="autenticarToExcepcionValTiempo" uri="direct:excepcion"/>
+                    <setProperty id="estadoFlujoValTiempo" propertyName="estadoFlujo">
+                        <constant>4</constant>
+                    </setProperty>
+                    <wireTap id="validacionTiempoToActualizarFlujo" uri="direct:cambiarEstadoFlujo"/>
+                    <stop id="autenticarValTiempoStop"/>
+                </doCatch>
+                <doCatch id="autenticarDoCatchRut">
+                    <exception>java.io.IOException</exception>
+                    <setProperty id="autenticarCodigoErrorRut" propertyName="codigoError">
+                        <constant>467</constant>
+                    </setProperty>
+                    <to id="autenticarRutToExcepcion" uri="direct:excepcion"/>
+                    <stop id="autenticarRutStop"/>
+                </doCatch>
+                <doCatch id="autenticarTokenDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="autenticarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="autenticarToExcepcion" uri="direct:excepcion"/>
+                    <stop id="autenticarStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarIOC">
+            <from id="consultarIOCFrom" uri="direct:consultarIOC"/>
+            <doTry id="consultarIOCTry">
+                <marshal id="consultarIOCMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.firmatoc.wsdl"/>
+                </marshal>
+                <convertBodyTo id="consultarIOCConvertBodyToString" type="java.lang.String"/>
+                <bean id="consultarIOCUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultarIOCToXSLTrama" uri="xslt://etc/xsl/request/IOC7430001I_consultar.xsl"/>
+                <log id="consultarIOCTrama" loggingLevel="INFO" message="Trama generada = ${body}"/>
+                <to id="consultarIOCToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="consultarIOCTramaResponse" loggingLevel="INFO" message="Trama recibida = ${body}"/>
+                <transform id="consultarIOCTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <choice id="consultarIOCChoice">
+                    <when id="ejecucionCorrecta">
+                        <simple>${body} contains 'IOC743001O'</simple>
+                        <to id="consultarIOCToXSLSOAP" uri="xslt://etc/xsl/response/IOC743001O_consultar_correcto.xsl?saxon=true"/>
+                        <bean id="consultarIOCProcesar"
+                            method="procesarIOC" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="ejecucionConError">
+                        <to id="consultarIOCToXSLSOAPError" uri="xslt://etc/xsl/response/IOC743001O_consultar_error.xsl?saxon=true"/>
+                        <setProperty id="consultarIOCEjecucion" propertyName="ejecucionIOCOK">
+                            <constant>false</constant>
+                        </setProperty>
+                        <unmarshal id="enviarMarshalError">
+                            <jaxb contextPath="cl.coopeuch.integracion.firmatoc.wsdl"/>
+                        </unmarshal>
+                    </otherwise>
+                </choice>
+                <doCatch id="consultarIOCDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="crearCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <setProperty id="estadoFlujoAMQ" propertyName="estadoFlujo">
+                        <constant>3</constant>
+                    </setProperty>
+                    <wireTap id="consultarIOCAmqToActualizarFlujo" uri="direct:cambiarEstadoFlujo"/>
+                    <to id="consultarIOCToExcepcionAMQ" uri="direct:excepcion"/>
+                    <stop id="consultarIOCStopAmq"/>
+                </doCatch>
+                <doCatch id="consultarIOCDoCatchCod">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="estadoFlujoCod" propertyName="estadoFlujo">
+                        <constant>3</constant>
+                    </setProperty>
+                    <wireTap id="consultarIOCCodToActualizarFlujo" uri="direct:cambiarEstadoFlujo"/>
+                    <to id="cod51ToExcepcion" uri="direct:excepcion"/>
+                    <stop id="consultarIOCStopCod"/>
+                </doCatch>
+                <doCatch id="consultarIOCDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarIOCCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="estadoFlujoExc" propertyName="estadoFlujo">
+                        <constant>3</constant>
+                    </setProperty>
+                    <wireTap id="consultarIOCToActualizarFlujo" uri="direct:cambiarEstadoFlujo"/>
+                    <to id="consultarIOCToExcepcion" uri="direct:excepcion"/>
+                    <stop id="consultarIOCStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validarTrx">
+            <from id="validarTrxFrom" uri="direct:validarTrx"/>
+            <doTry id="validarTrxTry">
+                <removeHeaders id="validarTrxRemoveHeaders" pattern="*"/>
+                <bean id="validarTrxBeanRequest"
+                    method="requestValidarToc" ref="beanRouteFacade"/>
+                <to id="validarTrxToServicioToc" uri="cxf:bean:servicioToc"/>
+                <bean id="validarTrxBeanRequest"
+                    method="responseValidarToc" ref="beanRouteFacade"/>
+                <doCatch id="validarTrxDoCatchWs">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="estadoFlujoValidarTrxIlle" propertyName="estadoFlujo">
+                        <constant>5</constant>
+                    </setProperty>
+                    <wireTap id="validarTrxToActualizarFlujoIlle" uri="direct:cambiarEstadoFlujo"/>
+                    <to id="validarTrxToExcepcionIlle" uri="direct:excepcion"/>
+                    <stop id="validarTrxStopIlle"/>
+                </doCatch>
+                <doCatch id="validarTrxDoCatchWs">
+                    <exception>java.net.ConnectException</exception>
+                    <setProperty id="validarTrxConnectCodigoError" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <setProperty id="estadoFlujoValidarTrxConnect" propertyName="estadoFlujo">
+                        <constant>9</constant>
+                    </setProperty>
+                    <wireTap id="validarTrxToActualizarFlujoConnect" uri="direct:cambiarEstadoFlujo"/>
+                    <to id="validarTrxToExcepcionConnect" uri="direct:excepcion"/>
+                    <stop id="validarTrxStopConnect"/>
+                </doCatch>
+                <doCatch id="validarTrxDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="validarTrxCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="estadoFlujoValidarTrx" propertyName="estadoFlujo">
+                        <constant>5</constant>
+                    </setProperty>
+                    <wireTap id="validarTrxToActualizarFlujo" uri="direct:cambiarEstadoFlujo"/>
+                    <to id="validarTrxToException" uri="direct:excepcion"/>
+                    <stop id="validarTrxStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="obtenerDatos">
+            <from id="obtenerDatosFrom" uri="direct:obtenerDatos"/>
+            <doTry id="obtenerDatosTry">
+                <bean id="obtenerDatosBeanRequest"
+                    method="requestValidar" ref="beanRouteFacade"/>
+                <to id="obtenerDatosToServicioToc" uri="cxf:bean:servicioToc"/>
+                <bean id="obtenerDatosBeanRequest"
+                    method="responseValidar" ref="beanRouteFacade"/>
+                <doCatch id="obtenerDatosxDoCatchWs">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="obtenerDatosToExcepcionIlle" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="obtenerDatosDoCatchConnect">
+                    <exception>java.net.ConnectException</exception>
+                    <setProperty id="obtenerDatosConnectCodigoError" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to id="obtenerDatosToExcepcionConnect" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="obtenerDatosDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="obtenerDatosCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="obtenerDatosToException" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="firmar">
+            <from id="firmarFrom" uri="direct:firmar"/>
+            <doTry id="firmarTry">
+                <bean id="firmarBeanRequest"
+                    method="procesarRequestFirmar" ref="beanRouteFacade"/>
+                <to id="firmarToAutenticar" uri="direct:autenticar"/>
+                <bean id="firmarBeanResponseAutenticar"
+                    method="procesarRespuestaAutenticar" ref="beanRouteFacade"/>
+                <when id="validacionCorreoElectronico">
+                    <simple>${body} == 'TRUE'</simple>
+                    <to id="firmarToPersona" uri="direct:persona"/>
+                </when>
+                <when id="validacionCorreoElectronico">
+                    <simple>${exchangeProperty.buscarDocumentoS3} == 'TRUE'</simple>
+                    <to id="firmarToBuscarDocumentoAWS" uri="direct:buscarDocumentoAWS"/>
+                </when>
+                <choice id="tipoFirmaChoice">
+                    <when id="_whenTipoFirmaFEA">
+                        <simple>${exchangeProperty.tipoFirma} == 'FEA'</simple>
+                        <to id="firmarToFirmaAvanzada" uri="direct:firmaAvanzada"/>
+                    </when>
+                    <when id="_whenTipoFirmaFES">
+                        <simple>${exchangeProperty.tipoFirma} == 'FES'</simple>
+                        <to id="firmarToFirmaSimple" uri="direct:firmaSimple"/>
+                    </when>
+                    <otherwise id="otherwiseErrorTipoFirma">
+                        <setProperty id="firmarErrorTipoFirma" propertyName="codigoError">
+                            <constant>424</constant>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.IllegalArgumentException"
+                            id="irmarThrowException" message="Valor ingresado en parámetro tipoFirma es inválido"/>
+                    </otherwise>
+                </choice>
+                <setProperty id="firmarResponseActualizarEstado" propertyName="estadoFlujo">
+                    <constant>10</constant>
+                </setProperty>
+                <wireTap id="firmarResponseToActualizarFlujo" uri="direct:cambiarEstadoFlujo"/>
+                <bean id="firmarBeanResponse"
+                    method="generarResponseFirmar" ref="beanRouteFacade"/>
+                <doCatch id="firmarDoCatchRequest">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="estadoFlujoFirmarIllegal" propertyName="estadoFlujo">
+                        <constant>7</constant>
+                    </setProperty>
+                    <wireTap id="firmarIllegalToActualizarFlujo" uri="direct:cambiarEstadoFlujo"/>
+                    <to id="firmarRequestToExcepcion" uri="direct:excepcion"/>
+                    <stop id="firmarRequestStop"/>
+                </doCatch>
+                <doCatch id="firmarDoCatchRequest">
+                    <exception>java.lang.IllegalStateException</exception>
+                    <wireTap id="firmarIStateToActualizarFlujo" uri="direct:cambiarEstadoFlujo"/>
+                    <to id="firmarStateToExcepcion" uri="direct:excepcion"/>
+                    <stop id="firmarStateStop"/>
+                </doCatch>
+                <doCatch id="firmarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="firmarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="estadoFlujoFirmar" propertyName="estadoFlujo">
+                        <constant>9</constant>
+                    </setProperty>
+                    <wireTap id="firmarToActualizarFlujo" uri="direct:cambiarEstadoFlujo"/>
+                    <to id="firmarToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="firmarEstampa">
+            <from id="firmarEstampaFrom" uri="direct:firmarEstampa"/>
+            <doTry id="firmarEstampaTry">                  
+                <to id="pa_insLogFirmaDocumento-To" uri="direct:insertLog"/>              
+               	<bean id="firmarEstampaBeanRequest"
+                    method="llamadaEstampaFirma" ref="beanRouteFacade"/>
+                <to id="firmarEstampa-Toc" uri="cxf:bean:servicioEstampaSigner?loggingFeatureEnabled=true"/>
+                <bean id="firmarEstampaBeanResponse"
+                    method="obtenerResponseFirmaEstampa" ref="beanRouteFacade"/>   
+                <log message="exchangeProperty.idLog . ${exchangeProperty.idLog}" />
+                <log message="exchangeProperty.codigoTransaccion . ${exchangeProperty.codigoTransaccion}" />
+                <log message="exchangeProperty.codigoRespuesta . ${exchangeProperty.codigoRespuesta}" />
+                <log message="exchangeProperty.operacion . ${exchangeProperty.operacion}" />
+                <wireTap id="pa_updLogFirmaDocumento-To" uri="direct:actualizaLog"/> 
+                            
+                <doCatch id="firmarEstampa-DoCatchConnect">
+                   <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="firmarEstampa-CodigoErrorAMQ" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <bean id="obtenerValoresErrores-Error-500"
+                    method="obtenerValoresErrores" ref="beanRouteFacade"/>   
+                    <wireTap id="pa_updLogFirmaDocumento-To-500" uri="direct:actualizaLog"/>                             
+                    <to id="firmarEstampa-ToExcepcionConnect" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="firmarEstampaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="firmarEstampa-CodigoError" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>  
+                    <bean id="obtenerValoresErrores-Error-504"
+                    method="obtenerValoresErrores" ref="beanRouteFacade"/>               
+                    <wireTap  id="pa_updLogFirmaDocumento-To-504" uri="direct:actualizaLog"/>
+                    
+                    <to id="firmarEstampa-ToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="ActualizarLog">
+            <from id="ActualizarLog-from" uri="direct:actualizaLog"/>
+            <to id="pa_updLogFirmaDocumento-To-Ruta" uri="sql-stored:classpath:etc/sql/pa_updLogFirmaDocumento.sql?dataSource=#dataSource&amp;outputHeader=responseInsertDatos"/>               
+        </route>
+        <route id="InsertLog">
+            <from id="InsertLog-from" uri="direct:insertLog"/>
+            <bean id="pa_insLogFirmaDocumento-Entrada"
+                    method="obtenerDatosEntradaProcedimiento" ref="beanRouteFacade"/>                
+            <to id="pa_insLogFirmaDocumentoTo-Ruta" uri="sql-stored:classpath:etc/sql/pa_insLogFirmaDocumento.sql?dataSource=#dataSource&amp;outputHeader=responseInsertDatos"/>
+           	<bean id="obtenerDatosSalidaProcedimiento"
+                    method="obtenerDatosSalidaProcedimiento" ref="beanRouteFacade"/>
+        </route>
+        <route id="persona">
+            <from id="fromPersona" uri="direct:persona"/>
+            <doTry id="personaDoTry">
+                <bean id="personaBeanRequest" method="requestPersona" ref="beanRouteFacade"/>
+                <to id="personaToServicio" uri="cxf:bean:servicioPersona"/>
+                 
+                <bean id="personaBeanRequest" method="responsePersona" ref="beanRouteFacade"/>
+                <doCatch id="personaDoCatchWs">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="personaWsToExcepcion" uri="direct:excepcion"/>
+                    <stop id="personaWsStop"/>
+                </doCatch>
+                <doCatch id="personaCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="personaToExcepcion" uri="direct:excepcion"/>
+                    <stop id="personaStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="buscarDocumentoAWS">
+            <from id="fromObtenerDocumentoAWS" uri="direct:buscarDocumentoAWS"/>
+            <doTry id="buscarDocumentoAWSDoTry">
+                <pollEnrich id="buscarDocumentoAWSPollEnrich" timeout="5000">
+                    <simple>aws-s3://{{firmartoc.firmar.amazon.s3.default.bucket}}?accessKey={{firmartoc.firmar.amazon.aws.access.key.id}}&amp;region=us-west-2&amp;secretKey=RAW({{firmartoc.firmar.amazon.aws.access.key.secret}})&amp;deleteAfterRead=false&amp;prefix=${exchangeProperty.prefixAmazon}</simple>
+                </pollEnrich>
+                <when id="whenDocumentoNoEncontrado">
+                    <simple>${body} == null</simple>
+                    <throwException exceptionType="java.lang.Exception"
+                        id="throwExceptionDocumentoNoEncontrado" message="Documento no encontrado en S3"/>
+                </when>
+                <bean id="buscarDocumentoAWSBeanResponse"
+                    method="obtenerDocumentoAWS" ref="beanRouteFacade"/>
+                <doCatch id="buscarDocumentoAWSCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="buscarDocumentoAWSCodigoError" propertyName="codigoError">
+                        <constant>446</constant>
+                    </setProperty>
+                    <setProperty id="estadoFlujoBuscarDocumentoAWS" propertyName="estadoFlujo">
+                        <constant>6</constant>
+                    </setProperty>
+                    <wireTap id="buscarDocumentoAWSToActualizarFlujo" uri="direct:cambiarEstadoFlujo"/>
+                    <to id="buscarDocumentoAWSToException" uri="direct:excepcion"/>
+                    <stop id="buscarDocumentoAWSStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="firmaSimple">
+            <from id="fromfirmaSimple" uri="direct:firmaSimple"/>
+            <doTry id="firmaSimpleDoTry">
+                <bean id="firmaSimpleBeanRequest"
+                    method="construirFirmaSimple" ref="beanRouteFacade"/>
+                <to id="firmarSimpleToServicioToc" uri="cxf:bean:servicioToc"/>
+                <bean id="firmaSimpleBeanResponset"
+                    method="firmaSimpleResponse" ref="beanRouteFacade"/>
+                <to id="firmaSimpleToGuardarDocumento" uri="direct:guardarDocumento"/>
+                <doCatch id="firmaSimpleConnectDoCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <setProperty id="firmaSimpleConnectCodigoError" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <setProperty id="firmaSimpleConnectToEstadoFlujo" propertyName="estadoFlujo">
+                        <constant>9</constant>
+                    </setProperty>
+                    <wireTap id="firmaSimpleConnectToActualizarFlujo" uri="direct:cambiarEstadoFlujo"/>
+                    <to id="firmaSimpleConnectToExcepcion" uri="direct:excepcion"/>
+                    <stop id="firmaSimpleConnectStop"/>
+                </doCatch>
+                <doCatch id="ExceptionFirmarDocumentoSimple">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="estadoFlujoFirmaSimple" propertyName="estadoFlujo">
+                        <constant>7</constant>
+                    </setProperty>
+                    <wireTap id="firmarSimpleToActualizarFlujo" uri="direct:cambiarEstadoFlujo"/>
+                    <to id="firmaSimpleToException" uri="direct:excepcion"/>
+                    <stop id="firmaSimpleStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="firmaAvanzada">
+            <from id="fromFirmaAvanzada" uri="direct:firmaAvanzada"/>
+            <doTry id="firmaAvanzadaDoTry">
+                <bean id="firmaAvanzadaBeanRequest"
+                    method="construirFirmaAvanzada" ref="beanRouteFacade"/>
+                <to id="firmaAvanzadaToServicio" uri="cxf:bean:servicioDocumentSigner"/>
+                <bean id="firmaAvanzadaBeanResponset"
+                    method="firmmaAvanzadaResponse" ref="beanRouteFacade"/>
+                <to id="firmaAvanzadaToGuardarDocumento" uri="direct:guardarDocumento"/>
+                <doCatch id="signerDoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="estadoFlujoFirmarAvanzadaSigner" propertyName="estadoFlujo">
+                        <constant>7</constant>
+                    </setProperty>
+                    <wireTap id="firmarAvanzadaSingerToActualizarFlujo" uri="direct:cambiarEstadoFlujo"/>
+                    <to id="signerToExcepcion" uri="direct:excepcion"/>
+                    <stop id="signerStop"/>
+                </doCatch>
+                <doCatch id="firmaAvanzadaConnectDoCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <setProperty id="firmaAvanzadaConnectCodigoError" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <setProperty id="firmaAvanzadaConnectToEstadoFlujo" propertyName="estadoFlujo">
+                        <constant>9</constant>
+                    </setProperty>
+                    <wireTap id="firmaAvanzadaConnectToActualizarFlujo" uri="direct:cambiarEstadoFlujo"/>
+                    <to id="firmaAvanzadaConnectToExcepcion" uri="direct:excepcion"/>
+                    <stop id="firmaAvanzadaConnectStop"/>
+                </doCatch>
+                <doCatch id="ExceptionFirmarDocumentoAvanzado">
+                    <exception>java.lang.Exception</exception>
+                    <to id="firmaAvanzadaToException" uri="direct:excepcion"/>
+                    <setProperty id="estadoFlujoFirmarAvanzada" propertyName="estadoFlujo">
+                        <constant>7</constant>
+                    </setProperty>
+                    <wireTap id="firmarAvanzadaToActualizarFlujo" uri="direct:cambiarEstadoFlujo"/>
+                    <stop id="firmaAvanzadaStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="GuardarDocumento">
+            <from id="fromGuardarDocumento" uri="direct:guardarDocumento"/>
+            <doTry id="guardarDocumentoDoTry">
+                <setHeader headerName="CamelAwsS3Key" id="guardarDocumentos3Key">
+                    <simple>${exchangeProperty.prefixAmazon.replace('.pdf','')}_${exchangeProperty.tipoFirma}.pdf</simple>
+                </setHeader>
+                <to id="guardarDocumentoToAmazonS3" uri="aws-s3://{{firmartoc.firmar.amazon.s3.default.bucket}}?accessKey={{firmartoc.firmar.amazon.aws.access.key.id}}&amp;secretKey=RAW({{firmartoc.firmar.amazon.aws.access.key.secret}})"/>
+                <setProperty id="guardarDocumentoNombreArchivo" propertyName="nombreArchivo">
+                    <simple>${header.CamelAwsS3Key}</simple>
+                </setProperty>
+                <doCatch id="guardarDocumentoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="guardarDocumentoCodigoError" propertyName="codigoError">
+                        <constant>479</constant>
+                    </setProperty>
+                    <setProperty id="estadoFlujoGuardarDocumento" propertyName="estadoFlujo">
+                        <constant>8</constant>
+                    </setProperty>
+                    <wireTap id="guardarDocumentoToActualizarFlujo" uri="direct:cambiarEstadoFlujo"/>
+                    <to id="guardarDocumentoToException" uri="direct:excepcion"/>
+                    <stop id="guardarDocumentoStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cambiarEstadoFlujo">
+            <from id="cambiarEstadoFlujoFrom" uri="direct:cambiarEstadoFlujo"/>
+            <doTry id="cambiarEstadoFlujoTry">
+                <bean id="cambiarEstadoFlujoBeanRequest"
+                    method="requestActualizarFlujo" ref="beanRouteFacade"/>
+                <to id="pa_updEstadoFlujoTo" uri="sql-stored:classpath:etc/sql/pa_updEstadoFlujo.sql?outputHeader=dataPaUpdateFlujo&amp;dataSource=#dataSource"/>
+                <bean id="cambiarEstadoFlujoBeanResponse"
+                    method="responseActualizarFlujo" ref="beanRouteFacade"/>
+                <doCatch id="cambiarEstadoFlujoDoCatchPa">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="cambiarEstadoFlujoToExcepcionPa" uri="direct:excepcion"/>
+                    <stop id="cambiarEstadoFlujoPaStop"/>
+                </doCatch>
+                <doCatch id="cambiarEstadoFlujoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <marshal id="cambiarEstadoFlujoJson">
+                        <json library="Jackson"/>
+                    </marshal>
+                    <convertBodyTo id="cambiarEstadoFlujoConvertTo" type="java.lang.String"/>
+                    <to id="cambiarEstadoFlujoToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <stop id="cambiarEstadoFlujoStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

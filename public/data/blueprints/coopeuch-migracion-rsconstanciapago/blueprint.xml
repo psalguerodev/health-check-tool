@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsconstanciapago" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSource">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{constanciapago.jdbc.sql.url}];charset=iso_1"/>
+        <property name="username" value="[{constanciapago.jdbc.sql.username}]"/>
+        <property name="password" value="[{constanciapago.jdbc.sql.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{constanciapago.jdbc.sql.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{constanciapago.jdbc.sql.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{constanciapago.jdbc.sql.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{constanciapago.jdbc.sql.maxActive}]"/>
+    </bean>
+    <camelcxf:cxfEndpoint address="/WSConstanciaPago"
+        id="endpointWSConstanciaPago"
+        serviceClass="cl.coopeuch.integracion.constanciapago.wsdl.WSConstanciaPagoSOAPPortType" wsdlURL="etc/wsdl/WSConstanciaPago.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsClient
+        address="[{wsconstanciapago.servicio.documento.endpoint}]"
+        id="endpointDocumento" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient
+        address="[{wsconstanciapago.servicio.notificacion.endpoint}]"
+        id="endpointNotificacion" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsServer address="/RSConstanciaPago"
+        id="endpointRSConstanciaPago" serviceClass="cl.coopeuch.integracion.constanciapago.wsdl.WSConstanciaPagoSOAPPortType"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.constanciapago.util.Aggregator" id="aggregator"/>
+    <bean
+        class="cl.coopeuch.integracion.constanciapago.util.RouteFacade" id="beanRouteFacade"/>
+    <camelContext id="wsconstanciapago" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSConstanciaPago"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSConstanciaPago"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultarConstanciaPago'</simple>
+                        <to id="toConsultar" uri="direct:consultarConstanciaPago"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log_cxf-inicio" loggingLevel="ERROR" message="Traza de error cxf-inicio: ${exception}"/>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarConstanciaPago">
+            <from id="consultarConstanciaPagoFrom" uri="direct:consultarConstanciaPago"/>
+            <doTry id="consultarConstanciaPagoTry">
+                <to id="consultarConstanciaPagoToConsultarRegistros" uri="direct:consultarRegistros"/>
+                <split id="consultarConstanciaPagoSplit"
+                    parallelProcessing="true" strategyRef="aggregator">
+                    <simple>${body}</simple>
+                    <to id="consultarConstanciaPagoToGenerarDocumento" uri="direct:generarDocumento"/>
+                    <to id="consultarConstanciaPagoToEnviarDocumento" uri="direct:enviarDocumento"/>
+                </split>
+                <doCatch id="consultarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log_consultarConstanciaPago"
+                        loggingLevel="ERROR" message="Traza de error consultarConstanciaPago: ${exception}"/>
+                    <setProperty id="consultarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toConsultarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarRegistros">
+            <from id="consultarRegistrosFrom" uri="direct:consultarRegistros"/>
+            <doTry id="consultarRegistrosTry">
+                <bean id="generarRequestPALectBean"
+                    method="generarRequestPALect" ref="beanRouteFacade"/>
+                <to id="pa_ges_cred_hip_post_pago-To" uri="sql-stored:classpath:etc/sql/pa_selCreditos.sql?dataSource=dataSource&amp;outputHeader=response"/>
+                <bean id="consultarRegistrosBean"
+                    method="generarObjetos" ref="beanRouteFacade"/>
+                <doCatch id="consultarRegistrosCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log_consultarRegistros"
+                        loggingLevel="ERROR" message="Traza de error ConsultarResgistros: ${exception}"/>
+                    <setProperty id="consultarRegistrosError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toConsultarRegistrosExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generarDocumento">
+            <from id="generarDocumentoFrom" uri="direct:generarDocumento"/>
+            <doTry id="generarDocumentoTry">
+                <bean id="generarDocumentoBeanRequest"
+                    method="generarRequestDocumento" ref="beanRouteFacade"/>
+                <setHeader headerName="Content-Type" id="setHeaderContentTypeGenerarDocumento">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="Exchange.HTTP_METHOD" id="setHeaderMethodGenerarDocumento">
+                    <constant>POST</constant>
+                </setHeader>
+                <to id="generarDocumentoToServicio" uri="cxfrs:bean:endpointDocumento?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <bean id="generarDocumentoBeanResponse"
+                    method="generarResponseDocumento" ref="beanRouteFacade"/>
+                <doCatch id="generarDocumentoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log_generarDocumento" loggingLevel="ERROR" message="Traza de error generarDocumento: ${exception}"/>
+                    <setProperty id="generar_Documento_Error" propertyName="codigoErrorGenerarDocumento">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toGenerarDocumentoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="enviarDocumento">
+            <from id="enviarFrom" uri="direct:enviarDocumento"/>
+            <doTry id="enviarDocumentoTry">
+                <bean id="enviarDocumentoBeanRequest"
+                    method="requestNotificacion" ref="beanRouteFacade"/>
+                <setHeader headerName="Content-Type" id="setHeaderContentTypeEnviarDocumento">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="Exchange.HTTP_METHOD" id="setHeaderMethodEnviarDocumento">
+                    <constant>POST</constant>
+                </setHeader>
+                <to id="enviarDocumentoToServicio" uri="cxfrs:bean:endpointNotificacion?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <bean id="enviarDocumentoBeanResponse"
+                    method="responseNotificacion" ref="beanRouteFacade"/>
+                <to id="pa_ges_cred_hip_post_pago-ToN" uri="sql-stored:classpath:etc/sql/pa_selCreditos.sql?dataSource=dataSource&amp;outputHeader=response"/>
+                <doCatch id="enviarDocumentoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log_enviarDocumento" loggingLevel="ERROR" message="Traza de error enviarDocumento: ${exception}"/>
+                    <setProperty id="enviarDocumentoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toEnviarDocumentoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

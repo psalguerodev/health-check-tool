@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+           xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+           xmlns:http="http://cxf.apache.org/transports/http/configuration"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+                             placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyWsAutenticacionInterna"
+                             persistent-id="wsautenticacioninterna" placeholder-prefix="[{"
+                             placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Conexion Base de datos -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+          destroy-method="close" id="SQLAutenticacionInterna">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{wsautenticacioninterna.ds.url}]/[{wsautenticacioninterna.ds.database}];charset=iso_1"/>
+        <property name="username" value="[{wsautenticacioninterna.ds.username}]"/>
+        <property name="password" value="[{wsautenticacioninterna.ds.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{wsautenticacioninterna.ds.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{wsautenticacioninterna.ds.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{wsautenticacioninterna.ds.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{wsautenticacioninterna.ds.maxActive}]"/>
+    </bean>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.autenticacioninterna.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:rsServer address="/RSAutenticacionInterna"
+                       id="endpointRSAutenticacionInterna" serviceClass="cl.coopeuch.integracion.autenticacioninterna.wsdl.WSAutenticacionInternaSOAPPortType"/>
+    <camelcxf:cxfEndpoint address="/WSAutenticacionInterna"
+                          id="endpointWSAutenticacionInterna"
+                          serviceClass="cl.coopeuch.integracion.autenticacioninterna.wsdl.WSAutenticacionInternaSOAPPortType" wsdlURL="etc/wsdl/WSAutenticacionInterna.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelContext id="servicio-autenticacion-interna" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSAutenticacionInterna"/>
+            <to id="soapToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSAutenticacionInterna"/>
+            <to id="restToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="iniciows" uri="direct:iniciows"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <toD id="soapInicioToOperacionName" uri="direct:${header.operationName}"/>
+                <removeHeaders id="soapInicioRemoveHeaders" pattern="*"/>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="autenticar">
+            <from id="autenticarFrom" uri="direct:autenticar"/>
+            <doTry id="autenticarTry">
+                <bean id="beanAutenticarEntrada"
+                      method="autenticarEntrada" ref="beanRouteFacade"/>
+                <when id="_when1">
+                    <simple>${property.sigo} == 'N'</simple>
+                    <stop id="validaLDAP"/>
+                </when>
+                <setHeader headerName="msg" id="_setHeader1">
+                    <simple resultType="java.lang.String"/>
+                </setHeader>
+                <setHeader headerName="idRetorno" id="_setHeader2">
+                    <simple resultType="java.lang.Integer">0</simple>
+                </setHeader>
+                <to id="paInsToken" uri="sql-stored:classpath:etc/sql/pa_insToken.sql?outputHeader=insTokenResponse&amp;dataSource=SQLAutenticacionInterna"/>
+                <bean id="beanAutenticarSalida"
+                      method="autenticarSalida" ref="beanRouteFacade"/>
+                <doCatch id="autenticarDoCatchLDAP">
+                    <exception>javax.naming.AuthenticationException</exception>
+                    <setProperty id="autenticarTokenErrorLDAP" propertyName="codigoError">
+                        <simple>434</simple>
+                    </setProperty>
+                    <to id="autenticarToExcepcionLDAP" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="autenticarTokenDoCatchSQL">
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty id="autenticarTokenErrorSQL" propertyName="codigoError">
+                        <simple>437</simple>
+                    </setProperty>
+                    <to id="autenticarTokenToExcepcionSQL" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="autenticarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="autenticarToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarToken">
+            <from id="consultarTokenFrom" uri="direct:consultarToken"/>
+            <doTry id="consultarTokenTry">
+                <bean id="beanConsultarTokenRequest"
+                      method="setConsultarTokenRequest" ref="beanRouteFacade"/>
+                <to id="paSelToken" uri="sql-stored:classpath:etc/sql/pa_selToken.sql?outputHeader=selTokenResponse&amp;dataSource=SQLAutenticacionInterna"/>
+                <bean id="beanConsultarTokenResponse"
+                      method="setConsultarTokenResponse" ref="beanRouteFacade"/>
+                <doCatch id="consultarTokenDoCatchSQL">
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty id="consultarTokenErrorSQL" propertyName="codigoError">
+                        <simple>433</simple>
+                    </setProperty>
+                    <to id="consultarTokenToExcepcionSQL" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultarTokenDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="consultarTokenToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="refrescarToken">
+            <from id="refrescarTokenFrom" uri="direct:refrescarToken"/>
+            <doTry id="refrescarTokenTry">
+                <bean id="beanRefrescarTokenRequest"
+                      method="setRefrescarTokenRequest" ref="beanRouteFacade"/>
+                <to id="paUpdToken" uri="sql-stored:classpath:etc/sql/pa_updToken.sql?outputHeader=updTokenResponse&amp;dataSource=SQLAutenticacionInterna"/>
+                <bean id="beanRefrescarTokenResponse"
+                      method="setRefrescarTokenResponse" ref="beanRouteFacade"/>
+                <doCatch id="refrescarTokenDoCatchSQL">
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty id="refrescarTokenErrorSQL" propertyName="codigoError">
+                        <simple>433</simple>
+                    </setProperty>
+                    <to id="refrescarTokenToExcepcionSQL" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="refrescarTokenDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="refrescarTokenToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="abortarToken">
+            <from id="abortarTokenFrom" uri="direct:abortarToken"/>
+            <doTry id="abortarTokenTry">
+                <bean id="beanAbortarTokenRequest"
+                      method="setAbortarTokenRequest" ref="beanRouteFacade"/>
+                <to uri="sql-stored:classpath:etc/sql/PA_UPD_WSAUTENTICACIONINVERSIONES_ABORTARTOKEN_WS.sql?outputHeader=updTokenResponse&amp;dataSource=SQLAutenticacionInterna"/>
+                <bean id="beanAbortarTokenResponse"
+                      method="setAbortarTokenResponse" ref="beanRouteFacade"/>
+                <doCatch id="abortarTokenDoCatchSQL">
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty id="abortarTokenErrorSQL" propertyName="codigoError">
+                        <simple>433</simple>
+                    </setProperty>
+                    <to id="abortarTokenToExcepcionSQL" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="abortarTokenDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="abortarTokenToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <choice>
+                    <when>
+                        <simple>${property.codigoError} != '435'</simple>
+                        <to uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    </when>
+                </choice>
+                <bean id="excepcionBeanExcepcion"
+                      method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

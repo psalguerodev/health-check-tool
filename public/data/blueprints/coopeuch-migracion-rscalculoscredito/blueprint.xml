@@ -1,0 +1,688 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+	xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+	xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+	xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+	xmlns:sec="http://cxf.apache.org/configuration/security" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd        http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd    http://camel.apache.org/schema/blueprint  http://camel.apache.org/schema/blueprint/camel-blueprint.xsd   http://cxf.apache.org/schemas/configuration/http-conf.xsd">
+	<!-- Servicio de utilidad para calculos de credito -->
+	<cm:property-placeholder id="propertyGlobal"
+		persistent-id="global" placeholder-prefix="{[" placeholder-suffix="]}"
+		update-strategy="reload" />
+	<cm:property-placeholder id="propertyLocal"
+		persistent-id="wscalculoscredito" placeholder-prefix="[{"
+		placeholder-suffix="}]" update-strategy="reload" />
+	<bean class="org.apache.activemq.camel.component.ActiveMQComponent"
+		id="beanAMQ">
+		<property name="brokerURL" value="{[amq.broker.url]}" />
+		<property name="userName" value="{[amq.username]}" />
+		<property name="password" value="{[amq.password]}" />
+		<property name="usePooledConnection" value="true" />
+	</bean>
+	<bean class="cl.coopeuch.integracion.calculoscredito.util.RouteFacade"
+		id="beanRouteFacade" />
+	<camelcxf:cxfEndpoint address="/WSCalculosCredito"
+		continuationTimeout="10000" id="endpointWsCalculosCredito"
+		serviceClass="cl.coopeuch.integracion.calculoscredito.wsdl.WSCalculosCreditoSOAPPortType"
+		wsdlURL="etc/wsdl/WSCalculosCredito.wsdl" />
+	<camelcxf:rsServer address="/RSCalculosCredito"
+		id="endpointRSCalculosCredito"
+		serviceClass="cl.coopeuch.integracion.calculoscredito.wsdl.WSCalculosCreditoSOAPPortType" />
+	<camelcxf:cxfEndpoint address="[{calculoscredito.datosmerp.endpoint}]"
+		id="endpointWSDatosMerp"
+		serviceClass="cl.coopeuch.integracion.calculoscredito.wsdl.datosmerp.WSDatosMerpSOAPPortType"
+		wsdlURL="etc/wsdl/WSDatosMerp.wsdl" />
+	<camelcxf:cxfEndpoint address="[{calculoscredito.calcularpmt.endpoint}]"
+		id="endpointWSCalcularPMT"
+		serviceClass="cl.coopeuch.integracion.calculoscredito.wsdl.calcularpmt.WSCalcularPMTSOAPPortType"
+		wsdlURL="etc/wsdl/WSCalcularPMT.wsdl" />
+	<camelContext id="servicio-calculoscredito"
+		xmlns="http://camel.apache.org/schema/blueprint">
+		<route id="rest-inicio">
+			<from id="restInicio" uri="cxfrs:bean:endpointRSCalculosCredito" />
+			<to id="restToInicio" uri="direct:inicio" />
+		</route>
+		<route id="soap-inicio">
+			<from id="soapInicio" uri="cxf:bean:endpointWsCalculosCredito" />
+			<to id="soapToInicio" uri="direct:inicio" />
+		</route>
+		<route id="cxf-inicio">
+			<from id="inicioFromServicio" uri="direct:inicio" />
+			<doTry id="inicioTry">
+				<bean id="obtenerDatosOperacionBean" method="obtenerDatosOperacion"
+					ref="beanRouteFacade" />
+				<setProperty id="inicioSetRequest" propertyName="requestEntrada">
+					<simple>${body}</simple>
+				</setProperty>
+				<setProperty id="inicioSetBody" propertyName="bodyEntrada">
+					<simple>${body.get(0)}</simple>
+				</setProperty>
+				<setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+					<simple>$simple{body.get(0).class.getSimpleName()}</simple>
+				</setProperty>
+				<choice id="inicioChoiceOperacion">
+					<when id="inicioWhenOperacionCalcularRDE">
+						<simple>${header.operationName} == 'calcularRDE'</simple>
+						<to id="toCalcularRDE" uri="direct:calcularRDE" />
+					</when>
+					<when id="inicioWhenOperacionCalcularPMT">
+						<simple>${header.operationName} == 'calcularPMT'</simple>
+						<to id="toCalcularPMT" uri="direct:calcularPMT" />
+					</when>
+					<when id="inicioWhenOperacionCalcularMERP">
+						<simple>${header.operationName} == 'calcularMERP'</simple>
+						<to id="toCalcularMERP" uri="direct:calcularMERP" />
+					</when>
+					<when id="inicioWhenOperacionCalcularPMTFinal">
+						<simple>${header.operationName} == 'calcularPMTFinal'</simple>
+						<to id="toCalcularPMTFinal" uri="direct:calcularPMTFinal" />
+					</when>
+					<when id="inicioWhenOperacionCalcularCAEV">
+						<simple>${header.operationName} == 'calcularCAEV'</simple>
+						<to id="toCalcularCAEV" uri="direct:calcularCAEV" />
+					</when>
+					<otherwise id="inicioOtherwise">
+						<throwException exceptionType="java.lang.Exception"
+							id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida" />
+					</otherwise>
+				</choice>
+				<doCatch id="inicioDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="inicioPropertyCodigo" propertyName="codigoError">
+						<simple>500</simple>
+					</setProperty>
+					<to id="toInicioExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<!-- Ruta del servicio encargada del calculo RDE - operacion (calcularRDE) -->
+		<route id="calcularRDE">
+			<from id="calcularRDEFrom" uri="direct:calcularRDE" />
+			<doTry id="calcularRDETry">
+				<to id="toObtenerDatosSocio" uri="direct:obtenerDatosSocio" />
+				<choice id="validaWSChoice">
+					<when id="validaODSWhen">
+						<simple>${exchange.getProperty('respOpe')} == 'OK'</simple>
+						<setProperty id="setBodyMultODS" propertyName="bodyMulticastODS">
+							<simple>${body}</simple>
+						</setProperty>
+						<to id="toEstimarRIP" uri="direct:estimarRIP" />
+						<choice id="validaRIPChoice">
+							<when id="validaRIPWhen">
+								<simple>${exchange.getProperty('respOpe')} == 'OK'</simple>
+								<setProperty id="setBodyMultRIP" propertyName="bodyMulticastRIP">
+									<simple>${body}</simple>
+								</setProperty>
+								<to id="toObtenerClusterRDE" uri="direct:obtenerClusterRDE" />
+								<choice id="validaOCLChoice">
+									<when id="validaCLWhen">
+										<simple>${exchange.getProperty('respOpe')} == 'OK'</simple>
+										<setProperty id="setBodyMultOCL" propertyName="bodyMulticastOCL">
+											<simple>${body}</simple>
+										</setProperty>
+										<setProperty id="routeIdCMQProperty" propertyName="routeId">
+											<simple>calcularMerpAMQ</simple>
+										</setProperty>
+										<wireTap id="toLogAMQCMQ" uri="direct:logRegFlujoAMQ" />
+										<bean id="generaRequestRDEMQBean" method="generaRequestMQRDE"
+											ref="beanRouteFacade" />
+										<bean id="beanRouteFacadeUUIDRDE" method="crearJMSCorrelationId24"
+											ref="beanRouteFacade" />
+										<to id="requestMQToAmq"
+											uri="beanAMQ:{{merp.amq.req}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;requestTimeout=5000&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false" />
+										<unmarshal id="inicioAmqMarshal">
+											<jaxb
+												contextPath="cl.coopeuch.integracion.calculoscredito.wsdl.calcularmerp" />
+										</unmarshal>
+										<setProperty id="setBodyCalculoRDEMQ"
+											propertyName="bodyCalculoRDEMQ">
+											<simple>${body}</simple>
+										</setProperty>
+										<bean id="responseWSRDE" method="calcularRDEResponse"
+											ref="beanRouteFacade" />
+										<setProperty id="setBodyCalculoRDE" propertyName="bodyCalculoRDE">
+											<simple>${body}</simple>
+										</setProperty>
+										<setProperty id="idTipoCalculoRDE" propertyName="idTipoCalculo">
+											<simple>1</simple>
+										</setProperty>
+										<wireTap id="toLogAMQCalculo" uri="direct:logRegCalculoAMQ" />
+										<setBody id="setBodyCalcularRDE">
+											<simple>${exchange.getProperty('bodyCalculoRDE')}</simple>
+										</setBody>
+										<convertBodyTo id="CalcularRDEResponseConvertBodyTo"
+											type="cl.coopeuch.integracion.calculoscredito.wsdl.CalcularRDEResponse" />
+									</when>
+									<otherwise id="otherwiseOCL">
+										<bean id="BeanRouteFacadeOCL" method="calcularRDEResponse"
+											ref="beanRouteFacade" />
+									</otherwise>
+								</choice>
+							</when>
+							<otherwise id="otherwiseRIP">
+								<bean id="BeanRouteFacadeRIP" method="calcularRDEResponse"
+									ref="beanRouteFacade" />
+							</otherwise>
+						</choice>
+					</when>
+					<otherwise id="otherwiseODS">
+						<bean id="BeanRouteFacadeODS" method="calcularRDEResponse"
+							ref="beanRouteFacade" />
+					</otherwise>
+				</choice>
+				<doCatch id="calcularRDEDoCatch">
+					<exception>java.lang.Exception</exception>
+					<exception>java.sql.SQLException</exception>
+					<exception>java.net.ConnectException</exception>
+					<exception>java.io.IOException</exception>
+					<exception>org.apache.camel.ExchangeTimedOutException</exception>
+					<to id="calcularRDEExcepcionTo" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<!-- Ruta del servicio encargada de obtener los datos del socio desde WSDatosMerp -->
+		<route id="obtenerDatosSocio">
+			<from id="obtenerDatosSocioFrom" uri="direct:obtenerDatosSocio" />
+			<doTry id="obtenerDatosSocioTry">
+				<setProperty id="routeIdODSProperty" propertyName="routeId">
+					<simple>obtenerDatosSocio</simple>
+				</setProperty>
+				<to id="toLogAMQODS" uri="direct:logRegFlujoAMQ" />
+				<choice id="choiceRespLog">
+					<when id="whenValidaError">
+						<simple>${body.error} == null </simple>
+						<setProperty id="idFlujo" propertyName="idFlujo">
+							<simple>${body.salida.idFlujo}</simple>
+						</setProperty>
+						<removeHeaders id="obtenerDatosSocioRemoveHeaders"
+							pattern="*" />
+						<setHeader headerName="operationName" id="SetHeaderOpNameODS">
+							<constant>obtenerDatosSocio</constant>
+						</setHeader>
+						<bean id="obtenerDatosSocioBean" method="obtenerDatosSocioRequest"
+							ref="beanRouteFacade" />
+						<bean id="beanRouteFacadeUUIDODS" method="crearJMSCorrelationId24"
+							ref="beanRouteFacade" />
+						<to id="toAMQODS"
+							uri="beanAMQ:{{datosmerp.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;requestTimeout=5000&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false" />
+						<unmarshal id="inicioAmqODS">
+							<jaxb contextPath="cl.coopeuch.integracion.calculoscredito.wsdl.datosmerp" />
+						</unmarshal>
+						<bean id="validaRespuestaODSBean" method="validaRespuesta"
+							ref="beanRouteFacade" />
+					</when>
+					<otherwise id="otherwiseRespLog">
+						<setProperty id="setBodylogFlujo" propertyName="bodyLogFlujo">
+							<simple>${body}</simple>
+						</setProperty>
+						<bean id="BeanRouteFacadeODSLog" method="calcularRDEResponse"
+							ref="beanRouteFacade" />
+					</otherwise>
+				</choice>
+				<doCatch id="obtenerDatosSocioDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="obtenerDatosSocioPropertyCodigo"
+						propertyName="codigoError">
+						<simple>503</simple>
+					</setProperty>
+					<choice id="choiceValidaCatch">
+						<when id="whenCatch">
+							<simple> ${exchange.getProperty('desErrorLogFlujo')} == null  </simple>
+							<throwException exceptionType="java.lang.Exception"
+								id="throwExceptionODS"
+								message="Error en la comunicación con el servicio interno WSDatosMerp - obtenerDatosSocio" />
+						</when>
+						<otherwise id="otherwiseCatch">
+							<throwException exceptionType="java.lang.Exception"
+								id="throwExceptionLOG" message="${exchange.getProperty('desErrorLogFlujo')}" />
+						</otherwise>
+					</choice>
+					<to id="obtenerDatosSocioExcepcionTo" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<!-- Ruta del servicio encargada de estimar la renta imponible promerio 
+			desde WSDatosMerp -->
+		<route id="estimarRIP">
+			<from id="estimarRIPFrom" uri="direct:estimarRIP" />
+			<doTry id="estimarRIPTry">
+				<setProperty id="routeIdRIPProperty" propertyName="routeId">
+					<simple>estimarRIP</simple>
+				</setProperty>
+				<wireTap id="toLogAMQRIP" uri="direct:logRegFlujoAMQ" />
+				<removeHeaders id="estimarRemoveHeaders" pattern="*" />
+				<setHeader headerName="operationName" id="SetHeaderOpNameERIP">
+					<constant>estimarRIP</constant>
+				</setHeader>
+				<bean id="estimarRIPBean" method="estimarRIPRequest" ref="beanRouteFacade" />
+				<bean id="beanRouteFacadeUUIDERIP" method="crearJMSCorrelationId24"
+					ref="beanRouteFacade" />
+				<to id="toAMQRIP"
+					uri="beanAMQ:{{datosmerp.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;requestTimeout=5000&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false" />
+				<unmarshal id="inicioAmqRIP">
+					<jaxb contextPath="cl.coopeuch.integracion.calculoscredito.wsdl.datosmerp" />
+				</unmarshal>
+				<bean id="validaRespuestaRIPBean" method="validaRespuesta" ref="beanRouteFacade" />
+				<doCatch id="estimarRIPDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="estimarRIPPropertyCodigo"
+						propertyName="codigoError">
+						<simple>503</simple>
+					</setProperty>
+					<throwException exceptionType="java.lang.Exception"
+						id="throwExceptionRIP"
+						message="Error en la comunicación con el servicio interno WSDatosMerp - estimarRIP" />
+					<to id="estimarRIPExcepcionTo" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<!-- Ruta del servicio encargada de obtener el cluster RDE desde WSDatosMerp -->
+		<route id="obtenerClusterRDE">
+			<from id="obtenerClusterRDEFrom" uri="direct:obtenerClusterRDE" />
+			<doTry id="obtenerClusterRDETry">
+				<setProperty id="routeIdOCLProperty" propertyName="routeId">
+					<simple>obtenerClusterRDE</simple>
+				</setProperty>
+				<wireTap id="toLogAMQOCL" uri="direct:logRegFlujoAMQ" />
+				<removeHeaders id="obtenerClusterRDERemoveHeaders"
+					pattern="*" />
+				<setHeader headerName="operationName" id="SetHeaderOpNameOC">
+					<constant>obtenerClusterRDE</constant>
+				</setHeader>
+				<bean id="obtenerClusterRDEBean" method="obtenerClusterRDERequest"
+					ref="beanRouteFacade" />
+				<bean id="beanRouteFacadeUUIDOCLR" method="crearJMSCorrelationId24"
+					ref="beanRouteFacade" />
+				<to id="toAMQOCLR"
+					uri="beanAMQ:{{datosmerp.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;requestTimeout=5000&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false" />
+				<unmarshal id="inicioAmqOCLR">
+					<jaxb contextPath="cl.coopeuch.integracion.calculoscredito.wsdl.datosmerp" />
+				</unmarshal>
+				<bean id="validaRespuestaOCLBean" method="validaRespuesta" ref="beanRouteFacade" />
+				<doCatch id="obtenerClusterRDEDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="obtenerClusterRDEPropertyCodigo"
+						propertyName="codigoError">
+						<simple>503</simple>
+					</setProperty>
+					<throwException exceptionType="java.lang.Exception"
+						id="throwExceptionOCL"
+						message="Error en la comunicación con el servicio interno WSDatosMerp - obtenerClusterRDE" />
+					<to id="obtenerClusterRDEExcepcionTo" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<!-- Ruta del servicio encargada de obtener el cluster PMT desde WSDatosMerp -->
+		<route id="obtenerClusterPMT">
+			<from id="obtenerClusterPMTFrom" uri="direct:obtenerClusterPMT" />
+			<doTry id="obtenerClusterPMTTry">
+				<setProperty id="routeIdOCLPProperty" propertyName="routeId">
+					<simple>obtenerClusterPMT</simple>
+				</setProperty>
+				<wireTap id="toLogAMQOCLP" uri="direct:logRegFlujoAMQ" />
+				<removeHeaders id="obtenerClusterPMTRemoveHeaders"
+					pattern="*" />
+				<setHeader headerName="operationName" id="SetHeaderOpNameOCP">
+					<constant>obtenerClusterPMT</constant>
+				</setHeader>
+				<bean id="obtenerClusterPMTBean" method="obtenerClusterPMTRequest"
+					ref="beanRouteFacade" />
+				<bean id="beanRouteFacadeUUIDOCLP" method="crearJMSCorrelationId24"
+					ref="beanRouteFacade" />
+				<to id="toAMQOCLRP"
+					uri="beanAMQ:{{datosmerp.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;requestTimeout=5000&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false" />
+				<unmarshal id="inicioAmqOCLRP">
+					<jaxb contextPath="cl.coopeuch.integracion.calculoscredito.wsdl.datosmerp" />
+				</unmarshal>
+				<bean id="validaRespuestaOCLPBean" method="validaRespuesta"
+					ref="beanRouteFacade" />
+				<doCatch id="obtenerClusterPMTDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="obtenerClusterPMTPropertyCodigo"
+						propertyName="codigoError">
+						<simple>505</simple>
+					</setProperty>
+					<throwException exceptionType="java.lang.Exception"
+						id="throwExceptionOCLP"
+						message="Error en la comunicación con el servicio interno WSDatosMerp - obtenerClusterPMT" />
+					<to id="obtenerClusterPMTExcepcionTo" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<!-- Ruta del servicio encargada del calculo PMT - operacion (calcularPMT) -->
+		<route id="calcularPMT">
+			<from id="calcularPMTFrom" uri="direct:calcularPMT" />
+			<doTry id="calcularPMTTry">
+				<bean id="BeanRouteCalcularRDERequest" method="calcularRDERequest"
+					ref="beanRouteFacade" />
+				<to id="toCalculoRDE" uri="direct:calcularRDE" />
+				<setProperty id="setBodyRespRDE" propertyName="bodyRespRDE">
+					<simple>${body}</simple>
+				</setProperty>
+				<setProperty id="routeIdCRDEProperty" propertyName="routeId">
+					<simple>calcularRDE</simple>
+				</setProperty>
+				<bean id="validaRespuestaRDEBean" method="validaRespuesta" ref="beanRouteFacade" />
+				<choice id="validaRDEChoice">
+					<when id="validaRDEWhen">
+						<simple>${exchange.getProperty('respOpe')} == 'OK'</simple>
+						<to id="toCalcularFicticio" uri="direct:calcularFicticio" />
+						<choice id="validaCLFChoice">
+							<when id="validaCLFWhen">
+								<simple>${exchange.getProperty('respOpe')} == 'OK'</simple>
+								<setProperty id="setBodyCLF" propertyName="bodyCLF">
+									<simple>${body}</simple>
+								</setProperty>
+								<to id="toObtenerClusterPMT" uri="direct:obtenerClusterPMT" />
+								<choice id="validaOCLPChoice">
+									<when id="validaCLPWhen">
+										<simple>${exchange.getProperty('respOpe')} == 'OK'</simple>
+										<setProperty id="setBodyOCLP" propertyName="bodyOCLP">
+											<simple>${body}</simple>
+										</setProperty>
+										<setProperty id="routeIdCLFProperty" propertyName="routeId">
+											<simple>calcularPMTAMQ</simple>
+										</setProperty>
+										<wireTap id="toLogAMQCMQP" uri="direct:logRegFlujoAMQ" />
+										<bean id="generaRequestPMTMQBean" method="generaRequestMQPMT"
+											ref="beanRouteFacade" />
+										<to id="calcularPMTToPMTAMQ" uri="direct:wscalcularpmtByAMQ" />
+										<setProperty id="setBodyCalculoPMTMQ"
+											propertyName="bodyCalculoPMTMQ">
+											<simple>${body}</simple>
+										</setProperty>
+										<bean id="responseWSPMT" method="calcularPMTResponse"
+											ref="beanRouteFacade" />
+										<setProperty id="setBodyCalculoPMT" propertyName="bodyCalculoPMT">
+											<simple>${body}</simple>
+										</setProperty>
+										<setProperty id="idTipoCalculoPMT" propertyName="idTipoCalculo">
+											<simple>2</simple>
+										</setProperty>
+										<wireTap id="toLogAMQCalculoPMT" uri="direct:logRegCalculoAMQ" />
+										<setBody id="setBodyCalcularPMT">
+											<simple>${exchange.getProperty('bodyCalculoPMT')}</simple>
+										</setBody>
+										<convertBodyTo id="CalcularPMTResponseConvertBodyTo"
+											type="cl.coopeuch.integracion.calculoscredito.wsdl.CalcularPMTResponse" />
+									</when>
+									<otherwise id="otherwiseCLP">
+										<bean id="BeanRouteFacadeOCLP" method="calcularPMTResponse"
+											ref="beanRouteFacade" />
+									</otherwise>
+								</choice>
+							</when>
+							<otherwise id="otherwiseCLF">
+								<bean id="BeanRouteFacadeCLF" method="calcularPMTResponse"
+									ref="beanRouteFacade" />
+							</otherwise>
+						</choice>
+					</when>
+					<otherwise id="otherwiseRDE">
+						<bean id="BeanRouteFacadeRDE" method="calcularPMTResponse"
+							ref="beanRouteFacade" />
+					</otherwise>
+				</choice>
+				<doCatch id="calcularPMTDoCatch">
+					<exception>java.lang.Exception</exception>
+					<exception>java.sql.SQLException</exception>
+					<exception>java.net.ConnectException</exception>
+					<exception>java.io.IOException</exception>
+					<exception>org.apache.camel.ExchangeTimedOutException</exception>
+					<to id="calcularPMTExcepcionTo" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<!-- Ruta para la obtencion del PMT ficticio desde el servicio WSCalculoPMT -->
+		<route id="calcularFicticio">
+			<from id="calcularFicticioFrom" uri="direct:calcularFicticio" />
+			<doTry id="calcularFicticioTry">
+				<setProperty id="routeIdCFProperty" propertyName="routeId">
+					<simple>calcularFicticio</simple>
+				</setProperty>
+				<wireTap id="toLogAMQCF" uri="direct:logRegFlujoAMQ" />
+				<bean id="calcularFicticioBean" method="calcularFicticioRequest"
+					ref="beanRouteFacade" />
+				<to id="calcularFicticioFinalToPMTAMQ" uri="direct:wscalcularpmtByAMQ" />
+				<bean id="validaRespuestaCFBean" method="validaRespuesta" ref="beanRouteFacade" />
+				<doCatch id="calcularFicticioDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="calcularFicticioPropertyCodigo"
+						propertyName="codigoError">
+						<simple>503</simple>
+					</setProperty>
+					<throwException exceptionType="java.lang.Exception"
+						id="throwExceptionCF"
+						message="Error en la comunicación con el servicio interno WSCalcularPMT - calcularFicticio" />
+					<to id="calcularFicticioExcepcionTo" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="calcularMERP">
+			<from id="calcularMERPFrom" uri="direct:calcularMERP" />
+			<doTry id="calcularMERPTry">
+				<to id="toCalculoPMTMerp" uri="direct:calcularPMT" />
+				<setProperty id="setBodyRespPMTMerp" propertyName="bodyRespMERP">
+					<simple>${body}</simple>
+				</setProperty>
+				<bean id="BeanRouteFacadeMERP" method="calcularMERPResponse"
+					ref="beanRouteFacade" />
+				<doCatch id="calcularMERPDoCatch">
+					<exception>java.lang.Exception</exception>
+					<exception>java.sql.SQLException</exception>
+					<exception>java.net.ConnectException</exception>
+					<exception>java.io.IOException</exception>
+					<exception>org.apache.camel.ExchangeTimedOutException</exception>
+					<to id="calcularMERPExcepcionTo" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<!-- Ruta del servicio encargada de registrar el log de cada flujo del 
+			servicio -->
+		<route id="logRegFlujoAMQ">
+			<from id="logRegFlujoAMQfrom" uri="direct:logRegFlujoAMQ" />
+			<doTry id="logRegFlujoAMQTry">
+				<bean id="generalogRegFlujo" method="generaLogRegFlujo" ref="beanRouteFacade" />
+				<bean id="generalogRegFlujoUUID" method="crearJMSCorrelationId24"
+					ref="beanRouteFacade" />
+				<convertBodyTo id="generalogRFConvertBody" type="java.lang.String" />
+				<to id="logRegFlujoAMQTo"
+					uri="beanAMQ:{{merp.amq.log.req}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;requestTimeout=5000&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false" />
+				<unmarshal id="inicioLogFlujoAmqMarshal">
+					<jaxb
+						contextPath="cl.coopeuch.integracion.calculoscredito.wsdl.mqlogcalculoscredito" />
+				</unmarshal>
+				<setProperty id="setBodyLogFlujoMQ" propertyName="bodyLogFlujoMQ">
+					<simple>${body}</simple>
+				</setProperty>
+				<doCatch id="logRegFlujoAMQDoCatch">
+					<exception>java.lang.Exception</exception>
+					<log id="excepcionLogFlujo" loggingLevel="ERROR"
+						message="Ha ocurrido un error al escribir en la cola AMQ de requerimiento de log Flujo " />
+					<setProperty id="setPropertyDesError" propertyName="desErrorLogFlujo">
+						<simple>Ha ocurrido un error al escribir en la cola AMQ de requerimiento de log Flujo</simple>
+					</setProperty>
+				</doCatch>
+			</doTry>
+		</route>
+		<!-- Ruta correspondiente a la operación calcular final -->
+		<route id="calcularPMTFinal">
+			<from id="calcularPMTFinalFrom" uri="direct:calcularPMTFinal" />
+			<doTry id="calcularPMTFinalTry">
+				<to id="calcularPMTFinalToObtenerDatosSocio" uri="direct:obtenerDatosSocio" />
+				<choice id="calcularPMTFinalValidaODS">
+					<when id="calcularPMTFinalValidaODSWhen">
+						<simple>${exchange.getProperty('respOpe')} == 'OK'</simple>
+						<setProperty id="calcularPMTFinalSetBodyMultODS"
+							propertyName="bodyMulticastODS">
+							<simple>${body}</simple>
+						</setProperty>
+						<to id="calcularPMTFinalToEstimarRIP" uri="direct:estimarRIP" />
+						<choice id="calcularPMTFinalValidaRIP">
+							<when id="calcularPMTFinalValidaRIPWhen">
+								<simple>${exchange.getProperty('respOpe')} == 'OK'</simple>
+								<setProperty id="calcularPMTFinalSetBodyMultRIP"
+									propertyName="bodyMulticastRIP">
+									<simple>${body}</simple>
+								</setProperty>
+								<to id="calcularPMTFToObtenerClusterPMT" uri="direct:obtenerClusterPMT" />
+								<choice id="calcularPMTFValidaOCLChoice">
+									<when id="calcularPMTFValidaOCLWhen">
+										<simple>${exchange.getProperty('respOpe')} == 'OK'</simple>
+										<setProperty id="calcularPMTFSetBodyMultOCL"
+											propertyName="bodyOCLP">
+											<simple>${body}</simple>
+										</setProperty>
+										<setProperty id="calcularPMTFSetPropertyRoute"
+											propertyName="routeId">
+											<simple>calcularPMTFinalAMQ</simple>
+										</setProperty>
+										<wireTap id="calcularPMTFtoLogAMQCMQ" uri="direct:logRegFlujoAMQ" />
+										<bean id="calcularPMTFRequestPMTF" method="generaRequestMQPMTFinal"
+											ref="beanRouteFacade" />
+										<to id="calcularPMTFinalToPMTAMQ" uri="direct:wscalcularpmtByAMQ" />
+										<setProperty id="calcularPMTFsetBodyCalculoPMTFinal"
+											propertyName="bodyCalculoPMTFinalMQ">
+											<simple>${body}</simple>
+										</setProperty>
+										<bean id="calcularPMTFResponseWSPMTFinal" method="calcularPMTResponseFinal"
+											ref="beanRouteFacade" />
+										<setProperty id="calcularPMTFsetBodyCalculoPMT"
+											propertyName="bodyCalculoPMTFinal">
+											<simple>${body}</simple>
+										</setProperty>
+										<setProperty id="calcularPMTFIdTipoCalculoPMT"
+											propertyName="idTipoCalculo">
+											<simple>3</simple>
+										</setProperty>
+										<wireTap id="calcularPMTFToLogAMQCalculoPMT" uri="direct:logRegCalculoAMQ" />
+										<setBody id="calcularPMTFSetBodyCalcularPMT">
+											<simple>${exchange.getProperty('bodyCalculoPMTFinal')}</simple>
+										</setBody>
+										<convertBodyTo id="calcularPMTFResponseConvertBodyTo"
+											type="cl.coopeuch.integracion.calculoscredito.wsdl.CalcularPMTFinalResponse" />
+									</when>
+									<otherwise id="calcularPMTFotherwiseOCL">
+										<bean id="calcularPMTFBeanRouteFacadeOCL" method="calcularPMTResponseFinal"
+											ref="beanRouteFacade" />
+									</otherwise>
+								</choice>
+							</when>
+							<otherwise id="calcularPMTFotherwiseRIP">
+								<bean id="calcularPMTFBeanRouteFacadeRIP" method="calcularPMTResponseFinal"
+									ref="beanRouteFacade" />
+							</otherwise>
+						</choice>
+					</when>
+					<otherwise id="calcularPMTFotherwiseODS">
+						<bean id="pmtfErrorODS" method="calcularPMTResponseFinal"
+							ref="beanRouteFacade" />
+					</otherwise>
+				</choice>
+				<doCatch id="calcularPMTFDoCatch">
+					<exception>java.lang.Exception</exception>
+					<to id="calcularPMTFExcepcionTo" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="wscalcularpmtByAMQ">
+			<from id="pmtByAMQFrom" uri="direct:wscalcularpmtByAMQ" />
+			<doTry id="pmtByAMQ">
+				<bean id="pmtByAMQUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade" />
+				<to id="pmtByAMQAmqPMT"
+					uri="beanAMQ:{{pmt.amq.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{pmt.amq.resp}}&amp;requestTimeout=5000&amp;replyToType=Shared&amp;replyToOverride={{pmt.amq.resp}}&amp;synchronous=true&amp;exchangePattern=InOut" />
+				<unmarshal id="pmtByAMQMarshal">
+					<jaxb contextPath="cl.coopeuch.integracion.calculoscredito.wsdl.calcularpmt" />
+				</unmarshal>
+				<doCatch id="pmtByAMQDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="pmtByAMQSetCodError" propertyName="codigoError">
+						<simple>503</simple>
+					</setProperty>
+					<throwException exceptionType="java.lang.Exception"
+						id="pmtByAMQCreaException"
+						message="Error en la comunicación con el servicio interno MERP/WSCalcularPMT" />
+					<to id="pmtByAMQToException" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<!-- Ruta del servicio encargada de registrar el log de cada calculo del 
+			servicio -->
+		<route id="logRegCalculoAMQ">
+			<from id="logRegCalculoAMQfrom" uri="direct:logRegCalculoAMQ" />
+			<doTry id="logRegCalculoAMQTry">
+				<bean id="generalogRegCalculoAMQ" method="generaLogRegCalculo"
+					ref="beanRouteFacade" />
+				<bean id="generalogRegCalculoAMQUUID" method="crearJMSCorrelationId24"
+					ref="beanRouteFacade" />
+				<convertBodyTo id="generaLogConvertBodyTo" type="java.lang.String" />
+				<to id="logRegCalculoAMQTo"
+					uri="beanAMQ:{{merp.amq.log.req}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly" />
+				<doCatch id="logRegCalculoAMQDoCatch">
+					<exception>java.lang.Exception</exception>
+					<log id="excepcionLogCalculo" loggingLevel="ERROR"
+						message="Ha ocurrido un error al escribir en la cola AMQ de requerimiento de log calculo " />
+				</doCatch>
+			</doTry>
+		</route>
+		<!-- Ruta utilzada para la obtencion del CAEV -->
+		<route id="calcularCAEV">
+			<from id="calcularCAEVFrom" uri="direct:calcularCAEV" />
+			<doTry id="calcularCAEVTry">
+				<setBody id="calcularCAEVSetBody">
+					<simple>$simple{body.get(0)}</simple>
+				</setBody>
+				<marshal id="calcularCAEVMarshal">
+					<jaxb contextPath="cl.coopeuch.integracion.calculoscredito.wsdl" />
+				</marshal>
+				<convertBodyTo id="calcularCAEVConvertBodyToString"
+					type="java.lang.String" />
+				<bean id="calcularCAEVUUID" method="crearJMSCorrelationId24"
+					ref="beanRouteFacade" />
+				<to id="calcularCAEVToXSLTrama" uri="xslt://etc/xslt/request/IOC766001I_calcular.xsl" />
+				<log id="calcularCAEVTrama" message="Trama generada = ${body}" />
+				<to id="calcularCAEVToAmq"
+					uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false" />
+				<log id="calcularCAEVTramaResponse" message="Trama recibida = ${body}" />
+				<transform id="calcularCAEVTransformBody">
+					<simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+				</transform>
+				<to id="calcularCAEVToXSLSOAP"
+					uri="xslt://etc/xslt/response/IOC766001O_calcular.xsl?saxon=true" />
+				<unmarshal id="calcularCAEVUnmarshal">
+					<jaxb contextPath="cl.coopeuch.integracion.calculoscredito.wsdl" />
+				</unmarshal>
+				<doCatch id="calcularCAEVDoCatchAMQ">
+					<exception>org.apache.camel.ExchangeTimedOutException</exception>
+					<exception>java.lang.Exception</exception>
+					<exception>java.sql.SQLException</exception>
+					<exception>java.net.ConnectException</exception>
+					<exception>java.io.IOException</exception>
+					<exception>org.apache.camel.ExchangeTimedOutException</exception>
+					<to id="calcularCAEVToExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="excepcion">
+			<from id="excepcionfrom" uri="direct:excepcion" />
+			<doTry id="excepcionTry">
+				<bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade" />
+				<marshal id="excepcionMarshalJson">
+					<json library="Jackson" />
+				</marshal>
+				<convertBodyTo id="excepcionConvertTo" type="java.lang.String" />
+				<to id="excepcionToAmqFault"
+					uri="beanAMQ:{{merp.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly" />
+				<bean id="excepcionBeanExcepcion" method="excepcionCrear" ref="beanRouteFacade" />
+				<doCatch id="excepcionDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setBody id="exceptionFinalSetBodyError">
+						<simple>${exception}, Body -&gt; ${body}</simple>
+					</setBody>
+					<log id="excepcionLog" loggingLevel="ERROR"
+						message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}" />
+				</doCatch>
+			</doTry>
+		</route>
+	</camelContext>
+</blueprint>

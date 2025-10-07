@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyLocal" persistent-id="wsmesavisado"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/> 
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2" persistent-id="globalDb2"
+        placeholder-prefix="[[" placeholder-suffix="]]" update-strategy="reload"/>   
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.creditos]]"/>
+        <property name="password" value="[[jdbc.db2.password.creditos]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="60000"/>
+        <property name="numTestsPerEvictionRun" value="5"/>
+        <property name="minEvictableIdleTimeMillis" value="30000"/>
+        <property name="maxActive" value="5"/>
+    </bean>
+    <bean id="noErrorHandler" class="org.apache.camel.builder.NoErrorHandlerBuilder"/> 
+    <bean class="cl.coopeuch.integracion.mesavisado.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="cl.coopeuch.integracion.mesavisado.util.ExcepcionProcessor" id="excepcionProcessor"/>
+    <bean id="mesavisadoConstants" class="cl.coopeuch.integracion.mesavisado.constant.MesavisadoConstants"/>
+    <camelcxf:cxfEndpoint address="/WSMesaVisado"
+        id="endpointWSMesaVisado"
+        serviceClass="cl.coopeuch.integracion.mesavisado.wsdl.WSMesaVisadoSOAPPortType" wsdlURL="etc/wsdl/WSMesaVisado.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+	<camelcxf:rsServer address="/RSMesaVisado" id="endpointRSMesaVisado" serviceClass="cl.coopeuch.integracion.mesavisado.rest.RSMesaVisado">
+        <camelcxf:providers>
+            <bean class="com.fasterxml.jackson.jaxrs.json.JacksonJsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsServer>
+    <camelContext id="ws-mesa-visado" streamCache="false" xmlns="http://camel.apache.org/schema/blueprint">
+    	<dataFormats>
+            <json id="serializer" library="Jackson" prettyPrint="true"/>
+        </dataFormats>
+        
+        <onException id="onPredicateValidationException" useOriginalMessage="true">
+        	<exception>org.apache.camel.processor.validation.PredicateValidationException</exception>
+            <handled>
+                <constant>true</constant>
+            </handled>
+	        <setBody>
+	        	<constant>ERROR</constant>
+	        </setBody>
+	        <setProperty id="codigoError_" propertyName="codigoError">
+                <simple>${bean:mesavisadoConstants.getRequestInvalidoCodigo}</simple>
+            </setProperty>
+            <setProperty id="origenErrorPredicateValidation" propertyName="origenError">
+                <constant>error schema</constant>
+            </setProperty>
+            
+            
+            <choice id="choicePredicateExceptionTipoOperacion">
+	            <when id="whenPredicateExceptionTipoOperacionObtener">
+					<simple>${exchangeProperty.CamelFailureRouteId} == 'obtenerRoute'</simple>
+					<setProperty id="descripcionError_" propertyName="descripcionError">
+		                <simple>${bean:mesavisadoConstants.getRequestInvalidoDescripcion} [${exchangeProperty.tipoSolicitud} - numeroSolicitud: ${exchangeProperty.numeroSolicitud}]</simple>
+		            </setProperty>            
+	            </when>
+            </choice>
+	        <bean method="process" ref="excepcionProcessor"/>
+        </onException>
+        
+        <onException id="onJdbcConnectionException" useOriginalMessage="true">
+        	<exception>org.apache.commons.dbcp.SQLNestedException</exception>
+            <handled>
+                <constant>true</constant>
+            </handled>
+	        <setBody>
+	        	<constant>ERROR</constant>
+	        </setBody>
+	        <setProperty id="codigoErrorJdbcConnectionException" propertyName="codigoError">
+                <simple>${bean:mesavisadoConstants.getErrorConexionBdCodigo}</simple>
+            </setProperty>
+            <setProperty id="origenErrorJdbcConnectionException" propertyName="origenError">
+                <simple>${bean:mesavisadoConstants.getErrorConexionBdDescripcion}</simple>
+            </setProperty>
+            
+			<setProperty id="descripcionErrorJdbcConnectionException" propertyName="descripcionError">
+                <simple>Error de conexion a la base de datos [${exchangeProperty.tipoSolicitud} - numeroSolicitud: ${exchangeProperty.numeroSolicitud}]</simple>
+            </setProperty>     
+	        <bean method="process" ref="excepcionProcessor"/>
+        </onException>
+        
+        <onException id="onGeneralException" useOriginalMessage="true">
+        	<exception>java.lang.Exception</exception>
+            <handled>
+                <constant>true</constant>
+            </handled>
+            <setHeader headerName="CamelHttpResponseCode">
+	            <constant>500</constant>
+	        </setHeader>
+	        <setHeader headerName="Exchange.HTTP_RESPONSE_CODE">
+	            <constant>500</constant>
+	        </setHeader>
+	        <log message="body en onexception ${body}"/>
+	        <log message="Llega al OnException: ${property.CamelExceptionCaught}"/>
+	        <setBody>
+	        	<constant>ERROR</constant>
+	        </setBody>
+	        <bean method="process" ref="excepcionProcessor"/>
+        </onException>
+    
+		<route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSMesaVisado"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSMesaVisado?bindingStyle=SimpleConsumer"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio" streamCache="true" errorHandlerRef="noErrorHandler">
+			<from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+			<log message="...Iniciando servicio Mesa Visado: ${body}" />
+            <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                <simple>${body}</simple>
+            </setProperty>
+            <choice id="inicioChoiceOperacion">
+                <when id="inicioWhenOperacionConsultar">
+                    <simple>${header.operationName} == 'obtener'</simple>
+                    <to id="toConsultar" uri="direct:obtener"/>
+                </when>
+                <otherwise id="inicioOtherwise">
+                    <throwException
+                        exceptionType="java.lang.Exception"
+                        id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="obtenerRoute">
+            <from id="obtenerFrom" uri="direct:obtener"/>
+            <setProperty propertyName="numeroSolicitud">
+            	<xpath resultType="String">/obtenerRequest/parametros[1]/valor</xpath>
+            </setProperty>
+			<setProperty propertyName="tipoSolicitud">
+            	<xpath resultType="String">/obtenerRequest/nombre</xpath>
+            </setProperty>
+            
+            <validate>
+	            <simple>${exchangeProperty.numeroSolicitud} regex '^\d+$'</simple>
+	        </validate>
+            
+			<choice id="inicioChoiceObtener">
+				<when id="whenObtenerSolicitudCredito">
+                    <xpath resultType="String">//obtenerRequest/nombre = 'SolicitudCredito'</xpath>
+                    <to id="toSolicitudCredito" uri="direct:solicitudCredito" />
+               	</when>
+				<when id="whenObtenerPautaConvenio">
+                       <xpath resultType="String">//obtenerRequest/nombre = 'PautaConvenio'</xpath>
+                       <to id="toPautaConvenio" uri="direct:pautaConvenio" />
+                   </when>
+			</choice>
+        </route>
+        
+        <route id="solicitudCredito">
+        	<from id="solicitudCreditofrom" uri="direct:solicitudCredito"/>
+        	<log message="Tipo SolicitudCredito" />
+            <to id="consultarSolicitudCredito-PA" uri="sql-stored:classpath:sql/PA_SEL_WSMESAVISADO_OBTENER_SOLICITUD_CREDITO.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseConsultarDatosSolicitud"/>
+            <log message="Respuesta PA SolicitudCredito: ${header.responseConsultarDatosSolicitud}" />
+            <bean id="procesaConsultarDatosSolicitudBean"
+                method="procesaConsultarDatosSolicitud" ref="beanRouteFacade"/>
+            <log message="Finalizando servicio mesa visado SolicitudCredito: ${body}" />
+        </route>
+        
+        <route id="pautaConvenio">
+        	<from id="pautaConveniofrom" uri="direct:pautaConvenio"/>
+        	<log message="Tipo PautaConvenio" />
+            <to id="consultarPautaConvenio-PA" uri="sql-stored:classpath:sql/PA_SEL_WSMESAVISADO_OBTENER_PAUTA_CONVENIO.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseConsultarPautaConvenio"/>
+        	<log message="Respuesta PA SolicitudCredito: ${header.responseConsultarPautaConvenio}" />
+        	<bean id="procesaConsultarPautaConvenioBean"
+                method="procesaConsultarPautaConvenio" ref="beanRouteFacade"/>
+            <log message="Finalizando servicio mesa visado PautaConvenio: ${body}" />
+        </route>
+    </camelContext>
+</blueprint>

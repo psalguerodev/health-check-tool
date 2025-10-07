@@ -1,0 +1,621 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+	xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+	xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+
+	<cm:property-placeholder id="propertyGlobal" persistent-id="global"
+		update-strategy="reload" />
+
+	<bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+		<property name="brokerURL" value="${amq.broker.url}" />
+		<property name="userName" value="${amq.username}" />
+		<property name="password" value="${amq.password}" />
+		<property name="usePooledConnection" value="true" />
+	</bean>
+	
+	<bean class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close" id="dataSource">
+		<property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+		<property name="url" value="${jdbc.url.usuarioConvenio};charset=iso_1" />
+		<property name="username" value="${jdbc.username.usuarioConvenio}" />
+		<property name="password" value="${jdbc.password.usuarioConvenio}" />
+		<property name="timeBetweenEvictionRunsMillis" value="${jdbc.timeBetweenEvictionRunsMillis.usuarioConvenio}" />
+		<property name="numTestsPerEvictionRun" value="${jdbc.numTestsPerEvictionRun.usuarioConvenio}" />
+		<property name="minEvictableIdleTimeMillis" value="${jdbc.minEvictableIdleTimeMillis.usuarioConvenio}" />
+		<property name="maxActive" value="${jdbc.maxActive.usuarioConvenio}" />
+	</bean>
+
+	<bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+		<property name="dataSource" ref="dataSource" />
+	</bean>
+	
+	<bean class="cl.coopeuch.integracion.solicitudcreditovb.util.db.StoredProcedureBean" id="call_sp_get_credit_request">
+		<argument ref="dataSource" />
+		<argument value="java.sql.Types" />
+		<argument value="sp_get_credit_request" />
+		<argument value="false" />
+		<argument>
+			<list>
+				<map>
+					<entry key="name" value="creditRequestsList" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>					
+				<map>
+					<entry key="name" value="results" />
+					<entry key="mode" value="out" />
+					<entry key="type" value="ResultSet" />
+				</map>
+
+			</list>
+		</argument>
+	</bean>
+	
+	<bean class="cl.coopeuch.integracion.solicitudcreditovb.util.db.StoredProcedureBean" id="call_sp_save_credit_request">
+		<argument ref="dataSource" />
+		<argument value="java.sql.Types" />
+		<argument value="sp_save_credit_request" />
+		<argument value="false" />
+		<argument>
+			<list>
+				<map>
+					<entry key="name" value="rut" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="solicitudId" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="rutSocio" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="status" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="creditRequestId" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="amount" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="reason" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="observation" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>				
+				<map>
+					<entry key="name" value="totalOperation" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="shareValue" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="otherDiscounts" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="totalDiscount" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="nameSocio" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="nameResolutor" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+			</list>
+		</argument>
+	</bean>
+	
+	<bean class="cl.coopeuch.integracion.solicitudcreditovb.util.db.ConsultarCreditoHistorico" id="call_sp_get_credito_historico">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_get_credito_historico"/>
+        <argument value="false"/>
+        <argument>
+            <list>                
+                <map>
+                    <entry key="name" value="solicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>  
+                <map>
+                    <entry key="name" value="rutSocio"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>     
+                <map>
+					<entry key="name" value="resultSet" />
+					<entry key="mode" value="out" />
+					<entry key="type" value="ResultSet" />
+				</map>           
+            </list>
+        </argument>
+    </bean>
+	
+	<bean class="cl.coopeuch.integracion.solicitudcreditovb.util.RouteFacade" id="beanRouteFacade" />
+	
+	<cxf:cxfEndpoint address="/convenios/WSSolicitudCreditoVB"  id="WSSolicitudCreditoVBEndpoint" 
+		loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.solicitudcreditovb.wsdl.WSSolicitudCreditoVBSOAPPortType"
+		wsdlURL="etc/wsdl/WSSolicitudCreditoVB.wsdl">
+		<cxf:properties>
+			<entry key="schema-validation-enabled" value="true" />
+		</cxf:properties>
+	</cxf:cxfEndpoint>
+	
+	<camelContext id="servicio-solicitudcreditovb" xmlns="http://camel.apache.org/schema/blueprint">
+
+		<dataFormats>
+			<jacksonxml id="jacksonTransform" prettyPrint="true" />
+		</dataFormats>
+         
+        <route id="cxf-inicio">
+			<from id="servicio-solicitud-credito-Endpointistener"
+				uri="cxf:bean:WSSolicitudCreditoVBEndpoint?DataFormat=MESSAGE" />
+				
+			<doTry id="cxf-inicioTry">	
+			<convertBodyTo id="cxf-inicioBodyMain"
+				type="java.lang.String" />
+				
+			<bean id="backupBody" method="backupBody" ref="beanRouteFacade"/>   
+			<choice id="cxf-inicioOperations">
+				<when id="consultarProcesadasParam">
+					<simple>${body} contains 'consultarProcesadasRequest'</simple>
+					
+					<setProperty id="inicioSetTipoRequest1" propertyName="tipoRequest">
+                   		<simple>ConsultarProcesadasRequest</simple>
+                	</setProperty>                	
+					<to id="toConsultarProcesadas" uri="direct:consultarProcesadas" />
+				</when>
+				<when id="insertCreditRequestParam">
+					<simple>${body} contains 'registrarResolucionRequest'</simple>
+					<setProperty id="inicioSetTipoRequest2" propertyName="tipoRequest">
+                   		<simple>RegistrarResolucionVBRequest</simple>
+                	</setProperty>
+					<to id="toSaveCreditRequest" uri="direct:saveCreditRequest" />
+				</when>
+				<when id="routeconsultarPendientes">
+						<simple>${body} contains 'consultarPendientesRequest'</simple>
+						<setProperty id="inicioSetTipoRequest4" propertyName="tipoRequest">
+                   			<simple>ConsultarPendientesRequest</simple>
+                		</setProperty>
+						<to id="to" uri="direct:consultarPendientes" />
+				</when>
+				<when id="consultarRoute">
+						<simple>${body} contains 'consultarRequest'</simple>
+						<setProperty id="inicioSetTipoRequest5" propertyName="tipoRequest">
+                   			<simple>ConsultarRequest</simple>
+                   		</setProperty>
+						<to id="toConsultar" uri="direct:consultar" />
+				</when>
+				<when id="consultarOtrosDescuentosRoute">
+						<simple>${body} contains 'consultarOtrosDescuentos'</simple>
+						<setProperty id="inicioSetTipoRequest5" propertyName="tipoRequest">
+                   			<simple>ConsultarOtrosDescuentosRequest</simple>
+                   		</setProperty>
+						<to id="toObtenerOtrosDetallesDelaSolicitudDeCredito" uri="direct:consultarOtrosDescuentos" />
+				</when>
+				<when id="aprobarRoute">
+						<simple>${body} contains 'aprobar'</simple>
+						<setProperty id="inicioSetTipoRequest6" propertyName="tipoRequest">
+                   			<simple>AprobarVBRequest</simple>
+                   		</setProperty>
+						<to id="toAceptarSolicitudDeCredito" uri="direct:aprobar" />
+						
+				</when>
+				<when id="rechazarRoute">
+						<simple>${body} contains 'rechazar'</simple>
+						<setProperty id="inicioSetTipoRequest7" propertyName="tipoRequest">
+                   			<simple>RechazarVBRequest</simple>
+                   		</setProperty>
+						<to id="toRechazarSolicitudDeCredito" uri="direct:rechazar" />
+				</when>
+				<when id="_whenConsultarCreditoHistoricoRequest">
+                    <simple>${body} contains 'consultarCreditoHistoricoRequest'</simple>
+                       <setProperty id="inicioSetTipoRequest8" propertyName="tipoRequest">
+                   		<simple>ConsultarCreditoHistoricoRequest</simple>
+                	</setProperty>
+                    <to id="toDetalleCreditoHistorico" uri="direct:consultarCreditoHistoricoOperation"/>
+                </when>				
+			</choice>
+			 <doCatch id="cxf-inicioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="cxf-inicioPropertyCodigo" propertyName="codigoError">
+                        <simple>900</simple>
+                    </setProperty>
+                    <to id="cxfinicioExcepcion" uri="direct:excepcion"/>
+             </doCatch>
+            </doTry>
+		</route> 
+		
+		<route id="consultarPendientes">
+			<from id="consultarPendientesFrom" uri="direct:consultarPendientes" />
+			 <doTry id="consultarPendientesTry"> 
+				<setProperty propertyName="requestUser" id="headerUserConsultar1">
+                    <xpath resultType="String">//userId</xpath>
+                </setProperty>
+				<setProperty propertyName="requestCanalLlamada" id="headerCanalLlamadaConsultar1">
+                    <xpath resultType="String">//canal</xpath>
+                </setProperty>
+				<setProperty propertyName="requestNroSolicitud" id="headerNroSolicitudConsultar1">
+                    <xpath resultType="String">//nroSolicitud</xpath>
+                </setProperty>
+				<setProperty propertyName="requestRutSocio" id="headerRutSocio1">
+                    <xpath resultType="String">//rutSocio</xpath>
+                </setProperty>
+				<setProperty propertyName="requestCodConvIni" id="headerCodConvIni1">
+                    <xpath resultType="String">//codConvIni</xpath>
+                </setProperty>
+				<setProperty propertyName="requestSolCredIni" id="headerSolCredIni1">
+                    <xpath resultType="String">//solCredIni</xpath>
+                </setProperty>
+				<setProperty propertyName="requestConConvFin" id="headerConConvFin1">
+                    <xpath resultType="String">//conConvFin</xpath>
+                </setProperty>
+				<setProperty propertyName="requestSolCredFin" id="headerSolCredFin1">
+                    <xpath resultType="String">//solCredFin</xpath>
+                </setProperty>
+				<setProperty propertyName="requestLinDespleg" id="headerLinDespleg1">
+                    <xpath resultType="String">//cantidadMeses</xpath>
+                </setProperty>
+				<setProperty propertyName="requestFlgPaginar" id="headerFlgPaginar1">
+                    <xpath resultType="String">//flgPaginar</xpath>
+                </setProperty>                                                                                
+                
+				<bean id="consultarPendientesUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade" />
+				<to id="consultarPendientesToXSLTrama" uri="xslt://etc/xsl/request/IOC727001I_consultarPendientesVB.xsl" />
+				<bean ref="beanRouteFacade" id="startTimerConsultarPendientesToAmq" method="startTimer(*,'ConsultarPendientesToAmq')"/>
+				<to id="consultarPendientesToAmq"
+					uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;requestTimeout=180000&amp;synchronous=true&amp;exchangePattern=InOut" />
+				<transform id="consultarPendientesTransformBody">
+					<simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+				</transform>
+				<bean ref="beanRouteFacade" id="endTimerConsultarPendientesToAmq" method="endTimer(*,'ConsultarPendientesToAmq')"/>
+				<to id="consultarPendientesToXSLSOAP"
+					uri="xslt://etc/xsl/response/IOC727001O_consultarPendientesVB.xsl?saxon=true" />
+				<doCatch id="consultarPendientesDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="consultarPendientesPropertyCodigo" propertyName="codigoError">
+						<simple>900</simple>
+					</setProperty>
+					<to id="tooOtainerCreditosPendientesExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry> 
+		</route>
+
+		<route id="consultarProcesadas">
+			<from id="creditRequestFrom" uri="direct:consultarProcesadas" />
+			 <doTry id="consultarProcesadasTry">
+
+				<setHeader headerName="creditRequestsList" id="creditRequestsListId">
+					<xpath resultType="String">//creditRequestsList</xpath>
+				</setHeader>
+												
+				<choice id="consultarProcesadasSolicitudValidation">
+					<when id="consultarProcesadasSolicitudOk">
+						<simple>${headers.creditRequestsList} != ''</simple>
+						<to id="to_call_sp_get_credit_request" uri="bean:call_sp_get_credit_request" />
+					</when>
+					<otherwise>
+						<to id="consultarProcesadasSolicitudFailureXml" uri="xslt://etc/xsl/error/inValidsolicitudId.xsl" />
+					</otherwise>
+				</choice>
+                 <removeHeaders id="removeHeader1" pattern="*" />
+				<doCatch id="consultarProcesadasCatch">
+					<exception>java.lang.Exception</exception>
+							<setProperty id="consultarProcesadasCodigo" propertyName="codigoError">
+								<simple>900</simple>
+							</setProperty>
+							<to id="consultarProcesadasExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+
+		<route id="saveCreditRequest">
+				<from id="saveCreditRequestFrom" uri="direct:saveCreditRequest" />
+			 <doTry id="saveCreditRequestTry">
+					<setHeader headerName="rut"
+						id="saveCreditRequest_rutInput">
+						<xpath resultType="String">//rut</xpath>
+					</setHeader>
+					<setHeader headerName="creditRequestId" id="saveCreditRequest_creditRequestId">
+						<xpath resultType="String">//creditRequestId</xpath>
+					</setHeader>
+					<setHeader headerName="solicitudId" id="saveCreditRequest_solicitudId">
+						<xpath resultType="String">//solicitudId</xpath>
+					</setHeader>
+					<setHeader headerName="rutSocio" id="saveCreditRequest_rutSocio">
+						<xpath resultType="String">//rutSocio</xpath>
+					</setHeader>
+					<setHeader headerName="status" id="saveCreditRequest_status">
+						<xpath resultType="String">//status</xpath>
+					</setHeader>
+					<setHeader headerName="amount" id="saveCreditRequest_amount">
+						<xpath resultType="String">//amount</xpath>
+					</setHeader>
+					<setHeader headerName="reason" id="saveCreditRequest_reason">
+						<xpath resultType="String">//reason</xpath>
+					</setHeader>
+					<setHeader headerName="observation" id="saveCreditRequest_observation">
+						<xpath resultType="String">//observation</xpath>
+					</setHeader>					
+					<setHeader headerName="totalOperation" id="saveCreditRequest_totalOperation">
+						<xpath resultType="String">//totalOperation</xpath>
+					</setHeader>
+					<setHeader headerName="shareValue" id="saveCreditRequest_shareValue">
+						<xpath resultType="String">//shareValue</xpath>
+					</setHeader>
+					<setHeader headerName="otherDiscounts" id="saveCreditRequest_otherDiscounts">
+						<xpath resultType="String">//otherDiscounts</xpath>
+					</setHeader>
+					<setHeader headerName="totalDiscount" id="saveCreditRequest_totalDiscount">
+						<xpath resultType="String">//totalDiscount</xpath>
+					</setHeader>
+					<setHeader headerName="nameSocio" id="saveCreditRequest_nameSocio">
+						<xpath resultType="String">//nameSocio</xpath>
+					</setHeader>
+					<setHeader headerName="nameResolutor" id="saveCreditRequest_nameResolutor">
+						<xpath resultType="String">//nameResolutor</xpath>
+					</setHeader>
+					
+					<setHeader headerName="validaCreditRequest" id="saveCreditRequestValidaCreditRequest">
+						<method beanType="cl.coopeuch.integracion.solicitudcreditovb.util.RouteFacade"
+							id="saveCreditRequestValidaCreditRequestMethod"
+							method="validaCreditRequest(${headers.rut}, ${headers.solicitudId},${headers.creditRequestId}, ${headers.rutSocio} , ${headers.status}, ${headers.amount}, ${headers.reason}, ${headers.observation})" />
+					</setHeader>
+					<choice id="saveCreditRequestChoice1">
+						<when id="saveCreditRequestValidateUserRutOk">
+							<simple>${headers.validaCreditRequest} == 'correcto' </simple>
+							<to id="to_call_sp_save_userdetails" uri="bean:call_sp_save_credit_request" />
+							<marshal id="saveCreditRequest_storedProcResultMarshal" ref="jacksonTransform" />
+							<convertBodyTo id="saveCreditRequest_storedProcResult" type="java.lang.String" />
+							<to id="saveCreditRequestResponseXml" uri="xslt://etc/xsl/response/saveCreditRequestSuccessResponse.xsl" />
+						</when>
+						<otherwise>
+							<to id="saveCreditRequestValidaRutInvalid"
+								uri="xslt://etc/xsl/error/invalidCreditRequestSaveCreditRequestResponse.xsl?saxon=true" />
+						</otherwise>
+					</choice>
+					 <removeHeaders id="removeHeader2" pattern="*" />
+					<doCatch id="saveCreditRequestCatch">
+						<exception>java.lang.Exception</exception>
+							<setProperty id="saveCreditRequestCodigo" propertyName="codigoError">
+								<simple>900</simple>
+							</setProperty>
+							<to id="saveCreditRequestExcepcion" uri="direct:excepcion" />
+					</doCatch>
+				</doTry>
+			</route>
+       
+		<route id="consultar">
+			<from id="obtenerDetallesDeSolicitudDeCreditoFrom" uri="direct:consultar" />
+			 <doTry id="obtenerDetallesDeSolicitudDeCreditoTry">
+				<setProperty propertyName="requestUser" id="getCreditRequestDetails_userid">
+					<xpath resultType="String">//userId</xpath>
+				</setProperty>
+				<setProperty propertyName="requestCanalLlamada" id="getCreditRequestDetails_canal">
+					<xpath resultType="String">//canal</xpath>
+				</setProperty>
+				<setProperty propertyName="requestNumeroSolicitudCredito" id="getCreditRequestDetails_numeroSolicitudCredito">
+					<xpath resultType="String">//numeroSolicitudCredito</xpath>
+				</setProperty>
+				
+				<log id="excepcionLog1" loggingLevel="INFO" message="Consultar - Request: ${body}" />
+				
+				<bean id="obtenerDetallesDeSolicitudDeCreditoUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade" />
+				<to id="obtenerDetallesDeSolicitudDeCreditoToXSLTrama" uri="xslt://etc/xsl/request/IOC730001I_consultarDatosSolicitudCredito.xsl" />
+				
+				<bean ref="beanRouteFacade" id="startTimerobtenerDetallesDeSolicitudDeCreditoToAmq" method="startTimer(*,'obtenerDetallesDeSolicitudDeCreditoToAmq')"/>
+				<to id="obtenerDetallesDeSolicitudDeCreditoToAmq"
+					uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut" />
+				<transform id="obtenerDetallesDeSolicitudDeCreditoTransformBody">
+					<simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+				</transform>
+				<bean ref="beanRouteFacade" id="endTimerObtenerDetallesDeSolicitudDeCreditoToAmq" method="endTimer(*,'obtenerDetallesDeSolicitudDeCreditoToAmq')"/>
+
+				<log id="excepcionLog2" loggingLevel="INFO" message="Consultar - Response 1: ${body}" />
+ 				<to id="obtenerDetallesDeSolicitudDeCreditoToXSLSOAP" uri="xslt://etc/xsl/response/IOC730001O_consultarDatosSolicitudCredito.xsl?saxon=true"/>
+ 				<log id="excepcionLog3" loggingLevel="INFO" message="Consultar - Response 2: ${body}" />
+			  
+				<doCatch id="obtenerDetallesDeSolicitudDeCreditoDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="obtenerDetallesDeSolicitudDeCreditoPropertyCodigo" propertyName="codigoError">
+						<simple>900</simple>
+					</setProperty>
+					<to id="toObtenerDetallesDeSolicitudDeCreditoExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>		
+		</route>
+      
+		<route id="aprobar">
+			<from id="aprobarFrom" uri="direct:aprobar" />
+			 <doTry id="aprobarTry">
+			
+				<setProperty propertyName="requestUser" id="headerUserConsultar3">
+					<xpath resultType="String">//userId</xpath>
+				</setProperty>
+				<setProperty propertyName="requestCanalLlamada" id="headerCanalLlamadaConsultar3">
+					<xpath resultType="String">//canal</xpath>
+				</setProperty>
+				<setProperty propertyName="requestNumeroSolicitudCredito" id="headerNumeroSolicitudCreditoConsultar2">
+					<xpath resultType="String">//numeroSolicitudCredito</xpath>
+				</setProperty>
+				<setProperty propertyName="requestEstadoAActualizar" id="headerEstadoAActualizarConsultar1">
+					<xpath resultType="String">//estadoAActualizar</xpath>
+				</setProperty>
+				
+				<bean id="aprobarUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade" />
+				
+				<to id="aprobarToXSLTrama" uri="xslt://etc/xsl/request/IOC727201I_aprobarVB.xsl" />
+				
+				<bean ref="beanRouteFacade" id="startTimerAprobarToAmq" method="startTimer(*,'AprobarToAmq')"/>
+				<to id="aprobarToAmq"
+					uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut" />
+
+				<transform id="aprobarTransformBody">
+					<simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+				</transform>
+				<bean ref="beanRouteFacade" id="endTimerAprobarToAmq" method="endTimer(*,'AprobarToAmq')"/>
+ 				<to id="aprobarToXSLSOAP" uri="xslt://etc/xsl/response/IOC727201O_aprobarVB.xsl?saxon=true"/>
+				<doCatch id="aprobarDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="aprobarPropertyCodigo" propertyName="codigoError">
+						<simple>900</simple>
+					</setProperty>
+					<to id="toAceptarSolicitudDeCreditoExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry> 
+		</route>
+ 
+		<route id="rechazar">
+			<from id="rechazarFrom" uri="direct:rechazar" />
+			<doTry id="rechazarTry">
+
+				<setProperty propertyName="requestUser" id="headerUserConsultar4">
+					<xpath resultType="String">//userId</xpath>
+				</setProperty>
+				<setProperty propertyName="requestCanalLlamada" id="headerCanalLlamadaConsultar4">
+					<xpath resultType="String">//canal</xpath>
+				</setProperty>
+				<setProperty propertyName="requestNumeroSolicitudCredito" id="headerNumeroSolicitudCreditoConsultar4">
+					<xpath resultType="String">//numeroSolicitudCredito</xpath>
+				</setProperty>
+				<setProperty propertyName="requestEstadoAActualizar" id="headerEstadoAActualizarConsultar4">
+					<xpath resultType="String">//estadoAActualizar</xpath>
+				</setProperty>
+				
+				<bean id="rechazarUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade" />
+				
+				<to id="rechazarToXSLTrama" uri="xslt://etc/xsl/request/IOC727201I_rechazarVB.xsl" />
+				
+				<bean ref="beanRouteFacade" id="startTimerRechazarToAmq" method="startTimer(*,'RechazarToAmq')"/>
+				<to id="rechazarToAmq"
+					uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut" />
+					
+				<transform id="rechazarTransformBody">
+					<simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+				</transform>
+				<bean ref="beanRouteFacade" id="endTimerRechazarToAmq" method="endTimer(*,'RechazarToAmq')"/>
+
+ 				<to id="rechazarToXSLSOAP" uri="xslt://etc/xsl/response/IOC727201O_rechazarVB.xsl?saxon=true"/>
+				<doCatch id="rechazarDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="rechazarPropertyCodigo" propertyName="codigoError">
+						<simple>900</simple>
+					</setProperty>
+					<to id="toRechazarSolicitudDeCreditoExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		
+		<route id="consultarOtrosDescuentos">
+			<from id="consultarOtrosDescuentosFrom" uri="direct:consultarOtrosDescuentos" />
+			 <doTry id="consultarOtrosDescuentosTry">
+				    <setProperty propertyName="requestUser"
+						id="getOtherCreditRequestDetails_userid">
+						<xpath resultType="String">//userId</xpath>
+					</setProperty>
+					<setProperty propertyName="requestCanalLlamada" id="getOtherCreditRequestDetails_canal">
+						<xpath resultType="String">//canal</xpath>
+					</setProperty>
+					<setProperty propertyName="requestNumeroSolicitudCredito" id="getOtherCreditRequestDetails_numeroSolicitudCredito">
+						<xpath resultType="String">//numeroSolicitudCredito</xpath>
+					</setProperty>
+					<setProperty propertyName="requestRut" id="getOtherCreditRequestDetails_numeroSolicitudCredito">
+						<xpath resultType="String">//rut</xpath>
+					</setProperty>
+				<bean id="consultarOtrosDescuentosUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade" />
+				<to id="consultarOtrosDescuentosToXSLTrama" uri="xslt://etc/xsl/request/IOC734001I_consultarOtrosDescuentos.xsl" />
+				<bean ref="beanRouteFacade" id="startTimerConsultarOtrosDescuentosToAmq" method="startTimer(*,'ConsultarOtrosDescuentosToAmq')"/>
+			   	<to id="consultarOtrosDescuentosToAmq"
+					uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut" />
+				<transform id="consultarOtrosDescuentosTransformBody">
+					<simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+				</transform>
+				<bean ref="beanRouteFacade" id="endTimerConsultarOtrosDescuentosToAmq" method="endTimer(*,'ConsultarOtrosDescuentosToAmq')"/>
+ 				<to id="consultarOtrosDescuentosToXSLSOAP" uri="xslt://etc/xsl/response/IOC734001O_consultarOtrosDescuentos.xsl?saxon=true"/>
+				<doCatch id="consultarOtrosDescuentosDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="consultarOtrosDescuentosPropertyCodigo" propertyName="codigoError">
+						<simple>900</simple>
+					</setProperty>
+					<to id="toObtenerOtrosDetallesDelaSolicitudDeCreditoExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>		
+		</route>
+
+		<route id="consultarCreditoHistoricoOperation">
+            <from
+                id="consultarCreditoHistoricoEndpointListener" uri="direct:consultarCreditoHistoricoOperation"/>
+            <doTry id="consultarCreditoHistoricoRequestTry">
+                <convertBodyTo id="routeOperationBodycch" type="java.lang.String"/>                
+                <setHeader headerName="solicitudId" id="inputSolicitudIdcch">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>  
+                <setHeader headerName="rutSocio" id="inputRutSociocch">
+                    <xpath resultType="String">//rutSocio</xpath>
+                </setHeader>                
+                <to id="id_call_sp_get_credito_historico" uri="bean:call_sp_get_credito_historico"/>
+                 <removeHeaders id="removeHeader3" pattern="*" />
+                <doCatch id="consultarCreditoHistoricoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                     <setProperty id="consultarCreditoHistoricoPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="consultarCreditoHistoricoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+
+		<route id="excepcion">
+			<from id="excepcionfrom" uri="direct:excepcion" />
+			
+			<doTry id="excepcionTry">
+				<bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade" />
+				<marshal id="excepcionMarshalJson">
+					<json library="Jackson" />
+				</marshal>
+				<convertBodyTo id="excepcionConvertTo" type="java.lang.String" />
+				<to id="excepcionToAmqFault"
+					uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly" />
+				<bean id="excepcionBeanExcepcion" method="excepcionCrear" ref="beanRouteFacade" />
+			     
+				<doCatch id="excepcionDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setBody id="exceptionFinalSetBodyError">
+						<simple>${exception}, Body -&gt; ${body}</simple>
+					</setBody>
+					<log id="excepcionLog" loggingLevel="ERROR"
+						message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}" />
+				</doCatch>
+			</doTry>
+		</route>
+	</camelContext>
+</blueprint>

@@ -1,0 +1,431 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wstokenizacionutil" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.cuentas]]"/>
+        <property name="password" value="[[jdbc.db2.password.cuentas]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.wstokenizacionutil}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.wstokenizacionutil}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.wstokenizacionutil}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.wstokenizacionutil}]"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.tokenizacion.util.utilitario.RouteFacade" id="beanRouteFacade"/>
+    <bean
+        class="cl.coopeuch.integracion.tokenizacion.util.utilitario.RouteAlmacenarToken" id="beanRouteAlmacenarToken"/>
+    <camelcxf:cxfEndpoint address="/tokenizacion/WSUtil"
+        id="endpointWSUtil"
+        serviceClass="cl.coopeuch.integracion.tokenizacion.util.wsdl.WSUtilSOAPPortType" wsdlURL="etc/wsdl/WSUtil.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/tokenizacion/RSUtil"
+        id="endpointRSUtil" serviceClass="cl.coopeuch.integracion.tokenizacion.util.wsdl.WSUtilSOAPPortType"/>
+    <camelContext id="servicio-tokenizacion-util" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSUtil"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSUtil"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <setProperty id="_setHeader1" propertyName="UserId">
+                    <xpath resultType="String">//userId</xpath>
+                </setProperty>
+                <setProperty id="_setHeader2" propertyName="CanalLlamada">
+                    <xpath resultType="String">//canalLlamada</xpath>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionRegistrarError">
+                        <simple>${header.operationName} == 'registrarError'</simple>
+                        <to id="toRegistrarError" uri="direct:registrarError"/>
+                    </when>
+                    <when id="inicioWhenOperacionAlmacenarNotificacion">
+                        <simple>${header.operationName} == 'almacenarNotificacion'</simple>
+                        <to id="toAlmacenarNotificacion" uri="direct:almacenarNotificacion"/>
+                    </when>
+                    <when id="inicioWhenOperacionObtenerCardId">
+                        <simple>${header.operationName} == 'obtenerCardId'</simple>
+                        <to id="toObtenerCardId" uri="direct:obtenerCardId"/>
+                    </when>
+                    <when id="inicioWhenOperacionObtenerCardIdPush">
+                        <simple>${header.operationName} == 'obtenerCardIdPush'</simple>
+                        <to id="toObtenerCardIdPush" uri="direct:obtenerCardIdPush"/>
+                    </when>
+                    <when id="inicioWhenOperacionAlmacenarToken">
+                        <simple>${header.operationName} == 'almacenarToken'</simple>
+                        <to id="toObtenerCardId" uri="direct:almacenarToken"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="registrarError">
+            <!-- Manejo de errores -->
+            <from id="verificaTarjetaFrom" uri="direct:registrarError"/>
+            <log id="registrarErrorEntrada" message="Trama = ${body}"/>
+            <doTry id="registrarErrorTry">
+                <!-- Validación de si el campo DcardId tiene valor o está vacío -->
+                <!-- Realizar transformaciones posteriores y configuraciones de propiedades -->
+                <!-- Manejo de excepciones -->
+                <choice id="_choice1">
+                    <!-- Si DcardId tiene valor, usar la trama IOC657001I -->
+                    <when id="_when1">
+                        <simple>${body.dcardId} != null &amp;&amp; ${body.dcardId} != ''</simple>
+                        <!-- Aplicar transformación de respuesta para la primera llamada IOC -->
+                        <marshal id="registrarErrorMarshalIOC657001I">
+                            <jaxb contextPath="cl.coopeuch.integracion.tokenizacion.util.wsdl"/>
+                        </marshal>
+                        <!-- Primera llamada a IOC con transformación y envío -->
+                        <convertBodyTo
+                            id="registrarErrorConvertBodyToStringIOC657001I" type="java.lang.String"/>
+                        <bean id="registrarErrorUUIDIOC657001I"
+                            method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                        <log id="registrarErrorIOC657001I" message="registrarErrorIOC657001I"/>
+                        <to id="registrarErrorToXSLTrama1" uri="xslt://etc/xsl/request/IOC657001I_registrarError.xsl"/>
+                        <log id="registrarErrorTrama1" message="Trama generada para IOC 1 = ${body}"/>
+                        <to id="registrarErrorToAmq1" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                        <transform id="registrarErrorTransformBody6570">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <log id="registrarErrorTramaResponse1" message="Respuesta IOC 1 = ${body}"/>
+                        <to id="registrarErrorToXSLSOAP1" uri="xslt://etc/xsl/response/IOC657001O_registrarError.xsl?saxon=true"/>
+                        <log id="registrarErrorSalida1" message="Salida de la primera transformación de respuesta: ${body}"/>
+                    </when>
+                    <!-- Si DcardId está vacío, usar la trama IOC653002I -->
+                    <otherwise id="registrarErrorIOC653001I">
+                        <!-- Aplicar transformación de respuesta para la primera llamada IOC -->
+                        <marshal id="registrarErrorMarshal">
+                            <jaxb contextPath="cl.coopeuch.integracion.tokenizacion.util.wsdl"/>
+                        </marshal>
+                        <!-- Segunda llamada a IOC con transformación y envío -->
+                        <convertBodyTo
+                            id="registrarErrorConvertBodyToString" type="java.lang.String"/>
+                        <!-- Aplicar transformación de respuesta para la segunda llamada IOC -->
+                        <bean id="registrarErrorUUID"
+                            method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                        <log id="registrarErrorIOC653001I" message="registrarErrorIOC653001I"/>
+                        <to id="registrarErrorToXSLTrama2" uri="xslt://etc/xsl/request/IOC653001I_registrarError.xsl"/>
+                        <log id="registrarErrorTrama2" message="Trama generada para IOC 2 = ${body}"/>
+                        <to id="registrarErrorToAmq2" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                        <transform id="registrarErrorTransformBody6530">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <log id="registrarErrorTramaResponse2" message="Respuesta IOC 2 = ${body}"/>
+                        <to id="registrarErrorToXSLSOAP2" uri="xslt://etc/xsl/response/IOC653001O_registrarError.xsl?saxon=true"/>
+                        <log id="registrarErrorSalida2" message="Salida de la segunda transformación de respuesta: ${body}"/>
+                    </otherwise>
+                </choice>
+                <unmarshal id="registrarErrorUnmarshal">
+                    <jaxb
+                        contextPath="cl.coopeuch.integracion.tokenizacion.util.wsdl" encoding="UTF-8"/>
+                </unmarshal>
+                <removeHeaders id="registrarError_removeHeaders_JMS" pattern="JMS*"/>
+                <removeHeaders
+                    id="registrarError_removeHeaders_Transfer" pattern="Transfer*"/>
+                <setProperty id="registrarError_HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="registrarError_CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="registrarError_CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="registrarError_CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <doCatch id="registrarErrorDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="registrarErrorCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <log id="logError" loggingLevel="ERROR" message="Error capturado en registrarErrorDoCatch: ${exception.message}, ExchangeId: ${exchangeId}, Body: ${body}, StackTrace: ${exception.stacktrace}"/>
+                    <to id="registrarErrorToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="almacenarNotificacion">
+            <from id="almacenarNotificacionFrom" uri="direct:almacenarNotificacion"/>
+            <doTry id="almacenarNotificacionTry">
+                <!-- Procesamiento y transformación para la validación de DcardId -->
+                <!-- Procesamiento final y configuración de propiedades -->
+                <log id="almacenarNotificacionTrama" message="Trama generada = ${body}"/>
+                <choice id="_choice2">
+                    <!-- Si DcardId tiene valor, usar la trama IOC657002I -->
+                    <when id="_when2">
+                        <simple>${body.digitalCardId} != null &amp;&amp; ${body.digitalCardId} != ''</simple>
+                        <marshal id="almacenarNotificacionMarshalIOC65700">
+                            <jaxb contextPath="cl.coopeuch.integracion.tokenizacion.util.wsdl"/>
+                        </marshal>
+                        <!-- Primera transformación de respuesta -->
+                        <convertBodyTo
+                            id="almacenarNotificacionConvertBodyToStringIOC65700" type="java.lang.String"/>
+                        <bean id="almacenarNotificacionUUIDIOC65700"
+                            method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                        <log id="almacenarNotificacionDcardIdValido" message="DcardId tiene valor, usando trama IOC657002I"/>
+                        <to id="almacenarNotificacionToXSLTrama1" uri="xslt://etc/xsl/request/IOC657002I_almacenarNotificacion.xsl"/>
+                        <log id="almacenarNotificacionTrama1AfterXSL" message="Trama generada para IOC 1 = ${body}"/>
+                        <to id="almacenarNotificacionToAmq1" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                        <transform id="almacenarNotificacionTransformBody6570">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <log id="almacenarNotificacionTramaResponse1" message="Respuesta IOC 1 = ${body}"/>
+                        <to id="almacenarNotificacionToXSLSOAP1" uri="xslt://etc/xsl/response/IOC657002O_almacenarNotificacion.xsl?saxon=true"/>
+                        <log id="almacenarNotificacionSalida1" message="Salida de la primera transformación de respuesta: ${body}"/>
+                    </when>
+                    <!-- Si DcardId está vacío, usar la trama IOC653002I -->
+                    <otherwise id="_otherwise2">
+                        <!-- Segunda transformación de respuesta -->
+                        <marshal id="almacenarNotificacionMarshal">
+                            <jaxb contextPath="cl.coopeuch.integracion.tokenizacion.util.wsdl"/>
+                        </marshal>
+                        <convertBodyTo
+                            id="almacenarNotificacionConvertBodyToString" type="java.lang.String"/>
+                        <bean id="almacenarNotificacionUUID"
+                            method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                        <log id="almacenarNotificacionDcardIdVacio" message="DcardId está vacio, usando trama IOC653002I"/>
+                        <to id="almacenarNotificacionToXSLTrama2" uri="xslt://etc/xsl/request/IOC653002I_almacenarNotificacion.xsl"/>
+                        <log id="almacenarNotificacionTrama2AfterXSL" message="Trama generada para IOC 2 = ${body}"/>
+                        <to id="almacenarNotificacionToAmq2" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                        <transform id="almacenarNotificacionTransformBody6530">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <log id="almacenarNotificacionTramaResponse2" message="Respuesta IOC 2 = ${body}"/>
+                        <to id="almacenarNotificacionToXSLSOAP2" uri="xslt://etc/xsl/response/IOC653002O_almacenarNotificacion.xsl?saxon=true"/>
+                        <log id="almacenarNotificacionSalida2" message="Salida de la segunda transformación de respuesta: ${body}"/>
+                    </otherwise>
+                </choice>
+                <unmarshal id="almacenarNotificacionUnmarshal">
+                    <jaxb
+                        contextPath="cl.coopeuch.integracion.tokenizacion.util.wsdl" encoding="UTF-8"/>
+                </unmarshal>
+                <removeHeaders
+                    id="almacenarNotificacion_removeHeaders_JMS" pattern="JMS*"/>
+                <removeHeaders
+                    id="almacenarNotificacion_removeHeaders_Transfer" pattern="Transfer*"/>
+                <setProperty
+                    id="almacenarNotificacion_HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="almacenarNotificacion_CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <!-- Manejo de errores -->
+                <setProperty id="almacenarNotificacion_CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="almacenarNotificacion_CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <doCatch id="almacenarNotificacionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="almacenarNotificacionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <log id="logErroralmacenarNotificacionDoCatch"
+                        loggingLevel="ERROR" message="Error capturado en almacenarNotificacionDoCatch ${exception.message}, ExchangeId: ${exchangeId}, Body: ${body}, StackTrace: ${exception.stacktrace}"/>
+                    <to id="almacenarNotificacionToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="obtenerCardId">
+            <from id="obtenerCardIdFrom" uri="direct:obtenerCardId"/>
+            <doTry id="obtenerCardIdTry">
+                <setProperty id="setPropertyPan" propertyName="pan">
+                    <xpath resultType="String">//pan</xpath>
+                </setProperty>
+                <to id="obtenerCardId-to" uri="sql-stored:classpath:etc/sql/PA_SEL_WSTOKENIZACIONUTIL_OBTENERCARDID_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responsePA_WSTokenizacionUtil_obtenerCardId_WS"/>
+                <bean id="generarResponseObtenerCardId"
+                    method="generarResponseObtenerCardId" ref="beanRouteFacade"/>
+                <doCatch id="obtenerCardIdDoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty id="codigoErrorObtenerCardId" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <to id="excepcionToObtenerCardId" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="obtenerCardIdDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="obtenerCardIdCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="obtenerCardIdToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="obtenerCardIdPush">
+		    <from id="obtenerCardIdFromPush" uri="direct:obtenerCardIdPush"/>
+		    <doTry id="obtenerCardIdTryPush">
+		        <setProperty id="setPropertyPanPush" propertyName="pan">
+		            <xpath resultType="String">//pan</xpath>
+		        </setProperty>
+		        <to id="obtenerCardIdToPush" uri="sql-stored:classpath:etc/sql/PA_SEL_WSTOKENIZACIONUTIL_OBTENERCARDIDPUSH_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responsePA_WSTokenizacionUtil_obtenerCardId_WS"/>
+		        <bean id="generarResponseObtenerCardIdPush"
+		              method="generarResponseObtenerCardIdPush" ref="beanRouteFacade"/>
+		        <doCatch id="obtenerCardIdDoCatch1Push">
+		            <exception>org.apache.camel.ExchangeTimedOutException</exception>
+		            <exception>java.sql.SQLException</exception>
+		            <setProperty id="codigoErrorObtenerCardIdPush" propertyName="codigoError">
+		                <constant>503</constant>
+		            </setProperty>
+		            <to id="excepcionToObtenerCardIdPush" uri="direct:excepcion"/>
+		        </doCatch>
+		        <doCatch id="obtenerCardIdDoCatch2Push">
+		            <exception>java.lang.Exception</exception>
+		            <setProperty id="obtenerCardIdCodigoErrorPush" propertyName="codigoError">
+		                <constant>500</constant>
+		            </setProperty>
+		            <to id="obtenerCardIdToExcepcionPush" uri="direct:excepcion"/>
+		        </doCatch>
+		    </doTry>
+		</route>
+        <route id="almacenarToken">
+            <from id="almacenarTokenFrom" uri="direct:almacenarToken"/>
+            <onException id="_onException1">
+                <exception>java.lang.Exception</exception>
+                <redeliveryPolicy maximumRedeliveries="3" redeliveryDelay="2000"/>
+                <handled>
+                    <constant>true</constant>
+                </handled>
+                <log id="_log1" message="Error en la ruta almacenarToken: ${exception.message}"/>
+                <to id="_to1" uri="direct:excepcion"/>
+            </onException>
+            <doTry id="almacenarTokenTry">
+                <log id="almacenarTokenTrama" message="Request = ${body}"/>
+                <to id="setearVariablesAlmacenarToken" uri="direct:setVariablesAlmacenarToken"/>
+                <marshal id="almacenarTokenMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tokenizacion.util.wsdl"/>
+                </marshal>
+                <convertBodyTo id="almacenarTokenConvertBodyToString" type="java.lang.String"/>
+                <bean id="validarCamposAlmacenarToken"
+                    method="validarCampos" ref="beanRouteAlmacenarToken"/>
+                <log id="almacenarTokenOperacion" message="Operacion = ${property.operacionAlmacenarToken}"/>
+                <bean id="almacenarTokenUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="almacenarTokenToXSLTrama" uri="xslt://etc/xsl/request/IOC656001I_almacenarToken.xsl"/>
+                <log id="almacenarTokenTrama" message="Trama generada = ${body}"/>
+                <to id="almacenarTokenToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="almacenarTokenTramaResponse" message="Trama recibida = ${body}"/>
+                <transform id="almacenarTokenTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="almacenarTokenToXSLSOAP" uri="xslt://etc/xsl/response/IOC656001O_almacenarToken.xsl?saxon=true"/>
+                <log id="almacenarTokenSalida" message="salida: ${body}"/>
+                <unmarshal id="almacenarTokenUnmarshal">
+                    <jaxb
+                        contextPath="cl.coopeuch.integracion.tokenizacion.util.wsdl" encoding="UTF-8"/>
+                </unmarshal>
+                <removeHeaders id="almacenarToken_removeHeaders_JMS" pattern="JMS*"/>
+                <removeHeaders
+                    id="almacenarToken_removeHeaders_Transfer" pattern="Transfer*"/>
+                <setProperty id="almacenarToken_HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="almacenarToken_CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="almacenarToken_CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="almacenarToken_CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <doCatch id="almacenarTokenDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="almacenarTokenCodigoError" propertyName="codigoError">
+                        <constant>400</constant>
+                    </setProperty>
+                    <to id="almacenarTokenToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeSetVariablesAlmacenarToken">
+            <from id="fromSetVariablesAlmacenarToken" uri="direct:setVariablesAlmacenarToken"/>
+            <setProperty id="setPropertyE01TKTFL1" propertyName="E01TKTFL1">
+                <constant/>
+            </setProperty>
+            <setProperty id="setPropertyE01TKTFL2" propertyName="E01TKTFL2">
+                <constant/>
+            </setProperty>
+            <setProperty id="setPropertyE01TKTFL3" propertyName="E01TKTFL3">
+                <constant/>
+            </setProperty>
+            <setProperty id="setPropertyE01TKTFL4" propertyName="E01TKTFL4">
+                <constant>0</constant>
+            </setProperty>
+            <setProperty id="setPropertyE01TKTFL5" propertyName="E01TKTFL5">
+                <constant>0</constant>
+            </setProperty>
+            <setProperty id="setPropertyE01TKTFL6" propertyName="E01TKTFL6">
+                <constant>0</constant>
+            </setProperty>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

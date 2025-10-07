@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal" persistent-id="wsips" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <cxf:cxfEndpoint address="/WSIps" id="endpointWSIps"
+        serviceClass="cl.coopeuch.integracion.entidad.ips.wsdl.Isp" wsdlURL="etc/wsdl/WSIPS.wsdl">
+        <cxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </cxf:properties>
+    </cxf:cxfEndpoint>
+    <cxf:rsServer address="/RSIps" id="endpointRSIps" serviceClass="cl.coopeuch.integracion.entidad.ips.rest.Ips"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <bean class="cl.coopeuch.integracion.entidad.util.RouteFacade" id="beanRouteFacade"/>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <camelContext id="wsips" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="soap-inicio">
+            <from id="fromSoapService" uri="cxf:bean:endpointWSIps"/>
+            <setBody id="_setBody1">
+                <simple>${body.get(0)}</simple>
+            </setBody>
+            <to id="inicioSoapTo" uri="direct:inicio"/>
+        </route>
+        <route id="rest-inicio">
+            <from id="fromRestService" uri="cxfrs:bean:endpointRSIps"/>
+            <choice id="_choice3">
+                <when id="_when3">
+                    <simple>${header.operationName} == 'registrar'</simple>
+                    <unmarshal id="_unmarshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.entidad.ips.wsdl.RegistrarRequest"/>
+                    </unmarshal>
+                    <to id="_to1" uri="direct:inicio"/>
+                    <marshal id="_marshal4">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.entidad.ips.wsdl.RegistrarResponse"/>
+                    </marshal>
+                </when>
+                <when id="_when4">
+                    <simple>${header.operationName} == 'consultar'</simple>
+                    <unmarshal id="_unmarshal3">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.entidad.ips.wsdl.ConsultarRequest"/>
+                    </unmarshal>
+                    <to id="inicioRestTo" uri="direct:inicio"/>
+                    <marshal id="_marshal2">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.entidad.ips.wsdl.ConsultarResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <route id="routeInicio">
+            <from id="inicioFrom" uri="direct:inicio"/>
+            <setProperty id="_setProperty1" propertyName="operacion">
+                <header>operationName</header>
+            </setProperty>
+            <toD id="_toDInicio" uri="direct:${header.operationName}"/>
+        </route>
+        <route id="routeRegistrar">
+            <from id="fromRegistrar" uri="direct:registrar"/>
+            <setProperty id="_setProperty3" propertyName="codError">
+                <constant>500</constant>
+            </setProperty>
+            <doTry id="_doTry2">
+                <to id="_to2" uri="direct:validarTipoPension"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.entidad.util.IdCorrelativo"
+                    id="_bean1" method="creaJMSIdCorrelativo"/>
+                <bean id="idTransformarIOC038001IBean"
+                    method="transformarIOC038001I" ref="beanRouteFacade"/>
+                <marshal id="_marshal1">
+                    <bindy
+                        classType="cl.coopeuch.integracion.entidad.ips.modelo.IOC038001I" type="Fixed"/>
+                </marshal>
+                <log id="_log3" loggingLevel="INFO" message="Entrada |${body}|"/>
+                <to id="registrarToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="_log2" loggingLevel="INFO" message="Salida |${body}|"/>
+                <choice id="_choice2">
+                    <when id="_when2">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_unmarshal4">
+                            <bindy
+                                classType="cl.coopeuch.integracion.entidad.ips.modelo.IOCERROR" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="errorIOCBeanRegistrar"
+                            method="transformarIocErrorRegistrar" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <unmarshal id="_unmarshal5">
+                            <bindy
+                                classType="cl.coopeuch.integracion.entidad.ips.modelo.IOC038001O" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="salidaIOCBeanRegistrar"
+                            method="transformarIoc038001O" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeConsultar">
+            <from id="fromConsultar" uri="direct:consultar"/>
+            <setProperty id="_setProperty4" propertyName="codError">
+                <constant>500</constant>
+            </setProperty>
+            <doTry id="_doTry1">
+                <bean
+                    beanType="cl.coopeuch.integracion.entidad.util.IdCorrelativo"
+                    id="_bean2" method="creaJMSIdCorrelativo"/>
+                <bean id="idTransformarIOC038002IBean"
+                    method="transformarIOC038002I" ref="beanRouteFacade"/>
+                <marshal id="_marshal3">
+                    <bindy
+                        classType="cl.coopeuch.integracion.entidad.ips.modelo.IOC038002I" type="Fixed"/>
+                </marshal>
+                <log id="_log4" message="Entrada |${body}|"/>
+                <to id="consultarToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="_log5" message="Salida |${body}|"/>
+                <choice id="_choice1">
+                    <when id="_when1">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_unmarshal1">
+                            <bindy
+                                classType="cl.coopeuch.integracion.entidad.ips.modelo.IOCERROR" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="errorIOCBean"
+                            method="transformarIocErrorConsulta" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <unmarshal id="_unmarshal2">
+                            <bindy
+                                classType="cl.coopeuch.integracion.entidad.ips.modelo.IOC038002O" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="salidaIOCBean"
+                            method="transformarIoc038002O" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion1" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route1">
+            <from id="_from1" uri="direct:validarTipoPension"/>
+            <setProperty id="_setProperty2" propertyName="body">
+                <simple>${body}</simple>
+            </setProperty>
+            <bean id="_bean3" method="validarTipoPensionRequest" ref="beanRouteFacade"/>
+            <to id="_to3" uri="direct:consultar"/>
+            <bean id="_bean4" method="validarTipoPensionResponse" ref="beanRouteFacade"/>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <log id="_log1" loggingLevel="ERROR" message="${property.CamelExceptionCaught}"/>
+            <bean id="excepcionBeanExcepcion" method="excepcion" ref="beanRouteFacade"/>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+           xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+           xmlns:http="http://cxf.apache.org/transports/http/configuration"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd
+           http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+                             placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal" persistent-id="wscontroversiadocumento"
+                             placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    
+    <bean class="cl.coopeuch.integracion.utilidad.serviciocontroversiadocumento.util.RouteFacade" id="beanRouteFacade"/>
+    
+    <camelcxf:cxfEndpoint address="/WSControversiaDocumento"
+                          id="endpointWSControversiaDocumento"
+                          serviceClass="cl.coopeuch.integracion.utilidad.serviciocontroversiadocumento.wsdl.WSControversiaDocumentoSOAPPortType"
+                          wsdlURL="etc/wsdl/WSControversiaDocumento.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    
+    <camelcxf:rsServer address="/RSControversiaDocumento"
+                       id="endpointRSControversiaDocumento"
+                       serviceClass="cl.coopeuch.integracion.utilidad.serviciocontroversiadocumento.wsdl.WSControversiaDocumentoSOAPPortType">
+        <camelcxf:providers>
+            <bean id="jsonProvider" class="org.apache.cxf.jaxrs.provider.json.JSONProvider">
+                <property name="serializeAsArray" value="true"/>
+                <property name="arrayKeys">
+                    <list>
+                        <value>documentos</value>
+                    </list>
+                </property>
+                <property name="ignoreEmptyArrayValues" value="true"/>
+            </bean>
+        </camelcxf:providers>
+    </camelcxf:rsServer>
+    
+    <camelcxf:rsClient address="{{controversias.consultardocumentos.lambda.endpoint}}"
+                       id="endpointConsultarDocumentos" loggingFeatureEnabled="true">
+    </camelcxf:rsClient>
+    
+    <camelContext id="servicio-controversia-documento" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSControversiaDocumento"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSControversiaDocumento"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="toConsultar" uri="direct:consultar"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <bean id="obtenerVersionServicioBean" method="obtenerVersionServicio" ref="beanRouteFacade"/>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultar">
+            <from id="consultarFrom" uri="direct:consultar"/>
+            <doTry id="consultarTry">
+                <bean method="prepararRequestConsultar" ref="beanRouteFacade"/>
+                <removeHeaders pattern="*"/>
+                <setHeader headerName="Content-Type">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="Exchange.HTTP_METHOD">
+                    <constant>POST</constant>
+                </setHeader>
+                <setHeader headerName="{{controversias.consultardocumentos.lambda.apikey.header}}">
+                    <constant>{{controversias.consultardocumentos.lambda.apikey.value}}</constant>
+                </setHeader>
+                <marshal>
+                    <json include="NON_NULL" library="Jackson"/>
+                </marshal>
+                <convertBodyTo type="java.lang.String"/>
+                <to uri="cxfrs:bean:endpointConsultarDocumentos"/>
+                <removeHeaders pattern="*"/>
+                <unmarshal>
+                    <json library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.lambda.consultardocumentos.LambdaConsultarDocumentosResponse"/>
+                </unmarshal>
+                <bean method="generarResponseConsultar" ref="beanRouteFacade"/>
+                <unmarshal>
+                    <jaxb contextPath="cl.coopeuch.integracion.utilidad.serviciocontroversiadocumento.wsdl"/>
+                </unmarshal>
+                <doCatch>
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toConsultarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                      method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,614 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <http-conf:conduit name="*.http-conduit">
+        <http-conf:client ReceiveTimeout="100"/>
+    </http-conf:conduit>
+    <cm:property-placeholder id="variablesGlobales"
+        persistent-id="global" placeholder-prefix="{["
+        placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="variablesLocales"
+        persistent-id="serviciofraude" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioFraude"
+        id="servicioFraudeEndpoint" serviceClass="cl.coopeuch.integracion.fraude.wsdl.ServicioFraude"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.fraude.util.RouteFacade" id="routeFacade"/>
+
+ 	<bean id="logTraceIncidencias" class="org.slf4j.LoggerFactory" factory-method="getLogger">
+		<argument index="0" value="logFraude" />
+	</bean>
+
+    <camelContext id="servicio-fraude" streamCache="false" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-soap-ruteoOperaciones">
+            <from id="servicioFraudeEndpointListener" uri="cxf:bean:servicioFraudeEndpoint?DataFormat=MESSAGE"/>
+            <to id="soapToInicio" uri="direct:inicio"/>
+        </route>
+        <route id="jms-route-fraude">
+            <from id="jmsFromFraude" uri="AMQ:queue:{{colas.servicio.fraude.in.temp}}?preserveMessageQos=true"/>
+            <to id="jmsToInicio" uri="direct:inicio"/>
+        </route>
+        <route id="inicio">
+            <from id="fromInicio" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="convertBodyToString" type="java.lang.String"/>
+                <bean id="generarIdflujoLog" method="generarIdFlujoLog" ref="routeFacade"/>
+                <log id="logBodyInicio" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: Fraude(mismo)||  Type: Inbound  || Body: ${body}" />
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaObtenerIdTransaccion">
+                        <simple>${body} contains 'ObtenerIdTransaccion'</simple>
+                        <setProperty
+                            id="inicioSetTipoRequestObtenerIdTransaccion" propertyName="tipoRequest">
+                            <constant>ObtenerIdTransaccion</constant>
+                        </setProperty>
+                        <to id="ObtenerIdTransaccionValidator" uri="validator:xsd/soapFraude.xsd"/>
+                        <to id="obtenerIdTransaccionTo" uri="direct:obtenerIdTransaccion"/>
+                    </when>
+                    <when id="rutaReglasDuras">
+                        <simple>${body} contains 'ReglasDuras'</simple>
+                        <setProperty
+                            id="inicioSetTipoRequestReglasDuras" propertyName="tipoRequest">
+                            <constant>ReglasDuras</constant>
+                        </setProperty>
+                        <to id="ReglasDurasValidator" uri="validator:xsd/soapFraude.xsd"/>
+                        <to id="reglasDurasTo" uri="direct:reglasDuras"/>
+                    </when>
+                    <when id="rutaValidadorReglas">
+                        <simple>${body} contains 'validadorReglas'</simple>
+                        <setProperty
+                            id="inicioSetTipoRequestvalidadorReglas" propertyName="tipoRequest">
+                            <constant>validadorReglas</constant>
+                        </setProperty>
+                        <setProperty id="setPropertyOrigenValidaciones" propertyName="origen">
+                            <constant>validaciones</constant>
+                        </setProperty>
+                        <to id="validadorReglasValidator" uri="validator:xsd/soapFraude.xsd"/>
+                        <to id="validadorReglasTo" uri="direct:validadorReglas"/>
+                    </when>
+                    <when id="rutaReportesChallengeCCA">
+                        <simple>${body} contains 'ReportesChallengeCCA'</simple>
+                        <setProperty
+                            id="inicioSetTipoRequestReportesChallengeCCA" propertyName="tipoRequest">
+                            <constant>ReportesChallengeCCA</constant>
+                        </setProperty>
+                        <to id="ReportesChallengeCCAValidator" uri="validator:xsd/soapFraude.xsd"/>
+                        <to id="reportesChallengeCCATo" uri="direct:reportesChallengeCCA"/>
+                    </when>
+                    <otherwise id="_otherwise1"/>
+                </choice>
+                <doCatch id="inicioDoCatchExchangeTimedOutException">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="setCodigoExchangeTimedOutException" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="inicioToExchangeTimedOutException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatchNetSocketException">
+                    <exception>java.net.SocketException</exception>
+                    <setProperty id="setCodigoNetSocketException" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <to id="inicioToNetSocketException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatchIllegalArgumentException">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="setCodigoIllegalArgumentException" propertyName="codigoError">
+                        <constant>111</constant>
+                    </setProperty>
+                    <to id="inicioToIllegalArgumentException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatchSchemaValidation">
+                    <exception>org.apache.camel.processor.validation.SchemaValidationException</exception>
+                    <setProperty id="exceptionSchemaValidationCodigoError" propertyName="codigoError">
+                        <constant>417</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcionSchemaValidation" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doFinally>
+                   <log id="logBodyFinal" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: Fraude(mismo) ||  Type: Outbound  || Body: ${body}" />
+                </doFinally>                
+            </doTry>
+        </route>
+        <!-- Inicio: operacion para obtener identificador de transaccion. -->
+        <route id="obtenerIdTransaccion">
+            <!-- Inicio: Variables Dinamicas para Obtener ID Transaccion -->
+            <!-- Fin: Variables Dinamicas para Obtener ID Transaccion -->
+            <!-- Fin: Variables Dinamicas para Obtener ID Transaccion -->
+            <!-- LLamada XSL de entrada para obtener identificador de Transaccion. -->
+            <!-- LLamada XSL de salida para servicio obtener identificador de Transaccion. -->
+            <from id="obtenerIdTransaccionFrom" uri="direct:obtenerIdTransaccion"/>
+            <setProperty id="E01GLODEB" propertyName="obteneridtransaccion.E01GLODEB">
+                <simple>{{obteneridtransaccion.E01GLODEB}}</simple>
+            </setProperty>
+            <setProperty id="E01GLODED" propertyName="obteneridtransaccion.E01GLODED">
+                <simple>{{obteneridtransaccion.E01GLODED}}</simple>
+            </setProperty>
+            <setProperty id="E01GLOCRE" propertyName="obteneridtransaccion.E01GLOCRE">
+                <simple>{{obteneridtransaccion.E01GLOCRE}}</simple>
+            </setProperty>
+            <setProperty id="E01GLOCRD" propertyName="obteneridtransaccion.E01GLOCRD">
+                <simple>{{obteneridtransaccion.E01GLOCRD}}</simple>
+            </setProperty>
+            <setProperty id="E01MOTDEB" propertyName="obteneridtransaccion.E01MOTDEB">
+                <simple>{{obteneridtransaccion.E01MOTDEB}}</simple>
+            </setProperty>
+            <setProperty id="E01MOTCRE" propertyName="obteneridtransaccion.E01MOTCRE">
+                <simple>{{obteneridtransaccion.E01MOTCRE}}</simple>
+            </setProperty>
+            <setProperty id="E01BCOCCA" propertyName="obteneridtransaccion.E01BCOCCA">
+                <simple>{{obteneridtransaccion.E01BCOCCA}}</simple>
+            </setProperty>
+            <setProperty id="E01FLGCON" propertyName="obteneridtransaccion.E01FLGCON">
+                <simple>{{obteneridtransaccion.E01FLGCON}}</simple>
+            </setProperty>
+            <setProperty id="E01FLGWRN" propertyName="obteneridtransaccion.E01FLGWRN">
+                <simple>{{obteneridtransaccion.E01FLGWRN}}</simple>
+            </setProperty>
+            <setProperty id="E01CDTRAN" propertyName="obteneridtransaccion.E01CDTRAN">
+                <simple>{{obteneridtransaccion.E01CDTRAN}}</simple>
+            </setProperty>
+            <setProperty id="E01CODFAC" propertyName="obteneridtransaccion.E01CODFAC">
+                <simple>{{obteneridtransaccion.E01CODFAC}}</simple>
+            </setProperty>
+            <setProperty id="E01TDEALS" propertyName="obteneridtransaccion.E01TDEALS">
+                <simple>{{obteneridtransaccion.E01TDEALS}}</simple>
+            </setProperty>
+            <setProperty id="E01TRXMAO" propertyName="obteneridtransaccion.E01TRXMAO">
+                <simple>{{obteneridtransaccion.E01TRXMAO}}</simple>
+            </setProperty>
+            <setProperty id="E01TRXMAD" propertyName="obteneridtransaccion.E01TRXMAD">
+                <simple>{{obteneridtransaccion.E01TRXMAD}}</simple>
+            </setProperty>
+            <setProperty id="E01TRXASU" propertyName="obteneridtransaccion.E01TRXASU">
+                <simple>{{obteneridtransaccion.E01TRXASU}}</simple>
+            </setProperty>
+            <setProperty id="E01TRXDES" propertyName="obteneridtransaccion.E01TRXDES">
+                <simple>{{obteneridtransaccion.E01TRXDES}}</simple>
+            </setProperty>
+            <setProperty id="E01TRXFSD" propertyName="obteneridtransaccion.E01TRXFSD">
+                <simple>{{obteneridtransaccion.E01TRXFSD}}</simple>
+            </setProperty>
+            <setProperty id="E01TRXFSM" propertyName="obteneridtransaccion.E01TRXFSM">
+                <simple>{{obteneridtransaccion.E01TRXFSM}}</simple>
+            </setProperty>
+            <setProperty id="E01TRXFSY" propertyName="obteneridtransaccion.E01TRXFSY">
+                <simple>{{obteneridtransaccion.E01TRXFSY}}</simple>
+            </setProperty>
+            <setProperty id="E01TRXHSH" propertyName="obteneridtransaccion.E01TRXHSH">
+                <simple>{{obteneridtransaccion.E01TRXHSH}}</simple>
+            </setProperty>
+            <setProperty id="E01TRXHSM" propertyName="obteneridtransaccion.E01TRXHSM">
+                <simple>{{obteneridtransaccion.E01TRXHSM}}</simple>
+            </setProperty>
+            <setProperty id="E01TRXHSS" propertyName="obteneridtransaccion.E01TRXHSS">
+                <simple>{{obteneridtransaccion.E01TRXHSS}}</simple>
+            </setProperty>
+            <setProperty id="E01IDXTRX" propertyName="obteneridtransaccion.E01IDXTRX">
+                <simple>{{obteneridtransaccion.E01IDXTRX}}</simple>
+            </setProperty>
+            <bean id="obtenerIdTransaccionCorrelationId"
+                method="crearJMSCorrelationId24" ref="routeFacade"/>
+            <to id="obtenerIdTransaccionXml2trama" uri="xslt://transformations/in/xml2tramaIOC510001I_ObtenerIdTransaccion.xsl"/>
+            <to id="activemq-ObtenerIdTransaccion" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+            <transform id="obtenerIdTransaccionTransform">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <setProperty id="_setProperty24" propertyName="obteneridtransaccion.salida.error.origen">
+                <simple>{{obteneridtransaccion.salida.error.origen}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty25" propertyName="obteneridtransaccion.salida.error.descripcionError">
+                <simple>{{obteneridtransaccion.salida.error.descripcionError}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty26" propertyName="obteneridtransaccion.salida.error.formato">
+                <simple>{{obteneridtransaccion.salida.error.formato}}</simple>
+            </setProperty>
+            <to id="obtenerIdTransaccionTrama2xml" uri="xslt://transformations/out/trama2xmlIOC510001O_ObtenerIdTransaccion.xsl?saxon=true"/>
+            <removeHeaders id="_removeHeaders3" pattern="JMS*"/>
+        </route>
+        <!-- Fin: operacion para obtener identificador de transaccion. -->
+        <!-- Inicio: operacion para evaluar reglas dura/reglas de negocio. -->
+        <route id="reglasDuras">
+            <!-- LLamada XSL de entrada para el reglas duras/reglas de negocio. -->
+            <!-- LLamada XSL de salida para el reglas duras/reglas de negocio. -->
+            <from id="reglasDurasFrom" uri="direct:reglasDuras"/>
+            <choice id="_choice7">
+                <when id="_when10">
+                    <xpath>//rutDestinatario = '' or //InstFinancieraDestino = ''</xpath>
+                    <setProperty id="reglasDurasValidationCodigoError" propertyName="codigoError">
+                        <constant>417</constant>
+                    </setProperty>
+                    <throwException exceptionType="java.lang.Exception"
+                        id="reglasDurasEntradaException" message="error en los datos de entrada"/>
+                </when>
+                <otherwise id="_otherwise8">
+                    <bean id="reglasDurasCorrelationId"
+                        method="crearJMSCorrelationId24" ref="routeFacade"/>
+                    <to id="reglasDurasXml2trama" uri="xslt://transformations/in/xml2tramaIOC160001I_ReglasDuras.xsl"/>
+                    <to id="activeMQ-ReglasDuras" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                    <transform id="reglasDurasTransform">
+                        <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                    </transform>
+                    <setProperty id="_setProperty27" propertyName="reglasduras.salida.error.origen">
+                        <simple>{{reglasduras.salida.error.origen}}</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty28" propertyName="reglasduras.salida.error.descripcionError">
+                        <simple>{{reglasduras.salida.error.descripcionError}}</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty29" propertyName="reglasduras.salida.error.formato">
+                        <simple>{{reglasduras.salida.error.formato}}</simple>
+                    </setProperty>
+                    <to id="reglasDurasTrama2xmlTrama2xml" uri="xslt://transformations/out/trama2xmlIOC160001O_ReglasDuras.xsl?saxon=true"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="validadorReglas">
+            <from id="validadorReglasFrom" uri="direct:validadorReglas"/>
+            <to id="toSetPropertyValidaReglas" uri="direct:setPropertyValidaReglas"/>
+            <convertBodyTo id="validaReglasConvertBodyToString" type="java.lang.String"/>
+            <choice id="evaluarCamposVacios">
+                <when id="validaVacionErrorConexion">
+                    <simple>${property.IP} == ' ' or ${property.idTransaccion} == '' or ${property.InstFinancieraOrigen} == '' or ${property.InstFinancieraDestino} == '' or ${property.rutDestinatario} == ''</simple>
+                    <setProperty
+                        id="setCodigoErrorValidaParametrosEntrada" propertyName="codigoErrorEntrada">
+                        <constant>4</constant>
+                    </setProperty>
+                    <setProperty
+                        id="setDetalleErrorValidaParametrosEntrada" propertyName="detalleErrorEntrada">
+                        <simple>{{validareglas.salida.CCA.returnCode.1}}</simple>
+                    </setProperty>
+                    <throwException
+                        exceptionType="java.lang.IllegalArgumentException"
+                        id="validaReglasEntradaException" message="Error en los datos de entrada"/>
+                </when>
+            </choice>
+            <choice id="choiceValidaMontoTransferencia">
+                <when id="whenMontoTransferencia">
+                    <simple>${property.montoTransferencia} &lt;= 0</simple>
+                    <setProperty id="setPropertyErrorMontoTransferencia" propertyName="codigoErrorEntrada">
+                        <constant>4</constant>
+                    </setProperty>
+                    <setProperty
+                        id="setPropertyDetalleMontoTransferencia" propertyName="detalleErrorEntrada">
+                        <simple>{{validareglas.salida.CCA.returnCode.4}}</simple>
+                    </setProperty>
+                    <throwException
+                        exceptionType="java.lang.IllegalArgumentException"
+                        id="montoTransferenciaException" message="Error en el monto de transferencia"/>
+                </when>
+            </choice>
+            <setProperty id="setPropertyOrigenIOC1430" propertyName="origen">
+                <constant>IOC1430</constant>
+            </setProperty>
+            <bean id="validaReglasCorrelationId"
+                method="crearJMSCorrelationId24" ref="routeFacade"/>
+            <to id="validaReglasXml2trama" uri="xslt://transformations/in/xml2tramaIOC143001I_consultaFraude.xsl"/>
+            <log id="_log1" message="\nTrama Entrada IOC1430: |${body}|"/>
+            <log id="logIOC1430Request" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IOC1430 || Type: Request || Body: ${body}" />
+            <to id="activemq-consultaFraude" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+            <log id="_log2" message="\nTrama Salida IOC1430: |${body}|"/>
+            <log id="logIOC1430Response" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IOC1430 || Type: Response || Body: ${body}" />
+            <setProperty id="validadorReglasPropIOC1430" propertyName="salidaIOC1430">
+                <simple>${body}</simple>
+            </setProperty>
+            <transform id="validadaReglasTransform">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <choice id="choiceError1430">
+                <when id="whenError1430">
+                    <simple>${property.salidaIOC1430} contains 'IOC1430'</simple>
+                    <setProperty id="setPropertyOrigenCCA_Actimaze" propertyName="origen">
+                        <constant>CCA_Actimaze_EventHandlerService</constant>
+                    </setProperty>
+                    <to id="validadorReglasRequestToActimaze" uri="xslt://transformations/in/xml2xml_validadorReglas.xsl?saxon=true"/>
+                    <log id="logCCARequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: CCA || Type: Request || Body: ${body}" />
+                    <to id="cxfvalidadorReglasToCCA" uri="cxf:{{endpoint.CCA.url}}?dataFormat=MESSAGE&amp;loggingFeatureEnabled=true"/>
+                    <convertBodyTo id="validadorReglasBodyTo" type="java.lang.String"/>
+                    <log id="logCCAResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: CCA || Type: Response || Body: ${body}" />
+                    <to id="xsltEliminarNamespaces" uri="xslt://transformations/mid/eliminarNamespaces.xsl?saxon=true"/>
+                    <setProperty id="validadorReglasPropReturnCode" propertyName="returnCode">
+                        <xpath resultType="String">//returnCode</xpath>
+                    </setProperty>
+                    <setProperty id="validadorReglasPropScore" propertyName="scoring">
+                        <xpath resultType="String">//actimizeAnalyticsScore</xpath>
+                    </setProperty>
+                    <setProperty id="validadorReglasMessage" propertyName="message">
+                        <xpath resultType="String">//message</xpath>
+                    </setProperty>
+                    <setProperty id="validadorReglasPropResponseCode" propertyName="responseCode">
+                        <xpath resultType="String">//responseCode</xpath>
+                    </setProperty>
+                    <setProperty id="setPropertyScore" propertyName="score">
+                        <constant>0</constant>
+                    </setProperty>
+                    <log id="_log3" message="property returnCode: ${property.returnCode}"/>
+                    <log id="_log4" message="property scoring: ${property.scoring}"/>
+                    <log id="_log5" message="property responseCode: ${property.responseCode}"/>
+                    <log id="_log6" message="property score: ${property.score}"/>
+                    <wireTap id="wiretapRespuestaScoreCCA" uri="direct:respuestaScoreCCA"/>
+                    <choice id="choiceErrorControladoCCA">
+                        <when id="whenErrorControladoCCA">
+                            <simple>${property.returnCode} != '0'</simple>
+                                <wireTap id="registrarErrorCCAWiretap" uri="direct:registrarErrorCCA"/>
+                            </when>
+                    </choice>
+                </when>
+            </choice>
+            <removeHeaders id="validadorReglasRemoveHeadersJMS" pattern="JMS*"/>
+            <to id="xml2xmlout_validadorReglas" uri="xslt://transformations/out/xml2xmlout_validadorReglas.xsl?saxon=true"/>
+        </route>
+        <route id="respuestaScoreCCA">
+            <from id="respuestaScoreCCAFrom" uri="direct:respuestaScoreCCA"/>
+            <choice id="choiceRespuestaScoreCCA">
+                <when id="whenOpcionScore1">
+                    <simple>${property.score} &gt;= 0 and ${property.score} &lt;= 70 and  ${property.responseCode} == 'Allow'</simple>
+                </when>
+                <when id="whenOpcionScore2">
+                    <simple>${property.score} &gt;= 97 and ${property.score} &lt;= 100 and  ${property.responseCode} == 'Allow'</simple>
+                </when>
+                <when id="whenOpcionScore3">
+                    <simple>${property.score} &gt;= 71 and ${property.score} &lt;= 96 and  ${property.responseCode} == 'Allow'</simple>
+                    <wireTap id="wireTapModificarDatosFraudeCCA1" uri="direct:remoteCall_modificarDatosFraudeCCA"/>
+                </when>
+                <when id="whenOpcionScore4">
+                    <simple>${property.responseCode} == 'Challenge'</simple>
+                    <wireTap id="wireTapModificarDatosFraudeCCA2" uri="direct:remoteCall_modificarDatosFraudeCCA"/>
+                </when>
+            </choice>
+        </route>
+        <route id="registrarErrorCCA">
+            <from id="registrarErrorCCAFrom" uri="direct:registrarErrorCCA"/>
+                <setProperty id="setCodigoCCA" propertyName="codigoError">
+                    <simple>${property.returnCode}</simple>
+                </setProperty>
+                <setProperty id="setMensajeCCA" propertyName="mensajeError">
+                    <simple>${property.message}</simple>
+                </setProperty>
+                <setProperty id="setDetalleCCA" propertyName="detalleError">
+                    <simple>Respuesta con error desde el servicio CCAEventHandler</simple>
+                </setProperty>
+                <to uri="direct:guardarErrorColaAMQ"/>
+        </route>
+
+        <!-- Fin: Esta ruta llama al servicio externo del actimaze para analizar el comportamiento de los socio con sus transferencias. -->
+        
+        <!-- Inicio: Esta ruta llama al servicio externo del actimaze para dar un rechazo de una transaccion efectuada. -->
+        <route id="reportesChallengeCCA">
+            <!-- Inicio: Guardar en cabecera valores estaticos para la llamada de servicio de actimaze reporte de challenge.  -->
+            <!-- Fin: Guardar en cabecera valores estaticos para la llamada de servicio de actimaze reporte de challenge.  -->
+            <!-- XSLT para la llamada al servicio externo de la CCA para reportar los challenge erroneos. -->
+            <!-- Llamada al servicio externo. -->
+            <from id="reportesChallengeCCAFrom" uri="direct:reportesChallengeCCA"/>
+            <setProperty id="actimaze.challengeType" propertyName="actimaze.challengeType">
+                <simple>{{actimaze.challengeType}}</simple>
+            </setProperty>
+            <to id="reportesChallengeCCAXml2trama" uri="xslt://transformations/in/xml2xml_ReportesChallengeCCA.xsl"/>
+            <to id="cxfReportesChallengeCCA" uri="cxf:{{endpoint.CCA.url}}?dataFormat=MESSAGE"/>
+            <convertBodyTo id="convertBodyx1" type="java.lang.String"/>
+            <setProperty id="_setProperty35" propertyName="reportechallenge.salida.exito.codigoTransaccion">
+                <simple>{{reportechallenge.salida.exito.codigoTransaccion}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty36" propertyName="reportechallenge.salida.exito.codigoTransaccion.descripcion">
+                <simple>{{reportechallenge.salida.exito.codigoTransaccion.descripcion}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty37" propertyName="reportechallenge.salida.error.codigoTransaccion">
+                <simple>{{reportechallenge.salida.error.codigoTransaccion}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty38" propertyName="reportechallenge.salida.error.codigoTransaccion.descripcion">
+                <simple>{{reportechallenge.salida.error.codigoTransaccion.descripcion}}</simple>
+            </setProperty>
+            <to id="reportesChallengeCCATrama2xml" uri="xslt://transformations/out/xml2xmlout_ReportesChallengeCCA.xsl?saxon=true"/>
+        </route>
+        <route id="remoteCall_modificarDatosFraudeCCA">
+            <from id="remoteCall_modificarDatosFraudeCCAFrom" uri="direct:remoteCall_modificarDatosFraudeCCA"/>
+            <setProperty id="_setProperty75" propertyName="fraude.modificardatos.CCA.codigoRegla">
+                <simple>{{fraude.modificardatos.CCA.codigoRegla}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty76" propertyName="fraude.modificardatos.CCA.estado.Challenge">
+                <simple>{{fraude.modificardatos.CCA.estado.Challenge}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty77" propertyName="fraude.modificardatos.CCA.estado.rechazado">
+                <simple>{{fraude.modificardatos.CCA.estado.rechazado}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty78" propertyName="fraude.modificardatos.CCA.usuario">
+                <simple>{{fraude.modificardatos.CCA.usuario}}</simple>
+            </setProperty>
+            <to id="remoteCall_modificarDatosFraudeCCAToXSLT" uri="xslt://transformations/mid/remoteCall_modificarDatosFraudeCCA.xsl?saxon=true"/>
+            <log id="logModificarDatosFraudeCCARequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: modificarDatosFraudeCCA || Type: Request || Body: ${body}" />
+            <bean id="datosCCACorrelationId"
+                method="crearJMSCorrelationId24" ref="routeFacade"/>
+            <to id="_to11" uri="AMQ:{{colas.servicio.fraudecca.in.temp}}??preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+            <convertBodyTo id="modificarDatosFraudeCCABodyTo" type="java.lang.String"/>
+            <log id="logModificarDatosFraudeCCAResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: modificarDatosFraudeCCA || Type: Response || Body: ${body}" />
+        </route>
+        <route id="setPropertyValidaReglas">
+            <from id="fromSetPropertyValidaReglas" uri="direct:setPropertyValidaReglas"/>
+            <setProperty id="validadorReglasHeaderRutOrigen" propertyName="rutOrigen">
+                <xpath resultType="String">normalize-space(//rutOrigen)</xpath>
+            </setProperty>
+            <setProperty id="validadorReglasHeaderuserID" propertyName="userID">
+                <xpath resultType="String">normalize-space(//userID)</xpath>
+            </setProperty>
+            <setProperty id="validadorReglasHeaderFecha" propertyName="fecha">
+                <xpath resultType="String">//fecha</xpath>
+            </setProperty>
+            <setProperty id="validadorReglasHeaderHora" propertyName="hora">
+                <xpath resultType="String">//hora</xpath>
+            </setProperty>
+            <setProperty id="validadorReglasHeaderIdTransaccion" propertyName="idTransaccion">
+                <xpath resultType="String">//idTransaccion</xpath>
+            </setProperty>
+            <setProperty id="validadorReglasHeaderCuentaOrigen" propertyName="cuentaOrigen">
+                <xpath resultType="String">//cuentaOrigen</xpath>
+            </setProperty>
+            <setProperty id="validadorReglasHeaderInstFinancieraOrigen" propertyName="InstFinancieraOrigen">
+                <xpath resultType="String">//InstFinancieraOrigen</xpath>
+            </setProperty>
+            <setProperty id="validadorReglasHeaderTipoCuentaOrigen" propertyName="TipoCuentaOrigen">
+                <xpath resultType="String">//TipoCuentaOrigen</xpath>
+            </setProperty>
+            <setProperty id="validadorReglasHeaderAliasDestino" propertyName="aliasDestino">
+                <xpath resultType="String">//aliasDestino</xpath>
+            </setProperty>
+            <setProperty id="validadorReglasHeaderCuentaDestino" propertyName="cuentaDestino">
+                <xpath resultType="String">//cuentaDestino</xpath>
+            </setProperty>
+            <setProperty id="validadorReglasHeaderInstFinancieraDestino" propertyName="InstFinancieraDestino">
+                <xpath resultType="String">//InstFinancieraDestino</xpath>
+            </setProperty>
+            <setProperty id="validadorReglasHeaderRutDestinatario" propertyName="rutDestinatario">
+                <xpath resultType="String">//rutDestinatario</xpath>
+            </setProperty>
+            <setProperty id="validadorReglasHeaderTipoCuentaDestino" propertyName="TipoCuentaDestino">
+                <xpath resultType="String">//TipoCuentaDestino</xpath>
+            </setProperty>
+            <setProperty id="validadorReglasHeaderMontoTransferencia" propertyName="montoTransferencia">
+                <xpath resultType="String">//montoTransferencia</xpath>
+            </setProperty>
+            <setProperty id="validadorReglasHeaderIP" propertyName="IP">
+                <xpath resultType="String">//IP</xpath>
+            </setProperty>
+            <bean id="formateaIP" method="formateaIP" ref="routeFacade"/>
+            <setProperty id="validadorReglasHeaderAsunto" propertyName="asunto">
+                <xpath resultType="String">//asunto</xpath>
+            </setProperty>
+            <setProperty id="channel" propertyName="actimaze.channel">
+                <simple>{{actimaze.channel}}</simple>
+            </setProperty>
+            <setProperty id="actimaze.currencyCd" propertyName="actimaze.currencyCd">
+                <simple>{{actimaze.currencyCd}}</simple>
+            </setProperty>
+            <setProperty id="actimaze.rejectedTransactionInd" propertyName="actimaze.rejectedTransactionInd">
+                <simple>{{actimaze.rejectedTransactionInd}}</simple>
+            </setProperty>
+            <setProperty id="actimaze.transactionType.interna" propertyName="actimaze.transactionType.interna">
+                <simple>{{actimaze.transactionType.interna}}</simple>
+            </setProperty>
+            <setProperty id="actimaze.transactionType.externa" propertyName="actimaze.transactionType.externa">
+                <simple>{{actimaze.transactionType.externa}}</simple>
+            </setProperty>
+            <setProperty id="actimaze.transactionActionCd" propertyName="actimaze.transactionActionCd">
+                <simple>{{actimaze.transactionActionCd}}</simple>
+            </setProperty>
+            <setProperty id="actimaze.transactionStatusCd" propertyName="actimaze.transactionStatusCd">
+                <simple>{{actimaze.transactionStatusCd}}</simple>
+            </setProperty>
+            <setProperty id="actimaze.transferDebitCreditIdentifier" propertyName="actimaze.transferDebitCreditIdentifier">
+                <simple>{{actimaze.transferDebitCreditIdentifier}}</simple>
+            </setProperty>
+            <setProperty id="actimaze.transferIsAddEditPayee" propertyName="actimaze.transferIsAddEditPayee">
+                <simple>{{actimaze.transferIsAddEditPayee}}</simple>
+            </setProperty>
+            <setProperty id="actimaze.transferPaymentSpeedCd" propertyName="actimaze.transferPaymentSpeedCd">
+                <simple>{{actimaze.transferPaymentSpeedCd}}</simple>
+            </setProperty>
+            <setProperty id="actimaze.cs3" propertyName="actimaze.cs3">
+                <simple>{{actimaze.cs3}}</simple>
+            </setProperty>
+            <setProperty id="actimaze.cb1" propertyName="actimaze.cb1">
+                <simple>{{actimaze.cb1}}</simple>
+            </setProperty>
+            <setProperty id="actimaze.payeeAccountPartyRelationType" propertyName="actimaze.payeeAccountPartyRelationType">
+                <simple>{{actimaze.payeeAccountPartyRelationType}}</simple>
+            </setProperty>
+            <setProperty id="actimaze.payeePartyCommercialInd" propertyName="actimaze.payeePartyCommercialInd">
+                <simple>{{actimaze.payeePartyCommercialInd}}</simple>
+            </setProperty>
+            <setProperty id="actimaze.resendDueToFailureInd" propertyName="actimaze.resendDueToFailureInd">
+                <simple>{{actimaze.resendDueToFailureInd}}</simple>
+            </setProperty>
+            <setProperty id="actimaze.transactionSystemCd" propertyName="actimaze.transactionSystemCd">
+                <simple>{{actimaze.transactionSystemCd}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty57" propertyName="validareglas.salida.CCA.returnCode.0">
+                <simple>{{validareglas.salida.CCA.returnCode.0}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty58" propertyName="validareglas.salida.CCA.returnCode.1">
+                <simple>{{validareglas.salida.CCA.returnCode.1}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty59" propertyName="validareglas.salida.CCA.returnCode.2">
+                <simple>{{validareglas.salida.CCA.returnCode.2}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty60" propertyName="validareglas.salida.CCA.returnCode.3">
+                <simple>{{validareglas.salida.CCA.returnCode.3}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty61" propertyName="validareglas.salida.CCA.returnCode.4">
+                <simple>{{validareglas.salida.CCA.returnCode.4}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty62" propertyName="validareglas.salida.CCA.returnCode.5">
+                <simple>{{validareglas.salida.CCA.returnCode.5}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty63" propertyName="validareglas.salida.CCA.returnCode.6">
+                <simple>{{validareglas.salida.CCA.returnCode.6}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty64" propertyName="validareglas.salida.CCA.returnCode.7">
+                <simple>{{validareglas.salida.CCA.returnCode.7}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty65" propertyName="validareglas.salida.CCA.returnCode.8">
+                <simple>{{validareglas.salida.CCA.returnCode.8}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty66" propertyName="validareglas.salida.CCA.returnCode.9">
+                <simple>{{validareglas.salida.CCA.returnCode.9}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty67" propertyName="validareglas.salida.CCA.returnCode.10">
+                <simple>{{validareglas.salida.CCA.returnCode.10}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty68" propertyName="validareglas.salida.CCA.returnCode.11">
+                <simple>{{validareglas.salida.CCA.returnCode.11}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty69" propertyName="validareglas.salida.transferenciarealizada.descripcion">
+                <simple>{{validareglas.salida.transferenciarealizada.descripcion}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty70" propertyName="validareglas.salida.factoresSeguridad.descripcion">
+                <simple>{{validareglas.salida.factoresSeguridad.descripcion}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty71" propertyName="validareglas.salida.transferenciaRechazada.descripcion">
+                <simple>{{validareglas.salida.transferenciaRechazada.descripcion}}</simple>
+            </setProperty>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="routeFacade"/>
+                <marshal id="exceptionMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.fraude.xsd"/>
+                </marshal>
+                <setProperty id="setMensajeError" propertyName="mensajeError">
+                    <xpath resultType="String">//descripcionError</xpath>
+                </setProperty>
+                <wireTap id="wiretapGuardarErrorColaAMQ" uri="direct:guardarErrorColaAMQ"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="guardarErrorColaAMQ">
+            <from id="guardarErrorColaAMQFrom" uri="direct:guardarErrorColaAMQ"/>
+            <bean id="beanExceptionAmq" method="excepcionAmq" ref="routeFacade"/>
+            <marshal id="excepcionMarshalJson">
+                <json library="Jackson"/>
+            </marshal>
+            <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+            <toD id="excepcionToAmqFault" uri="AMQ:${property.colaError}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly&amp;timeToLive={{cola.error.tiempo}}&amp;deliveryMode=1"/>
+        </route>
+    </camelContext>
+</blueprint>

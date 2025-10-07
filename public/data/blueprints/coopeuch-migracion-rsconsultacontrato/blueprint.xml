@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyContrato"
+        persistent-id="consultacontrato" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ConsultaContrato"
+        id="ConsultaContratoEndpoint"
+        serviceClass="cl.coopeuch.contratos.consultacontrato.ConsultaContrato" wsdlURL="wsdl/ServicioContrato.wsdl"/>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.contratos}]/QBIZ;charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.contratos}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.contratos}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.contratos}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.contratos}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.contratos}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.contratos}]"/>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_selContratosProveedor">
+        <argument ref="dataSourceSqlServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_selContratosProveedor"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="RutProveedor"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <camelContext id="servicio-contratos-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml disableFeatures="WRITE_DATES_AS_TIMESTAMPS"
+                id="jack" prettyPrint="true"/>
+        </dataFormats>
+        <route id="cx-RuteoOperaciones">
+            <from id="ConsultaContratoEndpointListener" uri="cxf:bean:ConsultaContratoEndpoint?DataFormat=MESSAGE"/>
+            <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+            <bean beanType="cl.coopeuch.util.BodyBackup" id="backupBody" method="backupBody"/>
+            <choice id="ruteoOperaciones">
+                <when id="rutaTraerContratoPorProveedor">
+                    <simple>${body} contains 'TraerContratoPorProveedor'</simple>
+                    <to id="TraerContratoPorProveedorValidator" uri="validator:xsd/soap.xsd"/>
+                    <to id="TraerContratoPorProveedorTo" uri="direct:TraerContratoPorProveedor"/>
+                </when>
+                <otherwise id="_otherwise1"/>
+            </choice>
+        </route>
+        <route id="TraerContratoPorProveedor">
+            <from id="TraerContratoPorProveedorFrom" uri="direct:TraerContratoPorProveedor"/>
+            <setHeader headerName="RutProveedor" id="TraerContratoPorProveedorHeadertokenID">
+                <xpath resultType="java.lang.String">//rut/text()</xpath>
+            </setHeader>
+            <to id="pa_selContratosProveedor" uri="bean:pa_selContratosProveedor"/>
+            <marshal id="TraerContratoPorProveedorResultset2xml" ref="jack"/>
+            <convertBodyTo id="TraerContratoPorProveedorConvertBodyTo" type="java.lang.String"/>
+            <transform id="TraerContratoPorProveedorTransform">
+                <simple>${in.body.replaceAll('#','')}</simple>
+            </transform>
+            <to id="TraerContratoPorProveedorXml2xml" uri="xslt://transformations/out/resultset2xml_TraerContratoPorProveedor.xsl?saxon=true"/>
+        </route>
+    </camelContext>
+</blueprint>

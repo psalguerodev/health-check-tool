@@ -1,0 +1,355 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyServicioRemanente"
+        persistent-id="servicioremanente" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2" persistent-id="globalDb2"
+                             placeholder-prefix="[[" placeholder-suffix="]]" update-strategy="reload"/>
+    <!-- Configure CXF endpoint -->
+    <cxf:cxfEndpoint address="/ServicioRemanente"
+        id="ServicioRemanenteEndpoint"
+        serviceClass="cl.coopeuch.integracion.remanente.wsdl.RemanentePortType" wsdlURL="wsdl/ServicioRemanente.wsdl"/>
+    <cxf:rsServer address="/RSServicioRemanente"
+        id="RSServicioRemanenteRestBean" loggingFeatureEnabled="false" serviceClass="cl.coopeuch.integracion.remanente.rest.RSServicioRemanenteRest"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSource">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sybase.url.remanente}]/Coopeuch;charset=iso_1"/>
+        <property name="username" value="[{jdbc.sybase.username.remanente}]"/>
+        <property name="password" value="[{jdbc.sybase.password.remanente}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sybase.timeBetweenEvictionRunsMillis.remanente}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sybase.numTestsPerEvictionRun.remanente}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sybase.minEvictableIdleTimeMillis.remanente}]"/>
+        <property name="maxActive" value="[{jdbc.sybase.maxActive.remanente}]"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.cuentas]]"/>
+        <property name="password" value="[[jdbc.db2.password.cuentas]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.remanente}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.remanente}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.remanente}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.remanente}]"/>
+    </bean>
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.remanente.db.StoredProcedureBean" id="pa_consultaremanenteCORE">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_consultaremanenteCORE"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Anio"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="salida"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                    <entry key="valueFrom" value="body"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.remanente.util.TransformarTimeStamp" id="transformarTimeStamp"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <bean class="cl.coopeuch.integracion.remanente.util.RouteFacade" id="routeFacade"/>
+    <camelContext id="servicio-remanente" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml disableFeatures="WRITE_DATES_AS_TIMESTAMPS"
+                id="jack" prettyPrint="true"/>
+            <xmljson elementName="resultado" id="xmljsonJson2Xml" rootName="salida"/>
+            <json id="gsonMap2Json" library="Gson" prettyPrint="true"/>
+        </dataFormats>
+        <!--    Inicio: Ruta para consultar remanente      -->
+        <route id="cxf-inicio-soap">
+            <from id="servicioRemanenteEndpointListener" uri="cxf:bean:ServicioRemanenteEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.remanente.util.RespaldarCuerpo"
+                    id="backupBody" method="respaldarCuerpo"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaconsultaRemanente">
+                        <simple>${body} contains 'consultaRemanente'</simple>
+                        <to id="cconsultaRemanenteValidator" uri="validator:xsd/soap.xsd"/>
+                        <to id="consultaRemanenteTo" uri="direct:consultaRemanente"/>
+                    </when>
+                    <when id="rutaGenerarDesembolso">
+                        <simple>${body} contains 'generarDesembolsoRequest'</simple>
+                        <to id="generarDesembolsoValidator" uri="validator:xsd/soap.xsd"/>
+                        <to id="generarDesembolsoTo" uri="direct:generarDesembolso"/>
+                    </when>
+                    <when id="rutaConsultarDetalleRemanente">
+                        <simple>${body} contains 'consultarDetalleRemanenteRequest'</simple>
+                        <to id="consultarDetalleRemanenteValidator" uri="validator:xsd/soap.xsd"/>
+                        <to id="consultarDetalleRemanenteTo" uri="direct:consultarDetalleRemanente"/>
+                    </when>
+                    <when id="rutaGenerarCapitalizacion">
+                        <simple>${body} contains 'generarCapitalizacionRequest'</simple>
+                        <to id="generarCapitalizacionValidator" uri="validator:xsd/soap.xsd"/>
+                        <to id="generarCapitalizacionTo" uri="direct:generarCapitalizacion"/>
+                    </when>
+                    <when id="rutaConsultarCapitalizacion">
+                        <simple>${body} contains 'consultarCapitalizacionRequest'</simple>
+                        <to id="consultarCapitalizacionValidator" uri="validator:xsd/soap.xsd"/>
+                        <to id="consultarCapitalizacionTo" uri="direct:consultarCapitalizacion"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.remanente.util.RespaldarCuerpo"
+                        id="ruteoOperacionesRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.remanente.util.CapturarError"
+                        id="ruteoOperacionesBodyError" method="capturarError"/>
+                    <convertBodyTo id="errBodyToStr" type="java.lang.String"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cxf-inicio-rest">
+            <from id="inicioRestFrom" uri="cxfrs:bean:RSServicioRemanenteRestBean?bindingStyle=SimpleConsumer&amp;provider=jsonProvider"/>
+            <doTry id="restDoTry">
+                <convertBodyTo id="restToString" type="java.lang.String"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.remanente.util.RespaldarCuerpo"
+                    id="restBackupBody" method="respaldarCuerpo"/>
+                <choice id="restRuteoOperaciones">
+                    <when id="restConsultaRemanenteRequest">
+                        <simple>${header.operationName} == 'consultaRemanente'</simple>
+                        <unmarshal id="consultaRemanente_unmarshal">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.remanente.wsdl.ConsultaRemanente"/>
+                        </unmarshal>
+                        <to id="restConsultaRemanenteValidator" uri="validator:xsd/soap.xsd"/>
+                        <to id="restConsultaRemanenteTo" uri="direct:consultaRemanente"/>
+                        <unmarshal id="unmarshalFromConsultaRemanenteResponseXsd">
+                            <jaxb contextPath="cl.coopeuch.integracion.remanente.xsd"/>
+                        </unmarshal>
+                        <bean id="beanIdConsultaRemanenteResponse"
+                            method="beanConsultaRemanenteResponse" ref="routeFacade"/>
+                        <marshal id="consultaRemanente_marshal">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.remanente.wsdl.ConsultaRemanenteResponse"/>
+                        </marshal>
+                    </when>
+                    <when id="restGenerarDesembolsoRequest">
+                        <simple>${header.operationName} == 'generarDesembolso'</simple>
+                        <unmarshal id="generarDesembolso_unmarshal">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.remanente.wsdl.GenerarDesembolsoRequest"/>
+                        </unmarshal>
+                        <to id="restGenerarDesembolsoValidator" uri="validator:xsd/soap.xsd"/>
+                        <to id="restGenerarDesembolsoTo" uri="direct:generarDesembolso"/>
+                        <unmarshal id="unmarshalFromGenerarDesembolsoResponseXsd">
+                            <jaxb contextPath="cl.coopeuch.integracion.remanente.xsd"/>
+                        </unmarshal>
+                        <bean id="beanIdGenerarDesembolsoResponse"
+                            method="beanGenerarDesembolsoResponse" ref="routeFacade"/>
+                        <marshal id="generarDesembolso_marshal">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.remanente.wsdl.GenerarDesembolsoResponse"/>
+                        </marshal>
+                    </when>
+                    <when id="restConsultarDetalleRemanenteRequest">
+                        <simple>${header.operationName} == 'consultarDetalleRemanente'</simple>
+                        <unmarshal id="consultarDetalleRemanente_unmarshal">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.remanente.wsdl.ConsultarDetalleRemanenteRequest"/>
+                        </unmarshal>
+                        <to id="restConsultarDetalleRemanenteValidator" uri="validator:xsd/soap.xsd"/>
+                        <to id="restConsultarDetalleRemanenteTo" uri="direct:consultarDetalleRemanente"/>
+                        <unmarshal id="unmarshalFromConsultarDetalleRemanenteResponseXsd">
+                            <jaxb contextPath="cl.coopeuch.integracion.remanente.xsd"/>
+                        </unmarshal>
+                        <bean
+                            id="beanIdConsultarDetalleRemanenteResponse"
+                            method="beanConsultarDetalleRemanenteResponse" ref="routeFacade"/>
+                        <marshal id="consultarDetalleRemanente_marshal">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.remanente.wsdl.ConsultarDetalleRemanenteResponse"/>
+                        </marshal>
+                    </when>
+                    <when id="restGenerarCapitalizacionRequest">
+                        <simple>${header.operationName} == 'generarCapitalizacion'</simple>
+                        <unmarshal id="generarCapitalizacion_unmarshal">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.remanente.wsdl.GenerarCapitalizacionRequest"/>
+                        </unmarshal>
+                        <to id="restGenerarCapitalizacionValidator" uri="validator:xsd/soap.xsd"/>
+                        <to id="restGenerarCapitalizacionTo" uri="direct:generarCapitalizacion"/>
+                        <unmarshal id="unmarshalFromGenerarCapitalizacionResponseXsd">
+                            <jaxb contextPath="cl.coopeuch.integracion.remanente.xsd"/>
+                        </unmarshal>
+                        <bean id="beanIdGenerarCapitalizacionResponse"
+                            method="beanGenerarCapitalizacionResponse" ref="routeFacade"/>
+                        <marshal id="generarCapitalizacion_marshal">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.remanente.wsdl.GenerarCapitalizacionResponse"/>
+                        </marshal>
+                    </when>
+                    <when id="restConsultarCapitalizacionRequest">
+                        <simple>${header.operationName} == 'consultarCapitalizacion'</simple>
+                        <unmarshal id="consultarCapitalizacion_unmarshal">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.remanente.wsdl.ConsultarCapitalizacionRequest"/>
+                        </unmarshal>
+                        <to id="restConsultarCapitalizacionValidator" uri="validator:xsd/soap.xsd"/>
+                        <to id="restConsultarCapitalizacionTo" uri="direct:consultarCapitalizacion"/>
+                        <unmarshal id="unmarshalFromConsultarCapitalizacionResponseXsd">
+                            <jaxb contextPath="cl.coopeuch.integracion.remanente.xsd"/>
+                        </unmarshal>
+                        <bean id="beanIdConsultarCapitalizacionResponse"
+                            method="beanConsultarCapitalizacionResponse" ref="routeFacade"/>
+                        <marshal id="consultarCapitalizacion_marshal">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.remanente.wsdl.ConsultarCapitalizacionResponse"/>
+                        </marshal>
+                    </when>
+                </choice>
+                <doCatch id="restDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.remanente.util.RespaldarCuerpo"
+                        id="restRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="restSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="restFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.remanente.util.CapturarError"
+                        id="restGeneraBodyError" method="capturarError"/>
+                    <convertBodyTo id="errorRest" type="java.lang.String"/>
+                    <bean id="cathBeanRestResponse" method="beanError" ref="routeFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!--    Operacion encargada de traer la informacion del remanente -->
+        <route id="consultaRemanente">
+            <from id="consultaRemanenteFrom" uri="direct:consultaRemanente"/>
+            <doTry id="consultaRemanenteTry">
+                <setHeader headerName="Rut" id="consultaRemanenteHeaderRut">
+                    <xpath resultType="java.lang.String">//rut/text()</xpath>
+                </setHeader>
+                <setHeader headerName="Anio" id="consultaRemanenteHeaderAnio">
+                    <xpath resultType="java.lang.String">//anio/text()</xpath>
+                </setHeader>
+                <to id="pa_consultaremanenteCORE" uri="bean:pa_consultaremanenteCORE"/>
+                <marshal id="consultaRemanenteMarshal">
+                    <jacksonxml/>
+                </marshal>
+                <convertBodyTo id="_convertBodyTo1" type="String"/>
+                <transform id="consultaRemanenteTransform">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <bean id="_bean1" ref="transformarTimeStamp"/>
+                <to id="consultaRemanenteXml2xml" uri="xslt://transformations/out/resultset2xml_consultaRemanente.xsl?saxon=true"/>
+                <doCatch id="consultaRemanenteCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.remanente.util.RespaldarCuerpo"
+                        id="consultaRemanenteRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="consultaRemanenteSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultaRemanenteFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.remanente.util.CapturarError"
+                        id="consultaRemanenteSetBodyError" method="capturarError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generarDesembolso">
+            <from id="generarDesembolsoFrom" uri="direct:generarDesembolso"/>
+            <bean id="generarDesembolsoUUID"
+                method="crearJMSCorrelationId24" ref="routeFacade"/>
+            <to id="generarDesembolsoToXSLTrama" uri="xslt://transformations/in/IOC400001I_generarDesembolso.xsl"/>
+            <log id="generarDesembolsoTramaRequest" loggingLevel="INFO" message="trama generada: ${body}"/>
+            <to id="generarDesembolsoToAmq" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+            <transform id="generarDesembolsoTransformBody">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <log id="generarDesembolsoTramaResponse" loggingLevel="INFO" message="trama recibida: ${body}"/>
+            <to id="generarDesembolsoToXSLSOAP" uri="xslt://transformations/out/IOC400001O_generarDesembolso.xsl?saxon=true"/>
+        </route>
+        <route id="consultarDetalleRemanente">
+            <from id="consultarDetalleRemanenteFrom" uri="direct:consultarDetalleRemanente"/>
+            <setProperty id="_setProperty1" propertyName="userId">
+                <xpath resultType="String">//userId</xpath>
+            </setProperty>
+            <setProperty id="_setProperty2" propertyName="canal">
+                <xpath resultType="String">//canalLlamada</xpath>
+            </setProperty>
+            <setProperty id="_setProperty3" propertyName="rut">
+                <xpath resultType="String">//rut</xpath>
+            </setProperty>
+            <setProperty id="_setProperty4" propertyName="anio">
+                <xpath resultType="Integer">//ano</xpath>
+            </setProperty>
+            <to id="consultarDetalleRemanente-To" uri="sql-stored:classpath:sql/PA_SEL_DETALLEREMANENTE_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseDetalleRemanente"/>
+            <bean id="validarDetalleRemanenteBean"
+                method="validarDetalleRemanete" ref="routeFacade"/>
+            <log id="consultarDetalleRemanenteTramaRequest"
+                loggingLevel="INFO" message="consultarDetalleRemanente generada: ${body}"/>
+            <to id="consultaDetalleRemanenteTrama2xml" uri="xslt://transformations/out/xmlOut_consultarDetalleRemanente.xsl?saxon=true"/>
+        </route>
+        <route id="generarCapitalizacion">
+            <from id="generarCapitalizacionFrom" uri="direct:generarCapitalizacion"/>
+            <bean id="generarCapitalizacionUUID"
+                method="crearJMSCorrelationId24" ref="routeFacade"/>
+            <to id="generarCapitalizacionToXSLTrama" uri="xslt://transformations/in/IOC400501I_generarCapitalizacion.xsl"/>
+            <log id="generarCapitalizacionTramaRequest"
+                loggingLevel="INFO" message="trama generada: ${body}"/>
+            <to id="generarCapitalizacionToAmq" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+            <transform id="generarCapitalizacionTransformBody">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <log id="generarCapitalizacionTramaResponse"
+                loggingLevel="INFO" message="trama recibida: ${body}"/>
+            <to id="generarCapitalizacionToXSLSOAP" uri="xslt://transformations/out/IOC400501O_generarCapitalizacion.xsl?saxon=true"/>
+        </route>
+        <route id="consultarCapitalizacion">
+            <from id="consultarCapitalizacionFrom" uri="direct:consultarCapitalizacion"/>
+            <setProperty id="_setProperty5" propertyName="userId">
+                <xpath resultType="String">//userId</xpath>
+            </setProperty>
+            <setProperty id="_setProperty6" propertyName="canal">
+                <xpath resultType="String">//canalLlamada</xpath>
+            </setProperty>
+            <setProperty id="_setProperty7" propertyName="rut">
+                <xpath resultType="String">//rut</xpath>
+            </setProperty>
+            <setProperty id="_setProperty8" propertyName="anio">
+                <xpath resultType="Integer">//ano</xpath>
+            </setProperty>
+            <to id="consultarCapitalizacion-To" uri="sql-stored:classpath:sql/PA_SEL_CONSULTARCAPITALIZACION_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseConsultarCapitalizacion"/>
+            <bean id="validarConsultarCapitalizacionBean"
+                method="validarConsultarCapitalizacion" ref="routeFacade"/>
+            <log id="consultarCapitalizacionTramaRequest"
+                loggingLevel="INFO" message="consultarCapitalizacion generada: ${body}"/>
+            <to id="consultarCapitalizacionTrama2xml" uri="xslt://transformations/out/xmlOut_consultarCapitalizacion.xsl?saxon=true"/>
+        </route>
+    </camelContext>
+</blueprint>

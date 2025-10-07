@@ -1,0 +1,1009 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+	xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+	xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+	xmlns:cxfcore="http://cxf.apache.org/blueprint/core"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd              http://cxf.apache.org/schemas/blueprint/core http://cxf.apache.org/schemas/blueprint/core.xsd">
+	<cxf:cxfEndpoint
+		address="/convenios/WSUsuarioPortalConvenios"
+		id="servicioUsuarioPortalConvenioEndpoint"
+		wsdlURL="etc/wsdl/WSUsuarioPortalConvenios.wsdl" />
+    <cm:property-placeholder
+        id="property-placeholder-global-portal-convenio"
+        persistent-id="global" update-strategy="reload"/>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSource">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="{[jdbc.url.usuarioConvenio]};charset=iso_1"/>
+        <property name="username" value="{[jdbc.username.usuarioConvenio]}"/>
+        <property name="password" value="{[jdbc.password.usuarioConvenio]}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="{[jdbc.timeBetweenEvictionRunsMillis.usuarioConvenio]}"/>
+        <property name="numTestsPerEvictionRun" value="{[jdbc.numTestsPerEvictionRun.usuarioConvenio]}"/>
+        <property name="minEvictableIdleTimeMillis" value="{[jdbc.minEvictableIdleTimeMillis.usuarioConvenio]}"/>
+        <property name="maxActive" value="{[jdbc.maxActive.usuarioConvenio]}"/>
+    </bean>
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+	<cm:property-placeholder
+		id="wsusuarioportalconvenios" persistent-id="wsusuarioportalconvenios"
+		placeholder-prefix="{[" placeholder-suffix="]}"
+		update-strategy="reload" />
+	<bean
+		class="cl.coopeuch.integracion.usuarioportalconvenios.util.RouteFacade"
+		id="beanRouteFacade" />
+	<bean
+		class="cl.coopeuch.integracion.usuarioportalconvenios.util.db.StoredProcedureBean"
+		id="call_sp_update_user_state">
+		<argument ref="dataSource" />
+		<argument value="java.sql.Types" />
+		<argument value="sp_update_user_state" />
+		<argument value="false" />
+		<argument>
+			<list>
+				<map>
+					<entry key="name" value="rut" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="state" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="status" />
+					<entry key="mode" value="out" />
+					<entry key="type" value="varchar" />
+				</map>
+			</list>
+		</argument>
+	</bean>
+	<bean
+		class="cl.coopeuch.integracion.usuarioportalconvenios.util.db.StoredProcedureBean"
+		id="call_sp_save_userdetails_new">
+		<argument ref="dataSource" />
+		<argument value="java.sql.Types" />
+		<argument value="sp_save_userdetails_new" />
+		<argument value="false" />
+		<argument>
+			<list>
+				<map>
+					<entry key="name" value="rut" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="firstName" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="secondName" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="lastName" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="secondLastName" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="phone" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="phoneMovil" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="email" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="idSolicitud" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="permissionType" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="bit" />
+				</map>
+				<map>
+					<entry key="name" value="startDate" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="endDate" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="userType" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="display" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="moduleAccess" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				
+				<map>
+					<entry key="name" value="hasIndexaUser" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="indexaProfile" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				
+				<map>
+					<entry key="name" value="status" />
+					<entry key="mode" value="out" />
+					<entry key="type" value="varchar" />
+				</map>
+			</list>
+		</argument>
+	</bean>
+	<camelContext id="servicio-usuarioportalconvenios"
+		xmlns="http://camel.apache.org/schema/blueprint">
+		<dataFormats>
+			<jacksonxml id="jacksonTransform" prettyPrint="true" />
+		</dataFormats>
+		<route id="cxf-inicio">
+			<from id="servicioUsuarioPortalConvenioEndpointListener"
+				uri="cxf:bean:servicioUsuarioPortalConvenioEndpoint?DataFormat=MESSAGE" />
+			<doTry id="cxf-inicioTry">
+				<convertBodyTo id="routeOperationBody"
+					type="java.lang.String" />
+				<bean id="backupBody" method="backupBody" ref="beanRouteFacade" />
+				<choice id="routeOperations">
+					<when id="routeOperationLogin">
+						<simple>${body} contains 'crearRequest'</simple>
+						<setProperty id="inicioSetTipoRequest1"
+							propertyName="tipoRequest">
+							<simple>CrearRequest</simple>
+						</setProperty>
+						<to id="toLogin" uri="direct:crear" />
+					</when>
+					<when id="routeOperationBusquedaDeUsuario">
+						<simple>${body} contains 'consultarRequest'</simple>
+						<setProperty id="inicioSetTipoRequest2"
+							propertyName="tipoRequest">
+							<simple>ConsultarRequest</simple>
+						</setProperty>
+						<to id="toBusquedaDeUsuario" uri="direct:consultar" />
+					</when>
+					<when id="routeOperationBorrarUsuarioConvenio">
+						<simple>${body} contains 'eliminarRequest'</simple>
+						<setProperty id="inicioSetTipoRequest3"
+							propertyName="tipoRequest">
+							<simple>EliminarRequest</simple>
+						</setProperty>
+						<to id="toBusquedaDeUsuario" uri="direct:eliminar" />
+					</when>
+					<when id="routeOperationDesbloquearUsuario">
+						<simple>${body} contains 'desbloquearRequest'</simple>
+						<setProperty id="inicioSetTipoRequest4"
+							propertyName="tipoRequest">
+							<simple>DesbloquearRequest</simple>
+						</setProperty>
+						<to id="toBusquedaDeUsuario" uri="direct:desbloquear" />
+					</when>
+					<when id="routeOperationUpdateUserState">
+						<simple>${body} contains 'actualizarEstadoRequest'</simple>
+						<setProperty id="inicioSetTipoRequest5"
+							propertyName="tipoRequest">
+							<simple>ActualizarEstadoRequest</simple>
+						</setProperty>
+						<to id="toDeleteUserDetails" uri="direct:actualizarEstado" />
+					</when>
+					<when id="routeOperationSaveUserDetails">
+						<simple>${body} contains 'registrarInformacionRequest'</simple>
+						<setProperty id="inicioSetTipoRequest2"
+							propertyName="tipoRequest">
+							<simple>RegistrarInformacionRequest</simple>
+						</setProperty>
+						<to id="toRegistrarInformacion"
+							uri="direct:registrarInformacion" />
+					</when>
+				</choice>
+				<doCatch id="cxf-inicioCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="ruteoOperacionesPropertyCodigo"
+						propertyName="codigoError">
+						<simple>800</simple>
+					</setProperty>
+					<to id="cxfinicioExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="crear">
+			<from id="createRequestFrom" uri="direct:crear" />
+			<doTry id="createUserTry">
+				<setProperty id="createUser_rutInput" propertyName="rut">
+					<xpath resultType="String">//rut</xpath>
+				</setProperty>
+				<setProperty id="createUser_rutExecutorInput"
+					propertyName="rutExecutor">
+					<xpath resultType="String">//rutExecutor</xpath>
+				</setProperty>
+				<setProperty id="createUser_firstNameInput"
+					propertyName="firstName">
+					<xpath resultType="String">//firstName</xpath>
+				</setProperty>
+				<setProperty id="createUser_secondNameInput"
+					propertyName="secondName">
+					<xpath resultType="String">//secondName</xpath>
+				</setProperty>
+				<setProperty id="createUser_lastNameInput"
+					propertyName="lastName">
+					<xpath resultType="String">//lastName</xpath>
+				</setProperty>
+				<setProperty id="createUser_secondLastNameInput"
+					propertyName="secondLastName">
+					<xpath resultType="String">//secondLastName</xpath>
+				</setProperty>
+				<setProperty id="createUser_phoneInput"
+					propertyName="phone">
+					<xpath resultType="String">//phone</xpath>
+				</setProperty>
+				<setProperty id="createUser_phoneMovilInput"
+					propertyName="phoneMovil">
+					<xpath resultType="String">//phoneMovil</xpath>
+				</setProperty>
+				<setProperty id="createUser_emailInput"
+					propertyName="email">
+					<xpath resultType="String">//email</xpath>
+				</setProperty>
+				<setProperty id="saveUserDetails_idSolicitudInput"
+					propertyName="solicitudId">
+					<xpath resultType="String">//idSolicitud</xpath>
+				</setProperty>
+				<setProperty id="saveUserDetails_permissionTypeInput"
+					propertyName="permissionType">
+					<xpath resultType="String">//permissionType</xpath>
+				</setProperty>
+				<setProperty id="saveUserDetails_startDateInput"
+					propertyName="startDate">
+					<xpath resultType="String">//activePeriodFrom</xpath>
+				</setProperty>
+				<setProperty id="saveUserDetails_endDateInput"
+					propertyName="endDate">
+					<xpath resultType="String">//activePeriodTo</xpath>
+				</setProperty>
+				<setProperty id="saveUserDetails_userTypeInput"
+					propertyName="userType">
+					<xpath resultType="String">//userType</xpath>
+				</setProperty>
+				<setProperty id="saveUserDetails_displayInput"
+					propertyName="display">
+					<xpath resultType="String">//display</xpath>
+				</setProperty>
+				<setProperty id="saveUserDetails_moduleAccessStr"
+					propertyName="moduleAccess">
+					<xpath resultType="String">//moduleAccess</xpath>
+				</setProperty>
+				<setProperty id="saveUserDetails_moduleAccessStrAudit"
+					propertyName="moduleAccessForAudit">
+					<xpath resultType="String">//moduleAccess</xpath>
+				</setProperty>
+				
+				<setProperty id="saveUserDetails_hasIndexaUser"
+					propertyName="hasIndexaUser">
+					<xpath resultType="String">//hasIndexaUser</xpath>
+				</setProperty>
+				<setProperty id="saveUserDetails_indexaProfile"
+					propertyName="indexaProfile">
+					<xpath resultType="String">//indexaProfile</xpath>
+				</setProperty>
+
+				
+				<setProperty id="createUserValidaRut"
+					propertyName="validaRut">
+					<method
+						beanType="cl.coopeuch.integracion.usuarioportalconvenios.util.Rut"
+						id="createUserValidaRutMethod"
+						method="validaRut(${exchangeProperty.rut})" />
+				</setProperty>
+				<setProperty id="createUserHeaderGroupId"
+					propertyName="GroupId">
+					<simple>{{user.default.group}}</simple>
+				</setProperty>
+				<choice id="createUserRutValidation">
+					<when id="createUserRutOk">
+						<simple>${exchangeProperty.validaRut} == 'Correcto' </simple>
+						<log id="createLog_001" loggingLevel="INFO"
+							message="Create request: ${body}" />
+						<to id="createUpdateUserInDB"
+							uri="xslt://etc/xsl/request/createUpdateUserInDB.xsl" />
+						<convertBodyTo id="createUpdateUserInDBRequestStr"
+							type="java.lang.String" />
+						<log id="createLog_002" loggingLevel="INFO"
+							message="Create response: ${body}" />
+						<to id="cxfaunticateUserRequest"
+							uri="cxf:{{endpoint.usuarioportalconvenio.service}}?dataFormat=MESSAGE" />
+						<convertBodyTo charset="ISO-8859-1"
+							id="createUserInDBResponse" type="java.lang.String" />
+						<setProperty id="createUserInDBStatus"
+							propertyName="createUserInDBStatus">
+							<xpath resultType="String">//serviceStatus/message</xpath>
+						</setProperty>
+						<choice id="createUserInDBStatusChoice">
+							<when id="createUsertatusSuccess">
+								<simple>${exchangeProperty.createUserInDBStatus} == 'USER_CREATED'</simple>
+								<to id="createUserInIDGRequestXsl"
+									uri="xslt://etc/xsl/request/createUserInIDG.xsl" />
+								<to id="cxfUserDetailsRequest"
+									uri="cxf:{{endpoint.idgcontainer.service}}?dataFormat=MESSAGE" />
+								<convertBodyTo id="createuserIDGResponseBody"
+									type="java.lang.String" />
+								<setProperty id="createUserIDGStatusCode"
+									propertyName="createUserIDGStatusCode">
+									<xpath resultType="String">//serviceStatus/status</xpath>
+								</setProperty>
+								<choice id="createUserInIDGStatusChoice">
+									<when id="createUserIDGStatusSuceess">
+									    <simple>${exchangeProperty.createUserIDGStatusCode} == '200'</simple>
+	                                    <to
+	                                    id="createUserAuditrequestsXsl" uri="xslt://etc/xsl/request/createUserAuditRequest.xsl"/>
+	                                    <to id="createUserAuditRequest" uri="cxf:{{endpoint.audit.service}}?dataFormat=MESSAGE"/>
+	                                    <to id="createUserResponseXml" uri="xslt://etc/xsl/response/createUserResponseSuccess.xsl"/>
+                                    </when>
+                                    <when id="createUserIDGStatus800">
+	                                    <simple>${exchangeProperty.createUserIDGStatusCode} == '800'</simple>
+	                                    <to id="eliminar" uri="direct:eliminar"/>
+										<to id="createIdgUserFailed1"
+											uri="xslt://etc/xsl/error/createUserResponseError.xsl" />
+									</when>
+									<otherwise id="createUsertatusFailure">
+										<to id="createIdgUserFailed"
+											uri="xslt://etc/xsl/error/createUserResponseError.xsl" />
+									</otherwise>
+								</choice>
+							</when>
+							<when id="createUsertatusSuccess">
+								<simple>${exchangeProperty.createUserInDBStatus} == 'USER_UPDATED'</simple>
+								<to id="updateUserAuditrequestsXsl"
+									uri="xslt://etc/xsl/request/updateUserAuditRequest.xsl" />
+								<to id="updateUserAuditRequest"
+									uri="cxf:{{endpoint.audit.service}}?dataFormat=MESSAGE" />
+								<to id="updateUserResponseXml"
+									uri="xslt://etc/xsl/response/updateUserResponseSuccess.xsl" />
+							</when>
+							<when id="createUsertatusSuccess">
+								<simple>${exchangeProperty.createUserInDBStatus} == 'USER_ONLY_SEVEN'</simple>
+								<to id="onlySevenResponseXml"
+									uri="xslt://etc/xsl/response/onlySevenResponseSuccess.xsl" />
+							</when>
+							<otherwise id="createUpdateUsertatusFailure">
+								<to id="createUpdateUserFailed"
+									uri="xslt://etc/xsl/error/createUserResponseError.xsl" />
+							</otherwise>
+						</choice>
+					</when>
+					<otherwise id="_otherwise2">
+						<to id="createUserRutInvalid"
+							uri="xslt://etc/xsl/error/createUserResponseInvalidRut.xsl?saxon=true" />
+					</otherwise>
+				</choice>
+				<doCatch id="createuserRutCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="createuserPropertyCodigo"
+						propertyName="codigoError">
+						<simple>800</simple>
+					</setProperty>
+					<to id="createuserExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="consultar">
+			<from id="busquedaDeUsuarioFrom" uri="direct:consultar" />
+			<doTry id="busquedaDeUsuarioTry">
+				<setProperty id="busquedaDeUsuarioInputRut"
+					propertyName="busquedaDeUsuarioInputRut">
+					<xpath resultType="String">//rut</xpath>
+				</setProperty>
+				<setProperty id="busquedaDeUsuarioHeaderGroupId"
+					propertyName="busquedaDeUsuarioHeaderGroupId">
+					<simple>{{user.default.group}}</simple>
+				</setProperty>
+				<setProperty id="busquedaDeUsuarioValidaRut"
+					propertyName="busquedaDeUsuarioValidaRut">
+					<method
+						beanType="cl.coopeuch.integracion.usuarioportalconvenios.util.Rut"
+						id="busquedaDeUsuarioValidaRutMethod"
+						method="validaRut(${exchangeProperty.busquedaDeUsuarioInputRut})" />
+				</setProperty>
+				<choice id="busquedaDeUsuarioChoice1">
+					<when id="busquedaDeUsuarioValidaRutSOlicitud">
+						<simple>${exchangeProperty.busquedaDeUsuarioValidaRut} == 'Correcto'</simple>
+						<to id="getUserDetailsRequestXsl"
+							uri="xslt://etc/xsl/request/getUserDetails.xsl" />
+						<convertBodyTo id="getUserDetailRequestBody"
+							type="java.lang.String" />
+						<to id="cxfsearchUserDetailsRequest"
+							uri="cxf:{{endpoint.UsuarioConvenio.service}}?dataFormat=MESSAGE" />
+						<convertBodyTo id="getUserDetailResponseBody"
+							type="java.lang.String" />
+						<setProperty id="rutResponse" propertyName="rut">
+							<xpath resultType="String">//rut</xpath>
+						</setProperty>
+						<setProperty id="rawFirstNameResp"
+							propertyName="firstName">
+							<xpath resultType="String">//firstName</xpath>
+						</setProperty>
+						<setProperty id="rawSecondNameResp"
+							propertyName="secondName">
+							<xpath resultType="String">//secondName</xpath>
+						</setProperty>
+						<setProperty id="rawLastNameResp"
+							propertyName="lastName">
+							<xpath resultType="String">//lastName</xpath>
+						</setProperty>
+						<setProperty id="rawSecondLastNameResp"
+							propertyName="secondLastName">
+							<xpath resultType="String">//secondLastName</xpath>
+						</setProperty>
+						<setProperty id="emailResp" propertyName="email">
+							<xpath resultType="String">//email</xpath>
+						</setProperty>
+						<!-- utf8 -->
+						<setProperty id="phoneResponse" propertyName="phone">
+							<xpath resultType="String">//phone</xpath>
+						</setProperty>
+						<setProperty id="blockResponse" propertyName="blocked">
+							<xpath resultType="String">//blocked</xpath>
+						</setProperty>
+						<setProperty id="userTypeResponse"
+							propertyName="userType">
+							<xpath resultType="String">//userType</xpath>
+						</setProperty>
+						<setProperty id="phoneMovilResponse"
+							propertyName="phoneMovil">
+							<xpath resultType="String">//phoneMovil</xpath>
+						</setProperty>
+						<setProperty id="displayResponse"
+							propertyName="display">
+							<xpath resultType="String">//display</xpath>
+						</setProperty>
+						
+						
+						<setProperty id="hasIndexaUserResponse"
+							propertyName="hasIndexaUser">
+							<xpath resultType="String">//hasIndexaUser</xpath>
+						</setProperty>
+						<setProperty id="indexaProfileResponse"
+							propertyName="indexaProfile">
+							<xpath resultType="String">//indexaProfile</xpath>
+						</setProperty>
+
+						<removeHeaders id="_removeHeaders2" pattern="JMS*" />
+						<setProperty id="_setProperty9"
+							propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+							<constant>utf-8</constant>
+						</setProperty>
+						<setProperty id="_setProperty10"
+							propertyName="Exchange.CONTENT_TYPE">
+							<constant>text/xml;charset=utf-8</constant>
+						</setProperty>
+						<setProperty id="_setProperty11"
+							propertyName="Exchange.CONTENT_ENCODING">
+							<constant>utf-8</constant>
+						</setProperty>
+						<setProperty id="_setProperty12"
+							propertyName="Exchange.CHARSET_NAME">
+							<constant>utf-8</constant>
+						</setProperty>
+						<choice id="busquedaDeUsuarioChoice2">
+							<when id="busquedaDeUsuarioUserFound">
+								<simple>${exchangeProperty.rut} != ''</simple>
+								<to id="getUserPermissionDetailsXsl"
+									uri="xslt://etc/xsl/request/getUserPermissionDetails.xsl" />
+								<convertBodyTo
+									id="getUserPermissionDetailsRequestStr" type="java.lang.String" />
+								<to id="cxuserPermissionRequest"
+									uri="cxf:{{endpoint.solicitud.service}}?dataFormat=MESSAGE" />
+								<convertBodyTo id="solicitudContainerResponse"
+									type="java.lang.String" />
+								<setProperty id="userPermissionsDTO"
+									propertyName="userPermissionsDTO">
+									<method
+										beanType="cl.coopeuch.integracion.usuarioportalconvenios.util.RouteFacade"
+										id="userPermissionsResponseProcessor"
+										method="checkUserPermissionDetailsResponse(${body})" />
+								</setProperty>
+								<setProperty id="userPermissions"
+									propertyName="userPermissions">
+									<simple>${exchangeProperty.userPermissionsDTO.userPermissionXMlStr}</simple>
+								</setProperty>
+								<choice id="isAdminUserCheck">
+									<when id="isAdminUser">
+										<simple>${exchangeProperty.userPermissionsDTO.adminUser} == 'true'</simple>
+										<to id="busquedaDeUsuarioEmptyUserDetailsXml"
+											uri="xslt://etc/xsl/response/busquedaDeUsuarioAdminUser.xsl" />
+									</when>
+									<otherwise id="_otherwise1">
+										<to id="busquedaDeUsuarioResponseXml"
+											uri="xslt://etc/xsl/response/busquedaDeUsuarioResponse.xsl" />
+									</otherwise>
+								</choice>
+							</when>
+							<otherwise id="_otherwise3">
+								<to id="busquedaDeUsuarioEmptyUserDetailsXml"
+									uri="xslt://etc/xsl/error/busquedaDeUsuarioEmptyUserDetails.xsl" />
+							</otherwise>
+						</choice>
+					</when>
+					<otherwise id="_otherwise5">
+						<to id="busquedaDeUsuarioValidaRutInvalid"
+							uri="xslt://etc/xsl/error/invalidRutBusquedaDeUsuarioResponse.xsl?saxon=true" />
+					</otherwise>
+				</choice>
+				<doCatch id="busquedaDeUsuarioCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="busquedaDePropertyCodigo"
+						propertyName="codigoError">
+						<simple>800</simple>
+					</setProperty>
+					<to id="busquedaDeExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="deleteUser">
+			<from id="deleteUserFrom" uri="direct:eliminar" />
+			<doTry id="deleteUserTry">
+				<setProperty id="deleteUser_rutInput" propertyName="rut">
+					<xpath resultType="String">//rut</xpath>
+				</setProperty>
+				<setProperty id="deleteUser_solicitudIdInput"
+					propertyName="solicitudId">
+					<xpath resultType="String">//solicitudId</xpath>
+				</setProperty>
+				<setProperty id="deleteUser_rutExecutorInput"
+					propertyName="rutExecutor">
+					<xpath resultType="String">//rutExecutor</xpath>
+				</setProperty>
+				<setProperty id="deleteUser_firstNameInput"
+					propertyName="firstName">
+					<xpath resultType="String">//firstName</xpath>
+				</setProperty>
+				<setProperty id="deleteUser_secondNameInput"
+					propertyName="secondName">
+					<xpath resultType="String">//secondName</xpath>
+				</setProperty>
+				<setProperty id="deleteUser_lastNameInput"
+					propertyName="lastName">
+					<xpath resultType="String">//lastName</xpath>
+				</setProperty>
+				<setProperty id="deleteUser_secondLastNameInput"
+					propertyName="secondLastName">
+					<xpath resultType="String">//secondLastName</xpath>
+				</setProperty>
+				<setProperty id="deleteUser_phoneInput"
+					propertyName="phone">
+					<xpath resultType="String">//phone</xpath>
+				</setProperty>
+				<setProperty id="deleteUser_emailInput"
+					propertyName="email">
+					<xpath resultType="String">//email</xpath>
+				</setProperty>
+				<setProperty id="deleteUser_phoneMovilInput"
+					propertyName="phoneMovil">
+					<xpath resultType="String">//phoneMovil</xpath>
+				</setProperty>
+				<setProperty id="deleteUser_permissionTypeInput"
+					propertyName="permissionType">
+					<xpath resultType="String">//permissionType</xpath>
+				</setProperty>
+				<setProperty id="deleteUser_startDateInput"
+					propertyName="startDate">
+					<xpath resultType="String">//startDate</xpath>
+				</setProperty>
+				<setProperty id="deleteUser_endDateInput"
+					propertyName="endDate">
+					<xpath resultType="String">//endDate</xpath>
+				</setProperty>
+				<setProperty id="deleteUser_moduleAccessInput"
+					propertyName="moduleAccess">
+					<xpath resultType="String">//moduleAccess</xpath>
+				</setProperty>
+				<setProperty id="deleteUser_userTypeInput"
+					propertyName="userType">
+					<xpath resultType="String">//userType</xpath>
+				</setProperty>
+				
+				<setProperty id="deleteUser_hasIndexaUserInput"
+					propertyName="hasIndexaUser">
+					<xpath resultType="String">//hasIndexaUser</xpath>
+				</setProperty>
+				<setProperty id="deleteUser_indexaProfileInput"
+					propertyName="indexaProfile">
+					<xpath resultType="String">//indexaProfile</xpath>
+				</setProperty>
+				
+				<setProperty id="borrarUsuarioValidaRut"
+					propertyName="borrarUsuarioValidaRut">
+					<method
+						beanType="cl.coopeuch.integracion.usuarioportalconvenios.util.Rut"
+						id="borrarUsuarioValidaRutMethod"
+						method="validaRut(${exchangeProperty.rut})" />
+				</setProperty>
+				<setProperty id="deleteUserHeaderGroupId"
+					propertyName="GroupId">
+					<simple>{{user.default.group}}</simple>
+				</setProperty>
+				<log id="deleteUserLog1" loggingLevel="INFO"
+					message="deleteUser: ${body}" />
+				<choice id="borrarUsuarioChoice1">
+					<when id="borrarUsuarioValidaRut">
+						<simple>${exchangeProperty.borrarUsuarioValidaRut} == 'Correcto'</simple>
+						<to id="deleteUserDetailsRequestXsl"
+							uri="xslt://etc/xsl/request/deleteUserFromDB.xsl" />
+						<log id="deleteUserLog2" loggingLevel="INFO"
+							message="deleteUser deleteUserDetailsRequestXsl ${body}" />
+						<convertBodyTo id="deleteuserDetailRequestBody"
+							type="java.lang.String" />
+						<to id="cxfdeleteUserDetailsDBRequest"
+							uri="cxf:{{endpoint.solicitud.service}}?dataFormat=MESSAGE" />
+						<convertBodyTo id="deleteUserDetailResponseBody"
+							type="java.lang.String" />
+						<setProperty id="deleteUserFromDBStatus"
+							propertyName="deleteUserFromDBStatus">
+							<xpath resultType="String">//serviceStatus/message</xpath>
+						</setProperty>
+						<log id="deleteUserLog3" loggingLevel="INFO"
+							message="deleteUser deleteUserDetailResponseBody: ${body}" />
+						<choice id="deleteUserFromDBCheck">
+							<when id="isUserdeletedFromDB">
+								<simple>${exchangeProperty.deleteUserFromDBStatus} == 'USER_DELETED_FROM_DB'</simple>
+								<to id="deleteUserfromIDGRequestXsl"
+									uri="xslt://etc/xsl/request/deleteUserFromIDG.xsl" />
+								<log id="deleteUserLog4" loggingLevel="INFO"
+									message="deleteUser deleteUserfromIDGRequestXsl: ${body}" />
+								<to id="cxfdeleteUsersRequest"
+									uri="cxf:{{endpoint.idgcontainer.service}}?dataFormat=MESSAGE" />
+								<convertBodyTo id="deleteuserIDGResponseBody"
+									type="java.lang.String" />
+								<setProperty id="deleteUserFromIDGStatusCode"
+									propertyName="deleteUserFromIDGStatusCode">
+									<xpath resultType="String">//serviceStatus/status</xpath>
+								</setProperty>
+								<log id="deleteUserLog5" loggingLevel="INFO"
+									message="deleteUser deleteuserIDGResponseBody ${body}" />
+								<choice id="deleteUserInIDGStatusChoice">
+									<when id="deleteUserIDGStatusSuceess">
+										<simple>${exchangeProperty.deleteUserFromIDGStatusCode} == '200'</simple>
+										<to id="deleteUserAuditrequestsXsl"
+											uri="xslt://etc/xsl/request/deleteUserAuditRequest.xsl" />
+										<log id="deleteUserLog6" loggingLevel="INFO"
+											message="deleteUser deleteUserAuditrequestsXsl: ${body}" />
+										<to id="deleteUserAuditRequest"
+											uri="cxf:{{endpoint.audit.service}}?dataFormat=MESSAGE" />
+										<to id="deleteUserResponseXml"
+											uri="xslt://etc/xsl/response/deleteUserResponse.xsl" />
+										<log id="deleteUserLog6" loggingLevel="INFO"
+											message="deleteUser deleteUserResponseXml: ${body}" />
+									</when>
+									<otherwise id="deleteUserIDGStatusFailure">
+										<to id="deleteIdgUserFailed"
+											uri="xslt://etc/xsl/error/errorDeleteUser.xsl" />
+									</otherwise>
+								</choice>
+							</when>
+							<when id="isUserdeletedFromSolicitud">
+								<simple>${exchangeProperty.deleteUserFromDBStatus} == 'USER_DELETED_FROM_SOLICITUD'</simple>
+								<to id="deleteUserFromSollicitudAuditrequestsXsl"
+									uri="xslt://etc/xsl/request/deleteUserAuditRequest.xsl" />
+								<log id="deleteUserLog7" loggingLevel="INFO"
+									message="deleteUser deleteUserFromSollicitudAuditrequestsXsl: ${body}" />
+								<to id="deleteUserFromSollicitudAuditRequest"
+									uri="cxf:{{endpoint.audit.service}}?dataFormat=MESSAGE" />
+								<to id="deleteUserFromSolicitudXml"
+									uri="xslt://etc/xsl/response/deleteUserResponse.xsl" />
+								<log id="deleteUserLog8" loggingLevel="INFO"
+									message="deleteUser deleteUserResponseXml: ${body}" />
+							</when>
+							<otherwise id="_otherwise4">
+								<to id="deleteaDeUsuarioResponseXml"
+									uri="xslt://etc/xsl/error/errorDeleteUser.xsl" />
+							</otherwise>
+						</choice>
+					</when>
+					<otherwise id="_otherwise6">
+						<to id="deleteUserInvalidRutErrorXml"
+							uri="xslt://etc/xsl/error/invalidRutDeleteUser.xsl" />
+					</otherwise>
+				</choice>
+				<doCatch id="deleteUserCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="deleteUserPropertyCodigo"
+						propertyName="codigoError">
+						<simple>800</simple>
+					</setProperty>
+					<to id="deleteUserExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="desbloquear">
+			<from id="updateUserStateFrom" uri="direct:desbloquear" />
+			<doTry id="updateUserStateTry">
+				<setProperty id="updateUserState_rutInput"
+					propertyName="rut">
+					<xpath resultType="String">//rut</xpath>
+				</setProperty>
+				<setProperty id="updateUserStateValidaRut"
+					propertyName="updateUserStateValidaRut">
+					<method
+						beanType="cl.coopeuch.integracion.usuarioportalconvenios.util.Rut"
+						id="updateUserValidaRutMethod"
+						method="validaRut(${exchangeProperty.rut})" />
+				</setProperty>
+				<setProperty id="updateUserStateHeaderGroupId"
+					propertyName="GroupId">
+					<simple>{{user.default.group}}</simple>
+				</setProperty>
+				<choice id="updateUserChoice1">
+					<when id="updateUserValidaRut">
+						<simple>${exchangeProperty.updateUserStateValidaRut} == 'Correcto'</simple>
+						<to id="updateUserStateDetailsRequestXsl"
+							uri="xslt://etc/xsl/request/unBlockUser.xsl" />
+						<convertBodyTo id="updateUserStateDetailRequestBody"
+							type="java.lang.String" />
+						<to id="cxfupdateUserStateDetailsDBRequest"
+							uri="cxf:{{endpoint.usuarioportalconvenio.service}}?dataFormat=MESSAGE" />
+						<convertBodyTo id="updateUserStateResponseBody"
+							type="java.lang.String" />
+						<setProperty id="updateUserStateInDBStatus"
+							propertyName="updateUserStateInDBStatus">
+							<xpath resultType="String">//serviceStatus/message</xpath>
+						</setProperty>
+						<choice id="updateUserStateFromDBCheck">
+							<when id="isupdateUserStateInDB">
+								<simple>${exchangeProperty.updateUserStateInDBStatus} == 'USER_STATE_UPDATED'</simple>
+								<to id="updateUserStatefromIDGRequestXsl"
+									uri="xslt://etc/xsl/request/unBlockUserInIDG.xsl" />
+								<to id="cxfupdateUserStatesRequest"
+									uri="cxf:{{endpoint.idgcontainer.service}}?dataFormat=MESSAGE" />
+								<convertBodyTo id="updateUserStateIDGResponseBody"
+									type="java.lang.String" />
+								<setProperty id="updateUserStateInIDGStatusCode"
+									propertyName="updateUserStateInIDGStatusCode">
+									<xpath resultType="String">//serviceStatus/status</xpath>
+								</setProperty>
+								<choice id="updateUserStateInIDGStatusChoice">
+									<when id="updateUserStateIDGStatusSuceess">
+										<simple>${exchangeProperty.updateUserStateInIDGStatusCode} == '200'</simple>
+										<to id="updateUserStateResponseXml"
+											uri="xslt://etc/xsl/response/updateUserStateResponseSuccess.xsl" />
+									</when>
+									<otherwise id="updateUserStateIDGStatusFailure">
+										<to id="unblcokIdgUserFailed"
+											uri="xslt://etc/xsl/error/errorUpdateUserState.xsl" />
+									</otherwise>
+								</choice>
+							</when>
+							<otherwise id="_otherwise7">
+								<to id="updateUserStateErrorResponseXml"
+									uri="xslt://etc/xsl/error/errorUpdateUserState.xsl" />
+							</otherwise>
+						</choice>
+					</when>
+					<otherwise id="_otherwise8">
+						<to id="updateUserStateInvalidRutErrorXml"
+							uri="xslt://etc/xsl/error/invalidRutUpdateUserState.xsl" />
+					</otherwise>
+				</choice>
+				<doCatch id="updateUserStateCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="updateUserPropertyCodigo"
+						propertyName="codigoError">
+						<simple>800</simple>
+					</setProperty>
+					<to id="updateUserExcepcion" uri="direct:excepcion" />
+				</doCatch>
+				<doFinally id="updateUserStateFinally" />
+			</doTry>
+		</route>
+		<route id="actualizarEstado">
+			<from id="actualizarEstadoFrom" uri="direct:actualizarEstado" />
+			<doTry id="actualizarEstadoTry">
+				<setHeader headerName="rut" id="actualizarEstado_rutInput">
+					<xpath resultType="String">//rut</xpath>
+				</setHeader>
+				<setHeader headerName="state" id="actualizarEstado_state">
+					<xpath resultType="String">//state</xpath>
+				</setHeader>
+				<to id="to_call_sp_update_user_state"
+					uri="bean:call_sp_update_user_state" />
+				<log id="update_user_state_log"
+					message="update_user_state response :${body}" />
+				<setProperty id="update_state_result"
+					propertyName="status">
+					<simple>${body.[status]}</simple>
+				</setProperty>
+				<marshal id="actualizarEstado_storedProcResultMarshal"
+					ref="jacksonTransform" />
+				<convertBodyTo id="actualizarEstado_storedProcResult"
+					type="java.lang.String" />
+				<to id="actualizarEstadoResponseXml"
+					uri="xslt://etc/xsl/response/updateUserStateResponse.xsl" />
+				<removeHeaders id="removeHeader5" pattern="*" />
+				<doCatch id="actualizarEstadoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="ruteoactualizarEstadoPropertyCodigo"
+						propertyName="codigoError">
+						<simple>800</simple>
+					</setProperty>
+					<to id="ruteoactualizarEstadoExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="registrarInformacion">
+			<from id="saveUserDetailsFrom" uri="direct:registrarInformacion" />
+			<doTry id="saveUserDetailsTry">
+				<setHeader headerName="rut"
+					id="saveUserDetails_rutInputRI">
+					<xpath resultType="String">//rut</xpath>
+				</setHeader>
+				<setHeader headerName="firstName"
+					id="saveUserDetails_firstNameInputRI">
+					<xpath resultType="String">//firstName</xpath>
+				</setHeader>
+				<setHeader headerName="secondName"
+					id="saveUserDetails_secondNameInputRI">
+					<xpath resultType="String">//secondName</xpath>
+				</setHeader>
+				<setHeader headerName="lastName"
+					id="saveUserDetails_lastNameInputRI">
+					<xpath resultType="String">//lastName</xpath>
+				</setHeader>
+				<setHeader headerName="secondLastName"
+					id="saveUserDetails_secondLastNameInputRI">
+					<xpath resultType="String">//secondLastName</xpath>
+				</setHeader>
+				<setHeader headerName="phone"
+					id="saveUserDetails_phoneInputRI">
+					<xpath resultType="String">//phone</xpath>
+				</setHeader>
+				<setHeader headerName="phoneMovil"
+					id="saveUserDetails_phoneMovilInputRI">
+					<xpath resultType="String">//phoneMovil</xpath>
+				</setHeader>
+				<setHeader headerName="email"
+					id="saveUserDetails_emailInputRI">
+					<xpath resultType="String">//email</xpath>
+				</setHeader>
+				<setHeader headerName="idSolicitud"
+					id="saveUserDetails_idSolicitudInputRI">
+					<xpath resultType="String">//solicitudId</xpath>
+				</setHeader>
+				<setHeader headerName="permissionType"
+					id="saveUserDetails_permissionTypeInputRI">
+					<xpath resultType="String">//accessType</xpath>
+				</setHeader>
+				<setHeader headerName="startDate"
+					id="saveUserDetails_startDateInputRI">
+					<xpath resultType="String">//activePeriodFrom</xpath>
+				</setHeader>
+				<setHeader headerName="endDate"
+					id="saveUserDetails_endDateInputRI">
+					<xpath resultType="String">//activePeriodTo</xpath>
+				</setHeader>
+				<setHeader headerName="userType"
+					id="saveUserDetails_userTypeInputRI">
+					<xpath resultType="String">//userType</xpath>
+				</setHeader>
+				<setHeader headerName="display"
+					id="saveUserDetails_displayInputRI">
+					<xpath resultType="String">//display</xpath>
+				</setHeader>
+				<setHeader headerName="moduleAccessReqStr"
+					id="saveUserDetails_moduleAccessStrRI">
+					<xpath resultType="String">//modulesAccess</xpath>
+				</setHeader>
+				<setHeader headerName="rutExecutor"
+					id="saveUserDetails_rutExecutorInputRI">
+					<xpath resultType="String">//rutExecutor</xpath>
+				</setHeader>	
+				
+				<setHeader headerName="hasIndexaUser"
+					id="saveUserDetails_hasIndexaUserInputRI">
+					<xpath resultType="String">//hasIndexaUser</xpath>
+				</setHeader>
+				<setHeader headerName="indexaProfile"
+					id="saveUserDetails_indexaProfileInputRI">
+					<xpath resultType="String">//indexaProfile</xpath>
+				</setHeader>
+							
+				<log id="registrarInfoLog_000" loggingLevel="INFO"
+					message="Registro modulesAccess: ${body}" />
+				<log id="registrarInfoLog_003" loggingLevel="INFO"
+					message="Registro modulesAccess: ${headers.moduleAccessReqStr}" />
+				<setHeader headerName="moduleAccess"
+					id="saveUserDetails_moduleAccessInput">
+					<method
+						beanType="cl.coopeuch.integracion.usuarioportalconvenios.util.RouteFacade"
+						id="getModuleAccessRequestStr"
+						method="getModuleAccessRequestXML(${headers.moduleAccessReqStr})" />
+				</setHeader>
+				<log id="registrarInfoLog_001" loggingLevel="INFO"
+					message="Registro request: ${body}" />
+				<to id="to_call_sp_save_userdetails_new"
+					uri="bean:call_sp_save_userdetails_new" />
+				<log id="registrarInfoLog_002" loggingLevel="INFO"
+					message="Registro request: ${body}" />
+				<setProperty id="spresult" propertyName="status">
+					<simple>${body.[status]}</simple>
+				</setProperty>
+				<marshal id="saveUserDetails_storedProcResultMarshal"
+					ref="jacksonTransform" />
+				<convertBodyTo id="saveUserDetails_storedProcResult"
+					type="java.lang.String" />
+				<removeHeaders id="removeHeader2" pattern="*" />
+				<to id="saveUserDetailsResponseXml"
+					uri="xslt://etc/xsl/response/guardarInformacionUsuarioResponse.xsl" />
+				<doCatch id="saveUserDetailsCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="ruteosaveUserDetailPropertyCodigo"
+						propertyName="codigoError">
+						<simple>800</simple>
+					</setProperty>
+					<to id="ruteosaveUserDetailExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="excepcion">
+			<from id="excepcionfrom" uri="direct:excepcion" />
+			<doTry id="excepcionTry">
+				<bean id="beanExceptionAmq" method="excepcionAmq"
+					ref="beanRouteFacade" />
+				<marshal id="excepcionMarshalJson">
+					<json library="Jackson" />
+				</marshal>
+				<convertBodyTo id="excepcionConvertTo"
+					type="java.lang.String" />
+				<to id="excepcionToAmqFault"
+					uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly" />
+				<bean id="excepcionBeanExcepcion" method="excepcionCrear"
+					ref="beanRouteFacade" />
+				<setBody id="exceptionBodyError">
+					<simple>${body}</simple>
+				</setBody>
+				<doCatch id="excepcionDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setBody id="exceptionFinalSetBodyError">
+						<simple>${exception}, Body -&gt; ${body}</simple>
+					</setBody>
+					<log id="excepcionLog" loggingLevel="ERROR"
+						message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}" />
+				</doCatch>
+			</doTry>
+		</route>
+	</camelContext>
+</blueprint>

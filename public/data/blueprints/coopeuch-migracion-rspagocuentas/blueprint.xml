@@ -1,0 +1,603 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+           xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+           xmlns:http="http://cxf.apache.org/transports/http/configuration"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+                             placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+                             persistent-id="wspagocuentas" placeholder-prefix="[{"
+                             placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    
+    <!--Servidores-->
+    
+    <camelcxf:cxfEndpoint address="/WSPagoCuentas"
+                          id="pagoCuentasSOAP" loggingFeatureEnabled="true"
+                          serviceClass="cl.coopeuch.integracion.pagocuentas.wsdl.WSPagoCuentasSOAPPortType"
+                          wsdlURL="etc/wsdl/public/WSPagoCuentas.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    
+    <camelcxf:rsServer address="/RSPagoCuentas"
+                       id="pagoCuentasREST" 
+                       serviceClass="cl.coopeuch.integracion.pagocuentas.wsdl.WSPagoCuentasSOAPPortType">
+    	<camelcxf:providers>  	
+    		<bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        		<property name="dropRootElement" value="true"/>
+        		<property name="serializeAsArray" value="true"/>
+        		<property name="arrayKeys">
+                    <list>
+                        <value>detalleError</value>
+                        <value>pagoComercio</value>
+                        <value>informarComercio</value>
+                    </list>
+                </property>
+                <property name="ignoreEmptyArrayValues" value="true"/>
+    		</bean>
+    	</camelcxf:providers>
+    </camelcxf:rsServer>
+    		
+    <bean class="cl.coopeuch.integracion.pagocuentas.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="cl.coopeuch.integracion.pagocuentas.util.RouteExcepcionFacade" id="beanRouteExcepcionFacade"/>
+    <bean class="cl.coopeuch.integracion.pagocuentas.util.RouteFacadeAggregation" id="agregator"/>
+    <bean class="cl.coopeuch.integracion.pagocuentas.util.RouteFacadeAggregationInformarTransaccion" id="agregatorInformarTransaccion"/>
+    
+    
+    <camelContext id="servicio-pagocuentas"  xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml id="pagarRequestType"
+                        unmarshalTypeName="cl.coopeuch.integracion.pagocuentas.wsdl.PagarRequest"/>
+            <jacksonxml id="detalleErrorType"
+                        unmarshalTypeName="cl.coopeuch.integracion.pagocuentas.wsdl.DetalleError"/>
+            <jacksonxml id="pagoComercioResponseType"
+                        unmarshalTypeName="cl.coopeuch.integracion.pagocuentas.wsdl.PagoComercioResponse"/>
+            <jacksonxml id="reversaRequestType"
+                        unmarshalTypeName="cl.coopeuch.integracion.pagocuentas.wsdl.ReversaRequest"/>
+            <jacksonxml id="reversaResponseType"
+                        unmarshalTypeName="cl.coopeuch.integracion.pagocuentas.wsdl.ReversaResponse"/>  
+            <jacksonxml id="informarTransaccionRequestType"
+                        unmarshalTypeName="cl.coopeuch.integracion.pagocuentas.wsdl.InformarTransaccionRequest"/>
+            <jacksonxml id="informarComercioResponseType"
+                        unmarshalTypeName="cl.coopeuch.integracion.pagocuentas.wsdl.InformarComercioResponse"/>                                      
+        </dataFormats>
+        
+        <route id="soap-inicio">
+            <from id="inicioSoapFrom" uri="cxf:bean:pagoCuentasSOAP"/>
+            <to uri="direct:inicioPagoCuentas"/>
+        </route>
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:pagoCuentasREST"/>
+            <to uri="direct:inicioPagoCuentas"/>
+        </route>
+        <route id="cxf-Inicio">
+            <from id="inicioFromServicio" uri="direct:inicioPagoCuentas"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <log id="logInicioSetRequest" message="Request_Entrada:: \n ${body.get(0)}"></log>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>               
+                <setProperty id="inicioSetCodigoErrorDefault" propertyName="codigoError">
+                    <constant>0</constant>
+                </setProperty> 
+                <setProperty id="setPropertyCuentaContable" propertyName="cuentaContable">
+                    <simple>{{cuentaContable}}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionPagar">
+                        <simple>${header.operationName} == 'pagar'</simple>
+                        
+                        <to id="toPagar" uri="direct:pagar"/>
+                    </when>
+                    <when id="inicioWhenOperacionReversa">
+                        <simple>${header.operationName} == 'reversa'</simple>
+                        <to id="toReversa" uri="direct:reversa"/>
+                    </when>
+                    <when id="inicioWhenOperacionInformarTransaccion">
+                        <simple>${header.operationName} == 'informarTransaccion'</simple>
+                        <to id="toInformarTransaccion" uri="direct:informarTransaccion"/>
+                    </when>
+                    <otherwise id="otherwiseOperacion">
+                        <throwException
+                                exceptionType="java.lang.Exception"
+                                id="throwExceptionOperacionInvalida" message="La operacion request es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to5" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="pagar">
+            <from id="pagarFrom" uri="direct:pagar"/>
+            <doTry id="pagarTry">
+            	<bean id="beanValidaPagarRequest" method="validaPagarRequest" ref="beanRouteFacade"/>
+                <to id="tosetPropertiePagar" uri="direct:setPropertiePagar"/>
+                <to id="toPagarIteracion" uri="direct:pagarIteracion"/>
+                <doCatch id="pagarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="pagarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="togenerarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="setPropertiePagar">
+            <from id="setPropertiePagarFrom" uri="direct:setPropertiePagar"/>
+            <doTry id="setPropertiePagarTry">
+                <setProperty id="setPropertyUserId" propertyName="userIdProp">
+                    <simple>${body[0].userId}</simple>
+                </setProperty>
+                <setProperty id="setPropertyCanalLlamada" propertyName="canalLlamadaProp">
+                    <simple>${body[0].canalLlamada.toUpperCase()}</simple>
+                </setProperty>
+                <setProperty id="setPropertyRutCliente" propertyName="rutClienteProp">
+                    <simple>${body[0].rutCliente}</simple>
+                </setProperty>
+                <setProperty id="setPropertyCuentaOrigenCliente" propertyName="cuentaOrigenClienteProp">
+                    <simple>${body[0].cuentaOrigenCliente}</simple>
+                </setProperty>
+                <setProperty id="setPropertyCuentaDestinoConcentradora" propertyName="cuentaDestinoConcentradoraProp">
+                    <simple>${body[0].cuentaDestinoConcentradora}</simple>
+                </setProperty>     
+                <doCatch id="setPropertiePagarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="setPropertiePagarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="tosetPropertiePagarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="pagarIteracion">
+            <from id="pagarFrom" uri="direct:pagarIteracion"/>
+            <doTry id="pagarIteracionTry">
+                <split strategyRef="agregator" parallelAggregate="true">
+                    <simple>${body[0].pagoComercio}</simple>
+                    <setProperty id="setIdConvenioComercioProcess" propertyName="idConvenioComercioProcess">
+                        <simple>${body.idConvenioComercio}</simple>
+                    </setProperty>
+                    <setProperty id="setIdPagoProcess" propertyName="idPagoProcess">
+                        <simple>${body.idPago}</simple>
+                    </setProperty>
+                    <choice>
+                    	<when>
+                    		<simple>${exchangeProperty.canalLlamadaProp} == 'TPPG'</simple>
+                    		<to id="toGeneraTramaINIOCCargo" uri="direct:generaTramaINIOCCargo"/>
+                    		<bean beanType="cl.coopeuch.integracion.pagocuentas.util.jms.CorrelationId" id="createJMSCorrelationIdDale" method="createJMSCorrelationId24"/>
+                    		<log id="log_request_pagar_dale" message="JMS REQUEST_PAGAR DALE:: ${body}"></log>
+                    		<to id="activeMQ-pagoCuentasReqDale" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                    		<log id="log_response_pagar_dale" message="JMS RESPONSE_PAGAR DALE:: ${body}"></log>
+                    		<to id="toGeneraObjetoTramaOUTIOCCargo" uri="direct:generaObjetoTramaOUTIOCCargo"/>
+                    	</when>
+                    	<otherwise>
+                    		<to id="toIOC531001I_pagar" uri="direct:generaTramaIOC531001IPagar"/>
+                    		<bean beanType="cl.coopeuch.integracion.pagocuentas.util.jms.CorrelationId" id="createJMSCorrelationId" method="createJMSCorrelationId24"/>
+                    		<log id="log_request_pagar" message="JMS REQUEST_PAGAR:: ${body}"></log>
+                    		<to id="activeMQ-pagoCuentasReq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                    		<log id="log_response_pagar" message="JMS RESPONSE_PAGAR:: ${body}"></log>
+                    		<to id="toIOC531001O_pagar" uri="direct:generaTramaIOC531001OPagar"/>
+                    	</otherwise>
+                    </choice>
+                    <choice>
+                        <when>
+                            <simple>${body} contains 'detalleError'</simple>
+                            <unmarshal ref="detalleErrorType"></unmarshal>
+                        </when>
+                        <when>
+                            <simple>${body} contains 'pagoComercio'</simple>
+                            <unmarshal ref="pagoComercioResponseType"></unmarshal>
+                        </when>
+                    </choice>
+                </split>
+                <doCatch id="pagarIteracionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="pagarIteracionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="pagarIteracionExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="generaTramaINIOCCargo">
+            <from id="transferenciaEntreCuentasFrom" uri="direct:generaTramaINIOCCargo"/>
+            <doTry id="generaTramaIOCCargoTry">
+                <marshal id="marshallPagarRequest" ref="pagarRequestType"/>
+                <log id="logSpliy" message="XML Split \n${body}"/>
+                <to id="transferenciaEntreCuentasXml2trama"
+                    uri="xslt://etc//transformations/in/remoteCall_IOC_cargoCuentaIN.xsl"/>
+                <log id="logGeneraTramaIOCCargo" message="Trama generada para el cargo Dale \n${body}"/>
+                <doCatch id="generaTramaIOCCargoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="generaTramaIOCCargoCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toGeneraTramaIOCCargoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generaObjetoTramaOUTIOCCargo">
+            <from id="generaObjetoTramaOUTIOCCargoFrom" uri="direct:generaObjetoTramaOUTIOCCargo"/>
+            <transform>
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <doTry id="generaObjetoTramaOUTIOCCargoTry">
+                <to id="generaObjetoTramaOUTIOCCargoXSLT"
+                    uri="xslt://etc//transformations/out/remoteCall_IOC_cargoCuentaOut.xsl?saxon=true"/>
+                <log id="logGeneraObjetoTramaOUTIOCCargo" message="Respuesta OUT Dale \n${body}"/>
+                <doCatch id="generaObjetoTramaOUTIOCCargoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="generaObjetoTramaOUTIOCCargoCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="togeneraObjetoTramaOUTIOCCargoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="generaTramaIOC531001IPagar">
+            <from id="generaTramaIOC531001IPagarFrom" uri="direct:generaTramaIOC531001IPagar"/>
+            <doTry id="generaTramaIOC531001IPagarTry">
+                <marshal id="marshallGeneraTramaIOC531001IPagar" ref="pagarRequestType"/>
+                <log id="logSplit_generaTramaIOC531001IPagar" message="XML Split \n${body}"/>
+                <to id="generaTramaIOC531001IPagarXml2tramaTo"
+                    uri="xslt://etc//transformations/in/IOC531001I_pagar.xsl"/>
+                <log id="logGeneraTramaIOC531001IPagar" message="Trama generada request pagar \n${body}"/>
+                <doCatch id="generaTramaIOC531001IPagarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="generaTramaIOC531001IPagarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toGeneraTramaIOC531001IPagarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generaTramaIOC531001OPagar">
+            <from id="generaTramaIOC531001OPagarFrom" uri="direct:generaTramaIOC531001OPagar"/>
+            <transform>
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <doTry id="generaTramaIOC531001OPagarTry">
+                <to id="generaTramaIOC531001OPagarXSLT"
+                    uri="xslt://etc//transformations/out/IOC531001O_pagar.xsl?saxon=true"/>
+                <log id="logGeneraTramaIOC531001OPagar" message="Trama generada response pagar \n${body}"/>
+                <doCatch id="generaTramaIOC531001OPagarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="generaTramaIOC531001OPagarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toGeneraTramaIOC531001OPagarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+
+		<route id="reversa">
+            <from id="reversaFrom" uri="direct:reversa"/>
+            <doTry id="reversaTry">
+                <to id="tosetPropertieReversa" uri="direct:setPropertieReversa"/>
+                <to id="toReversaGenerar" uri="direct:reversaGenerar"/>
+                <doCatch id="reversaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="reversaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="togenerarExcepcionReversa" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="setPropertieReversa">
+            <from id="setPropertieReversaFrom" uri="direct:setPropertieReversa"/>
+            <doTry id="setPropertieReversaTry">
+                <setProperty id="setPropertyUserIdReversa" propertyName="userIdProp">
+                    <simple>${body[0].userId}</simple>
+                </setProperty>
+                <setProperty id="setPropertyCanalLlamadaReversa" propertyName="canalLlamadaProp">
+                    <simple>${body[0].canalLlamada.toUpperCase()}</simple>
+                </setProperty>
+                <setProperty id="setPropertyRutClienteReversa" propertyName="rutClienteProp">
+                    <simple>${body[0].rutCliente}</simple>
+                </setProperty>
+                <setProperty id="setPropertyCodigoAutorizacionReversa" propertyName="codigoAutorizacionProp">
+                    <simple>${body[0].codigoAutorizacion}</simple>
+                </setProperty>     
+                <setProperty id="setPropertyFechaAutorizacionReversa" propertyName="fechaAutorizacionProp">
+                    <simple>${body[0].fechaAutorizacion}</simple>
+                </setProperty> 
+                <doCatch id="setPropertieReversaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="setPropertieReversaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="tosetPropertieReversaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+         </route>
+        
+         <route id="reversaGenerar">
+            <from id="reversaFrom" uri="direct:reversaGenerar"/>
+            <doTry id="reversaGenerarTry">
+            	 <choice>
+                 	<when>
+                    	<simple>${exchangeProperty.canalLlamadaProp} == 'TPPG'</simple>
+            			<to id="toGeneraTramaINIOCReversa" uri="direct:generaTramaINIOCReversa"/>           	
+                		<bean beanType="cl.coopeuch.integracion.pagocuentas.util.jms.CorrelationId" id="createJMSCorrelationIdReversaDale" method="createJMSCorrelationId24"/>
+                		<log message="JMS REQUEST REVERSA DALE:: ${body}"></log>                
+                		<to id="activeMQ-pagoCuentasReqReversaDale" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                		<log message="JMS RESPONSE REVERSA DALE:: ${body}"></log>  
+                		<to id="toGeneraObjetoTramaOUTIOCReversa" uri="direct:generaObjetoTramaOUTIOCReversa"/>		
+                	</when>
+                	<otherwise>
+                		<to id="toGeneraTramaIOC531002IReversa" uri="direct:generaTramaIOC531002IReversa"/>           	
+                		<bean beanType="cl.coopeuch.integracion.pagocuentas.util.jms.CorrelationId" id="createJMSCorrelationIdReversa" method="createJMSCorrelationId24"/>
+                		<log message="JMS REQUEST REVERSA:: ${body}"></log>                
+                		<to id="activeMQ-pagoCuentasReqReversa" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                		<log message="JMS RESPONSE REVERSA:: ${body}"></log>  
+                		<to id="toGeneraTramaIOC531002OReversa" uri="direct:generaTramaIOC531002OReversa"/>		
+                	</otherwise>
+            	</choice>
+                <unmarshal id="reversaUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.pagocuentas.wsdl" encoding="UTF-8"/>
+                </unmarshal> 
+                <doCatch id="reversaGenerarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="reversaGenerarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="reversaGenerarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="generaTramaINIOCReversa">
+            <from id="tramaINReversaFrom" uri="direct:generaTramaINIOCReversa"/>
+            <doTry id="generaTramaIOCReversaTry">           
+                <marshal id="marshallReversaRequest" ref="reversaRequestType"/>     
+                <to id="rutaTramaINReversaXSL"
+                   uri="xslt://etc//transformations/in/IOC527003I_reversa.xsl"/>              
+                <log id="logGeneraTramaIOCReversa" message="Trama generada para la reversa Dale \n${body}"/>
+                <doCatch id="generaTramaIOCReversaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="generaTramaIOCReversaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toGeneraTramaIOCReversaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generaObjetoTramaOUTIOCReversa">            
+            <from id="generaObjetoTramaOUTIOCReversaFrom" uri="direct:generaObjetoTramaOUTIOCReversa"/>
+            <transform>
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>           
+            <doTry id="generaObjetoTramaOUTIOCReversaTry">
+                <to id="generaObjetoTramaOUTIOCReversaXSLT"               	
+                    uri="xslt://etc//transformations/out/IOC527003O_reversa.xsl?saxon=true"/>    
+                <log id="logGeneraObjetoTramaOUTIOCReversa" message="Respuesta OUT reversa Dale \n${body}"/>              
+                <doCatch id="generaObjetoTramaOUTIOCReversaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="generaObjetoTramaOUTIOCReversaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="togeneraObjetoTramaOUTIOCReversaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+         
+        <route id="generaTramaIOC531002IReversa">
+            <from id="generaTramaIOC531002IReversaFrom" uri="direct:generaTramaIOC531002IReversa"/>
+            <doTry id="generaTramaIOC531002IReversaTry">           
+                <marshal id="marshallGeneraTramaIOC531002IReversa" ref="reversaRequestType"/>     
+                <to id="generaTramaIOC531002IReversaXSL" uri="xslt://etc//transformations/in/IOC531002I_reversa.xsl"/>              
+                <log id="logGeneraTramaIOC531002IReversa" message="Trama generada request reversa \n${body}"/>
+                <doCatch id="generaTramaIOC531002IReversaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="generaTramaIOC531002IReversaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toGeneraTramaIOC531002IReversaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generaTramaIOC531002OReversa">            
+            <from id="generaTramaIOC531002OReversaFrom" uri="direct:generaTramaIOC531002OReversa"/>
+            <transform>
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>           
+            <doTry id="generaTramaIOC531002OReversaTry">
+                <to id="generaTramaIOC531002OReversaXSLT" uri="xslt://etc//transformations/out/IOC531002O_reversa.xsl?saxon=true"/>    
+                <log id="logGeneraTramaIOC531002OReversa" message="Trama generada response reversa \n${body}"/>              
+                <doCatch id="generaTramaIOC531002OReversaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="generaTramaIOC531002OReversaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toGeneraTramaIOC531002OReversaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="informarTransaccion">
+            <from id="informarTransaccionFrom" uri="direct:informarTransaccion"/>
+            <doTry id="informarTransaccionTry">
+            	<bean id="beanValidaInformarTransaccionRequest" method="validaInformarTransaccionRequest" ref="beanRouteFacade"/>
+                <to id="tosetPropertieInformarTransaccion" uri="direct:setPropertieInformarTransaccion"/>
+                <to id="toInformarTransaccionIteracion" uri="direct:informarTransaccionIteracion"/>
+                <doCatch id="validarInformarTransaccionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="validarInformarTransaccionCodigoError" propertyName="codigoError">
+                        <constant>424</constant>
+                    </setProperty>
+                    <to id="toGenerarExcepcionValidarInformarTransaccion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="informarTransaccionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="informarTransaccionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toGenerarExcepcionInformarTransaccion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="setPropertieInformarTransaccion">
+            <from id="setPropertieInformarTransaccionFrom" uri="direct:setPropertieInformarTransaccion"/>
+            <doTry id="setPropertieInformarTransaccionTry">
+                <setProperty id="setPropertyInformarTransaccionUserId" propertyName="userIdProp">
+                    <simple>${body[0].userId.toUpperCase()}</simple>
+                </setProperty>
+                <setProperty id="setPropertyInformarTransaccionCanalLlamada" propertyName="canalLlamadaProp">
+                    <simple>${body[0].canalLlamada.toUpperCase()}</simple>
+                </setProperty>
+                <setProperty id="setPropertyInformarTransaccionCuentaOrigenCliente" propertyName="cuentaOrigenClienteProp">
+                    <simple>${body[0].cuentaOrigenCliente}</simple>
+                </setProperty>   
+                <doCatch id="setPropertieInformarTransaccionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="setPropertieInformarTransaccionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="tosetPropertieInformarTransaccionExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="informarTransaccionIteracion">
+            <from id="informarTransaccionFrom" uri="direct:informarTransaccionIteracion"/>
+            <doTry id="informarTransaccionIteracionTry">    
+                <split strategyRef="agregatorInformarTransaccion" parallelAggregate="true">
+                    <simple>${body[0].informarComercio}</simple>
+                    <setProperty id="setInformarTransaccionIdConvenioComercioProcess" propertyName="idConvenioComercioProcess">
+                        <simple>${body.idConvenioComercio}</simple>
+                    </setProperty>
+                    <setProperty id="setInformarTransaccionIdPagoProcess" propertyName="idPagoProcess">
+                        <simple>${body.idPago}</simple>
+                    </setProperty>
+                    <setProperty id="setInformarTransaccionCodigoAutorizacionProcess" propertyName="codigoAutorizacionProcess">
+                        <simple>${body.codigoAutorizacion}</simple>
+                    </setProperty>
+                    <setProperty id="setInformarTransaccionMontoTransaccionPagoProcess" propertyName="montoTransaccionPagoProcess">
+                        <simple>${body.montoTransaccionPago}</simple>
+                    </setProperty>
+                    	<to id="toIOC531003I_informarTransaccion" uri="direct:generaTramaIOC531003IInformarTransaccion"/>
+                    	<bean beanType="cl.coopeuch.integracion.pagocuentas.util.jms.CorrelationId" id="createJMSCorrelationIdInformarTransaccionIteracion" method="createJMSCorrelationId24"/>
+                    	<log id="log_request_informarTransaccion" message="JMS REQUEST_PAGAR:: ${body}"></log>
+                    	<to id="activeMQ-informarTransaccionReq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/> 
+                    	<log id="log_response_informarTransaccion" message="JMS RESPONSE_PAGAR:: ${body}"></log>
+                    	<to id="toIOC531003O_informarTransaccion" uri="direct:generaTramaIOC531003OInformarTransaccion"/>
+                    <choice>
+                        <when>
+                            <simple>${body} contains 'detalleError'</simple>
+                            <unmarshal ref="detalleErrorType"></unmarshal>
+                        </when>
+                        <when>
+                            <simple>${body} contains 'informarComercio'</simple>
+                            <unmarshal ref="informarComercioResponseType"></unmarshal>
+                        </when>
+                    </choice>
+                </split>
+                <doCatch id="informarTransaccionIteracionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="informarTransaccionIteracionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="informarTransaccionIteracionExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="generaTramaIOC531003IInformarTransaccion">
+            <from id="generaTramaIOC531001IPagarFrom" uri="direct:generaTramaIOC531003IInformarTransaccion"/>
+            <doTry id="generaTramaIOC531003IInformarTransaccionTry">
+                <marshal id="marshallGeneraTramaIOC531003IInformarTransaccion" ref="informarTransaccionRequestType"/>
+                <log id="logSplit_generaTramaIOC531003IInformarTransaccion" message="XML Split \n${body}"/>
+                <to id="generaTramaIOC531003IInformarTransaccionXml2tramaTo"
+                    uri="xslt://etc//transformations/in/IOC531003I_informarTransaccion.xsl"/>
+                <log id="logGeneraTramaIOC531003IInformarTransaccion" message="Trama generada request pagar \n${body}"/> 
+                <doCatch id="generaTramaIOC531003IInformarTransaccionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="generaTramaIOC531003IInformarTransaccionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toGeneraTramaIOC531003IInformarTransaccionExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        
+        <route id="generaTramaIOC531003OInformarTransaccion">
+            <from id="generaTramaIOC531003OInformarTransaccionFrom" uri="direct:generaTramaIOC531003OInformarTransaccion"/>
+            <transform>
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <doTry id="generaTramaIOC531003OInformarTransaccionTry">
+                <to id="generaTramaIOC531003OInformarTransaccionXSLT"
+                    uri="xslt://etc//transformations/out/IOC531003O_informarTransaccion.xsl?saxon=true"/>
+                <log id="logGeneraTramaIOC531003OInformarTransaccion" message="Trama generada response informarTransaccion \n${body}"/>
+                <doCatch id="generaTramaIOC531003OInformarTransaccionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="generaTramaIOC531003OInformarTransaccionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toGeneraTramaIOC531003OInformarTransaccionExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route> 
+       
+ 
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <!--<wireTap id="excepcionSendColaError" uri="direct:envioColaError"/>-->
+                <log id="excepcionLog" loggingLevel="ERROR"
+                     message="Ha ocurrido un error en la ejecucion del servicio: ${exception}"/>
+                <bean id="excepcionBeanExcepcion" method="procesaExcepcion" ref="beanRouteExcepcionFacade"/>
+                <log id="excepcionLog" loggingLevel="ERROR"
+                     message="Ha ocurrido un error en la ejecucion del servicio: ${body}"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR"
+                         message="Ha ocurrido un error en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="envioColaError">
+            <from id="envioColaErrorFrom" uri="direct:envioColaError"/>
+            <doTry id="envioColaErrorTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteExcepcionFacade"/>
+                <marshal id="envioColaErrorMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="envioColaErrorConvertTo" type="java.lang.String"/>
+                <to id="envioColaErrorToAmqFault"
+                    uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <doCatch id="envioColaErrorDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="envioColaErrorLog" loggingLevel="ERROR"
+                         message="Ha ocurrido un error en la ejecucion del servicio: Request: ${body} Error: ${exception}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

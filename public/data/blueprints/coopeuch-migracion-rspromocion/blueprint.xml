@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="local" persistent-id="wspromocion"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Endpoint wsdl WSpromocion -->
+    <cxf:cxfEndpoint address="/WSPromocion" id="WSPromocionEndpoint"
+        serviceClass="cl.coopeuch.core.promocion.Promocion" wsdlURL="wsdl/WSPromocion.wsdl"/>
+     <cxf:rsClient address="[{wsLogPlataformas.endpoint}]" 
+		id="endpointLogPlataformas"	
+		loggingFeatureEnabled="true" />        
+    <bean class="cl.coopeuch.core.promocion.PromocionImpl" id="WSPromocionImpl"/>
+    <!-- Conexion AMQ -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.util.RouteFacade" id="routeFacade"/>
+    <camelContext id="ws-promocion" xmlns="http://camel.apache.org/schema/blueprint">
+        <!-- Ruta que invoca operaciones del servicio web -->
+        <route id="cxf-RuteoOperaciones">
+            <from id="WSPromocionEndpointListener" uri="cxf:bean:WSPromocionEndpoint?DataFormat=MESSAGE"/>
+            <to id="_to1" uri="direct:inicio"/>
+        </route>
+        <route id="_routeJMS">
+            <from id="jms-from" uri="AMQ:queue:{{colas.servicio.promocion.in.temp}}?preserveMessageQos=true"/>
+            <to id="jms-to" uri="direct:inicio"/>
+        </route>
+        <route id="_routeInicio">
+            <from id="_from1" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+				<setProperty propertyName="rut_log">
+		           	<simple>00000000</simple>
+		        </setProperty>            
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.other.RespaldoBody"
+                    id="backupBody" method="respaldaBodyOriginal"/>
+                <bean beanType="cl.coopeuch.util.jms.IdCorrelativo"
+                    id="creaJMSCorrelationId" method="creaJMSIdCorrelativo"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaConsultarPromociones">
+                        <simple>${body} contains 'consultarPromociones'</simple>
+                        <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+		                    <simple>consultarPromociones</simple>
+		                </setProperty>
+                        <setProperty propertyName="rut_log">
+				           	<xpath resultType="String">normalize-space(//rutSocio)</xpath>
+				        </setProperty>
+                        <to id="consultarPromocionesTo" uri="direct:consultarPromociones"/>
+                    </when>
+                    <otherwise id="_otherwise1"/>
+                </choice>
+                <doFinally id="ruteoOperacionesFinally"/>
+                <doCatch id="ruteoOperacioneShemaValidationException">
+                	<exception>org.apache.camel.processor.validation.SchemaValidationException</exception>
+                	<exception>org.apache.camel.ValidationException</exception>
+                	<exception>org.apache.camel.TypeConversionException</exception>
+                	<transform>
+               			<simple>${property.CamelExceptionCaught}</simple>
+            		</transform>
+		            <transform>
+		               <simple>${bodyAs(String)}</simple>
+		            </transform>            		
+                	<bean beanType="cl.coopeuch.util.other.RespaldoBody"
+                        id="ruteoOperacioneShemaValidationExceptionRestoreBody" method="restauraBodyOriginal"/>
+                    <setBody id="ruteoOperacioneShemaValidationExceptionSetBodyError">
+                        <simple>ERROR ServicioPromocion:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault1" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="ruteoOperacionesBodyError1" method="setBodyError"/>
+                </doCatch>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <setBody id="_setBody1">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <wireTap id="wireTap-excepcionToLogPlataformas" uri="direct:wsLogPlataformasGuardar"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="ruteoOperacionesBodyError2" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta que consume cola MQ IBS y retorna datos de promociones registradas -->
+        <route id="consultarPromociones">
+            <from id="consultarPromocionesFrom" uri="direct:consultarPromociones"/>
+            <doTry id="consultarPromocionesTry">
+                <to id="consultarPromocionesXmlTrama" uri="xslt://transformations/in/xmlTramaIOC700001I_consultarPromociones.xsl"/>
+                <to id="activemq-consultarPromociones" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="consultarPromocionesTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarPromocionesTramaXml" uri="xslt://transformations/out/tramaXmlIOC700001O_consultarPromociones.xsl?saxon=true"/>
+                <doCatch id="consultarPromocionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.RespaldoBody"
+                        id="consultarPromocionesRestoreBody" method="restauraBodyConsulta"/>
+                    <setBody id="consultarPromocionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <wireTap id="wireTap-excepcionToLogPlataformas2" uri="direct:wsLogPlataformasGuardar"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="consultarPromocionesSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultarPromocionesFinally"/>
+            </doTry>
+        </route>
+		<route id="wsLogPlataformasGuardar">
+        	<from id="wsLogPlataformasGuardar-From" uri="direct:wsLogPlataformasGuardar"/>        	
+        	<doTry id="wsLogPlataformasGuardar-doTry">
+        		<setProperty propertyName="nivelLog">
+        			<simple>ERRO</simple>
+        		</setProperty>
+        		<bean id="wsLogPlataformasGuardar-Bean" ref="routeFacade" method="guardarLogRequest"/>
+        		<to id="wsLogPlataformasGuardar-To" uri="cxfrs:bean:endpointLogPlataformas"/>
+        		<doCatch id="wsLogPlataformasGuardar-doCatch">
+        			<exception>java.lang.Exception</exception>
+        			<setBody>
+        				<simple>ERROR-logPlataformas: ${exception}-${body}</simple>
+        			</setBody>
+        			<log message="${body}"/>
+        		</doCatch>
+        	</doTry>
+        </route>        
+    </camelContext>
+</blueprint>

@@ -1,0 +1,605 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation=" https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyTarjetaCredito"
+        persistent-id="wstarjetacredito" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+                             persistent-id="globalDb2" placeholder-prefix="[[" placeholder-suffix="]]"
+                             update-strategy="reload" />
+    <cxf:cxfEndpoint address="/ServicioTarjetadeCredito"
+        id="serviciotarjetadecreditoEndpoint"
+        serviceClass="cl.coopeuch.core.tarjetadecredito.tarjetadecredito.TarjetadeCreditoPortType" wsdlURL="wsdl/ServicioTarjetadeCredito.wsdl"/>
+    <cxf:rsServer address="/RSTarjetaCredito" id="tarjetaCreditoRest" serviceClass="cl.coopeuch.core.tarjetadecredito.service.rest.TarjetaCreditoRest"/>
+    <!-- Configuracion AMQ -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+          destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.cuentas]]"/>
+        <property name="password" value="[[jdbc.db2.password.cuentas]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.tarjetacredito}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.tarjetacredito}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.tarjetacredito}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.tarjetacredito}]"/>
+    </bean>
+     <bean class="cl.coopeuch.integracion.tarjetacredito.util.RouteFacade" id="beanRouteFacade"/>
+    <camelContext id="servicio-tarjeta-credito" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cx-RuteoOperaciones-inicio">
+            <from id="serviciotarjetadecreditoEndpoint" uri="cxf:bean:serviciotarjetadecreditoEndpoint?DataFormat=MESSAGE"/>
+            <to id="_toInicioWSDL" uri="direct:inicio"/>
+        </route>
+        <route id="_routeCola">
+            <from id="_fromCola" uri="AMQ:queue:{{colas.servicio.tarjeta.credito.in.temp}}?preserveMessageQos=true"/>
+            <bean beanType="cl.coopeuch.util.jms.CorrelacionId"
+                id="Nexus_beanCorrelation" method="crearJMSCorrelacionId24"/>
+            <to id="_toInicioColas" uri="direct:inicio"/>
+        </route>
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:tarjetaCreditoRest"/>
+            <setBody id="_setBodyRest">
+                <simple>$simple{body.get(0)}</simple>
+            </setBody>
+            <choice id="rest-inicio_choice">
+                <when id="traerDatosCuentaTarjetaCredito_when">
+                    <simple>${header.operationName} == 'traerDatosCuentaTarjetaCredito'</simple>
+                    <unmarshal id="_unmarsha1">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.tarjetadecredito.TraerDatosCuentaTarjetaCredito"/>
+                    </unmarshal>
+                    <to id="restToTraerDatosCuentaTarjetaCredito" uri="direct:inicio"/>
+                    <bean id="_bean6" method="traerDatosCuentaTarjetaCreditoResponseRest" ref="beanRouteFacade"/>
+                </when>
+                <when id="traerDatosTarjetadeCredito_when">
+                    <simple>${header.operationName} == 'traerDatosTarjetadeCredito'</simple>
+                    <unmarshal id="_unmarsha2">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.tarjetadecredito.TraerDatosTarjetadeCredito"/>
+                    </unmarshal>
+                    <to id="restToTraerDatosTarjetadeCredito" uri="direct:inicio"/>
+                    <bean id="_bean7" method="traerDatosTarjetadeCreditoResponseRest" ref="beanRouteFacade"/>
+                </when>
+                <when id="listar_when">
+                    <simple>${header.operationName} == 'listar'</simple>
+                    <unmarshal id="_unmarsha3">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.tarjetadecredito.ListarTarjetaCreditoRequest"/>
+                    </unmarshal>
+                    <to id="restToListar" uri="direct:inicio"/>
+                    <bean id="_bean8" method="listarResponseRest" ref="beanRouteFacade"/>
+                    <choice>
+                        <when>
+                            <simple>${body} not contains 'ECNLERR'</simple>
+                            <marshal id="_marsha1">
+                                <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.tarjetadecredito.ListarTarjetaCreditoResponse"/>
+                            </marshal>
+                        </when>
+                    </choice>
+                </when>
+                <when id="traerListaTarjetasParaCuenta_when">
+                    <simple>${header.operationName} == 'traerListaTarjetasParaCuenta'</simple>
+                    <unmarshal id="_unmarsha4">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.tarjetadecredito.TraerListaTarjetasParaCuenta"/>
+                    </unmarshal>
+                    <to id="restToTraerListaTarjetasParaCuenta" uri="direct:inicio"/>
+                    <bean id="_bean8" method="traerListaTarjetasParaCuentaResponseRest" ref="beanRouteFacade"/>
+                </when>
+                <when id="traerMovimientosNoFacturados_when">
+                    <simple>${header.operationName} == 'traerMovimientosNoFacturados'</simple>
+                    <unmarshal id="_unmarsha5">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.tarjetadecredito.TraerMovimientosNoFacturados"/>
+                    </unmarshal>
+                    <to id="restToTraerMovimientosNoFacturados" uri="direct:inicio"/>
+                    <bean id="_bean9" method="traerMovimientosNoFacturadosResponseRest" ref="beanRouteFacade"/>
+                </when>
+                <when id="traerEstadosDeCuenta_when">
+                    <simple>${header.operationName} == 'traerEstadosDeCuenta'</simple>
+                    <unmarshal id="_unmarsha6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.tarjetadecredito.TraerEstadosDeCuenta"/>
+                    </unmarshal>
+                    <to id="restToTraerEstadosDeCuenta" uri="direct:inicio"/>
+                    <bean id="_bean10" method="traerEstadosDeCuentaResponseRest" ref="beanRouteFacade"/>
+                </when>
+                <when id="traerMovimientosEstadoDeCuenta_when">
+                    <simple>${header.operationName} == 'traerMovimientosEstadoDeCuenta'</simple>
+                    <unmarshal id="_unmarsha7">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.tarjetadecredito.TraerMovimientosEstadoDeCuenta"/>
+                    </unmarshal>
+                    <to id="restToTraerMovimientosEstadoDeCuenta" uri="direct:inicio"/>
+                    <bean id="_bean11" method="traerMovimientosEstadoDeCuentaResponseRest" ref="beanRouteFacade"/>
+                </when>
+                <when id="abonar_when">
+                    <simple>${header.operationName} == 'abonar'</simple>
+                    <unmarshal id="_unmarsha8">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.tarjetadecredito.AbonarTarjetaCreditoRequest"/>
+                    </unmarshal>
+                    <to id="restToAbonar" uri="direct:inicio"/>
+                    <bean id="_bean12" method="abonarTarjetaCreditoResponseRest" ref="beanRouteFacade"/>
+                </when>
+                <otherwise>
+                    <to id="restToConsultar" uri="direct:inicio"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Inicio: Ruta se encarga de derivar cada una de las operaciones a un modulo de acción. -->
+        <route id="cx-RuteoOperaciones">
+            <from id="EndpointListener" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean
+                    beanType="cl.coopeuch.util.aggregation.RespaldarMensaje"
+                    id="backupBody" method="respaldarCuerpo"/>
+                <bean beanType="cl.coopeuch.util.jms.CorrelacionId"
+                    id="createJMSCorrelationId" method="crearJMSCorrelacionId24"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutatraerDatosCuentaTarjetaCredito">
+                        <simple>${body} contains 'traerDatosCuentaTarjetaCredito'</simple>
+                        <to id="traerDatosCuentaTarjetaCreditoValidator" uri="validator:xsd/soapTraerDatosCuentaTarjetaCredito.xsd"/>
+                        <to id="traerDatosCuentaTarjetaCreditoTo" uri="direct:traerDatosCuentaTarjetaCredito"/>
+                    </when>
+                    <when id="rutatraerDatosTarjetadeCredito">
+                        <simple>${body} contains 'traerDatosTarjetadeCredito'</simple>
+                        <to id="traerDatosTarjetadeCreditoValidator" uri="validator:xsd/soapTraerDatosTarjetadeCredito.xsd"/>
+                        <to id="traerDatosTarjetadeCreditoTo" uri="direct:traerDatosTarjetadeCredito"/>
+                    </when>
+                    <when id="rutatraerEstadosDeCuenta">
+                        <simple>${body} contains 'traerEstadosDeCuenta'</simple>
+                        <to id="traerEstadosDeCuentaValidator" uri="validator:xsd/soapTraerEstadosDeCuenta.xsd"/>
+                        <to id="traerEstadosDeCuentaTo" uri="direct:traerEstadosDeCuenta"/>
+                    </when>
+                    <when id="rutatraerListaTarjetasParaCuenta">
+                        <simple>${body} contains 'traerListaTarjetasParaCuenta'</simple>
+                        <to id="traerListaTarjetasParaCuentaValidator" uri="validator:xsd/soapTraerListaTarjetasParaCuenta.xsd"/>
+                        <to id="traerListaTarjetasParaCuentaTo" uri="direct:traerListaTarjetasParaCuenta"/>
+                        <removeHeaders id="_removeHeaders1" pattern="JMSCorrelationID|Host|Accept-Encoding|SOAPAction|breadcrumbId|User-Agent|JMS_IBM_Format|JMSExpiration|JMSMessageID|JMSDeliveryMode|JMSPriority|JMS_IBM_PutApplType|JMS_IBM_MsgType|JMS_IBM_PutDate|JMS_IBM_PutTime|JMSTimestamp|JMSDestination|JMS_IBM_Character_Set|JMSRedelivered|JMS_IBM_Encoding|JMSCorrelationIDAsBytes"/>
+                    </when>
+                    <when id="rutatraerMovimientosEstadoDeCuenta">
+                        <simple>${body} contains 'traerMovimientosEstadoDeCuenta'</simple>
+                        <to id="traerMovimientosEstadoDeCuentaValidator" uri="validator:xsd/soapTraerMovimientosEstadoDeCuenta.xsd"/>
+                        <to id="traerMovimientosEstadoDeCuentaTo" uri="direct:traerMovimientosEstadoDeCuenta"/>
+                    </when>
+                    <when id="rutatraerMovimientosNoFacturados">
+                        <simple>${body} contains 'traerMovimientosNoFacturados'</simple>
+                        <to id="traerMovimientosNoFacturadosValidator" uri="validator:xsd/soapTraerMovimientosNoFacturados.xsd"/>
+                        <to id="traerMovimientosNoFacturadosTo" uri="direct:traerMovimientosNoFacturados"/>
+                    </when>
+                    <when id="rutaListar">
+                        <simple>${body} contains 'listar'</simple>
+                        <to id="_to2" uri="direct:listar"/>
+                    </when>
+                    <when id="rutaAbonar">
+                        <simple>${body} contains 'abonar'</simple>
+                        <to id="_to3" uri="direct:abonar"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.aggregation.RespaldarMensaje"
+                        id="ruteoOperacionesRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="ruteoOperacionesBodyError" method="obtenerError"/>
+                    <removeHeaders id="_removeHeaders2" pattern="JMSCorrelationID|Host|Accept-Encoding|SOAPAction|breadcrumbId|User-Agent|JMS_IBM_Format|JMSExpiration|JMSMessageID|JMSDeliveryMode|JMSPriority|JMS_IBM_PutApplType|JMS_IBM_MsgType|JMS_IBM_PutDate|JMS_IBM_PutTime|JMSTimestamp|JMSDestination|JMS_IBM_Character_Set|JMSRedelivered|JMS_IBM_Encoding|JMSCorrelationIDAsBytes"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <!-- ruta encargada de traer detalle de cuenta de tarjeta de credito -->
+        <route id="traerDatosCuentaTarjetaCredito">
+            <from id="traerDatosCuentaTarjetaCreditoFrom" uri="direct:traerDatosCuentaTarjetaCredito"/>
+            <doTry id="traerDatosCuentaTarjetaCreditoTry">
+                <setProperty id="traerDatosCuentaTarjetaCredito-userId" propertyName="userId">
+                    <xpath resultType="String">//userId</xpath>
+                </setProperty>
+                <setProperty
+                    id="traerDatosCuentaTarjetaCredito-numeroCuenta" propertyName="numeroCuenta">
+                    <xpath resultType="String">//numeroCuenta</xpath>
+                </setProperty>
+                <to id="traerDatosCuentaTarjetaCreditoXml2trama" uri="xslt://transformations/in/xml2tramaIOC096002I_traerDatosCuentaTarjetaCredito.xsl"/>
+                <to id="activemq-traerDatosCuentaTarjetaCredito" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="traerDatosCuentaTarjetaCreditoTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <setProperty id="trama_body" propertyName="trama_body">
+                    <simple>${body}</simple>
+                </setProperty>
+                <choice id="_choice3">
+                    <when id="_when3">
+                        <simple>${body} contains 'IOC096002O'</simple>
+                        <to id="consultarTC_nexus_to" uri="direct:consultarTC_nexus"/>
+                        <setBody id="consultarTC_nexus_restableceBody">
+                            <simple>${exchangeProperty.trama_body}</simple>
+                        </setBody>
+                        <to id="traerDatosCuentaTarjetaCreditoTrama2xml" uri="xslt://transformations/out/trama2xmlIOC096002O_traerDatosCuentaTarjetaCredito.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <to
+                            id="Error-traerDatosCuentaTarjetaCreditoTrama2xml" uri="xslt://transformations/out/trama2xmlIOC096002O_traerDatosCuentaTarjetaCredito.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="traerDatosCuentaTarjetaCreditoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.aggregation.RespaldarMensaje"
+                        id="traerDatosCuentaTarjetaCreditoRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="traerDatosCuentaTarjetaCreditoSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerDatosCuentaTarjetaCreditoFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="traerDatosCuentaTarjetaCreditoSetBodyError" method="obtenerError"/>
+                </doCatch>
+                <doFinally id="traerDatosCuentaTarjetaCreditoFinally"/>
+            </doTry>
+        </route>
+        <!-- ruta encargada de traer detalle de tarjeta de credito -->
+        <route id="traerDatosTarjetadeCredito">
+            <from id="traerDatosTarjetadeCreditoFrom" uri="direct:traerDatosTarjetadeCredito"/>
+            <doTry id="traerDatosTarjetadeCreditoTry">
+                <setHeader headerName="userId" id="_setHeader2">
+                    <xpath resultType="String">//userId</xpath>
+                </setHeader>
+                <choice id="_choice2">
+                    <when id="_when2">
+                        <simple>${headers.userId} == ''</simple>
+                        <to id="_to1" uri="xslt://transformations/error/error_traerDatosTarjetaCredito.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise3">
+                        <to id="traerDatosTarjetadeCreditoXml2trama" uri="xslt://transformations/in/xml2tramaIOC096003I_traerDatosTarjetadeCredito.xsl"/>
+                        <to id="activeMQ-traerDatosTarjetadeCredito" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Shared&amp;replyTo={{amq.queue.res}}&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                        <transform id="traerDatosTarjetadeCreditoTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="traerDatosTarjetadeCreditoTrama2xml" uri="xslt://transformations/out/trama2xmlIOC096003O_traerDatosTarjetadeCredito.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="traerDatosTarjetadeCreditoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.aggregation.RespaldarMensaje"
+                        id="traerDatosTarjetadeCreditoRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="traerDatosTarjetadeCreditoSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerDatosTarjetadeCreditoFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="traerDatosTarjetadeCreditoSetBodyError" method="obtenerError"/>
+                </doCatch>
+                <doFinally id="traerDatosTarjetadeCreditoFinally"/>
+            </doTry>
+        </route>
+        <!-- ruta encargada de mostrar estado de cuenta de tarjeta de credito -->
+        <route id="traerEstadosDeCuenta">
+            <from id="traerEstadosDeCuentaFrom" uri="direct:traerEstadosDeCuenta"/>
+            <doTry id="traerEstadosDeCuentaTry">
+                <setHeader headerName="fechaFacturacion" id="_setHeader1">
+                    <xpath resultType="String">//fechaFacturacion</xpath>
+                </setHeader>
+                <choice id="_choice1">
+                    <when id="_when1">
+                        <simple>${headers.fechaFacturacion} == ''</simple>
+                        <to id="traerEstadosDeCuentaTrama2xml" uri="xslt://transformations/error/error_traerEstadosDeCuentas.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <to id="traerEstadosDeCuentaXml2trama" uri="xslt://transformations/in/xml2tramaIOC096005I_traerEstadosDeCuenta.xsl"/>
+                        <to id="activeMQ-traerEstadosDeCuenta" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Shared&amp;replyTo={{amq.queue.res}}&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                        <transform id="traerEstadosDeCuentaTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="traerEstadosDeCuentaTrama2xml" uri="xslt://transformations/out/trama2xmlIOC096005O_traerEstadosDeCuenta.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="traerEstadosDeCuentaCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.aggregation.RespaldarMensaje"
+                        id="traerEstadosDeCuentaRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="traerEstadosDeCuentaSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerEstadosDeCuentaFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="traerEstadosDeCuentaSetBodyError" method="obtenerError"/>
+                </doCatch>
+                <doFinally id="traerEstadosDeCuentaFinally"/>
+            </doTry>
+        </route>
+        <!-- ruta encargada de mostrar lista de tarjetas asociadas a una cuenta -->
+        <route id="traerListaTarjetasParaCuenta">
+            <from id="traerListaTarjetasParaCuentaFrom" uri="direct:traerListaTarjetasParaCuenta"/>
+            <doTry id="traerListaTarjetasParaCuentaTry">
+                <to id="traerListaTarjetasParaCuentaXml2trama" uri="xslt://transformations/in/xml2tramaIOC096001I_traerListaTarjetasParaCuenta.xsl"/>
+                <to id="activemq-traerListaTarjetasParaCuenta" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="traerListaTarjetasParaCuentaTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="traerListaTarjetasParaCuentaTrama2xml" uri="xslt://transformations/out/trama2xmlIOC096001O_traerListaTarjetasParaCuenta.xsl?saxon=true"/>
+                <doCatch id="traerListaTarjetasParaCuentaCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.aggregation.RespaldarMensaje"
+                        id="traerListaTarjetasParaCuentaRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="traerListaTarjetasParaCuentaSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerListaTarjetasParaCuentaFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="traerListaTarjetasParaCuentaSetBodyError" method="obtenerError"/>
+                </doCatch>
+                <doFinally id="traerListaTarjetasParaCuentaFinally"/>
+            </doTry>
+        </route>
+        <!-- ruta encargada de mostrar movimientos del estado de cuenta -->
+        <route id="traerMovimientosEstadoDeCuenta">
+            <from id="traerMovimientosEstadoDeCuentaFrom" uri="direct:traerMovimientosEstadoDeCuenta"/>
+            <doTry id="traerMovimientosEstadoDeCuentaTry">
+                <to id="traerMovimientosEstadoDeCuentaXml2trama" uri="xslt://transformations/in/xml2tramaIOC096006I_traerMovimientosEstadoDeCuenta.xsl"/>
+                <to id="activeMQ-traerMovimientosEstadoDeCuenta" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Shared&amp;replyTo={{amq.queue.res}}&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="traerMovimientosEstadoDeCuentaTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="traerMovimientosEstadoDeCuentaTrama2xml" uri="xslt://transformations/out/trama2xmlIOC096006O_traerMovimientosEstadoDeCuenta.xsl?saxon=true"/>
+                <doCatch id="traerMovimientosEstadoDeCuentaCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.aggregation.RespaldarMensaje"
+                        id="traerMovimientosEstadoDeCuentaRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="traerMovimientosEstadoDeCuentaSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerMovimientosEstadoDeCuentaFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="traerMovimientosEstadoDeCuentaSetBodyError" method="obtenerError"/>
+                </doCatch>
+                <doFinally id="traerMovimientosEstadoDeCuentaFinally"/>
+            </doTry>
+        </route>
+        <!-- ruta encargada de mostrar movimientos no facturados de cuenta o tarjeta de credito-->
+        <route id="traerMovimientosNoFacturados">
+            <from id="traerMovimientosNoFacturadosFrom" uri="direct:traerMovimientosNoFacturados"/>
+            <doTry id="traerMovimientosNoFacturadosTry">
+                <to id="traerMovimientosNoFacturadosXml2trama" uri="xslt://transformations/in/xml2tramaIOC096004I_traerMovimientosNoFacturados.xsl"/>
+                <to id="activeMQ-traerMovimientosNoFacturados" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Shared&amp;replyTo={{amq.queue.res}}&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="traerMovimientosNoFacturadosTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="traerMovimientosNoFacturadosTrama2xml" uri="xslt://transformations/out/trama2xmlIOC096004O_traerMovimientosNoFacturados.xsl?saxon=true"/>
+                <doCatch id="traerMovimientosNoFacturadosCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.aggregation.RespaldarMensaje"
+                        id="traerMovimientosNoFacturadosRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="traerMovimientosNoFacturadosSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerMovimientosNoFacturadosFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="traerMovimientosNoFacturadosSetBodyError" method="obtenerError"/>
+                </doCatch>
+                <doFinally id="traerMovimientosNoFacturadosFinally"/>
+            </doTry>
+        </route>
+        <route id="rutaListarTarjetaCredito">
+            <from id="_from1" uri="direct:listar"/>
+            <doTry id="_doTry1">
+                <setProperty id="_setProperty1" propertyName="userId">
+                    <xpath resultType="String">substring(//userId, 0, 11)</xpath>
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="canal">
+                    <xpath resultType="String">substring(//canalLlamada, 0, 5)</xpath>
+                </setProperty>
+                <setProperty id="_setProperty3" propertyName="rut">
+                    <xpath resultType="String">substring(//rut, 0, 11)</xpath>
+                </setProperty>
+                <setProperty id="_setProperty4" propertyName="estado">
+                    <xpath resultType="String">substring(//estado, 0, 3)</xpath>
+                </setProperty>
+                <setProperty id="_setProperty5" propertyName="tipo">
+                    <xpath resultType="String">substring(//tipo, 0, 2)</xpath>
+                </setProperty>
+                <to id="listarTarjetaCredito-To" uri="sql-stored:classpath:sql/PA_SEL_TARJETACREDITOLISTAR_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseListarTarjetaCredito"/>
+                <bean id="validarConsultarCapitalizacionBean"
+                      method="validarListaTarjetaCredito" ref="beanRouteFacade"/>
+                <choice>
+                    <when>
+                        <simple>${property.sindata} == 'NOK' </simple>
+                        <to id="listarTarjetaCreditoTrama2xml" uri="xslt://transformations/out/xmlOut_PA_listarTarjetaCredito.xsl?saxon=true"/>
+                    </when>
+                </choice>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.aggregation.RespaldarMensaje"
+                        id="_bean1" method="restaurarCuerpo"/>
+                    <setBody id="_setBody1">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="_to7" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="_bean2" method="obtenerError"/>
+                </doCatch>
+                <doFinally id="_doFinally1"/>
+            </doTry>
+        </route>
+        <route id="rutaAbonarTarjetaCredito">
+            <from id="AbonarTarjetaCredito-From" uri="direct:abonar"/>
+            <doTry id="AbonarTarjetaCredito-DoTry">
+                <setProperty id="AbonarTarjetaCredito-Monto" propertyName="monto">
+                    <xpath resultType="Integer">//monto</xpath>
+                </setProperty>
+                <setHeader headerName="origenAbono" id="AbonarTarjetaCredito-OrigenAbono">
+                    <xpath resultType="String">//origenAbono</xpath>
+                </setHeader>
+                <choice id="ValidarMonto">
+                    <when id="ValidarMontoMayor0">
+                        <simple>${headers.monto} &gt; 0</simple>
+                        <choice id="ValidarOrigenAbono">
+                            <when id="ValidarOrigenAbono-CashBack">
+                                <simple>${headers.origenAbono} == 'CH'</simple>
+                                <setProperty id="GuardaBody" propertyName="body">
+                                    <simple>${body}</simple>
+                                </setProperty>
+                                <to id="Llamada-ConsultarLealtad360" uri="direct:consultarLealtad360"/>
+                                <setBody id="restableceBody">
+                                    <simple>${exchangeProperty.body}</simple>
+                                </setBody>
+                                <choice id="ValidaSaldoPuntos">
+                                    <when id="ValidaSaldoPuntosMayorAlMonto">
+                                    <simple>${headers.saldoPuntos} &gt;= ${exchangeProperty.monto}</simple>
+                                    <to id="AbonarPuntosRPG-To" uri="direct:AbonarPuntosRPG"/>
+                                    </when>
+                                    <otherwise id="ErrorSaldoPuntosMenorAlMonto">
+                                    <setHeader
+                                    headerName="statusCode" id="statusCode-PuntosMenorMonto">
+                                    <xpath resultType="String">-2</xpath>
+                                    </setHeader>
+                                    <setHeader headerName="codigo" id="codigo-PuntosMenorMonto">
+                                    <simple>{{saldo.menor.monto.codigo}}</simple>
+                                    </setHeader>
+                                    <setHeader
+                                    headerName="descripcion" id="codigo-PuntosMenorMonto">
+                                    <simple>{{saldo.menor.monto.descripcion}}</simple>
+                                    </setHeader>
+                                    <to
+                                    id="XSLTError-PuntosMenorMonto" uri="xslt://transformations/error/error_abonarTarjetaCredito.xsl?saxon=true"/>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="OrigenAbono-DistintoACashBack">
+                                <to id="AbonarPuntosRPG-Directo-To" uri="direct:AbonarPuntosRPG"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="MontoMenorIgualCero">
+                        <setHeader headerName="statusCode" id="statusCode-MontoMenorIgualCero">
+                            <xpath resultType="String">-1</xpath>
+                        </setHeader>
+                        <setHeader headerName="codigo" id="codigo-MontoMenorIgualCero">
+                            <simple>{{monto.menor.cero.codigo}}</simple>
+                        </setHeader>
+                        <setHeader headerName="descripcion" id="codigo-MontoMenorIgualCero">
+                            <simple>{{monto.menor.cero.descripcion}}</simple>
+                        </setHeader>
+                        <to id="ErrorXSLT-MontoMenorIgualCero" uri="xslt://transformations/error/error_abonarTarjetaCredito.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.aggregation.RespaldarMensaje"
+                        id="_bean3" method="restaurarCuerpo"/>
+                    <setBody id="_setBody2">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="_to12" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="_bean4" method="obtenerError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="rutaAbonarTarjetaCredito-RPG">
+            <from id="AbonarPuntosRPG-From" uri="direct:AbonarPuntosRPG"/>
+            <to id="XSLTEntrada-AbonarPuntosRPG" uri="xslt://transformations/in/xml2tramaIOC714002I_abonarTarjetaCredito.xsl"/>
+            <bean beanType="cl.coopeuch.util.jms.CorrelacionId"
+                id="CorrelationID-AbonarPuntosRPG" method="crearJMSCorrelacionId24"/>
+            <to id="ConexionConector-AbonarPuntosRPG" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+            <transform id="AbonarPuntosRPG-Transform">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <to id="XSLTSalida-AbonarPuntosRPG" uri="xslt://transformations/out/trama2xmlIOC714002O_abonarTarjetaCredito.xsl?saxon=true"/>
+        </route>
+        <route id="rutaLealtad360">
+            <from id="fromConsultarLealtad360" uri="direct:consultarLealtad360"/>
+            <doTry id="doTryConsultarLealtad360">
+                <removeHeaders id="ConsultarLealtad360-removeHeaders" pattern="*"/>
+                <to id="toXmlEntradaLealtad360" uri="xslt://transformations/in/xml2EntradaLealtad360.xsl"/>
+                <to id="toServicioLealtad360" uri="cxf://{{tarjeta.credito.servicio.lealtad360.endpoint}}?dataFormat=MESSAGE&amp;password={{lealtad.password}}&amp;username={{lealtad.username}}"/>
+                <convertBodyTo id="rutaLealtad360-convertBodyTo" type="java.lang.String"/>
+                <setHeader headerName="statusCode" id="statusCode-LLamadaLealtad360">
+                    <xpath resultType="String">//statusCode</xpath>
+                </setHeader>
+                <setHeader headerName="status" id="status-LLamadaLealtad360">
+                    <xpath resultType="String">//status</xpath>
+                </setHeader>
+                <choice id="Validacion-LLamadaLealtad360">
+                    <when id="LLamadaLealtad360-OK">
+                        <simple>${headers.statusCode} == '01'</simple>
+                        <setHeader headerName="saldoPuntos" id="saldoPuntos">
+                            <xpath resultType="Integer">//saldoPuntos</xpath>
+                        </setHeader>
+                    </when>
+                    <otherwise id="LLamadaLealtad360-Error">
+                        <to id="XSLTError" uri="xslt://transformations/error/error_abonarTarjetaCredito.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="doCatchConsultarLealtad360">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.aggregation.RespaldarMensaje"
+                        id="beanRestauraConsultarLealtad360" method="restaurarCuerpo"/>
+                    <setBody id="setBodyConsultarLealtad360">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="toErrorConsultarLealtad360" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="beanErrorConsultarLealtad360" method="obtenerError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route1">
+            <from id="consultarTC_nexus-From" uri="direct:consultarTC_nexus"/>
+            <doTry id="consultarTC_nexus-Try">
+                <bean beanType="cl.coopeuch.util.jms.CorrelacionId"
+                    id="consultarTC_nexus-Correlation" method="crearJMSCorrelacionId24"/>
+                <setProperty id="canalLLamada" propertyName="canalLLamada">
+                    <simple>{{nexus.canalLLamada}}</simple>
+                </setProperty>
+                <setProperty id="tipoTarjeta" propertyName="tipoTarjeta">
+                    <simple>{{nexus.tipoTarjeta}}</simple>
+                </setProperty>
+                <to id="consultarTC_nexus-XSLT" uri="xslt://transformations/in/xml2Entrada_consultarSaldoTC.xsl?saxon=true"/>
+                <to id="consultarTC_nexus-to-AMQ" uri="AMQ:{{colas.servicio.nexus.in.temp}}??preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+              	<log message="body: ${body}" />
+                <to id="consultarTC_nexus-to-CDATA" uri="xslt://transformations/out/getCDATA.xsl?saxon=true"/>             
+                <bean id="obtenerValores-Bean" method="obtenerValoresTarjetaCredito" ref="beanRouteFacade"/>                
+                <doCatch id="consultarTC_nexus-doCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.aggregation.RespaldarMensaje"
+                        id="consultarTC_nexus-beanRestaura" method="restaurarCuerpo"/>
+                    <setBody id="consultarTC_nexus-setBody">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarTC_nexus-toError" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="consultarTC_nexus-beanError" method="obtenerErrorServicioExterno"/>
+                    <stop id="_stop1"/>
+                </doCatch>
+                <doFinally id="consultarTC_nexus-Finally"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

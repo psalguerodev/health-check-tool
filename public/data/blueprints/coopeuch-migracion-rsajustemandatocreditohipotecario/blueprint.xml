@@ -1,0 +1,276 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wssajustemandatocreditohipotecario"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <cxf:cxfEndpoint address="/WSAjusteMandatoCreditoHipotecario"
+        id="servicioAjusteMandatoCreditoHipotecarioEndpoint"
+        serviceClass="cl.coopeuch.integracion.utilidad.ajuste.mandato.credito.hipotecario.wsdl.AjusteMandatoCreditoHipotecario" wsdlURL="etc/wsdl/WSAjusteMandatoCreditoHipotecario.wsdl"/>
+    <cxf:rsServer address="/RSAjusteMandatoCreditoHipotecario"
+        id="endpointRSAjusteMandatoCreditoHipotecario" serviceClass="cl.coopeuch.integracion.utilidad.ajuste.mandato.credito.hipotecario.rest.RSAjusteMandatoCreditoHipotecario"/>
+    <cxf:rsClient address="[{rest.servicio.documento.generar}]"
+        id="endpointRSDocumentoGenerar" loggingFeatureEnabled="false">
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <cxf:rsClient address="[{rest.servicio.documento.validar.cedula}]"
+        id="endpointRSValidaCedula" loggingFeatureEnabled="false">
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <cxf:rsClient address="[{rest.notificaciones.enviar.endpoint}]"
+        id="endpointRSNotificaciones" loggingFeatureEnabled="false">
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <cxf:rsClient address="[{rest.servicio.validar.desafio.endpoint}]"
+        id="endpointRSDesafio" loggingFeatureEnabled="false">
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.utilidad.ajuste.mandato.credito.hipotecario.utils.RouteFacade" id="routeFacade"/>
+    <bean
+        class="cl.coopeuch.integracion.utilidad.ajuste.mandato.credito.hipotecario.agregadores.ConcatenarDocumentos" id="concatenarDocumentos"/>
+    <bean
+        class="cl.coopeuch.integracion.utilidad.ajuste.mandato.credito.hipotecario.agregadores.TrasformarDocumentos" id="trasformarDocumentos"/>
+    <camelContext id="AjusteMandatoCreditoHipotecario" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="generarDocumentoJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.utilidad.ajuste.mandato.credito.hipotecario.rest.client.CuerpoDocumento"/>
+            <json id="validarCedulaRequestJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.utilidad.ajuste.mandato.credito.hipotecario.ServicioValidaCedula.client.DatosCedulaIdentidad"/>
+            <json id="validarCedulaResponseJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.utilidad.ajuste.mandato.credito.hipotecario.ServicioValidaCedula.client.DatosSalida"/>
+            <json id="enviarCorreoJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.utilidad.ajuste.mandato.credito.hipotecario.rest.client.EnviarCorreo"/>
+            <json id="validarDesafioRequestJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.utilidad.ajuste.mandato.credito.hipotecario.desafio.client.EntradasValidarDesafio"/>
+            <json id="validarDesafioResponseJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.utilidad.ajuste.mandato.credito.hipotecario.desafio.client.RespuestaValidarDesafio"/>
+        </dataFormats>
+        <route id="rest-inicio">
+            <from id="fromRestService" uri="cxfrs:bean:endpointRSAjusteMandatoCreditoHipotecario"/>
+            <choice id="_choice3">
+                <when id="_when5">
+                    <simple>${header.operationName} == 'generar'</simple>
+                    <unmarshal id="_unmarshal4">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.utilidad.ajuste.mandato.credito.hipotecario.wsdl.GenerarRequest"/>
+                    </unmarshal>
+                    <to id="inicioRestTo" uri="direct:inicio"/>
+                    <marshal id="_marshal4">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.utilidad.ajuste.mandato.credito.hipotecario.wsdl.GenerarResponse"/>
+                    </marshal>
+                </when>
+                <when id="_when6">
+                    <simple>${header.operationName} == 'visualizar'</simple>
+                    <unmarshal id="_unmarshal5">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.utilidad.ajuste.mandato.credito.hipotecario.wsdl.VisualizarRequest"/>
+                    </unmarshal>
+                    <to id="inicioRestTo" uri="direct:inicio"/>
+                    <marshal id="_marshal5">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.utilidad.ajuste.mandato.credito.hipotecario.wsdl.VisualizarResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <route id="soap-inicio">
+            <from id="fromSoapService" uri="cxf:bean:servicioAjusteMandatoCreditoHipotecarioEndpoint"/>
+            <setBody id="_setBody1">
+                <simple>${body.get(0)}</simple>
+            </setBody>
+            <to id="inicioSoapTo" uri="direct:inicio"/>
+        </route>
+        <route id="_routeInicio">
+            <from id="inicioFrom" uri="direct:inicio"/>
+            <setProperty id="_setProperty9" propertyName="operacion">
+                <header>operationName</header>
+            </setProperty>
+            <toD id="_toDInicio" uri="direct:${header.operationName}"/>
+        </route>
+        <route id="RouteGenerar">
+            <from id="fromGenerar" uri="direct:generar"/>
+            <doTry id="_doTry1">
+                <setProperty id="_setProperty1" propertyName="firma">
+                    <constant>1</constant>
+                </setProperty>
+                <setProperty id="_setProperty3" propertyName="cuerpoGenerar">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="_setProperty6" propertyName="userId">
+                    <simple>${body.userId}</simple>
+                </setProperty>
+                <setProperty id="_setProperty11" propertyName="canalLlamada">
+                    <simple>${body.canalLlamada}</simple>
+                </setProperty>
+                <setProperty id="_setProperty12" propertyName="rut">
+                    <simple>${body.rut}</simple>
+                </setProperty>
+                <choice id="_choice1">
+                    <when id="_when1">
+                        <simple>${body.numeroSerieCedulaIdentidad} != null and ${body.numeroSerieCedulaIdentidad} != ''</simple>
+                        <to id="idvalidarCedula" uri="direct:validarCedula"/>
+                    </when>
+                    <otherwise id="_otherwise3">
+                        <to id="_to1" uri="direct:validarDesafio"/>
+                        <choice id="_choice4">
+                            <when id="_when3">
+                                <simple>${property.desafio} == true</simple>
+                                <to id="_to4" uri="direct:generarDocEnviarCorreo"/>
+                            </when>
+                            <otherwise id="_otherwise2">
+                                <bean id="_bean10"
+                                    method="errorValidacionDesafio" ref="routeFacade"/>
+                            </otherwise>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to2" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeValidarDesafio">
+            <from id="fromValidarDesafio" uri="direct:validarDesafio"/>
+            <removeHeaders id="_removeHeaders1" pattern="*"/>
+            <bean
+                beanType="cl.coopeuch.integracion.utilidad.ajuste.mandato.credito.hipotecario.utils.CorrelationId"
+                id="_bean4" method="createJMSCorrelationId24"/>
+            <bean id="_bean8" method="validarDesafioRequest" ref="routeFacade"/>
+            <marshal id="_marshal3" ref="validarDesafioRequestJson"/>
+            <convertBodyTo id="_convertBodyTo3" type="String"/>
+            <to id="_tovalidarDesafioRequest" uri="cxfrs:bean:endpointRSDesafio?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+            <unmarshal id="_unmarshal3" ref="validarDesafioResponseJson"/>
+            <bean id="_bean9" method="validarRespuestaDesafio" ref="routeFacade"/>
+        </route>
+        <route id="routeValidarCedula">
+            <from id="fromValidarCedula" uri="direct:validarCedula"/>
+            <removeHeaders id="_removeHeaders5" pattern="*"/>
+            <bean id="_bean3" method="validarCedulaRequest" ref="routeFacade"/>
+            <marshal id="_marshal2" ref="validarCedulaRequestJson"/>
+            <convertBodyTo id="_convertBodyTo2" type="String"/>
+            <to id="_tovalidarCedulaRequest" uri="cxfrs:bean:endpointRSValidaCedula?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+            <unmarshal id="_unmarshal2" ref="validarCedulaResponseJson"/>
+            <choice id="_choice2">
+                <when id="_when4">
+                    <simple>${body.cedulaVigente} == 'SI' || ${body.razon} contains 'CONTINGENCIA'</simple>
+                    <to id="_to5" uri="direct:generarDocEnviarCorreo"/>
+                </when>
+                <otherwise id="_otherwise1">
+                    <bean id="_bean6" method="errorValidarCedula" ref="routeFacade"/>
+                    <stop id="_stop1"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="_route1">
+            <from id="_from2" uri="direct:generarDocEnviarCorreo"/>
+            <setBody id="_setBody2">
+                <simple>${property.cuerpoGenerar}</simple>
+            </setBody>
+            <removeHeaders id="_removeHeaders4" pattern="*"/>
+            <setProperty id="_setProperty8" propertyName="nombreDocumento">
+                <simple>{{rest.servicio.documento.generar.nombre}}</simple>
+            </setProperty>
+            <split id="_split3" parallelProcessing="true" strategyRef="concatenarDocumentos">
+                <simple>${body.datosDocumentos.datosDocumento}</simple>
+                <to id="generarDocumentosTo1" uri="direct:generarDocumentos"/>
+            </split>
+            <wireTap id="_wireTap2" uri="direct:enviarCorreo"/>
+            <log id="_log2" message="${body}"/>
+            <bean id="beanInvocarCorreoCeluda" method="salidaGenerar" ref="routeFacade"/>
+        </route>
+        <route id="RouteVisualizar">
+            <from id="validarFrom" uri="direct:visualizar"/>
+            <doTry id="_doTry2">
+                <removeHeaders id="_removeHeaders2" pattern="*"/>
+                <setProperty id="_setProperty2" propertyName="firma">
+                    <constant>0</constant>
+                </setProperty>
+                <setHeader headerName="userId" id="_setHeader1">
+                    <simple>${body.userId}</simple>
+                </setHeader>
+                <setHeader headerName="canalLlamada" id="_setHeader2">
+                    <simple>${body.canalLlamada}</simple>
+                </setHeader>
+                <setHeader headerName="rut" id="_setHeader3">
+                    <simple>${body.rut}</simple>
+                </setHeader>
+                <setProperty id="_setProperty7" propertyName="nombreDocumento">
+                    <simple>{{rest.servicio.documento.generar.nombre}}</simple>
+                </setProperty>
+                <split id="_split2" parallelProcessing="true" strategyRef="concatenarDocumentos">
+                    <simple>${body.datosDocumentos.datosDocumento}</simple>
+                    <to id="generarDocumentosTo" uri="direct:generarDocumentos"/>
+                </split>
+                <bean id="_bean2" method="salidaVisualizar" ref="routeFacade"/>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to3" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeGenerarDocumentos">
+            <from id="generarDocumentosFrom" uri="direct:generarDocumentos"/>
+            <bean id="beanInvocarDocumentoVisualizar"
+                method="invocarDocumentoVisualizar" ref="routeFacade"/>
+            <to id="IdInvocarDocumento" uri="direct:invocarDocumento"/>
+        </route>
+        <route id="invocarDocumentoRoute">
+            <from id="FromInvocarDocumento" uri="direct:invocarDocumento"/>
+            <marshal id="_marshal1" ref="generarDocumentoJson"/>
+            <convertBodyTo id="_convertBodyTo1" type="String"/>
+            <to id="_togenerarDocumentoRequest" uri="cxfrs:bean:endpointRSDocumentoGenerar?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+            <unmarshal id="_unmarshal1" ref="generarDocumentoJson"/>
+        </route>
+        <route id="fromEnviarCorreo">
+            <from id="fromEnviarCorreo" uri="direct:enviarCorreo"/>
+            <split id="_split4" parallelProcessing="true" strategyRef="trasformarDocumentos">
+                <simple>${body.documento}</simple>
+                <marshal id="_marshal7">
+                    <base64/>
+                </marshal>
+            </split>
+            <setProperty id="_setProperty10" propertyName="documentos">
+                <simple>${body}</simple>
+            </setProperty>
+            <setHeader headerName="CamelHttpMethod" id="_setHeader4">
+                <constant>POST</constant>
+            </setHeader>
+            <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader6">
+                <constant>application/json</constant>
+            </setHeader>
+            <setProperty id="_setProperty4" propertyName="idnotificacion">
+                <simple>{{rest.notificaciones.enviar.idNotificacion}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty5" propertyName="plantilla">
+                <simple>{{rest.notificaciones.enviar.plantilla}}</simple>
+            </setProperty>
+            <split id="_split1" parallelProcessing="true">
+                <simple>${property.cuerpoGenerar.correos.correo}</simple>
+                <log id="_log3" message="${body}"/>
+                <bean id="_bean7" method="enviarCorreoRequest" ref="routeFacade"/>
+                <marshal id="_marshal6" ref="enviarCorreoJson"/>
+                <convertBodyTo id="_convertBodyTo4" type="String"/>
+                <to id="_toRSNotificaciones" uri="cxfrs:bean:endpointRSNotificaciones?exchangePattern=InOut&amp;bridgeEndpoint=true&amp;throwExceptionOnFailure=false"/>
+            </split>
+        </route>
+        <route id="excepcion">
+            <from id="_from1" uri="direct:excepcion"/>
+            <log id="_log1" loggingLevel="ERROR" message="${property.CamelExceptionCaught}"/>
+            <bean id="_bean11" method="excepcion" ref="routeFacade"/>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,295 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+           xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+           xmlns:http="http://cxf.apache.org/transports/http/configuration"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+                             placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+                             persistent-id="wscomisionsecuencia" placeholder-prefix="[{"
+                             placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+          destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{corredoraseguros.sqlserver.url}];charset=iso_1"/>
+        <property name="username" value="[{corredoraseguros.sqlserver.username}]"/>
+        <property name="password" value="[{corredoraseguros.sqlserver.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{corredoraseguros.sqlserver.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{corredoraseguros.sqlserver.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{corredoraseguros.sqlserver.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{corredoraseguros.sqlserver.maxActive}]"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.entidad.servicio.comisionsecuenciacorredora.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/corredoraseguros/WSComisionSecuencia"
+                          id="endpointWSComisionSecuencia"
+                          serviceClass="cl.coopeuch.integracion.entidad.servicio.comisionsecuenciacorredora.wsdl.WSComisionSecuenciaSOAPPortType" wsdlURL="etc/wsdl/WSComisionSecuencia.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/corredoraseguros/RSComisionSecuencia"
+                       id="WSComisionSecuenciaREST"
+                       serviceClass="cl.coopeuch.integracion.entidad.servicio.comisionsecuenciacorredora.wsdl.WSComisionSecuenciaSOAPPortType">
+        <camelcxf:providers>
+            <bean id="jsonProvider" class="org.apache.cxf.jaxrs.provider.json.JSONProvider">
+                <property name="dropRootElement" value="true"/>
+                <property name="supportUnwrapped" value="true"/>
+            </bean>
+        </camelcxf:providers>
+    </camelcxf:rsServer>
+    <camelContext id="servicio-comisionsecuenciacorredora" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSComisionSecuencia"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:WSComisionSecuenciaREST"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionListar">
+                        <simple>${header.operationName} == 'listar'</simple>
+                        <to id="toListar" uri="direct:listar"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="toConsultar" uri="direct:consultar"/>
+                    </when>
+                    <when id="inicioWhenOperacionCrear">
+                        <simple>${header.operationName} == 'crear'</simple>
+                        <to id="toCrear" uri="direct:crear"/>
+                    </when>
+                    <when id="inicioWhenOperacionModificar">
+                        <simple>${header.operationName} == 'modificar'</simple>
+                        <to id="toModificar" uri="direct:modificar"/>
+                    </when>
+                    <when id="inicioWhenOperacionEliminar">
+                        <simple>${header.operationName} == 'eliminar'</simple>
+                        <to id="toEliminar" uri="direct:eliminar"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="listar">
+            <from id="listarFrom" uri="direct:listar"/>
+            <doTry id="listarTry">
+                <to id="listarTo" uri="mock:result"/>
+                <setProperty id="listar-userId" propertyName="userId">
+                    <simple>$simple{body.userId}</simple>
+                </setProperty>
+                <setProperty id="listar-canalLlamada" propertyName="canalLlamada">
+                    <simple>$simple{body.canalLlamada}</simple>
+                </setProperty>
+                <to id="spListarComisionSecuencia" uri="sql-stored:classpath:etc/sql/PA_SELComisionSecuencia.sql?outputHeader=listarPaResponse&amp;dataSource=dataSourceSqlServer"/>
+                <bean id="listarBeanProceso"
+                      method="procesoListarResponse" ref="beanRouteFacade"/>
+                <unmarshal id="unmarshalListar">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.servicio.comisionsecuenciacorredora.wsdl"/>
+                </unmarshal>
+                <doCatch id="listarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="listarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toListarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="consultar">
+            <from id="consultarFrom" uri="direct:consultar"/>
+            <doTry id="consultarTry">
+                <setProperty id="consultar-userId" propertyName="userId">
+                    <simple>$simple{body.userId}</simple>
+                </setProperty>
+                <setProperty id="consultar-canalLlamada" propertyName="canalLlamada">
+                    <simple>$simple{body.canalLlamada}</simple>
+                </setProperty>
+                <setProperty id="consultar-codigoComisionSecuencia" propertyName="codigoComisionSecuencia">
+                    <simple>$simple{body.codigoComisionSecuencia}</simple>
+                </setProperty>
+                <to id="spConsultarComisionSecuencia" uri="sql-stored:classpath:etc/sql/PA_SELComisionSecuencia.sql?outputHeader=consultarPaResponse&amp;dataSource=dataSourceSqlServer"/>
+                <bean id="consultarBeanProceso"
+                      method="procesoConsultarResponse" ref="beanRouteFacade"/>
+                <unmarshal id="unmarshalConsultar">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.servicio.comisionsecuenciacorredora.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toConsultarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="crear">
+            <from id="crearFrom" uri="direct:crear"/>
+            <doTry id="crearTry">
+                <setProperty id="crear-userId" propertyName="userId">
+                    <simple>$simple{body.userId}</simple>
+                </setProperty>
+                <setProperty id="crear-canalLlamada" propertyName="canalLlamada">
+                    <simple>$simple{body.canalLlamada}</simple>
+                </setProperty>
+                <setProperty id="crear-nombreComisionSecuencia" propertyName="nombreComisionSecuencia">
+                    <simple>$simple{body.nombreComisionSecuencia}</simple>
+                </setProperty>
+                <setProperty id="crear-fechaIngreso" propertyName="fechaIngreso">
+                    <simple>${date:now:yyyy-MM-dd HH:mm:ss}</simple>
+                </setProperty>
+                <setProperty id="crear-usuarioIngreso" propertyName="usuarioIngreso">
+                    <simple>$simple{body.usuarioIngreso}</simple>
+                </setProperty>
+                <to id="spCrearComisionSecuencia" uri="sql-stored:classpath:etc/sql/PA_INSComisionSecuencia.sql?outputHeader=crearPaResponse&amp;dataSource=dataSourceSqlServer"/>
+                <bean id="crearBeanProceso"
+                      method="procesoCrearResponse" ref="beanRouteFacade"/>
+                <unmarshal id="unmarshalCrear">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.servicio.comisionsecuenciacorredora.wsdl"/>
+                </unmarshal>
+                <doCatch id="crear-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="crearCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toCrearExcepcion" uri="direct:excepcion"/>
+                    <log id="crear-excepcionLog" loggingLevel="ERROR"
+                         message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}" />
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="modificar">
+            <from id="modificarFrom" uri="direct:modificar"/>
+            <doTry id="modificarTry">
+                <setProperty id="modificar-userId" propertyName="userId">
+                    <simple>$simple{body.userId}</simple>
+                </setProperty>
+                <setProperty id="modificar-canalLlamada" propertyName="canalLlamada">
+                    <simple>$simple{body.canalLlamada}</simple>
+                </setProperty>
+                <setProperty id="modificar-codigoComisionSecuencia" propertyName="codigoComisionSecuencia">
+                    <simple>$simple{body.codigoComisionSecuencia}</simple>
+                </setProperty>
+                <setProperty id="modificar-nombreComisionSecuencia" propertyName="nombreComisionSecuencia">
+                    <simple>$simple{body.nombreComisionSecuencia}</simple>
+                </setProperty>
+                <setProperty id="modificar-fechaIngreso" propertyName="fechaIngreso">
+                    <simple>${date:now:yyyy-MM-dd HH:mm:ss}</simple>
+                </setProperty>
+                <setProperty id="modificar-usuarioIngreso" propertyName="usuarioIngreso">
+                    <simple>$simple{body.usuarioIngreso}</simple>
+                </setProperty>
+                <to id="spModificarComisionSecuencia" uri="sql-stored:classpath:etc/sql/PA_UPDComisionSecuencia.sql?outputHeader=modificarPaResponse&amp;dataSource=dataSourceSqlServer"/>
+                <bean id="modificarBeanProceso"
+                      method="procesoModificarResponse" ref="beanRouteFacade"/>
+                <unmarshal id="unmarshalModificar">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.servicio.comisionsecuenciacorredora.wsdl"/>
+                </unmarshal>
+                <doCatch id="modificarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="modificarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="modificar-codigoRespuesta" propertyName="codigoRespuesta">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="modificar-descRespuesta" propertyName="descRespuesta">
+                        <simple>${exception.message}</simple>
+                    </setProperty>
+                    <log id="modificar-excepcionLog" loggingLevel="ERROR" message="Ha ocurrido el siguiente error en la operación: ${exception.stacktrace}"/>
+                    <to id="modificarToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="eliminar">
+            <from id="eliminarFrom" uri="direct:eliminar"/>
+            <doTry id="eliminarTry">
+                <setProperty id="eliminar-userId" propertyName="userId">
+                    <simple>$simple{body.userId}</simple>
+                </setProperty>
+                <setProperty id="eliminar-canalLlamada" propertyName="canalLlamada">
+                    <simple>$simple{body.canalLlamada}</simple>
+                </setProperty>
+                <setProperty id="eliminar-codigoComisionSecuencia" propertyName="codigoComisionSecuencia">
+                    <simple>$simple{body.codigoComisionSecuencia}</simple>
+                </setProperty>
+                <setProperty id="eliminar-fechaIngreso" propertyName="fechaEliminacion">
+                    <simple>${date:now:yyyy-MM-dd HH:mm:ss}</simple>
+                </setProperty>
+                <setProperty id="eliminar-usuarioIngreso" propertyName="usuarioEliminacion">
+                    <simple>$simple{body.usuarioEliminacion}</simple>
+                </setProperty>
+                <to id="spEliminarComisionSecuencia" uri="sql-stored:classpath:etc/sql/PA_DELComisionSecuencia.sql?outputHeader=eliminarPaResponse&amp;dataSource=dataSourceSqlServer"/>
+                <bean id="eliminarBeanProceso"
+                      method="procesoEliminarResponse" ref="beanRouteFacade"/>
+                <unmarshal id="unmarshalEliminar">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.servicio.comisionsecuenciacorredora.wsdl"/>
+                </unmarshal>     
+                <doCatch id="eliminarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="eliminarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="eliminarToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+    </camelContext>
+</blueprint>

@@ -1,0 +1,850 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+    xmlns:sec="http://cxf.apache.org/configuration/security"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="        http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd        http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd    http://camel.apache.org/schema/blueprint  http://camel.apache.org/schema/blueprint/camel-blueprint.xsd   http://cxf.apache.org/schemas/configuration/http-conf.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder persistent-id="conectorSinacofi"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Setting http conduit timeout de cliente -->
+    <http-conf:conduit name="*.http-conduit">
+        <http-conf:tlsClientParameters>
+            <sec:keyManagers keyPassword="[{servicio.sinacofi.certificado.pfx.clave}]">
+                <sec:keyStore
+                    file="[{servicio.sinacofi.certificado.pfx.path}]"
+                    password="[{servicio.sinacofi.certificado.pfx.clave}]" type="JKS"/>
+            </sec:keyManagers>
+        </http-conf:tlsClientParameters>
+        <http-conf:client AutoRedirect="true" Connection="Keep-Alive"
+            ConnectionTimeout="5000" ReceiveTimeout="5000"/>
+    </http-conf:conduit>
+    <cxf:rsClient address="[{protesto.sinacofi.url}]"
+        id="protestoEndpoint" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="false"/>
+        </cxf:properties>
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <cxf:rsClient address="[{bienesraices.sinacofi.url}]"
+        id="bienesRaicesEndpoint" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="false"/>
+        </cxf:properties>
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <cxf:rsClient address="[{directoriopersona.sinacofi.url}]"
+        id="dirPersonaEndpoint" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="false"/>
+        </cxf:properties>
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <cxf:rsClient address="[{direcciones.sinacofi.url}]"
+        id="direccionesEndpoint" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="false"/>
+        </cxf:properties>
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <cxf:rsClient address="[{sistemafinanciero.sinacofi.url}]"
+        id="sistFinancieroEndpoint" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="false"/>
+        </cxf:properties>
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <!-- Cliente SOAP Prendas -->
+    <cxf:rsClient address="[{prendas.sinacofi.url}]"
+        id="prendasEndpoint" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="false"/>
+        </cxf:properties>
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <cxf:rsClient address="[{infraccionlaboral.sinacofi.url}]"
+        id="infrLaboralEndpoint" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="false"/>
+        </cxf:properties>
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <cxf:rsClient address="[{morosidad.sinacofi.url}]"
+        id="morosidadEndpoint" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="false"/>
+        </cxf:properties>
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <cxf:rsClient address="[{cedula.sinacofi.url}]" id="cedulaEndpoint" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="false"/>
+        </cxf:properties>
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <!-- Conexion AMQ -->
+    <bean class="org.apache.activemq.ActiveMQConnectionFactory" id="amqConnectionFactory">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+    </bean>
+    <!--     Configuracion concurrencia AMQ -->
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="jmsConfig">
+        <property name="connectionFactory" ref="amqConnectionFactory"/>
+        <property name="concurrentConsumers" value="10"/>
+    </bean>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="configuration" ref="jmsConfig"/>
+    </bean>
+    <cxf:rsServer address="/RSConectorSinacofi"
+        id="endpointRSConectorSinacofi" serviceClass="cl.coopeuch.rest.Test"/>
+    <!-- beans para agregacion multicast -->
+    <bean class="cl.coopeuch.util.transformacion.AgregacionCamel" id="agregadorBody"/>
+    <bean class="cl.coopeuch.util.transformacion.RouteFacade" id="beanRouteFacade"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <camelContext id="conector-sinacofi" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="autenticacionSinacofiJson" library="Jackson" unmarshalTypeName="cl.coopeuch.dto.in.AutenticarIn"/>
+            <json id="tokenSinacofiJson" library="Jackson" unmarshalTypeName="cl.coopeuch.dto.out.Tokens"/>
+            <json id="protestoRequestSinacofiJson" library="Jackson" unmarshalTypeName="cl.coopeuch.rs.cliente.protesto.Consulta"/>
+            <json id="protestoResponseSinacofiJson" library="Jackson" unmarshalTypeName="cl.coopeuch.rs.cliente.protesto.ConsultaResponse"/>
+            <json id="bienesRaicesResponseSinacofiJson"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.rs.cliente.bienesraices.ConsultaResponse"/>
+            <json id="dirPersonaResponseSinacofiJson" library="Jackson" unmarshalTypeName="cl.coopeuch.rs.cliente.dirpersona.ConsultaResponse"/>
+            <json id="direccionesResponseSinacofiJson" library="Jackson" unmarshalTypeName="cl.coopeuch.rs.cliente.direcciones.ConsultaResponse"/>
+            <json id="sistFinancieroResponseSinacofiJson"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.rs.cliente.sistfinanciero.ConsultaResponse"/>
+            <json id="insfLaboralesResponseSinacofiJson"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.rs.cliente.infracciones.laborales.ConsultaResponse"/>
+            <json id="prendasResponseSinacofiJson" library="Jackson" unmarshalTypeName="cl.coopeuch.rs.cliente.prendas.ConsultaResponse"/>
+            <json id="morosidadResponseSinacofiJson" library="Jackson" unmarshalTypeName="cl.coopeuch.rs.cliente.morosidad.ConsultaResponse"/>
+            <json id="cedulaResponseSinacofiJson" library="Jackson" unmarshalTypeName="cl.coopeuch.rs.cliente.cedula.ConsultaResponse"/>
+            <json id="celulaRequestSinacofiJson" library="Jackson" unmarshalTypeName="cl.coopeuch.rs.cliente.cedula.Consulta"/>
+        </dataFormats>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSConectorSinacofi"/>
+            <to id="_to9" uri="direct:authSinacofi"/>
+            <convertBodyTo id="ruteoOperacionesBodyTo1" type="java.lang.String"/>
+            <multicast id="consultasSinacofiMulticast1"
+                parallelProcessing="true" strategyRef="agregadorBody">
+                <to id="multicastConsultaCedulaTo1" uri="direct:consulta1"/>
+                <to id="multicastConsultaMorosidadTo1" uri="direct:consulta2"/>
+                <to id="multicastConsultaInfrLabTo1" uri="direct:consulta7"/>
+                <to id="multicastConsultaPrendasTo1" uri="direct:consulta8"/>
+                <to id="multicastConsultaSistFinTo1" uri="direct:consulta16"/>
+                <to id="multicastConsultaDirTo1" uri="direct:consulta18"/>
+                <to id="multicastConsultaDirPerTo1" uri="direct:consulta26"/>
+                <to id="multicastConsultaBienesTo1" uri="direct:consulta32"/>
+                <to id="multicastConsultaProtestoTo1" uri="direct:consulta82"/>
+            </multicast>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                id="generaSalidaXml1" method="generaSalida"/>
+        </route>
+        <!-- Ruta principal que recibe peticion desde cola AMQ -->
+        <route id="ruteoOperaciones">
+            <from id="recibeAMQsearchuser" uri="AMQ:{{amq.queue.sinacofi.req}}"/>
+            <to id="_to11" uri="direct:authCache"/>
+            <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+            <multicast id="consultasSinacofiMulticast"
+                parallelProcessing="true" strategyRef="agregadorBody">
+                <to id="multicastConsultaCedulaTo" uri="direct:consulta1"/>
+                <to id="multicastConsultaMorosidadTo" uri="direct:consulta2"/>
+                <to id="multicastConsultaInfrLabTo" uri="direct:consulta7"/>
+                <to id="multicastConsultaPrendasTo" uri="direct:consulta8"/>
+                <to id="multicastConsultaSistFinTo" uri="direct:consulta16"/>
+                <to id="multicastConsultaDirTo" uri="direct:consulta18"/>
+                <to id="multicastConsultaDirPerTo" uri="direct:consulta26"/>
+                <to id="multicastConsultaBienesTo" uri="direct:consulta32"/>
+                <to id="multicastConsultaProtestoTo" uri="direct:consulta82"/>
+            </multicast>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                id="generaSalidaXml" method="generaSalida"/>
+        </route>
+        <route id="cronAuthDelCacheRoute">
+            <from id="fromCronAuth" uri="quartz2://cacheTimer?cron={{cron.auth.cache}}"/>
+            <log id="cronAuthoLog" message="[QUARTZ] He activado el cron para eliminar cache"/>
+            <to id="generarCacheTo" uri="direct:authDelCache"/>
+        </route>
+        <!-- Ruta que consulta wsdl de cliente Cedula  -->
+        <route id="consulta1estadoCedula">
+            <from id="recibeConsulta1estadoCedula" uri="direct:consulta1"/>
+            <removeHeaders id="_removeHeaders4" pattern="*"/>
+            <log id="_log12" message="wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww: ${body}"/>
+            <doTry id="consulta1estadoCedulaTry">
+                <choice id="_choice1">
+                    <when id="contieneXmlCedula">
+                        <simple>${body} contains 'Cedula'</simple>
+                        <setProperty id="_setProperty13" propertyName="rut">
+                            <xpath>//MultipleConsulta/Cedula/Sinacofi/Rut/text()</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty14" propertyName="dv">
+                            <xpath>//MultipleConsulta/Cedula/Sinacofi/dv/text()</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty15" propertyName="serie">
+                            <xpath>//MultipleConsulta/Cedula/Sinacofi/serie/text()</xpath>
+                        </setProperty>
+                        <removeHeaders id="_removeHeaders1" pattern="*"/>
+                        <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader3">
+                            <constant>application/json</constant>
+                        </setHeader>
+                        <setHeader headerName="CamelHttpMethod" id="_setHeader4">
+                            <constant>POST</constant>
+                        </setHeader>
+                        <setHeader headerName="Authorization" id="_setHeader5">
+                            <simple>${property.auth}</simple>
+                        </setHeader>
+                        <bean id="_bean7"
+                            method="consultarCelulaRequest" ref="beanRouteFacade"/>
+                        <marshal id="_marshal12" ref="celulaRequestSinacofiJson"/>
+                        <convertBodyTo id="_convertBodyTo6" type="String"/>
+                        <log id="_log13" message="Request: ${body}\n${headers}"/>
+                        <to id="sinacofiCedulaClient" uri="cxfrs:bean:cedulaEndpoint"/>
+                        <unmarshal id="_unmarshal7" ref="cedulaResponseSinacofiJson"/>
+                        <marshal id="_marshal13">
+                            <jacksonxml unmarshalTypeName="cl.coopeuch.rs.cliente.cedula.ConsultaResponse"/>
+                        </marshal>
+                        <convertBodyTo id="consulta1estadoCedulaBodyTo" type="java.lang.String"/>
+                        <to id="_to2" uri="xslt://transformations/out/xml2xmlCEDU0102O_estadocedula.xsl?saxon=true"/>
+                        <choice id="_choice10">
+                            <when id="contieneErrorCedula">
+                                <simple>${body} contains 'CedulaError'</simple>
+                                <bean
+                                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                                    id="guardaSalidaError1Xml" method="guardaSalidaError1"/>
+                            </when>
+                        </choice>
+                    </when>
+                    <otherwise id="noContieneXmlCedula">
+                        <bean
+                            beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                            id="limpiaBodyCedula" method="limpiaBody"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="consulta1estadoCedulaCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <log id="ExcepcionConsultaCedula" message="Excepcion-Consulta-Cedula: ${exception}"/>
+                    <to id="consulta1estadoCedulaFault" uri="xslt://transformations/error/xml2xmlCEDU0102Error_estadocedula.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="guardaSalidaError1Xml" method="guardaSalidaError1"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta que consulta wsdl de cliente Morosidad  -->
+        <route id="consulta2morosidad">
+            <from id="recibeConsulta2morosidad" uri="direct:consulta2"/>
+            <removeHeaders id="_removeHeaders5" pattern="*"/>
+            <doTry id="consulta2morosidadTry">
+                <choice id="_choice2">
+                    <when id="contieneXmlMorosidad">
+                        <simple>${body} contains 'Morosidad'</simple>
+                        <setProperty id="_setProperty16" propertyName="rut">
+                            <xpath>//MultipleConsulta/Morosidad/Sinacofi/Rut/text()</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty17" propertyName="dv">
+                            <xpath>//MultipleConsulta/Morosidad/Sinacofi/dv/text()</xpath>
+                        </setProperty>
+                        <removeHeaders id="_removeHeaders3" pattern="*"/>
+                        <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader6">
+                            <constant>application/json</constant>
+                        </setHeader>
+                        <setHeader headerName="CamelHttpMethod" id="_setHeader7">
+                            <constant>POST</constant>
+                        </setHeader>
+                        <setHeader headerName="Authorization" id="_setHeader8">
+                            <simple>${property.auth}</simple>
+                        </setHeader>
+                        <bean id="_bean8"
+                            method="consultarProtestoRequest" ref="beanRouteFacade"/>
+                        <marshal id="_marshal14" ref="protestoRequestSinacofiJson"/>
+                        <convertBodyTo id="_convertBodyTo7" type="String"/>
+                        <log id="_log14" message="Request: ${body}\n${headers}"/>
+                        <to id="sinacofiMorosidadClient" uri="cxfrs:bean:morosidadEndpoint"/>
+                        <convertBodyTo id="consulta2morosidadBodyTo" type="java.lang.String"/>
+                        <unmarshal id="_unmarshal8" ref="morosidadResponseSinacofiJson"/>
+                        <marshal id="_marshal15">
+                            <jacksonxml unmarshalTypeName="cl.coopeuch.rs.cliente.morosidad.ConsultaResponse"/>
+                        </marshal>
+                        <to id="_to4" uri="xslt://transformations/out/xml2xmlIRUT0202O_morosidad.xsl?saxon=true"/>
+                        <choice id="_choice11">
+                            <when id="contieneErrorMorosidad">
+                                <simple>${body} contains 'MorosidadError'</simple>
+                                <bean
+                                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                                    id="guardaSalidaError2Xml" method="guardaSalidaError2"/>
+                            </when>
+                        </choice>
+                    </when>
+                    <otherwise id="noContieneXmlMorosidad">
+                        <bean
+                            beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                            id="limpiaBodyMorosidad" method="limpiaBody"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="consulta2morosidadCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <log id="ExcepcionConsultaMorosidad" message="Excepcion-Consulta-Morosidad: ${exception}"/>
+                    <to id="consulta2morosidadFault" uri="xslt://transformations/error/xml2xmlIRUT0202Error_morosidad.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="guardaSalidaError2Xml" method="guardaSalidaError2"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta que consulta wsdl de cliente Infraccion Laboral  -->
+        <route id="consulta7infraccionesLaborales">
+            <from id="recibeConsulta7infraccionesLaborales" uri="direct:consulta7"/>
+            <removeHeaders id="_removeHeaders6" pattern="*"/>
+            <doTry id="consulta7infraccionesLaboralesTry">
+                <choice id="_choice3">
+                    <when id="contieneXmlInfrLab">
+                        <simple>${body} contains 'InfrLab'</simple>
+                        <setProperty id="_setProperty18" propertyName="rut">
+                            <xpath>//MultipleConsulta/InfrLab/Sinacofi/Rut/text()</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty19" propertyName="dv">
+                            <xpath>//MultipleConsulta/InfrLab/Sinacofi/dv/text()</xpath>
+                        </setProperty>
+                        <removeHeaders id="_removeHeaders15" pattern="*"/>
+                        <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader9">
+                            <constant>application/json</constant>
+                        </setHeader>
+                        <setHeader headerName="CamelHttpMethod" id="_setHeader10">
+                            <constant>POST</constant>
+                        </setHeader>
+                        <setHeader headerName="Authorization" id="_setHeader27">
+                            <simple>${property.auth}</simple>
+                        </setHeader>
+                        <bean id="_bean9"
+                            method="consultarProtestoRequest" ref="beanRouteFacade"/>
+                        <marshal id="_marshal16" ref="protestoRequestSinacofiJson"/>
+                        <convertBodyTo id="_convertBodyTo8" type="String"/>
+                        <log id="_log15" message="Request: ${body}\n${headers}"/>
+                        <to id="sinacofiInfrLaboralClient" uri="cxfrs:bean:infrLaboralEndpoint"/>
+                        <unmarshal id="_unmarshal9" ref="insfLaboralesResponseSinacofiJson"/>
+                        <marshal id="_marshal17">
+                            <jacksonxml unmarshalTypeName="cl.coopeuch.rs.cliente.infracciones.laborales.ConsultaResponse"/>
+                        </marshal>
+                        <convertBodyTo
+                            id="consulta7infraccionesLaboralesBodyTo" type="java.lang.String"/>
+                        <to id="_to6" uri="xslt://transformations/out/xml2xmlIRUT0702O_infraccioneslaborales.xsl?saxon=true"/>
+                        <choice id="_choice12">
+                            <when id="contieneErrorInfrLaboral">
+                                <simple>${body} contains 'InfraccionesLabError'</simple>
+                                <bean
+                                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                                    id="guardaSalidaError7Xml" method="guardaSalidaError7"/>
+                            </when>
+                        </choice>
+                    </when>
+                    <otherwise id="noContieneXmlInfrLab">
+                        <bean
+                            beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                            id="limpiaBodyInfrLab" method="limpiaBody"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="consulta7infraccionesLaboralesCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <log id="ExcepcionInfraccionesLaborales" message="Excepcion-Infracionnes-Laborales: ${exception}"/>
+                    <to id="consulta7infraccionesLaboralesFault" uri="xslt://transformations/error/xml2xmlIRUT0702Error_infraccioneslaborales.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="guardaSalidaError7Xml" method="guardaSalidaError7"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta que consulta wsdl de cliente Prendas  -->
+        <route id="consulta8prendas">
+            <from id="recibeConsulta8prendas" uri="direct:consulta8"/>
+            <removeHeaders id="_removeHeaders7" pattern="*"/>
+            <doTry id="consulta8prendasTry">
+                <choice id="_choice4">
+                    <when id="contieneXmlPrenda">
+                        <simple>${body} contains 'Prenda'</simple>
+                        <setProperty id="_setProperty20" propertyName="rut">
+                            <xpath>//MultipleConsulta/Prenda/Sinacofi/Rut/text()</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty21" propertyName="dv">
+                            <xpath>//MultipleConsulta/Prenda/Sinacofi/dv/text()</xpath>
+                        </setProperty>
+                        <removeHeaders id="_removeHeaders16" pattern="*"/>
+                        <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader28">
+                            <constant>application/json</constant>
+                        </setHeader>
+                        <setHeader headerName="CamelHttpMethod" id="_setHeader29">
+                            <constant>POST</constant>
+                        </setHeader>
+                        <setHeader headerName="Authorization" id="_setHeader30">
+                            <simple>${property.auth}</simple>
+                        </setHeader>
+                        <bean id="_bean10"
+                            method="consultarProtestoRequest" ref="beanRouteFacade"/>
+                        <marshal id="_marshal18" ref="protestoRequestSinacofiJson"/>
+                        <convertBodyTo id="_convertBodyTo9" type="String"/>
+                        <log id="_log16" message="Request: ${body}\n${headers}"/>
+                        <to id="sinacofiPrendasClient" uri="cxfrs:bean:prendasEndpoint"/>
+                        <unmarshal id="_unmarshal10" ref="prendasResponseSinacofiJson"/>
+                        <marshal id="_marshal19">
+                            <jacksonxml unmarshalTypeName="cl.coopeuch.rs.cliente.prendas.ConsultaResponse"/>
+                        </marshal>
+                        <convertBodyTo id="consulta8prendasBodyTo" type="java.lang.String"/>
+                        <to id="_to8" uri="xslt://transformations/out/xml2xmlIRUT0802O_prendas.xsl?saxon=true"/>
+                        <choice id="_choice13">
+                            <when id="contieneErrorPrendas">
+                                <simple>${body} contains 'PrendasError'</simple>
+                                <bean
+                                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                                    id="guardaSalidaError8Xml" method="guardaSalidaError8"/>
+                            </when>
+                        </choice>
+                    </when>
+                    <otherwise id="noContieneXmlPrenda">
+                        <bean
+                            beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                            id="limpiaBodyPrenda" method="limpiaBody"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="consulta8prendasCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <log id="ExcepcionPrendas" message="Excepcion-Prendas: ${exception}"/>
+                    <to id="consulta8prendasFault" uri="xslt://transformations/error/xml2xmlIRUT0802Error_prendas.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="guardaSalidaError8Xml" method="guardaSalidaError8"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta que consulta wsdl de cliente Sistema Financiero  -->
+        <route id="consulta16sistemaFinanciero">
+            <from id="recibeConsulta16sistemaFinanciero" uri="direct:consulta16"/>
+            <doTry id="consulta16sistemaFinancieroTry">
+                <removeHeaders id="_removeHeaders8" pattern="*"/>
+                <choice id="_choice5">
+                    <when id="contieneXmlSistFin">
+                        <simple>${body} contains 'SistFin'</simple>
+                        <setProperty id="_setProperty1" propertyName="rut">
+                            <xpath>//MultipleConsulta/SistFin/Sinacofi/Rut/text()</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty2" propertyName="dv">
+                            <xpath>//MultipleConsulta/SistFin/Sinacofi/dv/text()</xpath>
+                        </setProperty>
+                        <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader1">
+                            <constant>application/json</constant>
+                        </setHeader>
+                        <setHeader headerName="CamelHttpMethod" id="_setHeader2">
+                            <constant>POST</constant>
+                        </setHeader>
+                        <setHeader headerName="Authorization" id="_setHeader11">
+                            <simple>${property.auth}</simple>
+                        </setHeader>
+                        <bean id="_bean1"
+                            method="consultarProtestoRequest" ref="beanRouteFacade"/>
+                        <marshal id="_marshal1" ref="protestoRequestSinacofiJson"/>
+                        <convertBodyTo id="_convertBodyTo1" type="String"/>
+                        <log id="_log1" message="Request: ${body}\n${headers}"/>
+                        <to id="sinacofiSistFinancieroClient" uri="cxfrs:bean:sistFinancieroEndpoint"/>
+                        <unmarshal id="_unmarshal1" ref="sistFinancieroResponseSinacofiJson"/>
+                        <marshal id="_marshal2">
+                            <jacksonxml unmarshalTypeName="cl.coopeuch.rs.cliente.sistfinanciero.ConsultaResponse"/>
+                        </marshal>
+                        <log id="_log2" message="Response XML: ${body}"/>
+                        <convertBodyTo
+                            id="consulta16sistemaFinancieroBodyTo" type="java.lang.String"/>
+                        <to id="_to10" uri="xslt://transformations/out/xml2xmlIRUT1603O_sistemafinanciero.xsl?saxon=true"/>
+                        <choice id="_choice14">
+                            <when id="contieneErrorSistFinanciero">
+                                <simple>${body} contains 'SistemaFinancieroError'</simple>
+                                <bean
+                                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                                    id="guardaSalidaError16Xml" method="guardaSalidaError16"/>
+                            </when>
+                        </choice>
+                    </when>
+                    <otherwise id="noContieneXmlSistFin">
+                        <bean
+                            beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                            id="limpiaBodySistFin" method="limpiaBody"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="consulta16sistemaFinancieroCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <log id="ExcepcionSistemaFinanciero" message="Excepcion-SistemaFinanciero: ${exception}"/>
+                    <to id="consulta16sistemaFinancieroFault" uri="xslt://transformations/error/xml2xmlIRUT1603Error_sistemafinanciero.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="guardaSalidaError16Xml" method="guardaSalidaError16"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta que consulta wsdl de cliente Direcciones  -->
+        <route id="consulta18direccionesPersona">
+            <from id="recibeConsulta18direccionesPersona" uri="direct:consulta18"/>
+            <removeHeaders id="_removeHeaders9" pattern="*"/>
+            <doTry id="consulta18direccionesPersonaTry">
+                <choice id="_choice6">
+                    <when id="contieneXmlDirecciones">
+                        <simple>${body} contains 'Direcciones'</simple>
+                        <setProperty id="_setProperty3" propertyName="rut">
+                            <xpath>//MultipleConsulta/Direcciones/Sinacofi/Rut/text()</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty4" propertyName="dv">
+                            <xpath>//MultipleConsulta/Direcciones/Sinacofi/dv/text()</xpath>
+                        </setProperty>
+                        <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader12">
+                            <constant>application/json</constant>
+                        </setHeader>
+                        <setHeader headerName="CamelHttpMethod" id="_setHeader13">
+                            <constant>POST</constant>
+                        </setHeader>
+                        <setHeader headerName="Authorization" id="_setHeader14">
+                            <simple>${property.auth}</simple>
+                        </setHeader>
+                        <bean id="_bean2"
+                            method="consultarProtestoRequest" ref="beanRouteFacade"/>
+                        <marshal id="_marshal3" ref="protestoRequestSinacofiJson"/>
+                        <convertBodyTo id="_convertBodyTo2" type="String"/>
+                        <log id="_log3" message="Request: ${body}\n${headers}"/>
+                        <to id="sinacofiDireccionesClient" uri="cxfrs:bean:direccionesEndpoint"/>
+                        <unmarshal id="_unmarshal2" ref="direccionesResponseSinacofiJson"/>
+                        <marshal id="_marshal4">
+                            <jacksonxml unmarshalTypeName="cl.coopeuch.rs.cliente.direcciones.ConsultaResponse"/>
+                        </marshal>
+                        <log id="_log4" message="Response XML: ${body}"/>
+                        <convertBodyTo
+                            id="consulta18direccionesPersonaBodyTo" type="java.lang.String"/>
+                        <to id="_to12" uri="xslt://transformations/out/xml2xmlIRUT1802O_direccionespersona.xsl?saxon=true"/>
+                        <choice id="_choice15">
+                            <when id="contieneErrorDirecciones">
+                                <simple>${body} contains 'DireccionesError'</simple>
+                                <bean
+                                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                                    id="guardaSalidaError18Xml" method="guardaSalidaError18"/>
+                            </when>
+                        </choice>
+                    </when>
+                    <otherwise id="noContieneXmlDirecciones">
+                        <bean
+                            beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                            id="limpiaBodyDirecciones" method="limpiaBody"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="consulta18direccionesPersonaCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <log id="ExcepcionDireccionesPersona" message="Excepcion-Direcciones-Persona: ${exception}"/>
+                    <to id="consulta18direccionesPersonaFault" uri="xslt://transformations/error/xml2xmlIRUT1802Error_direcciones.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="guardaSalidaError18Xml" method="guardaSalidaError18"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta que consulta wsdl de cliente Directorio Personas  -->
+        <route id="consulta26directorioPersonas">
+            <from id="recibeConsulta26directorioPersonas" uri="direct:consulta26"/>
+            <removeHeaders id="_removeHeaders10" pattern="*"/>
+            <doTry id="consulta26directorioPersonasTry">
+                <choice id="_choice7">
+                    <when id="contieneXmlDirPersona">
+                        <simple>${body} contains 'DirPersona'</simple>
+                        <setProperty id="_setProperty5" propertyName="rut">
+                            <xpath>//MultipleConsulta/DirPersona/Sinacofi/Rut/text()</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty6" propertyName="dv">
+                            <xpath>//MultipleConsulta/DirPersona/Sinacofi/dv/text()</xpath>
+                        </setProperty>
+                        <removeHeaders id="_removeHeaders2" pattern="*"/>
+                        <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader15">
+                            <constant>application/json</constant>
+                        </setHeader>
+                        <setHeader headerName="CamelHttpMethod" id="_setHeader16">
+                            <constant>POST</constant>
+                        </setHeader>
+                        <setHeader headerName="Authorization" id="_setHeader17">
+                            <simple>${property.auth}</simple>
+                        </setHeader>
+                        <bean id="_bean3"
+                            method="consultarProtestoRequest" ref="beanRouteFacade"/>
+                        <marshal id="_marshal5" ref="protestoRequestSinacofiJson"/>
+                        <convertBodyTo id="_convertBodyTo3" type="String"/>
+                        <log id="_log5" message="Request: ${body}\n${headers}"/>
+                        <to id="sinacofiDirPersonaClient" uri="cxfrs:bean:dirPersonaEndpoint"/>
+                        <unmarshal id="_unmarshal3" ref="dirPersonaResponseSinacofiJson"/>
+                        <marshal id="_marshal6">
+                            <jacksonxml unmarshalTypeName="cl.coopeuch.rs.cliente.dirpersona.ConsultaResponse"/>
+                        </marshal>
+                        <log id="_log6" message="Response XML: ${body}"/>
+                        <convertBodyTo
+                            id="consulta26directorioPersonasBodyTo" type="java.lang.String"/>
+                        <to id="_to14" uri="xslt://transformations/out/xml2xmlSNCR4401O_directoriopersonas.xsl?saxon=true"/>
+                        <choice id="_choice16">
+                            <when id="contieneErrorDirPersona">
+                                <simple>${body} contains 'DirectorioPersonasError'</simple>
+                                <bean
+                                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                                    id="guardaSalidaError26Xml" method="guardaSalidaError26"/>
+                            </when>
+                        </choice>
+                    </when>
+                    <otherwise id="noContieneXmlDirPersona">
+                        <bean
+                            beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                            id="limpiaBodyDirPersona" method="limpiaBody"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="consulta26directorioPersonasCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <log id="ExcepcionDirectorioPersona" message="Excepcion-Directorio-Persona: ${exception}"/>
+                    <to id="consulta26directorioPersonasFault" uri="xslt://transformations/error/xml2xmlSNCR4401Error_directoriopersonas.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="guardaSalidaError26Xml" method="guardaSalidaError26"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta que consulta wsdl de cliente Bienes Raices  -->
+        <route id="consulta32bienesRaices">
+            <from id="recibeConsulta32bienesRaices" uri="direct:consulta32"/>
+            <removeHeaders id="_removeHeaders11" pattern="*"/>
+            <doTry id="consulta32bienesRaicesTry">
+                <choice id="_choice8">
+                    <when id="contieneXmlBienesRaices">
+                        <simple>${body} contains 'BienesRaices'</simple>
+                        <setProperty id="_setProperty7" propertyName="rut">
+                            <xpath>//MultipleConsulta/BienesRaices/Sinacofi/Rut/text()</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty8" propertyName="dv">
+                            <xpath>//MultipleConsulta/BienesRaices/Sinacofi/dv/text()</xpath>
+                        </setProperty>
+                        <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader18">
+                            <constant>application/json</constant>
+                        </setHeader>
+                        <setHeader headerName="CamelHttpMethod" id="_setHeader19">
+                            <constant>POST</constant>
+                        </setHeader>
+                        <setHeader headerName="Authorization" id="_setHeader20">
+                            <simple>${property.auth}</simple>
+                        </setHeader>
+                        <bean id="_bean4"
+                            method="consultarProtestoRequest" ref="beanRouteFacade"/>
+                        <marshal id="_marshal7" ref="protestoRequestSinacofiJson"/>
+                        <convertBodyTo id="_convertBodyTo4" type="String"/>
+                        <log id="_log7" message="Request: ${body}\n${headers}"/>
+                        <to id="sinacofiBienesRaicesClient" uri="cxfrs:bean:bienesRaicesEndpoint"/>
+                        <unmarshal id="_unmarshal4" ref="bienesRaicesResponseSinacofiJson"/>
+                        <marshal id="_marshal8">
+                            <jacksonxml unmarshalTypeName="cl.coopeuch.rs.cliente.bienesraices.ConsultaResponse"/>
+                        </marshal>
+                        <convertBodyTo id="consulta32bienesRaicesBodyTo" type="java.lang.String"/>
+                        <to id="_to16" uri="xslt://transformations/out/xml2xmlIRUT3201O_bienesraices.xsl?saxon=true"/>
+                        <log id="_log8" message="Response XML: ${body}"/>
+                        <choice id="_choice17">
+                            <when id="contieneErrorBienesRaices">
+                                <simple>${body} contains 'BienesRaicesError'</simple>
+                                <bean
+                                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                                    id="guardaSalidaError32Xml" method="guardaSalidaError32"/>
+                            </when>
+                        </choice>
+                    </when>
+                    <otherwise id="noContieneXmlBienesRaices">
+                        <bean
+                            beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                            id="limpiaBodyBienesRaices" method="limpiaBody"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="consulta32bienesRaicesCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <log id="ExcepcionBienesRaices" message="Excepcion-Bienes-Raices: ${exception}"/>
+                    <to id="consulta32bienesRaicesFault" uri="xslt://transformations/error/xml2xmlIRUT3201Error_bienesraices.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="guardaSalidaError32Xml" method="guardaSalidaError32"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta que consulta wsdl de cliente Protesto  -->
+        <route id="consulta82">
+            <from id="recibeConsulta82protestos" uri="direct:consulta82"/>
+            <removeHeaders id="_removeHeaders12" pattern="*"/>
+            <doTry id="consulta82Try">
+                <choice id="_choice9">
+                    <when id="contieneXmlProtesto">
+                        <simple>${body} contains 'Protesto'</simple>
+                        <setProperty id="_setProperty9" propertyName="rut">
+                            <xpath>//MultipleConsulta/Protesto/Sinacofi/Rut/text()</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty10" propertyName="dv">
+                            <xpath>//MultipleConsulta/Protesto/Sinacofi/dv/text()</xpath>
+                        </setProperty>
+                        <removeHeaders id="_removeHeaders13" pattern="*"/>
+                        <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader21">
+                            <constant>application/json</constant>
+                        </setHeader>
+                        <setHeader headerName="CamelHttpMethod" id="_setHeader22">
+                            <constant>POST</constant>
+                        </setHeader>
+                        <setHeader headerName="Authorization" id="_setHeader23">
+                            <simple>${property.auth}</simple>
+                        </setHeader>
+                        <bean id="_bean5"
+                            method="consultarProtestoRequest" ref="beanRouteFacade"/>
+                        <marshal id="_marshal9" ref="protestoRequestSinacofiJson"/>
+                        <convertBodyTo id="_convertBodyTo5" type="String"/>
+                        <log id="_log9" message="Request: ${body}\n${headers}"/>
+                        <to id="protestoToServicioSinacofi" uri="cxfrs://bean://protestoEndpoint"/>
+                        <unmarshal id="_unmarshal5" ref="protestoResponseSinacofiJson"/>
+                        <marshal id="_marshal10">
+                            <jacksonxml unmarshalTypeName="cl.coopeuch.rs.cliente.protesto.ConsultaResponse"/>
+                        </marshal>
+                        <log id="_log10" message="Response XML: ${body}"/>
+                        <convertBodyTo
+                            id="recibeConsulta82protestosBodyTo" type="java.lang.String"/>
+                        <to id="_to18" uri="xslt://transformations/out/xml2xmlIRUT8202O_protestos.xsl?saxon=true"/>
+                        <choice id="_choice18">
+                            <when id="contieneErrorProtesto">
+                                <simple>${body} contains 'ProtestosError'</simple>
+                                <bean
+                                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                                    id="guardaSalidaError82Xml" method="guardaSalidaError82"/>
+                            </when>
+                        </choice>
+                    </when>
+                    <otherwise id="noContieneXmlProtesto">
+                        <bean
+                            beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                            id="limpiaBodyProtesto" method="limpiaBody"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="consulta82Catch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <log id="ExcepcionProtestos" message="Excepcion-Protestos: ${exception}"/>
+                    <to id="consulta82Fault" uri="xslt://transformations/error/xml2xmlIRUT8202Error_protestos.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="guardaSalidaError82Xml" method="guardaSalidaError82"/>
+                </doCatch>
+                <doFinally id="consulta82Finally"/>
+            </doTry>
+        </route>
+        <route id="authCacheRoute">
+            <from id="authCacheFrom" uri="direct:authCache"/>
+            <setProperty id="authCacheBackupBody" propertyName="cuerpo">
+                <simple>${body}</simple>
+            </setProperty>
+            <to id="toGetCache" uri="direct:authGetCache"/>
+            <choice id="authCacheChoice">
+                <when id="authCacheWhenCacheFound">
+                    <simple>${header.CamelCacheElementWasFound} == true</simple>
+                    <setProperty id="authCacheSetAuth" propertyName="auth">
+                        <simple>${body}</simple>
+                    </setProperty>
+                    <log id="authCacheLog" message="[AUTH] Voy a usar el token en cache"/>
+                </when>
+                <otherwise id="authCacheGeneroCache">
+                    <log id="authCacheLog" message="[AUTH] No encontre token, voy a generar uno nuevo"/>
+                    <to id="authCacheGeneroAuthTo" uri="direct:authSinacofi"/>
+                    <to id="authCachePutCacheTo" uri="direct:authPutCache"/>
+                </otherwise>
+            </choice>
+            <setBody id="authCacheRestoreBody">
+                <simple>${property.cuerpo}</simple>
+            </setBody>
+        </route>
+        <route id="autenticarSinacofi_route">
+            <from id="_from1" uri="direct:authSinacofi"/>
+            <removeHeaders id="_removeHeaders14" pattern="*"/>
+            <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader24">
+                <constant>application/json</constant>
+            </setHeader>
+            <setHeader headerName="client_id" id="_setHeader25">
+                <simple>{{servicio.sinacofi.autenticar.clientid}}</simple>
+            </setHeader>
+            <setHeader headerName="client_secret" id="_setHeader26">
+                <simple>{{servicio.sinacofi.autenticar.clientsecret}}</simple>
+            </setHeader>
+            <bean id="_bean6" method="autenticarRequest" ref="beanRouteFacade"/>
+            <marshal id="_marshal11" ref="autenticacionSinacofiJson"/>
+            <to id="_to13" uri="{{servicio.sinacofi.autenticar.endpoint}}"/>
+            <unmarshal id="_unmarshal6" ref="tokenSinacofiJson"/>
+            <setProperty id="_setProperty12" propertyName="auth">
+                <simple>${body.token_type} ${body.access_token}</simple>
+            </setProperty>
+            <log id="_log11" message="${property.auth}"/>
+        </route>
+        <route id="authGetCacheRoute">
+            <from id="authGetCacheFrom" uri="direct:authGetCache"/>
+            <setHeader headerName="CamelCacheOperation" id="authGetCacheOperation">
+                <constant>CamelCacheGet</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="authGetCacheKey">
+                <constant>authCache</constant>
+            </setHeader>
+            <to id="authGetCacheToGet" uri="cache://authCamelCache"/>
+        </route>
+        <route id="authPutCacheRoute">
+            <from id="authPutCacheRoute" uri="direct:authPutCache"/>
+            <setBody id="authPutCacheSetBody">
+                <simple>${exchangeProperty.auth}</simple>
+            </setBody>
+            <convertBodyTo id="authPutCacheBodyToStr" type="java.lang.String"/>
+            <setHeader headerName="CamelCacheOperation" id="authPutCacheOperation">
+                <constant>CamelCacheUpdate</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="authPutCacheKey">
+                <constant>authCache</constant>
+            </setHeader>
+            <to id="toPutCacheKey" uri="cache://authCamelCache"/>
+        </route>
+        <route id="authDelCacheRoute">
+            <from id="authDelCacheFrom" uri="direct:authDelCache"/>
+            <setHeader headerName="CamelCacheOperation" id="authDelCacheOperation">
+                <constant>CamelCacheDelete</constant>
+            </setHeader>
+            <setHeader headerName="CamelCacheKey" id="authDelCacheKey">
+                <constant>authCache</constant>
+            </setHeader>
+            <to id="authDelCacheToDel" uri="cache://authCamelCache"/>
+        </route>
+    </camelContext>
+</blueprint>

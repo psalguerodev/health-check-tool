@@ -1,0 +1,413 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsformalizacionweb" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.formalizacionweb.util.RouteFacade" id="beanRouteFacade"/>
+    <bean
+        class="cl.coopeuch.integracion.formalizacionweb.util.RouteFacadeAggregationSplit" id="agregatorSplit"/>
+    <bean
+        class="cl.coopeuch.integracion.formalizacionweb.util.RouteFacadeAggregationSplitGestionCredito" id="agregatorSplitGestionCredito"/>
+    <bean
+        class="cl.coopeuch.integracion.formalizacionweb.util.RouteFacadeAggregationMultiCast" id="agregatorMultiCast"/>
+    <bean
+        class="cl.coopeuch.integracion.formalizacionweb.util.RouteFacadeAggregationSolicitud" id="agregatorMultiCastSolicitud"/>
+    <camelcxf:cxfEndpoint address="/WSFormalizacionWeb"
+        id="endpointWSFormalizacionWeb" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.formalizacionweb.wsdl.WSFormalizacionWebSOAPPortType" wsdlURL="etc/wsdl/WSFormalizacionWeb.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSFormalizacionWeb"
+        id="endpointRSFormalizacionWeb" loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.formalizacionweb.wsdl.WSFormalizacionWebSOAPPortType"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <camelcxf:cxfEndpoint
+        address="[{formalizacionweb.servicio.administradoridg.endpoint}]"
+        id="endpointServicioAdministradorIDG"
+        serviceClass="cl.coopeuch.integracion.formalizacionweb.wsdl.administradoridg.AdministradorIDGPortType" wsdlURL="etc/wsdl/ServicioAdministradorIDG.wsdl"/>
+    <camelcxf:cxfEndpoint
+        address="[{formalizacionweb.servicio.cuentavista.endpoint}]"
+        id="endpointServicioCuentaVista" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.formalizacionweb.wsdl.ctavista.WSCuentaVistaSOAPPortType" wsdlURL="etc/wsdl/WSCuentaVista.wsdl"/>
+    <camelcxf:cxfEndpoint
+        address="[{formalizacionweb.servicio.gestioncredito.endpoint}]"
+        id="endpointServicioGestionCredito" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.formalizacionweb.wsdl.gestioncredito.GestionCredito" wsdlURL="etc/wsdl/ServicioGestionCredito.wsdl"/>
+    <camelContext id="servicio-formalizacionweb" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSFormalizacionWeb"/>
+            <to id="soapToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSFormalizacionWeb"/>
+            <to id="restToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="iniciows" uri="direct:iniciows"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setProperty id="inicioSetCodigoErrorDefault" propertyName="codigoError">
+                    <constant>0</constant>
+                </setProperty>
+                <setProperty id="desembolso" propertyName="cv.desembolso">
+                    <simple>{{cuentas.vistas.desembolso}}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsultarCreditoConsumo">
+                        <simple>${header.operationName} == 'consultarCreditosConsumo'</simple>
+                        <to id="toCrear" uri="direct:consultarCreditosConsumo"/>
+                        <removeHeaders id="inicioRemoveHeaders" pattern="*"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarSolicitud">
+                        <simple>${header.operationName} == 'consultarSolicitud'</simple>
+                        <to id="toCrear-consultarSolicitud" uri="direct:consultarSolicitud"/>
+                        <removeHeaders id="inicioRemoveHeaders-consultarSolicitud" pattern="*"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+            <removeHeaders id="_removeHeaders1" pattern="*"/>
+        </route>
+        <route id="consultarCreditosConsumo">
+            <from id="consultarCreditosConsumoFrom" uri="direct:consultarCreditosConsumo"/>
+            <doTry id="consultarCreditoConsumoTry">
+                <setBody id="_setBody1">
+                    <simple>${body.get(0)}</simple>
+                </setBody>
+                <to id="wsGestionCreditoTo" uri="direct:servicioGestionCredito"/>
+
+				<choice>		
+					<when>
+						<simple>${exchangeProperty.mensajeErrorConsultarSolicitudEjecutivo}</simple>
+						<split id="splitConsultarConsumo"
+		                    parallelProcessing="true" strategyRef="agregatorSplit" timeout="70000">
+		                    <xpath>//Solicitudes/salida</xpath>
+		                    <setProperty id="splitRut" propertyName="rutSplit">
+		                        <xpath resultType="String">//rutSocio</xpath>
+		                    </setProperty>
+<!-- 		                    <log message="RUUUUUUUUUUUUUUUUUUUUUUUUUUT: ${property.rutSplit}" loggingLevel="ERROR"/> -->
+		                    <multicast id="detalleConsumoMultiCast"
+		                        parallelProcessing="true" strategyRef="agregatorMultiCast" timeout="60000">                        
+		                        
+		                        <to id="wsAdministradorIDGTo" uri="direct:servicioAdministradorIDG"/>
+		                        <to id="wsPersonaTo" uri="direct:servicioPersona"/>
+		                        <to id="wsCuentaVistaTo" uri="direct:servicioCTAVista"/>                        
+		                    </multicast>
+		                </split>
+					</when>
+					<otherwise>
+					 	<setProperty id="_setProperty17" propertyName="bodyStop">
+                            <simple>${body}</simple>
+                        </setProperty>
+<!--                         <log message="NO ENTRO:::: (((${body})))"/> -->
+						<to id="arreglaTipoMessage" uri="direct:normalizaDataFormat"/>
+						<setBody id="_setBody6">
+                            <simple>${property.bodyStop}</simple>
+                        </setBody>
+					</otherwise>                
+               	</choice>
+                <doCatch id="consultarCreditoConsumoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toConsultarCreditoConsumoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="ConsultarSolicitud">
+            <from id="consultarSolicitudFrom" uri="direct:consultarSolicitud"/>
+            <doTry id="consultarSolicitud-Try">
+                <setBody id="consultarSolicitud_setBody1">
+                    <simple>${body.get(0)}</simple>
+                </setBody>
+                <bean id="consultarSolicitud-ValidacionDatosEntrada" method="validarValoresEntrada" ref="beanRouteFacade"/>
+                <choice>
+                	<when>
+                		<simple>${exchangeProperty.validar}</simple>                		
+		                <to id="wsGestioCredito-consultarSolicitudDetalle-To" uri="direct:consultarSolicitudDetalle"/>
+		                <choice>
+		                	<when>
+		                		<simple>${exchangeProperty.validar}</simple>
+		               		 	<multicast id="wsGestioCredito-consultarSolicitudDetalle-MultiCast"
+		                         parallelProcessing="true" strategyRef="agregatorMultiCastSolicitud">                 
+				                   	<to id="wsGestioCredito-consultarSolicitudDetalle-wsPersonaTo" uri="direct:servicioPersona"/>
+				                    <to id="wsGestioCredito-consultarSolicitudDetalle-wsCuentaVistaTo" uri="direct:servicioCTAVista"/>
+		                		</multicast>
+		                	</when>
+		                </choice>
+                	</when>                
+                </choice>                
+               
+				<setProperty id="consultarSolicitud-setProperty" propertyName="bodyStop">
+                    <simple>${body}</simple>
+                </setProperty>
+                <to id="arreglaTipoMessage-consultarSolicitud" uri="direct:normalizaDataFormat"/>
+                <setBody id="consultarSolicitud-_setBody">
+                    <simple>${property.bodyStop}</simple>
+                </setBody>
+                <doCatch id="wsGestioCredito-consultarSolicitudDetalle-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="to-wsGestioCredito-consultarSolicitudDetalle-Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="wsGestioCredito-consultarSolicitudDetalle">
+            <from id="wsGestioCredito-consultarSolicitudDetalle-From" uri="direct:consultarSolicitudDetalle"/>
+            <removeHeaders id="wsGestioCredito-consultarSolicitudDetalle_removeHeaders" pattern="*"/>
+            <doTry id="wsGestioCredito-consultarSolicitudDetalle-Try">                
+                <setProperty id="wsGestioCredito-consultarSolicitudDetalle-canalLlamada" propertyName="tipoConsulta">
+                    <simple>{{gestion.credito.tipoConsulta}}</simple>
+                </setProperty>
+                <setProperty id="wsGestioCredito-consultarSolicitudDetalle-numeroSolicitud" propertyName="numeroSolicitud">
+                    <xpath>//numeroSolicitud</xpath>
+                </setProperty>
+                <to id="wsGestioCredito-consultarSolicitudDetalle-toXsl" uri="xslt://etc/xsl/request/requestConsultarSolicitudDetalle.xsl"/>
+                <to id="wsGestioCredito-consultarSolicitudDetalle-ToService" uri="cxf:{{formalizacionweb.servicio.gestioncredito.endpoint}}?dataFormat=MESSAGE"/>
+                <setBody id="wsGestioCredito-consultarSolicitudDetalle-setBody4">
+                   <xpath>//salida</xpath>
+                </setBody>
+                <setBody id="wsGestioCredito-consultarSolicitudDetalle-setBody">
+                    <simple>&lt;ns1:consultarDetalleSolicitudResponse xmlns:ns1="http://gestioncredito.core.coopeuch.cl"
+			        				&gt;${body}&lt;/ns1:consultarDetalleSolicitudResponse&gt;</simple>
+                </setBody>
+                <convertBodyTo id="wsGestioCredito-consultarSolicitudDetalle-convertBodyTo-String" type="java.lang.String"/>
+                <convertBodyTo
+                    id="wsGestioCredito-consultarSolicitudDetalle-onvertBodyToResponse-Objeto" type="cl.coopeuch.integracion.formalizacionweb.wsdl.gestioncredito.ConsultarDetalleSolicitudResponse"/>
+                <bean id="wsGestioCredito-consultarSolicitudDetalle-ObtieneData" method="obtenerDatosDetalleSolicitud" ref="beanRouteFacade"/>
+                <doCatch id="wwsGestioCredito-consultarSolicitudDetalle-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="wsGestioCredito-consultarSolicitudDetalle-ToException" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+		<route id="wsGestionCredito">
+            <from id="wsGestionCreditoFrom" uri="direct:servicioGestionCredito"/>
+            <doTry id="wsGestionCreditoTry">
+                <bean id="DatosCliente-consultarUUID-GestionCredito"
+                    method="obtenerValoresEntradaConsultarCreditosConsumo" ref="beanRouteFacade"/>
+                <to id="requestGestionCreditoXsl" uri="xslt://etc/xsl/request/requestGestionCredito.xsl"/>
+                <to id="wsGestionCreditoToService" uri="beanAMQ:{{colas.servicio.gestioncredito.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <setBody id="_setBody2">
+                    <xpath>//salida</xpath>
+                </setBody>
+                <setBody id="_setBody3">
+                    <simple>&lt;ns1:consultarSolicitudEjecutivoResponse xmlns:ns1="http://gestioncredito.core.coopeuch.cl"
+			        				&gt;${body}&lt;/ns1:consultarSolicitudEjecutivoResponse&gt;</simple>
+                </setBody>
+                <convertBodyTo id="GestionCredito-convertBodyTo1" type="java.lang.String"/>
+                <convertBodyTo
+                    id="gestionCredito-ConvertBodyToResponse1" type="cl.coopeuch.integracion.formalizacionweb.wsdl.gestioncredito.ConsultarSolicitudEjecutivoResponse"/>
+                <bean id="beanArmaCiclos" method="obtenerSalidaConsultarSolicitudEjecutivo" ref="beanRouteFacade"/>
+				
+				
+				<split id="splitConsultarCodigoProducto" parallelProcessing="true"
+		                    strategyRef="agregatorSplitGestionCredito" timeout="50000">
+		                    <xpath>//Solicitudes/salida</xpath>
+		                    
+		              <split id="splitDatosCredito" parallelProcessing="true"
+		                    strategyRef="agregatorSplitGestionCredito" timeout="50000">
+		                    <xpath>//datosCredito/salida</xpath>      
+								<setProperty id="splitIdSolicitud" propertyName="idSolicitudSplit">
+			                        <xpath resultType="String">//idSolicitud</xpath>
+			                    </setProperty>
+			                    <log message="ID SOLICITUDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDd(((${property.idSolicitudSplit})))"/>
+<!-- 			        <setProperty id="splitIdSolicitud" propertyName="idSolicitudSplit"> -->
+<!-- 			                        <simple resultType="String">6947335</simple> -->
+<!-- 			                    </setProperty> -->
+					<bean id="servicioGestionCreditoRequestBean"
+	                    method="requestGestionCreditoCDetalle" ref="beanRouteFacade"/>
+					<removeHeaders pattern="camelHttp*"/>
+	                <setHeader headerName="operationName" id="wsGestionCreditoOpName">
+	                    <constant>consultarDetalleSolicitud</constant>
+	                </setHeader>
+	                <setHeader headerName="SOAPAction" id="wsGestionCreditoSoapAction">
+	                    <constant>http://gestioncredito.core.coopeuch.cl/WsGestionCredito/consultarDetalleSolicitud</constant>
+	                </setHeader>
+	                
+	                <to id="wsGestionCreditoToService" uri="cxf:bean:endpointServicioGestionCredito"/>
+					<setBody>
+	                    <simple>${body.get(0)}</simple>
+	                </setBody>
+	                <bean id="servicioGestionCreditoResponseBean"
+	                    method="responseServicioGestionCredito" ref="beanRouteFacade"/>
+	                    </split>
+				</split>
+				<setProperty propertyName="bodyFinal">
+					<simple>${body}</simple>					
+				</setProperty>
+                <doCatch id="wsGestionCreditoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toWsGestionCreditoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Route comodin para evitar error por dataFormat -->
+        <route id="rutaNormalizaDataFormat">
+            <from id="formNormalizaDataFormat" uri="direct:normalizaDataFormat"/>
+            <removeHeaders id="_removeHeaders4" pattern="*"/>
+            <setHeader headerName="operationName" id="normalizaOpName">
+                <constant>consultar</constant>
+            </setHeader>
+            <setHeader headerName="SOAPAction" id="normalizaSoapAction">
+                <constant>http://integracion.coopeuch.cl/WSCuentaVista/consultar</constant>
+            </setHeader>
+            <setProperty id="normalizaPropertyUsuario" propertyName="CTAVistaUserID">
+                <simple>SRVMBK</simple>
+            </setProperty>
+            <setProperty id="normalizaPropertyCanal" propertyName="CTAVistaCanalLLamada">
+                <simple>SPRI</simple>
+            </setProperty>
+            <setProperty id="normalizaPropertyrutSocio" propertyName="CTAVistaRutSocio">
+                <simple>19</simple>
+            </setProperty>
+            <setProperty id="normalizaPropertyestadoCTA" propertyName="CTAVistaEstadoCtaVista">
+                <simple>A</simple>
+            </setProperty>
+            <bean id="servicioNormalizaRequestBean"
+                method="requestServicioCTAVista" ref="beanRouteFacade"/>
+            <to id="normalizaToService" uri="cxf:bean:endpointServicioCuentaVista"/>
+        </route>
+        <route id="wsCuentaVista-Consultar">
+            <from id="wsCuentaVistaFrom" uri="direct:servicioCTAVista"/>
+            <removeHeaders id="_removeHeaders5" pattern="*"/>
+            <doTry id="wsCuentaVistaTry">
+                <setHeader headerName="operationName" id="wsCuentaVistaOpName">
+                    <constant>consultar</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="wsCuentaVistaSoapAction">
+                    <constant>http://integracion.coopeuch.cl/WSCuentaVista/consultar</constant>
+                </setHeader>
+                <setProperty id="ctaVistaPropertyUsuario" propertyName="CTAVistaUserID">
+                    <simple>SRVMBK</simple>
+                </setProperty>
+                <setProperty id="ctaVistaPropertyCanal" propertyName="CTAVistaCanalLLamada">
+                    <simple>SPRI</simple>
+                </setProperty>
+                <setProperty id="ctaVistaPropertyrutSocio" propertyName="CTAVistaRutSocio">
+                    <simple>${property.rutSplit}</simple>
+                </setProperty>
+                <setProperty id="ctaVistaPropertyestadoCTA" propertyName="CTAVistaEstadoCtaVista">
+                    <simple>${property.priEstadoCtaVista}</simple>
+                </setProperty>
+                <bean id="servicioCTAVistaRequestBean"
+                    method="requestServicioCTAVista" ref="beanRouteFacade"/>
+                <to id="wsCuentaVistaToService" uri="cxf:bean:endpointServicioCuentaVista"/>
+                <bean id="servicioCTAVistaResponseBean"
+                    method="responseServicioCTAVista" ref="beanRouteFacade"/>
+                <setProperty id="_setProperty18" propertyName="bodyCTAVista">
+                    <simple>${body}</simple>
+                </setProperty>
+                <doCatch id="wsCuentaVistaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="wsCuentaVistaToException" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="servicioPersona-TraerDatosBasicos">
+            <from id="servicioPersonaFrom" uri="direct:servicioPersona"/>
+            <removeHeaders id="_removeHeaders_Persona" pattern="*"/>
+            <doTry id="servicioPersonaTry">
+                <bean id="datosPersona-Bean"
+                    method="llamarTraerDatosBasicosYDir" ref="beanRouteFacade"/>                               
+                 <marshal id="datosPersona-marshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.formalizacionweb.wsdl.persona"/>
+                </marshal>
+                <convertBodyTo id="DatosCliente-ConvertBodyToString" type="java.lang.String"/>
+                <bean id="DatosCliente-consultarUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="datosPersona-to-AMQ" uri="beanAMQ:{{colas.servicio.persona.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <to id="datosPersona-eliminarTag-XSLT" uri="xslt://etc/xsl/response/eliminarTag.xsl?saxon=true"/>
+                <convertBodyTo id="datosPersona-convertBodyTo" type="java.lang.String"/>
+                <log message="PERSONA: ${body}"></log>
+                <convertBodyTo id="datosPersona-ConvertBodyToResponse" type="cl.coopeuch.integracion.formalizacionweb.wsdl.persona.TraerDatosBasicosResponse"/>
+                <bean id="datosPersona-BeanResponse"
+                    method="responseServicioPersona" ref="beanRouteFacade"/>
+               <setProperty id="_setProperty-ServicioPersona" propertyName="bodyPersona">
+                    <simple>${body}</simple>
+                </setProperty>
+                <doCatch id="wsPersonaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="wsPersona-ToException" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="WSAdministradorIDG-obtenerTarjeta">
+            <from id="wsAdministradorIDGFrom" uri="direct:servicioAdministradorIDG"/>
+            <doTry id="WSAdministradorIdgTry">
+                <removeHeaders id="_removeHeaders6" pattern="*"/>
+                <setProperty id="wsIDGHeaderUsuario" propertyName="AdministradorIDGIDUserID">
+                    <simple>${property.rutSplit}</simple>
+                </setProperty>
+                <setProperty id="wsIDGHeaderEstado" propertyName="AdministradorIDGIDEstado">
+                    <simple>${property.priEstadoTarjCoord}</simple>
+                </setProperty>
+                <to id="requestObtenerTarjetaIDG" uri="xslt://etc/xsl/request/requestIDG.xsl"/>
+                <to id="wsAdministradorIDGToService" uri="cxf:{{formalizacionweb.servicio.administradoridg.endpoint}}?dataFormat=MESSAGE"/>
+                <setBody id="_setBody7">
+                    <xpath>//salida</xpath>
+                </setBody>
+                <setBody id="_setBody8">
+                    <simple>&lt;ns3:obtenerTarjetaResponse xmlns:ns3="http://administradoridg.core.coopeuch.cl" 
+        				xmlns:ns2="administradoridg.core.coopeuch.cl/administradoridg"&gt;${body}&lt;/ns3:obtenerTarjetaResponse&gt;</simple>
+                </setBody>
+                <convertBodyTo
+                    id="obtenerDatosCliente-ConvertBodyToResponse" type="cl.coopeuch.integracion.formalizacionweb.wsdl.administradoridg.ObtenerTarjetaResponse"/>
+                <setProperty id="_setProperty19" propertyName="bodyAdminIDG">
+                    <simple>${body}</simple>
+                </setProperty>
+                <removeHeaders id="_removeHeaders7" pattern="*"/>
+                <doCatch id="WSAdministradorIdgToCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="wsAdministradorIDGToException" uri="direct:excepcion"/>
+                    <stop id="wsAdministradorIDGStop"/>
+                </doCatch>
+            </doTry>
+        </route>  
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

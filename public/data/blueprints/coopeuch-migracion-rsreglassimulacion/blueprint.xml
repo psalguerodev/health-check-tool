@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+   
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsreglassimulacion" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+
+    <bean class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.creditos]]"/>
+        <property name="password" value="[[jdbc.db2.password.creditos]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive}]"/>
+    </bean>
+
+    <cxf:cxfEndpoint address="/WSReglasSimulacion"
+        id="servicioreglassimulacionEndpoint"
+        serviceClass="cl.coopeuch.integracion.reglassimulacion.wsdl.WSReglasSimulacionPortType" 
+        wsdlURL="wsdl/ServicioReglasSimulacion.wsdl"/>
+
+    <cxf:rsServer address="/RSReglasSimulacion"
+        id="endpointRSReglasSimulacion" 
+        serviceClass="cl.coopeuch.integracion.reglassimulacion.wsdl.WSReglasSimulacionPortType"/>
+
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+
+    <bean class="cl.coopeuch.integracion.reglassimulacion.util.RouteFacade" id="beanRouteFacade"/>
+
+    <camelContext id="servicio-reglassimulacion-context" xmlns="http://camel.apache.org/schema/blueprint">
+        
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:servicioreglassimulacionEndpoint"/>
+            <to id="soapToInicioWs" uri="direct:inicio"/>
+        </route>
+
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSReglasSimulacion"/>
+            <to id="restToInicioWs" uri="direct:inicio"/>
+        </route>
+
+        <route id="cx-RuteoOperaciones">
+            <from id="inicioFromServicio" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <setProperty id="ruteoOperacionesSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="ruteoOperacionesSetRequestBigData" propertyName="requestBigData">
+                    <simple>${body.get(0)}</simple>
+                </setProperty>
+                <setProperty id="ruteoOperacionesSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaConsultarPensionado">
+                        <simple>${header.operationName} == 'consultarPensionado'</simple>
+                        <to id="consultarPensionadoTo" uri="direct:consultarPensionado"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+
+        <route id="consultarPensionado_main" streamCache="true">
+            <from id="consultarPensionado_main_from" uri="direct:consultarPensionado"/>
+            <doTry id="consultarPensionado_main_try">
+
+                <log id="consultarPensionado_main_log_request" loggingLevel="INFO" message="Request: ${body.get(0)}"/>
+
+                <setProperty id="consultarPensionado_sp_userIdProp" propertyName="consultarPensionado_userIdProp">
+                    <simple>$simple{body.get(0).entrada.usuario}</simple>
+                </setProperty>
+                <setProperty id="consultarPensionado_sp_canalLlamadaProp" propertyName="consultarPensionado_canalLlamadaProp">
+                    <simple>$simple{body.get(0).entrada.canalLLamada}</simple>
+                </setProperty>
+                <setProperty id="consultarPensionado_sp_ingresoLiquidoProp" propertyName="consultarPensionado_ingresoLiquidoProp">
+                    <simple>$simple{body.get(0).entrada.ingresoLiquido}</simple>
+                </setProperty>
+                <setProperty id="consultarPensionado_sp_tipoEntidadPrevisionalProp" propertyName="consultarPensionado_tipoEntidadPrevisionalProp">
+                    <simple>$simple{body.get(0).entrada.tipoEntidadPrevisional}</simple>
+                </setProperty>
+                
+                <to id="consultarPensionado_main_to_sp" uri="direct:consultarPensionado_sp_direct"/>
+                <log id="consultarPensionado_main_log_response" loggingLevel="INFO" message="Response => ${body}"/>
+
+            <doCatch id="consultarPensionadoCatch">
+                <exception>java.lang.Exception</exception>
+                <log id="consultarPensionado_main_exception" loggingLevel="ERROR" message="exception => ${exception} - body => ${body}"/>
+                <setProperty id="consultarPensionado_main_codigoError" propertyName="codigoError">
+                    <constant>0</constant>
+                </setProperty>
+                <to id="consultarPensionado_main_to_excepcion" uri="direct:excepcion"/>
+            </doCatch>
+            </doTry>
+        </route>
+
+        <!-- ********************************** SP **********************************-->
+        <route id="consultarPensionado_sp_route" streamCache="true">
+            <from id="consultarPensionado_sp_from" uri="direct:consultarPensionado_sp_direct"/>
+            <doTry id="consultarPensionado_sp_try">
+
+            <!-- Preparo Request Store Procedure -->
+            <setHeader id="consultarPensionado_sp_usuarioHead" headerName="usuario">
+                <simple>${exchangeProperty.consultarPensionado_userIdProp}</simple>
+            </setHeader>
+            <setHeader id="consultarPensionado_sp_canalHead" headerName="canal">
+                <simple>${exchangeProperty.consultarPensionado_canalLlamadaProp}</simple>
+            </setHeader>
+            <setHeader id="consultarPensionado_sp_rentaHead" headerName="renta">
+                <simple>${exchangeProperty.consultarPensionado_ingresoLiquidoProp}</simple>
+            </setHeader>
+            <setHeader id="consultarPensionado_sp_entidadHead" headerName="entidad">
+                <simple>${exchangeProperty.consultarPensionado_tipoEntidadPrevisionalProp}</simple>
+            </setHeader>
+
+            <!-- Llamado Store Procedure-->
+            <log id="consultarPensionado_sp_log_before" loggingLevel="INFO" message="before body => ${body.get(0)}"/>
+            <log id="consultarPensionado_sp_log_before" loggingLevel="INFO" message="before headers => ${headers}"/>
+            <to id="consultarPensionado_sp_to_storeprocedure" uri="sql-stored:classpath:sql/PA_REGLAS_SIMULACION_PENSIONADOS_WS.sql?dataSource=dataSourceSqlDb2"/>
+            <log id="consultarPensionado_sp_log_after" loggingLevel="INFO" message="after body => ${body}"/>
+            <setBody id="consultarPensionado_sp_toPaSetBody">
+                <simple>${body[#result-set-1]}</simple>
+            </setBody>
+
+            <!--Proceso Respuesta Store Procedure -->
+            <bean id="consultarPensionado_sp_paResponse" method="consultarPensionado_PaResponse" ref="beanRouteFacade"/>
+
+
+            <doCatch id="consultarPensionado_sp_doCatch_reglaException">
+                <exception>cl.coopeuch.integracion.reglassimulacion.exception.ReglaException</exception>
+                <log id="consultarPensionado_sp_reglaException" loggingLevel="ERROR" message="exception  => ${exception} - body => ${body}"/>
+                <setProperty id="consultarPensionado_sp_reglaException_codigoError" propertyName="codigoError">
+                    <constant>800</constant>
+                </setProperty>
+                <to id="consultarPensionado_sp_reglaException_to_exception" uri="direct:excepcion"/>
+                <stop/>
+            </doCatch>
+            <doCatch id="consultarPensionado_sp_doCatch_cannotGetJdbcConnectionException">
+                <exception>org.apache.commons.dbcp.SQLNestedException</exception>
+                <!-- <exception>org.springframework.jdbc.CannotGetJdbcConnectionException</exception> -->
+                <log id="consultarPensionado_sp_cannotGetJdbcConnectionException" loggingLevel="ERROR" message="exception  => ${exception} - body => ${body}"/>
+                <setProperty id="consultarPensionado_sp_cannotGetJdbcConnectionException_codigoError" propertyName="codigoError">
+                    <constant>999</constant>
+                </setProperty>
+                <to id="consultarPensionado_sp_cannotGetJdbcConnectionException_to_exception" uri="direct:excepcion"/>
+                <stop/>
+            </doCatch>
+            <doCatch id="consultarPensionado_sp_doCatch_Exception">
+                <exception>java.lang.Exception</exception>
+                <log id="consultarPensionado_sp_exception" loggingLevel="ERROR" message="exception  => ${exception} - body => ${body}"/>
+                <setProperty id="consultarPensionado_sp_exception_codigoError" propertyName="codigoError">
+                    <constant>0</constant>
+                </setProperty>
+                <to id="consultarPensionado_sp_exception_to_Excepcion" uri="direct:excepcion"/>
+                <stop/>
+            </doCatch>
+            </doTry>
+        </route>
+
+        <!-- *************************************************************************-->
+
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <!--<to id="excepcionToAmqFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>-->
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+
+    </camelContext>
+</blueprint>

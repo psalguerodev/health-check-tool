@@ -1,0 +1,517 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Configures the Camel Context -->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="     http://www.osgi.org/xmlns/blueprint/v1.0.0      https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd     http://camel.apache.org/schema/blueprint/cxf      http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd                   http://camel.apache.org/schema/blueprint      http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyWsCuentas"
+        persistent-id="wscuentas" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioCuentas"
+        id="servicioCuentasEndpoint"
+        serviceClass="cl.coopeuch.core.cuenta.serviciocuenta.CuentaPortType" wsdlURL="wsdl/ServicioCuentas.wsdl"/>
+    <cxf:rsServer address="/RSServicioCuentas" id="ServicioCuentasRest" serviceClass="cl.coopeuch.core.cuenta.serviciocuenta.rest.ServicioCuentasRest"/>
+    <cxf:rsClient address="[{wsLogPlataformas.endpoint}]"
+        id="endpointLogPlataformas" loggingFeatureEnabled="true"/>
+    <cxf:rsClient address="[{endpoint.servicionotificaciones.url}]"
+                  id="restEnviarNotificaciones" loggingFeatureEnabled="true">
+    </cxf:rsClient>
+    <bean class="cl.coopeuch.util.RouteFacade" id="routeFacade"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.cuentas]]"/>
+        <property name="password" value="[[jdbc.db2.password.cuentas]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.cuentas}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.cuentas}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.cuentas}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.cuentas}]"/>
+    </bean>
+    <camelContext id="servicio-cuentas" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-InicioREST">
+            <from id="inicioFrom-REST" uri="cxfrs:bean:ServicioCuentasRest"/>
+            <choice id="inicioChoiceOperacion-REST">
+                <when id="inicioWhenOperacionConsultar-REST">
+                    <simple>${header.operationName} == 'bloqReemisionAutoTarjetaDebito'</simple>
+                    <unmarshal id="bloqReemisionAutoTarjetaDebitoRequest">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.cuenta.serviciocuenta.soap.BloqReemisionAutoTarjetaDebito"/>
+                    </unmarshal>
+                    <bean id="bloqReemisionAutoTarjetaDebitoRequestBean"
+                        method="bloqReemisionAutoTarjetaDebitoRequestRest" ref="routeFacade"/>
+                    <marshal id="bloqReemisionAutoTarjetaDebitoRequestToXML">
+                        <jaxb contextPath="cl.coopeuch.core.cuenta.serviciocuenta.soap"/>
+                    </marshal>
+                    <to id="toBloqReemisionAutoTarjetaDebito" uri="direct:inicio"/>
+                    <bean
+                        id="bloqReemisionAutoTarjetaDebitoResponseBean"
+                        method="bloqReemisionAutoTarjetaDebitoResponseRest" ref="routeFacade"/>
+                </when>
+                <when id="inicioWhenOperacionConsultar-REST">
+                    <simple>${header.operationName} == 'consultaTitulares'</simple>
+                    <unmarshal id="consultaTitularesRequest">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.cuenta.serviciocuenta.soap.ConsultaTitulares"/>
+                    </unmarshal>
+                    <bean id="consultaTitularesRequestBean"
+                        method="consultaTitularesRequestRest" ref="routeFacade"/>
+                    <marshal id="consultaTitularesRequestToXML">
+                        <jaxb contextPath="cl.coopeuch.core.cuenta.serviciocuenta.soap"/>
+                    </marshal>
+                    <to id="toConsultaTitulares" uri="direct:inicio"/>
+                    <unmarshal id="consultaTitularesResponseToXML">
+                        <jaxb contextPath="cl.coopeuch.core.cuenta.serviciocuenta.soap"/>
+                    </unmarshal>
+                    <bean id="consultaTitularesResponseBean"
+                        method="consultaTitularesResponseRest" ref="routeFacade"/>
+                    <marshal id="consultaTitularesRequestToJSON">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.cuenta.serviciocuenta.soap.ConsultaTitularesResponse"/>
+                    </marshal>
+                </when>
+                <when id="inicioWhenOperacionConsultar-REST">
+                    <simple>${header.operationName} == 'consultaSaldosCuentas'</simple>
+                    <unmarshal id="consultaSaldosCuentasRequest">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.cuenta.serviciocuenta.soap.ConsultaSaldosCuentas"/>
+                    </unmarshal>
+                    <bean id="consultaSaldosCuentasRequestBean"
+                        method="consultaSaldosCuentasRequestRest" ref="routeFacade"/>
+                    <marshal id="consultaSaldosCuentasRequestToXML">
+                        <jaxb contextPath="cl.coopeuch.core.cuenta.serviciocuenta.soap"/>
+                    </marshal>
+                    <to id="toConsultaSaldosCuentas" uri="direct:inicio"/>
+                    <unmarshal id="consultaSaldosCuentasResponseToXML">
+                        <jaxb contextPath="cl.coopeuch.core.cuenta.serviciocuenta.soap"/>
+                    </unmarshal>
+                    <bean id="consultaSaldosCuentasResponseBean"
+                        method="consultaSaldosCuentasResponseRest" ref="routeFacade"/>
+                    <marshal id="consultaSaldosCuentasRequestToJSON">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.cuenta.serviciocuenta.soap.ConsultaSaldosCuentasResponse"/>
+                    </marshal>
+                </when>
+                <when id="inicioWhenOperacionConsultar-REST">
+                    <simple>${header.operationName} == 'consultaTransaccionesCuenta'</simple>
+                    <unmarshal id="consultaTransaccionesCuentaRequest">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.cuenta.serviciocuenta.soap.ConsultaTransaccionesCuentas"/>
+                    </unmarshal>
+                    <bean id="consultaTransaccionesCuentaRequestBean"
+                        method="consultaTransaccionesCuentaRequestRest" ref="routeFacade"/>
+                    <marshal id="consultaTransaccionesCuentaRequestToXML">
+                        <jaxb contextPath="cl.coopeuch.core.cuenta.serviciocuenta.soap"/>
+                    </marshal>
+                    <to id="toConsultaTransaccionesCuenta" uri="direct:inicio"/>
+                    <unmarshal id="consultaTransaccionesCuentaResponseToXML">
+                        <jaxb contextPath="cl.coopeuch.core.cuenta.serviciocuenta.soap"/>
+                    </unmarshal>
+                    <bean id="consultaTransaccionesCuentaResponseBean"
+                        method="consultaTransaccionesCuentaResponseRest" ref="routeFacade"/>
+                    <marshal id="consultaTransaccionesCuentaRequestToJSON">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.cuenta.serviciocuenta.soap.ConsultaTransaccionesCuentasResponse"/>
+                    </marshal>
+                </when>
+                <when id="inicioWhenOperacionConsultar-REST">
+                    <simple>${header.operationName} == 'consultaListaTarjetasCuenta'</simple>
+                    <unmarshal id="consultaListaTarjetasCuentaRequest">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.cuenta.serviciocuenta.soap.ConsultaListaTarjetasCuenta"/>
+                    </unmarshal>
+                    <bean id="consultaListaTarjetasCuentaRequestBean"
+                        method="consultaListaTarjetasCuentaRequestRest" ref="routeFacade"/>
+                    <marshal id="consultaListaTarjetasCuentaRequestToXML">
+                        <jaxb contextPath="cl.coopeuch.core.cuenta.serviciocuenta.soap"/>
+                    </marshal>
+                    <to id="toConsultaListaTarjetasCuenta" uri="direct:inicio"/>
+                    <unmarshal id="consultaListaTarjetasCuentaResponseToXML">
+                        <jaxb contextPath="cl.coopeuch.core.cuenta.serviciocuenta.soap"/>
+                    </unmarshal>
+                    <bean id="consultaListaTarjetasCuentaResponseBean"
+                        method="consultaListaTarjetasCuentaResponseRest" ref="routeFacade"/>
+                    <marshal id="consultaListaTarjetasCuentaRequestToJSON">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.cuenta.serviciocuenta.soap.ConsultaListaTarjetasCuentaResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <!-- Entrada principal del servicio SOAP -->
+        <route id="cx-RuteoOperaciones-cxf">
+            <from id="servicioCuentasEndpointListenerCXF" uri="cxf:bean:servicioCuentasEndpoint?DataFormat=MESSAGE"/>
+            <to id="_toInicioCXF" uri="direct:inicio"/>
+        </route>
+        <route id="cx-RuteoOperaciones-jms">
+            <from id="servicioCuentasEndpointListenerJMS" uri="AMQ:queue:{{colas.servicio.cuenta.in.temp}}?preserveMessageQos=true"/>
+            <to id="_toInicioJMS" uri="direct:inicio"/>
+        </route>
+        <route id="cx-RuteoOperaciones-inicio">
+            <from id="_fromInicio" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <setProperty id="_setProperty2" propertyName="rut_log">
+                    <simple>00000000</simple>
+                </setProperty>
+                <convertBodyTo id="_convertBodyTo1" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.jms.CorrelacionId"
+                    id="createJMSCorrelationId" method="crearJMSCorrelacionId24"/>
+                <bean beanType="cl.coopeuch.util.RespaldarMensaje"
+                    id="backupBody" method="respaldarCuerpo"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutabloqReemisionAutoTarjetaDebito">
+                        <simple>${body} contains 'bloqReemisionAutoTarjetaDebito'</simple>
+                        <to id="bloqReemisionAutoTarjetaDebitoValidator" uri="validator:xsd/soapCuentas.xsd"/>
+                        <setProperty id="_setProperty3" propertyName="rut_log">
+                            <xpath resultType="String">normalize-space(//rutTitular)</xpath>
+                        </setProperty>
+                        <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                            <simple>bloqReemisionAutoTarjetaDebito</simple>
+                        </setProperty>
+                        <to id="bloqReemisionAutoTarjetaDebitoTo" uri="direct:bloqReemisionAutoTarjetaDebito"/>
+                        <removeHeaders id="_removeHeaders2" pattern="JMS_IBM_Format|JMSCorrelationID|JMSExpiration|JMSMessageID|JMSDeliveryMode|breadcrumbId|JMSPriority|JMS_IBM_PutApplType|JMS_IBM_MsgType|JMS_IBM_PutDate|JMS_IBM_PutTime|JMSTimestamp|JMSDestination|JMS_IBM_Character_Set|JMSRedelivered|JMS_IBM_Encoding|JMSCorrelationIDAsBytes"/>
+                    </when>
+                    <when id="rutaconsultaListaTarjetasCuenta">
+                        <simple>${body} contains 'consultaListaTarjetasCuenta'</simple>
+                        <to id="consultaListaTarjetasCuentaValidator" uri="validator:xsd/soapCuentas.xsd"/>
+                        <setProperty id="_setProperty4" propertyName="rut_log">
+                            <xpath resultType="String">normalize-space(//rutCliente)</xpath>
+                        </setProperty>
+                        <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                            <simple>consultaListaTarjetasCuenta</simple>
+                        </setProperty>
+                        <to id="consultaListaTarjetasCuentaTo" uri="direct:consultaListaTarjetasCuenta"/>
+                        <removeHeaders id="_removeHeaders4" pattern="JMSExpiration|JMSMessageID|JMSDeliveryMode|breadcrumbId|JMSPriority|JMS_IBM_PutApplType|JMS_IBM_MsgType|JMS_IBM_PutDate|JMS_IBM_PutTime|JMSTimestamp|JMSDestination|JMS_IBM_Character_Set|JMSRedelivered|JMS_IBM_Encoding|JMSCorrelationIDAsBytes|JMSCorrelationIDAsBytes"/>
+                    </when>
+                    <when id="rutaconsultaSaldosCuentas">
+                        <simple>${body} contains 'consultaSaldosCuentas'</simple>
+                        <to id="consultaSaldosCuentasValidator" uri="validator:xsd/soapCuentas.xsd"/>
+                        <setProperty id="_setProperty5" propertyName="rut_log">
+                            <xpath resultType="String">normalize-space(//rut)</xpath>
+                        </setProperty>
+                        <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                            <simple>consultaSaldosCuentas</simple>
+                        </setProperty>
+                        <to id="consultaSaldosCuentasTo" uri="direct:consultaSaldosCuentas"/>
+                        <removeHeaders id="_removeHeaders5" pattern="JMS_IBM_Format|JMSCorrelationID|JMSExpiration|JMSMessageID|JMSDeliveryMode|breadcrumbId|JMSPriority|JMS_IBM_PutApplType|JMS_IBM_MsgType|JMS_IBM_PutDate|JMS_IBM_PutTime|JMSTimestamp|JMSDestination|JMS_IBM_Character_Set|JMSRedelivered|JMS_IBM_Encoding|JMSCorrelationIDAsBytes"/>
+                    </when>
+                    <when id="rutaconsultaTitulares">
+                        <simple>${body} contains 'consultaTitulares'</simple>
+                        <to id="consultaTitularesValidator" uri="validator:xsd/soapCuentas.xsd"/>
+                        <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                            <simple>consultaTitulares</simple>
+                        </setProperty>
+                        <to id="consultaTitularesTo" uri="direct:consultaTitulares"/>
+                        <removeHeaders id="_removeHeaders6" pattern="JMS_IBM_Format|JMSCorrelationID|JMSExpiration|JMSMessageID|JMSDeliveryMode|breadcrumbId|JMSPriority|JMS_IBM_PutApplType|JMS_IBM_MsgType|JMS_IBM_PutDate|JMS_IBM_PutTime|JMSTimestamp|JMSDestination|JMS_IBM_Character_Set|JMSRedelivered|JMS_IBM_Encoding|JMSCorrelationIDAsBytes"/>
+                    </when>
+                    <when id="rutaconsultaTransaccionesCuenta">
+                        <simple>${body} contains 'consultaTransaccionesCuenta'</simple>
+                        <to id="consultaTransaccionesCuentaValidator" uri="validator:xsd/soapCuentas.xsd"/>
+                        <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                            <simple>consultaTransaccionesCuenta</simple>
+                        </setProperty>
+                        <to id="consultaTransaccionesCuentaTo" uri="direct:consultaTransaccionesCuenta"/>
+                        <removeHeaders id="_removeHeaders7" pattern="JMS_IBM_Format|JMSCorrelationID|JMSExpiration|JMSMessageID|JMSDeliveryMode|breadcrumbId|JMSPriority|JMS_IBM_PutApplType|JMS_IBM_MsgType|JMS_IBM_PutDate|JMS_IBM_PutTime|JMSTimestamp|JMSDestination|JMS_IBM_Character_Set|JMSRedelivered|Transfer-Encoding|JMS_IBM_Encoding|JMSCorrelationIDAsBytes"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacioneShemaValidationException">
+                    <exception>org.apache.camel.processor.validation.SchemaValidationException</exception>
+                    <exception>org.apache.camel.ValidationException</exception>
+                    <exception>org.apache.camel.TypeConversionException</exception>
+                    <transform id="_transform1">
+                        <simple>${property.CamelExceptionCaught}</simple>
+                    </transform>
+                    <transform id="_transform2">
+                        <simple>${bodyAs(String)}</simple>
+                    </transform>
+                    <setProperty id="_setProperty6" propertyName="exceptionBody">
+                        <simple>${body}</simple>
+                    </setProperty>
+                    <bean beanType="cl.coopeuch.util.RespaldarMensaje"
+                        id="ruteoOperacionesRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="ruteoOperacioneShemaValidationExceptionSetBodyError">
+                        <simple>ERROR ServicioCuentas-Inicio-soap: -Excepcion: ${property.exceptionBody}\n-BodyOrigen: ${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="ruteoOperacionesBodyError" method="obtenerError"/>
+                </doCatch>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.RespaldarMensaje"
+                        id="ruteoOperacionesRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR ServicioCuentas-Inicio-soap:${exception}:${body}</simple>
+                    </setBody>
+                    <wireTap id="wireTap-excepcionToLogPlataformas" uri="direct:wsLogPlataformasGuardar"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="ruteoOperacionesBodyError" method="obtenerError"/>
+                    <removeHeaders id="_removeHeaders3" pattern="JMSCorrelationID|Host|Accept-Encoding|SOAPAction|breadcrumbId"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Logica del metodo bloqueo remision -->
+        <route id="bloqReemisionAutoTarjetaDebito">
+            <from id="bloqReemisionAutoTarjetaDebitoFrom" uri="direct:bloqReemisionAutoTarjetaDebito"/>
+            <doTry id="bloqReemisionAutoTarjetaDebitoTry">
+                <!-- Inicio: Guardar en la cabecera los datos de entrada de la operacion bloqueo/remision. -->
+                <!-- Fin: Guardar en la cabecera los datos de entrada de la operacion bloqueo/remision. -->
+                <!-- XSTL que formar trama de entrada para ser enviada al AS400. -->
+                <!-- transforma la trama devuelta por el AS400. -->
+                <!-- XSLT envia informacion devuelta por el AS400 en XML.  -->
+                <!-- Inicio: Se guarda en la cabecera datos devuelto por el bloqueo/remision de tarjeta de debito. -->
+                <!-- Fin: Se guarda en la cabecera datos devuelto por el bloqueo/remision de tarjeta de debito. -->
+                <setHeader headerName="userId" id="bloqReemisionAutoTarjetaDebitoHeaderUserId">
+                    <xpath resultType="String">//userId</xpath>
+                </setHeader>
+                <setHeader headerName="rutTitular" id="bloqReemisionAutoTarjetaDebitoHeaderRut">
+                    <xpath resultType="String">//rutTitular</xpath>
+                </setHeader>
+                <setHeader headerName="numTarjeta" id="bloqReemisionAutoTarjetaDebitoHeadernumTarjeta">
+                    <xpath resultType="String">//numTarjeta</xpath>
+                </setHeader>
+                <bean
+                    beanType="cl.coopeuch.util.aggregation.PropagadorCabeceras"
+                    id="bloqReemisionAutoTarjetaDebitoHeadersSet" method="ponerDatosHeader"/>
+                <to id="bloqReemisionAutoTarjetaDebitoXml2trama" uri="xslt://transformations/in/xml2tramaIOC150001I_bloqReemisionAutoTarjetaDebito.xsl"/>
+                <to id="activemq-bloqReemisionAutoTarjetaDebito" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="bloqReemisionAutoTarjetaDebitoTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="bloqReemisionAutoTarjetaDebitoTrama2xml" uri="xslt://transformations/out/trama2xmlIOC150002O_bloqReemisionAutoTarjetaDebito.xsl?saxon=true"/>
+                <setHeader headerName="sucursalDestino" id="bloqReemisionAutoTarjetaDebitoHeadersucursalDestino">
+                    <xpath resultType="String">//sucursalDestino</xpath>
+                </setHeader>
+                <setHeader headerName="fecha" id="bloqReemisionAutoTarjetaDebitoHeaderfecha">
+                    <xpath resultType="String">//fecha</xpath>
+                </setHeader>
+                <setHeader headerName="fecha1" id="bloqReemisionAutoTarjetaDebitoHeaderfecha1">
+                    <xpath resultType="String">//fecha1</xpath>
+                </setHeader>
+                <setHeader headerName="hora" id="bloqReemisionAutoTarjetaDebitoHeaderhora">
+                    <xpath resultType="String">//hora</xpath>
+                </setHeader>
+                <setHeader headerName="tipoTarjeta" id="bloqReemisionAutoTarjetaDebitoHeadertipoTarjeta">
+                    <xpath resultType="String">//tipoTarjeta</xpath>
+                </setHeader>
+                <setHeader headerName="numeroCuenta" id="bloqReemisionAutoTarjetaDebitoHeadernumeroCuenta">
+                    <xpath resultType="String">//numeroCuenta</xpath>
+                </setHeader>
+                <setHeader headerName="codigoSeguimiento" id="bloqReemisionAutoTarjetaDebitoHeadercodigoSeguimiento">
+                    <xpath resultType="String">//codigoSeguimiento</xpath>
+                </setHeader>
+                <setHeader headerName="nombreFormato" id="bloqReemisionAutoTarjetaDebitoHeadernombreFormato">
+                    <xpath resultType="String">//nombreFormato</xpath>
+                </setHeader>
+                <choice id="bloqReemisionAutoTarjetaDebitoRetorno">
+                    <when id="bloqReemisionAutoTarjetaDebitoOk">
+                        <xpath>//nombreFormato='IOC150002O'</xpath>
+                        <!-- XSLT para llamar al servicio de persona operacion traer datos basicos. -->
+                        <!-- Remueve de la cabecera todas las propiedades JMS*. -->
+                        <!-- Llamada al servicio de personas operacion traer datos basicos. -->
+                        <!-- Inicio: Guarda en la cabecera datos del cliente. -->
+                        <!-- Fin: Guarda en la cabecera datos del cliente. -->
+                        <!-- Agregar informacion del envio de correo a la trama de salida. -->
+                        <bean
+                            beanType="cl.coopeuch.util.aggregation.PropagadorProperties"
+                            id="bloqReemisionAutoTarjetaDebitoSetSetup" method="ponerDatosProperties"/>
+                        <bean
+                            beanType="cl.coopeuch.util.aggregation.PropagadorCabeceras"
+                            id="bloqReemisionAutoTarjetaDebitoHeadersGet" method="obtenerDatosHeader"/>
+                        <to
+                            id="bloqReemisionAutoTarjetaDebitoTraerDatosPersona" uri="xslt://transformations/mid/remoteCall_traerDatosPersona.xsl?saxon=true"/>
+                        <removeHeaders
+                            id="bloqReemisionAutoTarjetaDebitoRemoveHeadersJMS" pattern="JMS*"/>
+                        <to
+                            id="bloqReemisionAutoTarjetaDebitoToServicioPersona" uri="cxf:{{endpoint.serviciopersona.url}}?dataFormat=MESSAGE"/>
+                        <convertBodyTo
+                            id="bloqReemisionAutoTarjetaDebitoBodyTo" type="java.lang.String"/>
+                        <setHeader headerName="primerNombre" id="bloqReemisionAutoTarjetaDebitoHeaderPrimerNombre">
+                            <xpath resultType="String">//primerNombre</xpath>
+                        </setHeader>
+                        <setHeader headerName="apellidoPaterno" id="bloqReemisionAutoTarjetaDebitoHeaderApellidoPaterno">
+                            <xpath resultType="String">//apellidoPaterno</xpath>
+                        </setHeader>
+                        <setHeader headerName="nombre" id="bloqReemisionAutoTarjetaDebitoHeaderNombre">
+                            <simple>${header.primerNombre} ${header.apellidoPaterno}</simple>
+                        </setHeader>
+                        <setHeader headerName="correoElectronico" id="bloqReemisionAutoTarjetaDebitoHeaderCorreoElectronico">
+                            <xpath resultType="String">//correoElectronico</xpath>
+                        </setHeader>
+                        <bean
+                            beanType="cl.coopeuch.util.aggregation.PropagadorProperties"
+                            id="bloqReemisionAutoTarjetaDebitoSetGet" method="obtenerDatosProperties"/>
+                        <to id="enviarNotificaciones_to" uri="direct:enviarNotificaciones" />
+                        <bean id="salidaEnviarNotificacionesBean" ref="routeFacade" method="salidaEnviarNotificaciones" />
+                        <to id="_to1" uri="xslt://transformations/out/eliminarNamespaces.xsl"/>
+                        <to
+                            id="bloqReemisionAutoTarjetaDebitoTrama2xmlConEmail" uri="xslt://transformations/out/trama2xmlIOC150002O_bloqReemisionAutoTarjetaDebitoConEmail.xsl?saxon=true"/>
+                    </when>
+                </choice>
+                <doCatch id="bloqReemisionAutoTarjetaDebitoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.RespaldarMensaje"
+                        id="bloqReemisionAutoTarjetaDebitoRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="bloqReemisionAutoTarjetaDebitoSetBodyError">
+                        <simple>ERROR ServicioCuentas-bloqReemisionAutoTarjetaDebito:${exception}:${body}</simple>
+                    </setBody>
+                    <wireTap
+                        id="wireTap-excepcionToLogPlataformas-bloqReemisionAutoTarjetaDebito" uri="direct:wsLogPlataformasGuardar"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="bloqReemisionAutoTarjetaDebitoSetBodyError" method="obtenerError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Inicio: Envia correo en caso de realizar un bloqueo. -->
+        <route id="enviarNotificacionesRoute">
+            <from id="enviarNotificacionesFrom" uri="direct:enviarNotificaciones"/>
+            <setHeader headerName="Cuentas.correo.Bloqueo-Reemision" id="_setHeader3">
+                <simple>{{Cuentas.correo.Bloqueo-Reemision}}</simple>
+            </setHeader>
+            <bean beanType="cl.coopeuch.util.aggregation.PropagadorProperties"
+                  id="setHeadersToPropertiesBean" method="setHeadersToProperties"/>
+            <bean id="creaEntradaRestBean" ref="routeFacade" method="creaEntradaRest" />
+            <doTry id="enviarNotificacionesTry">
+                <log message="Notificaciones IN3:::: ${body}"/>
+                <inOut id="restEnviarNotificacionesTo" uri="cxfrs:bean:restEnviarNotificaciones?ignoreDeleteMethodMessageBody=true"/>
+                <doCatch id="enviarNotificacionesCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <transform id="enviarNotificacionesTransform">
+                        <simple>&lt;enviarNotificaciones&gt;&lt;codigo&gt;ERROR&lt;/codigo&gt;&lt;/enviarNotificaciones&gt;</simple>
+                    </transform>
+                </doCatch>
+                <convertBodyTo id="_convertBodyTo2" type="String"/>
+            </doTry>
+        </route>
+        <!-- Fin: Envia correo en caso de realizar un bloqueo. -->
+        <!-- Inicio: Ruta para desplegar lista de cuentas. -->
+        <route id="consultaListaTarjetasCuenta">
+            <from id="consultaListaTarjetasCuentaFrom" uri="direct:consultaListaTarjetasCuenta"/>
+            <doTry id="consultaListaTarjetasCuentaTry">
+                <!-- XSTL que formar trama de entrada para ser enviada al AS400. -->
+                <!-- transforma la trama devuelta por el AS400. -->
+                <!-- XSLT envia informacion devuelta por el AS400 en XML.  -->
+                <to id="consultaListaTarjetasCuentaXml2trama" uri="xslt://transformations/in/xml2tramaIOC091503I_consultaListaTarjetasCuenta.xsl"/>
+                <to id="activemq-consultaListaTarjetasCuenta" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="consultaListaTarjetasCuentaTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultaListaTarjetasCuentaTrama2xml" uri="xslt://transformations/out/trama2xmlIOC091503O_consultaListaTarjetasCuenta.xsl?saxon=true"/>
+                <doCatch id="consultaListaTarjetasCuentaCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.RespaldarMensaje"
+                        id="consultaListaTarjetasCuentaRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="consultaListaTarjetasCuentaSetBodyError4">
+                        <simple>ERROR ServicioCuentas-consultaListaTarjetasCuenta:${exception}:${body}</simple>
+                    </setBody>
+                    <wireTap
+                        id="wireTap-excepcionToLogPlataformas-consultaListaTarjetasCuenta" uri="direct:wsLogPlataformasGuardar"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="consultaListaTarjetasCuentaSetBodyError" method="obtenerError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Fin: Ruta para desplegar lista de cuentas. -->
+        <!-- Inicio: Ruta para desplegar saldos de cuentas -->
+        <route id="consultaSaldosCuentas">
+            <from id="consultaSaldosCuentasFrom" uri="direct:consultaSaldosCuentas"/>
+            <doTry id="consultaSaldosCuentasTry">
+                <setProperty id="_setProperty1" propertyName="numCuentaXpath">
+                    <xpath resultType="String">//numeroCuenta</xpath>
+                </setProperty>
+                <bean id="transformNumeroCuentaBean"
+                    method="transformNumeroCuenta" ref="routeFacade"/>
+                <to id="consultaSaldosCuentas-To" uri="sql-stored:classpath:sql/PA_SEL_SALDOCUENTA_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseConsultaSaldosCuentas"/>
+                <bean id="validarDatosBasicosBean"
+                    method="validarConsultaSaldosCuentas" ref="routeFacade"/>
+                <to id="consultaSaldosCuentasTrama2xml" uri="xslt://transformations/out/xmlOut_consultaSaldosCuenta.xsl?saxon=true"/>
+                <doCatch id="consultaSaldosCuentasCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.RespaldarMensaje"
+                        id="consultaSaldosCuentasRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="consultaSaldosCuentasSetBodyError3">
+                        <simple>ERROR ServicioCuentas-consultaSaldosCuentas:${exception}:${body}</simple>
+                    </setBody>
+                    <wireTap
+                        id="wireTap-excepcionToLogPlataformas-consultaSaldosCuentas" uri="direct:wsLogPlataformasGuardar"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="consultaSaldosCuentasSetBodyError" method="obtenerError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Fin: Ruta para desplegar saldos de cuentas -->
+        <!-- Inicio: Consulta el titular de la cuenta -->
+        <route id="consultaTitulares">
+            <from id="consultaTitularesFrom" uri="direct:consultaTitulares"/>
+            <doTry id="consultaTitularesTry">
+                <!-- XSTL que formar trama de entrada para ser enviada al AS400. -->
+                <!-- transforma la trama devuelta por el AS400. -->
+                <!-- XSLT envia informacion devuelta por el AS400 en XML.  -->
+                <to id="consultaTitularesXml2trama" uri="xslt://transformations/in/xml2tramaIOC000402I_consultaTitulares.xsl"/>
+                <to id="activemq-consultaTitulares" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="consultaTitularesTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultaTitularesTrama2xml" uri="xslt://transformations/out/trama2xmlIOC000401_consultaTitulares.xsl?saxon=true"/>
+                <doCatch id="consultaTitularesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.RespaldarMensaje"
+                        id="consultaTitularesRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="consultaTitularesSetBodyError2">
+                        <simple>ERROR ServicioCuentas-consultaTitulares:${exception}:${body}</simple>
+                    </setBody>
+                    <wireTap
+                        id="wireTap-excepcionToLogPlataformas-consultaTitulares" uri="direct:wsLogPlataformasGuardar"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="consultaTitularesSetBodyError" method="obtenerError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Fin: Consulta el titular de la cuenta -->
+        <!-- Inicio: Consulta las transaciones de la cuenta -->
+        <route id="consultaTransaccionesCuenta">
+            <from id="consultaParametrosFrom" uri="direct:consultaTransaccionesCuenta"/>
+            <unmarshal id="consultaTransaccionesCuentaUnmarshall">
+                <jaxb contextPath="cl.coopeuch.core.cuenta.serviciocuenta.soap"/>
+            </unmarshal>
+            <bean id="consultarTransaccionRequest"
+                method="consultarTransaccionRequest" ref="routeFacade"/>
+            <to id="consultaTransaccionesCuentaToPA" uri="sql-stored:classpath:sql/PA_SEL_CUENTAS_CONSULTATRANSACCIONES_WS.sql?dataSource=dataSourceSqlDb2"/>
+            <bean id="consultarTransaccionResponse"
+                method="consultarTransaccionResponse" ref="routeFacade"/>
+            <marshal id="consultaTransaccionesCuentaMarshall">
+                <jaxb contextPath="cl.coopeuch.core.cuenta.serviciocuenta.soap"/>
+            </marshal>
+            <to id="consultaTransaccionesCuentaTrama2xml" uri="xslt://transformations/out/trama2xmlPA_consultaTransaccionesCuenta.xsl?saxon=true"/>
+        </route>
+        <route id="wsLogPlataformasGuardar">
+            <from id="wsLogPlataformasGuardar-From" uri="direct:wsLogPlataformasGuardar"/>
+            <doTry id="wsLogPlataformasGuardar-doTry">
+                <setProperty id="_setProperty7" propertyName="nivelLog">
+                    <simple>ERRO</simple>
+                </setProperty>
+                <bean id="wsLogPlataformasGuardar-Bean"
+                    method="guardarLogRequest" ref="routeFacade"/>
+                <to id="wsLogPlataformasGuardar-To" uri="cxfrs:bean:endpointLogPlataformas"/>
+                <doCatch id="wsLogPlataformasGuardar-doCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="_setBody1">
+                        <simple>ERROR-logPlataformas-ServicioCuentas: ${exception}-${body}</simple>
+                    </setBody>
+                    <log id="_log1" message="${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Fin: Consulta las transaciones de la cuenta -->
+    </camelContext>
+</blueprint>

@@ -1,0 +1,419 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsactualizacionfinanciera"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSource">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.wsactualizacionfinanciera}]/[{jdbc.sqlserver.database.wsactualizacionfinanciera}];charset=iso_1;domain=coopeuch1;usentlmv2=true"/>
+        <property name="username" value="[{jdbc.sqlserver.username.wsactualizacionfinanciera}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.wsactualizacionfinanciera}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.wsactualizacionfinanciera}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.wsactualizacionfinanciera}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.wsactualizacionfinanciera}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.wsactualizacionfinanciera}]"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.actualizacionfinanciera.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSActualizacionFinanciera"
+        id="endpointWSActualizacionFinanciera"
+        serviceClass="cl.coopeuch.integracion.actualizacionfinanciera.wsdl.WSActualizacionFinancieraSOAPPortType" wsdlURL="etc/wsdl/WSActualizacionFinanciera.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSActualizacionFinanciera"
+        id="endpointRSActualizacionFinanciera"
+        loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.actualizacionfinanciera.wsdl.WSActualizacionFinancieraSOAPPortType"/>
+    <camelcxf:rsClient
+        address="[{wsactualizacionfinanciera.wsdescargadocumento.endpoint}]"
+        id="endpointRSDescargaDocumento" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:cxfEndpoint
+        address="[{wsactualizacionfinanciera.wsdescargadocumento.soap.endpoint}]"
+        id="endpointWSDescargaDocumento" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.wsdescargadocumento.wsdl.WSDescargaDocumentoSOAPPortType" wsdlURL="etc/wsdl/WSDescargaDocumento.wsdl"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <camelContext id="servicio-actualizacion-financiera" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cola-identificacion">
+            <from id="fromQuartz" uri="quartz2:verificarCola/cola?fireNow=true&amp;cron={{datos.cron.monitoreo}}"/>
+            <to id="pa_selAutorizacionNoGuardada-To" uri="sql-stored:classpath:etc/sql/pa_selAutorizacionNoGuardada.sql?dataSource=dataSource&amp;outputHeader=response"/>
+            <bean id="obtenerAutorizacionPend-Bean"
+                method="obtenerAutorizacionPendientes" ref="beanRouteFacade"/>
+            <choice id="_choice1">
+                <when id="_when1">
+                    <simple>${exchangeProperty.existenRegistros}</simple>
+                    <loop doWhile="true" id="guardarInformacion_loop">
+                        <simple>${exchangeProperty.posicion} &lt; ${exchangeProperty.totalElementos}</simple>
+                        <to id="soap-actualizarProcesoCron" uri="direct:actualizarProcesoCron"/>
+                        <when id="_when2">
+                            <simple>${exchangeProperty.enviarColaAMQ}</simple>
+                            <wireTap
+                                id="Reintento-ActualizacionFinanciera-wireTap" uri="direct:amqActualizacionFinanciera"/>
+                        </when>
+                        <bean id="cargarDatosGuardaDocumento-Bean"
+                            method="cargarDatosGuardaDocumento" ref="beanRouteFacade"/>
+                    </loop>
+                </when>
+            </choice>
+        </route>
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSActualizacionFinanciera"/>
+            <to id="soapToInicio" uri="direct:inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSActualizacionFinanciera"/>
+            <to id="restToInicio" uri="direct:inicio"/>
+        </route>
+        <route id="iniciows">
+            <from id="iniciows" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacion-generarAuditoria">
+                        <simple>${header.operationName} == 'generarAuditoria'</simple>
+                        <to id="inicioTogenerarAuditoria" uri="direct:generarAuditoria"/>
+                    </when>
+                    <when id="inicioWhenOperacion-consultarAuditoria">
+                        <simple>${header.operationName} == 'consultarAuditoria'</simple>
+                        <to id="inicioTogenerarAuditoria" uri="direct:consultarAuditoria"/>
+                    </when>
+                    <when id="inicioWhenOperacion-consultarRenta">
+                        <simple>${header.operationName} == 'consultarRenta'</simple>
+                        <to id="inicioTogenerarAuditoria" uri="direct:consultarRenta"/>
+                    </when>
+                    <when id="inicioWhenOperacion-consultarFechaIngreso">
+                        <simple>${header.operationName} == 'consultarFechaIngreso'</simple>
+                        <log id="idLog0001" loggingLevel="INFO" message="xxxx entro consultarFechaIngreso"/>
+                        <to id="inicioTogenerarAuditoria" uri="direct:consultarFechaIngreso"/>
+                    </when>                    
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatchOperacion">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="inicioOperacionErrorCod" propertyName="codigoError">
+                        <constant>517</constant>
+                    </setProperty>
+                    <to id="inicioToExceptionOp" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarFecIngreso">
+            <from id="consultarFecIngresoFrom" uri="direct:consultarFechaIngreso"/>
+            <log id="idLog0002" loggingLevel="INFO" message="xxxx router consultarFechaIngreso ${exchangeProperty.rut}"/>
+            <doTry id="consultarFecIngresoDoTry">
+                <bean id="consultarFecIngresoBean"
+                    method="validarRequest" ref="beanRouteFacade"/>
+                <to id="pa_selFeIngresoCotizaciones-To" uri="sql-stored:classpath:etc/sql/pa_selFeIngresoCotizaciones.sql?dataSource=dataSource&amp;outputHeader=response"/>
+                <log id="idLog0003" loggingLevel="INFO" message="xxxx sql-stored ${exchangeProperty.rut} ${body}"/>
+                <bean id="consultarFecIngresoBean"
+                    method="consultarFechaIngresoPA" ref="beanRouteFacade"/>
+                <bean id="consultarFecIngresoResponseBean"
+                    method="consultarFechaIngresoResponse" ref="beanRouteFacade"/>
+                <doCatch id="consultarFecIngresoIllegalDoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="consultarFecIngresoToExcepcionSinCV" uri="direct:excepcion"/>
+                    <stop id="stopIndicadorCurseFI"/>
+                </doCatch>
+                <doCatch id="iconsultarFecIngresoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarFecIngresoCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="consultarFecIngresoToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>        
+        <route id="generarAuditoria">
+            <from id="generarAuditoriaFrom" uri="direct:generarAuditoria"/>
+            <doTry id="generarAuditoriaDoTry">
+                <bean id="generarAuditoriaValidarBean"
+                    method="validarRequest" ref="beanRouteFacade"/>
+                <to id="pa_selCodigoAutorizacion-To" uri="sql-stored:classpath:etc/sql/pa_selCodigoAutorizacion.sql?dataSource=dataSource&amp;outputHeader=response"/>
+                <bean id="generarCodigoAutorizacionBean"
+                    method="obtenerRespuestaPA" ref="beanRouteFacade"/>
+                <choice id="_choice2">
+                    <when id="_when3">
+                        <simple>${exchangeProperty.codigoAutorizacion} == '0'</simple>
+                        <bean id="generarCodigoAutorizacionBean"
+                            method="generarCodigoAutorizacion" ref="beanRouteFacade"/>
+                        <to id="pa_selCodigoAutorizacion-To" uri="sql-stored:classpath:etc/sql/pa_insCodigoAutorizacion.sql?dataSource=dataSource&amp;outputHeader=response"/>
+                        <bean id="enviarDatosSalidaBean"
+                            method="enviarDatosSalida" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <bean id="enviarDatosSalida-Bean"
+                            method="enviarDatosSalida" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="indicadorCurseDGIllegalDoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="indicadorCurseDGToExcepcionSinCV" uri="direct:excepcion"/>
+                    <stop id="stopIndicadorCurseDG"/>
+                </doCatch>
+                <doCatch id="indicadorCurseDGDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="indicadorCurseDGCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="indicadorCurseDGToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarRenta">
+            <from id="consultarRenta-From" uri="direct:consultarRenta"/>
+            <doTry id="consultarRenta-DoTry">
+                <bean id="consultarRenta-ValidarBean"
+                    method="validarRequest" ref="beanRouteFacade"/>
+                <to id="pa_selDatosAutorizacion-ConsultarRenta-To" uri="sql-stored:classpath:etc/sql/pa_selDatosAutorizacion.sql?dataSource=dataSource&amp;outputHeader=responseDatos"/>
+                <bean id="DatosCodigoAutorizacion-ConsultarRenta-Bean"
+                    method="obtenerRespuestaDatosPA" ref="beanRouteFacade"/>
+                <choice id="_choice3">
+                    <when id="_when4">
+                        <simple>${exchangeProperty.codigoError} == '200'</simple>
+                        <to id="pa_selCotiPrevired-ConsultarRenta-To" uri="sql-stored:classpath:etc/sql/pa_selCotiPrevired.sql?dataSource=dataSource&amp;outputHeader=responseConsultaPrevired"/>
+                        <bean
+                            id="obtenerRespuestaConsultaPrevired-ConsultarRenta-Bean"
+                            method="obtenerRespuestaConsultaPrevired" ref="beanRouteFacade"/>
+                        <choice id="_choice4">
+                            <when id="_when5">
+                                <simple>${exchangeProperty.dias} == '0'</simple>
+                                <removeHeaders id="_removeHeaders1" pattern="*"/>
+                                <bean
+                                    id="obtenerDatosEntradaMonitor-Bean"
+                                    method="obtenerDatosEntradaMonitor" ref="beanRouteFacade"/>
+                                <marshal id="_marshal1">
+                                    <jaxb contextPath="cl.coopeuch.integracion.actualizacionfinanciera.wsdl"/>
+                                </marshal>
+                                <to id="previRed2Xml" uri="xslt://etc/xsl/in/xml2xmlCDATA_Previred.xsl?saxon=true"/>
+                                <to id="cxfPreviredurl" uri="cxf:{{wsactualizacionfinanciera.MonitorPrevired.url}}?dataFormat=MESSAGE&amp;loggingFeatureEnabled=true"/>
+                                <to id="previredXml2XmlCDATA" uri="xslt://etc/xsl/in/getCDATA.xsl?saxon=true"/>
+                                <setProperty id="previRedGetCodigo" propertyName="codigo">
+                                    <xpath resultType="java.lang.String">/respuesta/control/@codigo</xpath>
+                                </setProperty>
+                                <setProperty
+                                    id="creditoListoHeaderXmlPrevired" propertyName="XML">
+                                    <simple>${body}</simple>
+                                </setProperty>
+                                <choice id="_choice5">
+                                    <when id="_when6">
+                                    <simple>${exchangeProperty.codigo} == '9000'</simple>
+                                    <to id="arreglaTipoMessage-ok" uri="direct:normalizaDataFormat"/>
+                                    <to
+                                    id="pa_insXmlPrevired-ConsultarRenta-To" uri="sql-stored:classpath:etc/sql/pa_insXmlPrevired.sql?dataSource=dataSource&amp;outputHeader=responseInsertXML"/>
+                                    <bean
+                                    id="obtenerRespuestaInsPrevired-Bean"
+                                    method="obtenerRespuestaInsPrevired" ref="beanRouteFacade"/>
+                                    <choice id="_choice6">
+                                    <when id="_when7">
+                                    <simple>${exchangeProperty.RespuestaInsXML} == '0'</simple>
+                                    <setBody id="XXXX">
+                                    <simple>${exchangeProperty.XML}</simple>
+                                    </setBody>
+                                    <unmarshal id="unmarshalPojo">
+                                    <jaxb contextPath="cl.coopeuch.integracion.actualizacionfinanciera.respuestaprevired"/>
+                                    </unmarshal>
+                                    <bean
+                                    id="obtenerRespuestaInsPrevired-Bean"
+                                    method="obtenerRespuestaInsPrevired" ref="beanRouteFacade"/>
+                                    <split id="splitDetalle">
+                                    <tokenize
+                                    token="respuestacca_detalle" xml="true"/>
+                                    <setProperty
+                                    id="insRentasPreviredAno" propertyName="Ano">
+                                    <xpath resultType="Integer">substring(/respuestacca_detalle/@mes,string-length(/respuestacca_detalle/@mes)-3, 4)</xpath>
+                                    </setProperty>
+                                    <setProperty
+                                    id="insRentasPreviredMes" propertyName="Mes">
+                                    <xpath resultType="String">substring-before(/respuestacca_detalle/@mes,'20')</xpath>
+                                    </setProperty>
+                                    <setProperty
+                                    id="insRentasPreviredRenta" propertyName="Renta">
+                                    <xpath resultType="String">/respuestacca_detalle/@remuneracionimponible</xpath>
+                                    </setProperty>
+                                    <to
+                                    id="pa_insRentasPrevired-ConsultarRenta-To" uri="sql-stored:classpath:etc/sql/pa_insRentasPrevired.sql?dataSource=dataSource&amp;outputHeader=responseInsertCotizaciones"/>
+                                    </split>
+                                    <setProperty
+                                    id="guardarProcesamiento-estadoProceso" propertyName="estadoProceso">
+                                    <constant>P</constant>
+                                    </setProperty>
+                                    <wireTap
+                                    id="guardarProcesamiento-estadoProceso-wireTap" uri="direct:actualizarEstadoProceso"/>
+                                    <wireTap
+                                    id="AMQActualizacionFinanciera-wireTap" uri="direct:amqActualizacionFinanciera"/>
+                                    </when>
+                                    </choice>
+                                    </when>
+                                    <otherwise id="_otherwise2">
+                                    <to
+                                    id="arreglaTipoMessage-error" uri="direct:normalizaDataFormat"/>
+                                    </otherwise>
+                                </choice>
+                                <bean id="enviarRespuestaMonitor-Bean"
+                                    method="enviarRespuestaMonitor" ref="beanRouteFacade"/>
+                            </when>
+                            <otherwise id="_otherwise3">
+                                <bean
+                                    id="enviarRespuestaMonitor-OK-Bean"
+                                    method="enviarRespuestaMonitor" ref="beanRouteFacade"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                </choice>
+                <doCatch id="consultarRenta-IllegalDoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="consultarRenta-ToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stop-consultarRenta"/>
+                </doCatch>
+                <doCatch id="consultarRenta-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarRenta-CodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="arreglaTipoMessage-error" uri="direct:normalizaDataFormat"/>
+                    <to id="consultarRenta-ToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route1">
+            <from id="actualizarEstadoProcesoFrom" uri="direct:actualizarEstadoProceso"/>
+            <to id="pa_updEstadoProcesoAutorizacion-To" uri="sql-stored:classpath:etc/sql/pa_updEstadoProcesoAutorizacion.sql?dataSource=dataSource&amp;outputHeader=response"/>
+        </route>
+        <route id="_route2">
+            <from id="revisionCronEstadoProcesoFrom" uri="direct:actualizarProcesoCron"/>
+            <to
+                id="pa_updEstadosProcesosFallidos-actualizarProcesoCron-To" uri="sql-stored:classpath:etc/sql/pa_updEstadosProcesosFallidos.sql?dataSource=dataSource&amp;outputHeader=responseCron"/>
+            <bean id="obtenerRespuestaEstadoProceso-Bean"
+                method="obtenerRespuestaEstadoProceso" ref="beanRouteFacade"/>
+        </route>
+        <route id="consultarAuditoria">
+            <from id="consultarAuditoriaFrom" uri="direct:consultarAuditoria"/>
+            <doTry id="consultarAuditoriaDoTry">
+                <bean id="consultarAuditoriaValidarBean"
+                    method="validarRequest" ref="beanRouteFacade"/>
+                <to id="pa_selDatosAutorizacion-To" uri="sql-stored:classpath:etc/sql/pa_selDatosAutorizacion.sql?dataSource=dataSource&amp;outputHeader=responseDatos"/>
+                <bean id="Datos-CodigoAutorizacionBean"
+                    method="obtenerRespuestaDatosPA" ref="beanRouteFacade"/>
+                <choice id="_choice7">
+                    <when id="_when8">
+                        <simple>${exchangeProperty.codigoError} == '200'</simple>
+                        <to id="inicioTo-descargaDocumento" uri="direct:descargaDocumento"/>
+                    </when>
+                </choice>
+                <doCatch id="consultarAuditoria-IllegalDoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="iconsultarAuditoria-ToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stop-consultarAuditoria"/>
+                </doCatch>
+                <doCatch id="consultarAuditoria-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarAuditoria-CodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="consultarAuditoria-ToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="descargaDocumento">
+            <from id="descargaDocumento-From" uri="direct:descargaDocumento"/>
+            <doTry id="descargaDocumento-DoTry">
+                <bean id="descargaDocumento-BeanRequest"
+                    method="generarDatosDescarga" ref="beanRouteFacade"/>
+                <to id="descargaDocumento-to" uri="cxfrs:bean:endpointRSDescargaDocumento?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <bean id="descargaDocumento-BeanResponse"
+                    method="descargarDocumentoResponse" ref="beanRouteFacade"/>
+                <doCatch id="descargaDocumento-NullDoCatch">
+                    <exception>java.lang.NullPointerException</exception>
+                    <to id="descargaDocumento-ToExcepcionErrorCV" uri="direct:excepcion"/>
+                    <stop id="stop-descargaDocumento"/>
+                </doCatch>
+                <doCatch id="descargaDocumento-IllegalDoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="descargaDocumento-ToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stop-descargaDocumento-error"/>
+                </doCatch>
+                <doCatch id="descargaDocumento-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoError-descargaDocumento" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="to-descargaDocumento-Excepcion" uri="direct:excepcion"/>
+                    <stop id="stop-descargaDocumento"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="AMQ-ActualizacionFinanciera">
+            <from id="AMQ-ActualizacionFinanciera-from" uri="direct:amqActualizacionFinanciera"/>
+            <bean id="AMQ-ActualizacionFinanciera-consultarUUID"
+                method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+            <bean id="enviarDatosAMQActualizacioFinanciera-Bean"
+                method="enviarDatosAMQActualizacioFinanciera" ref="beanRouteFacade"/>
+            <to id="Call_AMQactualizacionfinanciera" uri="beanAMQ:{{colas.amq.actualizacionfinanciera.in.temp}}??preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="rutaNormalizaDataFormat">
+            <from id="formNormalizaDataFormat" uri="direct:normalizaDataFormat"/>
+            <removeHeaders id="_removeHeaders6" pattern="*"/>
+            <setHeader headerName="operationName" id="normalizaOpName">
+                <constant>consultar</constant>
+            </setHeader>
+            <bean id="descargaDocumento1-BeanRequest"
+                method="generarDatosDescarga" ref="beanRouteFacade"/>
+            <to id="descargaDocumento2-to" uri="cxf:bean:endpointWSDescargaDocumento"/>
+        </route>
+    </camelContext>
+</blueprint>

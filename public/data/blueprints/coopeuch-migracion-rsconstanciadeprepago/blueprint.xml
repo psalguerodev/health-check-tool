@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Configures the Camel Context -->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+	xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+	xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+	<!-- Property Placeholder -->
+	<cm:property-placeholder persistent-id="wsconstanciadeprepago"
+		update-strategy="reload" />
+	<!-- Endpoint wsdl Servicio ConstanciaDePrepago -->
+	<cxf:cxfEndpoint address="/ServicioConstanciaDePrepago"
+		id="servicioConstanciaDePrepagoEndpoint" serviceClass="cl.coopeuch.core.constanciadeprepago.ConstanciaDePrepago"
+		wsdlURL="wsdl/ConstanciaDePrepago.wsdl" />
+    <cxf:rsClient address="${wsLogPlataformas.endpoint}" 
+		id="endpointLogPlataformas"	
+		loggingFeatureEnabled="true" /> 		
+	<!-- Conexion AMQ -->
+	<bean class="cl.coopeuch.integracion.util.RouteFacade" id="beanRouteFacade"/>
+	<bean class="org.apache.activemq.camel.component.ActiveMQComponent"
+		id="AMQ">
+		<property name="brokerURL" value="${amq.broker.url}" />
+		<property name="userName" value="${amq.username}" />
+		<property name="password" value="${amq.password}" />
+		<property name="usePooledConnection" value="true" />
+	</bean>
+	<camelContext id="servicio-constanciadeprepago-context"
+		xmlns="http://camel.apache.org/schema/blueprint">
+		<!-- Ruta que invoca operaciones del servicio web -->
+		<route id="cxf-RuteoOperaciones">
+			<from id="servicioConstanciaDePrepagoEndpointListener"
+				uri="cxf:bean:servicioConstanciaDePrepagoEndpoint?DataFormat=MESSAGE" />
+			<doTry id="ruteoOperacionesTry">
+            	<setProperty propertyName="rut_log">
+		           	<simple>00000000</simple>
+		        </setProperty> 			
+				<convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String" />
+				<bean beanType="cl.coopeuch.util.other.BodyBackup" id="backupBody"
+					method="backupBody" />
+				<bean beanType="cl.coopeuch.util.jms.CreateCorrelationId" id="createJMSCorrelationId"
+					method="createJMSCorrelationId24" />
+				<choice id="ruteoOperaciones">
+					<when id="rutaConsultaDatosConstanciaVigente">
+						<simple>${body} contains 'consultaDatosConstancia'</simple>
+						<to id="consultaDatosConstanciaValidator" uri="validator:xsd/soapConsultaDatosConstancia.xsd" />
+			            <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+		                    <simple>consultaDatosConstancia</simple>
+		                </setProperty> 						
+						<to id="consultaDatosConstanciaTo" uri="direct:consultaDatosConstancia" />
+					</when>
+					<otherwise id="_otherwise1" />
+				</choice>
+				<doCatch id="ruteoOperacioneShemaValidationException">
+                	<exception>org.apache.camel.processor.validation.SchemaValidationException</exception>
+                	<exception>org.apache.camel.ValidationException</exception>
+                	<exception>org.apache.camel.TypeConversionException</exception>
+                	<transform>
+               			<simple>${property.CamelExceptionCaught}</simple>
+            		</transform>
+		            <transform>
+		               <simple>${bodyAs(String)}</simple>
+		            </transform>    
+		            <setProperty propertyName="exceptionBody">
+		            	<simple>${body}</simple>
+		            </setProperty>        		
+					<bean beanType="cl.coopeuch.util.other.BodyBackup" id="ruteoOperacionesRestoreBody1"
+						method="restoreBody" />
+                    <setBody id="ruteoOperacioneShemaValidationExceptionSetBodyError">
+                        <simple>ERROR ServicioConstanciaPrepago-Inicio-soap: -Excepcion: ${property.exceptionBody}\n-BodyOrigen: ${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly" />                    
+					<bean beanType="cl.coopeuch.util.error.BodyError" id="ruteoOperacionesBodyError"
+						method="setBodyError" />
+                </doCatch>        				
+				<doCatch id="ruteoOperacionesCatch">
+					<exception>java.lang.Exception</exception>
+					<exception>java.io.IOException</exception>
+					<bean beanType="cl.coopeuch.util.other.BodyBackup" id="ruteoOperacionesRestoreBody2"
+						method="restoreBody" />
+				<setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR ServicioConstanciaPrepago-Inicio-soap:${exception}:${body}</simple>
+                    </setBody>
+					<wireTap id="wireTap-excepcionToLogPlataformas" uri="direct:wsLogPlataformasGuardar"/>
+					<bean beanType="cl.coopeuch.util.error.BodyError" id="ruteoOperacionesBodyError2"
+						method="setBodyError" />
+				</doCatch>
+				<doFinally id="ruteoOperacionesFinally" />
+			</doTry>
+		</route>
+		<!-- Ruta que consume cola MQ IBS y retorna datos de Constancias de Prepago 
+			IBS -->
+		<route id="consultaDatosConstancia">
+			<from id="consultaDatosConstanciaFrom" uri="direct:consultaDatosConstancia" />
+			<doTry id="consultaDatosConstanciaTry">
+				<to id="consultaDatosConstanciaXml2trama"
+					uri="xslt://transformations/in/xml2tramaIOC0056001I_consultaDatosConstancia.xsl" />
+				<to id="activeMQ-consultaDatosConstancia"
+					uri="AMQ:{{amq.queue.amq.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.amq.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.amq.res}}&amp;synchronous=true&amp;exchangePattern=InOut" />
+				<transform id="consultaDatosConstanciaTransform">
+					<simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+				</transform>
+				<to id="consultaDatosConstanciaTrama2xml"
+					uri="xslt://transformations/out/trama2xmlIOC005601O_consultaDatosConstancia.xsl?saxon=true" />
+				<doCatch id="consultaDatosConstanciaCatch">
+					<exception>java.lang.Exception</exception>
+					<exception>java.io.IOException</exception>
+					<bean beanType="cl.coopeuch.util.other.BodyBackup" id="consultaDatosConstanciaRestoreBody"
+						method="restoreBody" />
+					<setBody id="consultaDatosConstanciaSetBodyError">
+						<simple>ERROR ServicioConstanciaPrepago:${exception}:${body}</simple>
+					</setBody>
+					<wireTap id="wireTap-excepcionToLogPlataformas-consultaDatosConstancia" uri="direct:wsLogPlataformasGuardar"/>
+					<bean beanType="cl.coopeuch.util.error.BodyError" id="consultaDatosConstanciaSetBodyError"
+						method="setBodyError" />
+				</doCatch>
+				<doFinally id="consultaDatosConstanciaFinally" />
+			</doTry>
+		</route>
+        <route id="wsLogPlataformasGuardar">
+        	<from id="wsLogPlataformasGuardar-From" uri="direct:wsLogPlataformasGuardar"/>        	
+        	<doTry id="wsLogPlataformasGuardar-doTry">
+        		<setProperty propertyName="nivelLog">
+        			<simple>ERRO</simple>
+        		</setProperty>
+        		<bean id="wsLogPlataformasGuardar-Bean" ref="beanRouteFacade" method="guardarLogRequest"/>
+        		<to id="wsLogPlataformasGuardar-To" uri="cxfrs:bean:endpointLogPlataformas"/>
+        		<doCatch id="wsLogPlataformasGuardar-doCatch">
+        			<exception>java.lang.Exception</exception>
+        			<setBody>
+        				<simple>ERROR-logPlataformas-ServicioCuentas: ${exception}-${body}</simple>
+        			</setBody>
+        			<log message="${body}"/>
+        		</doCatch>
+        	</doTry>
+        </route> 		
+	</camelContext>
+</blueprint>

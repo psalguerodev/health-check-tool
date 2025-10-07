@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder persistent-id="global" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioPoderEspecial"
+        id="servicioPoderEspecialEndpoint"
+        serviceClass="cl.coopeuch.integracion.poderespecial.wsdl.PoderEspecialPortType" wsdlURL="wsdl/PoderEspecial.wsdl"/>
+    <cxf:rsServer address="/RSPoderEspecial" id="poderEspecialRest" serviceClass="cl.coopeuch.integracion.poderespecial.rest.PoderEspecialRest"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.poderespecial.util.RouteFacade" id="routeFacade"/>
+    <camelContext id="servicio-poder-especial-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-rest">
+            <from id="inicioFrom-REST" uri="cxfrs:bean:poderEspecialRest"/>
+            <choice id="inicioChoiceOperacion-REST">
+                <when id="inicioWhenOperacionModificarPoderEspecial-REST">
+                    <simple>${header.operationName} == 'modificarPoderEspecial'</simple>
+                    <unmarshal id="modificarPoderEspecial_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.poderespecial.xsd.ModificarPoderEspecial"/>
+                    </unmarshal>
+                    <bean id="modificarPoderEspecial_bean6"
+                        method="modificarPoderEspecialRest" ref="routeFacade"/>
+                    <marshal id="modificarPoderEspecial_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.poderespecial.xsd"/>
+                    </marshal>
+                    <to id="ModificarPoderEspecial_to7" uri="direct:inicio"/>
+                    <unmarshal id="modificarPoderEspecial_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.poderespecial.xsd"/>
+                    </unmarshal>
+                    <bean id="modificarPoderEspecial_bean7"
+                        method="modificarPoderEspecialResponseRest" ref="routeFacade"/>
+                    <marshal id="modificarPoderEspecialResponse_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.poderespecial.xsd.ModificarPoderEspecialResponse"/>
+                    </marshal>
+                </when>
+                <when id="inicioWhenOperacionConsultarPoderEspecial-REST">
+                    <simple>${header.operationName} == 'consultarPoderEspecial'</simple>
+                    <unmarshal id="consultarPoderEspecial_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.poderespecial.xsd.ConsultarPoderEspecial"/>
+                    </unmarshal>
+                    <bean id="consultarPoderEspecial_bean6"
+                        method="consultarPoderEspecialRest" ref="routeFacade"/>
+                    <marshal id="consultarPoderEspecial_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.poderespecial.xsd"/>
+                    </marshal>
+                    <to id="ConsultarPoderEspecial_to7" uri="direct:inicio"/>
+                    <unmarshal id="consultarPoderEspecial_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.poderespecial.xsd"/>
+                    </unmarshal>
+                    <bean id="consultarPoderEspecial_bean7"
+                        method="consultarPoderEspecialResponseRest" ref="routeFacade"/>
+                    <marshal id="consultarPoderEspecialResponse_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.poderespecial.xsd.ConsultarPoderEspecialResponse"/>
+                    </marshal>
+                </when>
+                <when id="inicioWhenOperacionAgregarPoderEspecial-REST">
+                    <simple>${header.operationName} == 'agregarPoderEspecial'</simple>
+                    <unmarshal id="agregarPoderEspecial_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.poderespecial.xsd.AgregarPoderEspecial"/>
+                    </unmarshal>
+                    <bean id="agregarPoderEspecial_bean6"
+                        method="agregarPoderEspecialRest" ref="routeFacade"/>
+                    <marshal id="agregarPoderEspecial_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.poderespecial.xsd"/>
+                    </marshal>
+                    <to id="agregarPoderEspecial_to7" uri="direct:inicio"/>
+                    <unmarshal id="agregarPoderEspecial_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.poderespecial.xsd"/>
+                    </unmarshal>
+                    <bean id="agregarPoderEspecial_bean7"
+                        method="agregarPoderEspecialResponseRest" ref="routeFacade"/>
+                    <marshal id="agregarPoderEspecialResponse_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.poderespecial.xsd.AgregarPoderEspecialResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <route id="inicio-soap">
+            <from id="inicioFrom" uri="cxf:bean:servicioPoderEspecialEndpoint?DataFormat=MESSAGE"/>
+            <to id="_toInicioWSDL" uri="direct:inicio"/>
+        </route>
+        <!-- Ruta que invoca operaciones del servicio web Poder Especial -->
+        <route id="cx-RuteoOperaciones">
+            <from id="servicioPoderEspecialEndpointListener" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.poderespecial.util.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.poderespecial.util.CorrelationId"
+                    id="createJMSCorrelationId" method="createJMSCorrelationId24"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaagregarPoderEspecial">
+                        <simple>${body} contains 'AgregarPoderEspecial'</simple>
+                        <to id="agregarPoderEspecialValidator" uri="validator:xsd/soapPoderEspecial.xsd"/>
+                        <to id="agregarPoderEspecialTo" uri="direct:agregarPoderEspecial"/>
+                    </when>
+                    <when id="rutaconsultarPoderEspecial">
+                        <simple>${body} contains 'ConsultarPoderEspecial'</simple>
+                        <to id="consultarPoderEspecialValidator" uri="validator:xsd/soapPoderEspecial.xsd"/>
+                        <to id="consultarPoderEspecialTo" uri="direct:consultarPoderEspecial"/>
+                    </when>
+                    <when id="rutamodificarPoderEspecial">
+                        <simple>${body} contains 'ModificarPoderEspecial'</simple>
+                        <to id="modificarPoderEspecialValidator" uri="validator:xsd/soapPoderEspecial.xsd"/>
+                        <to id="modificarPoderEspecialTo" uri="direct:modificarPoderEspecial"/>
+                    </when>
+                    <otherwise id="_otherwise1"/>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.poderespecial.util.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.poderespecial.util.BodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <route id="agregarPoderEspecial">
+            <from id="agregarPoderEspecialFrom" uri="direct:agregarPoderEspecial"/>
+            <doTry id="agregarPoderEspecialTry">
+                <to id="agregarPoderEspecialXml2trama" uri="xslt://transformations/in/xml2tramaIOC002801I_agregarPoderEspecial.xsl"/>
+                <to id="activemq-agregarPoderEspecial" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="agregarPoderEspecialTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="agregarPoderEspecialTrama2xml" uri="xslt://transformations/out/trama2xmlIOC002801O_agregarPoderEspecial.xsl?saxon=true"/>
+                <doCatch id="agregarPoderEspecialCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.poderespecial.util.BodyBackup"
+                        id="agregarPoderEspecialRestoreBody" method="restoreBody"/>
+                    <setBody id="agregarPoderEspecialSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="agregarPoderEspecialFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.poderespecial.util.BodyError"
+                        id="agregarPoderEspecialBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="agregarPoderEspecialFinally"/>
+            </doTry>
+        </route>
+        <route id="consultarPoderEspecial">
+            <from id="consultarPoderEspecialFrom" uri="direct:consultarPoderEspecial"/>
+            <doTry id="consultarPoderEspecialTry">
+                <to id="consultarPoderEspecialXml2trama" uri="xslt://transformations/in/xml2tramaIOC002803I_consultarPoderEspecial.xsl"/>
+                <to id="activeMQ-consultarPoderEspecial" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Shared&amp;replyTo={{amq.queue.res}}&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="consultarPoderEspecialTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarPoderEspecialTrama2xml" uri="xslt://transformations/out/trama2xmlIOC002803O_consultarPoderEspecial.xsl?saxon=true"/>
+                <doCatch id="consultarPoderEspecialCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.poderespecial.util.BodyBackup"
+                        id="consultarPoderEspecialRestoreBody" method="restoreBody"/>
+                    <setBody id="consultarPoderEspecialSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarPoderEspecialFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.poderespecial.util.BodyError"
+                        id="consultarPoderEspecialBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultarPoderEspecialFinally"/>
+            </doTry>
+        </route>
+        <route id="modificarPoderEspecial">
+            <from id="modificarPoderEspecialFrom" uri="direct:modificarPoderEspecial"/>
+            <doTry id="modificarPoderEspecialTry">
+                <to id="modificarPoderEspecialXml2trama" uri="xslt://transformations/in/xml2tramaIOC002802I_modificarPoderEspecial.xsl"/>
+                <to id="activeMQ-modificarPoderEspecial" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Shared&amp;replyTo={{amq.queue.res}}&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="modificarPoderEspecialTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="modificarPoderEspecialTrama2xml" uri="xslt://transformations/out/trama2xmlIOC002802O_modificarPoderEspecial.xsl?saxon=true"/>
+                <doCatch id="modificarPoderEspecialCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.poderespecial.util.BodyBackup"
+                        id="modificarPoderEspecialRestoreBody" method="restoreBody"/>
+                    <setBody id="modificarPoderEspecialSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="modificarPoderEspecialFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.poderespecial.util.BodyError"
+                        id="modificarPoderEspecialBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="modificarPoderEspecialFinally"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

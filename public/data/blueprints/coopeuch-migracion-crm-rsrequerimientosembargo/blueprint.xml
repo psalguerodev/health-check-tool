@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.0.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsrequerimientosembargocrm" placeholder-prefix="[{" placeholder-suffix="}]"/>
+    <bean class="cl.coopeuch.integracion.utilidad.util.RouteFacade" id="beanRouteFacade"/>
+    <!--Servicios -->
+    <cxf:cxfEndpoint address="/crm/WSRequerimientosEmbargo" id="fromWsRequerimientosEmbargoSoap"
+        loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.crm.wsrequerimientosembargo.WSRequerimientosEmbargoSoap" wsdlURL="etc/wsdl/WSRequerimientosEmbargo.asmx.wsdl"/>
+    <cxf:rsServer address="/crm/RSRequerimientosEmbargo" id="fromWsRequerimientosEmbargoRest"
+        loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.utilidad.rest.RequerimientosEmbargoCRMRest"/>
+    <!--Cliente proxy-->
+    <cxf:cxfEndpoint address="[{crm.proxy.requerimientosembargo.endpoint}]"
+        id="toEndpointWsRequerimientosEmbargo" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.crm.wsrequerimientosembargo.WSRequerimientosEmbargoSoap" wsdlURL="etc/wsdl/WSRequerimientosEmbargo.asmx.wsdl"/>
+    <camelContext id="servicio-crm-requerimientosembargo" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="soap-inicio" streamCache="true">
+            <from id="requerimientosembargoFrom" uri="cxf:bean:fromWsRequerimientosEmbargoSoap?dataFormat=RAW"/>
+            <removeHeaders id="requerimientosembargoRemoveHeaders" pattern="CamelHttp*"/>
+            <to id="requerimientosembargoTo" uri="cxf:bean:toEndpointWsRequerimientosEmbargo?dataFormat=RAW"/>
+        </route>
+        <route id="rest-inicio" streamCache="true">
+            <from id="inicioRestFrom" uri="cxfrs:bean:fromWsRequerimientosEmbargoRest"/>
+            <choice id="fromOperation">
+                <when id="whenActualizar">
+                    <simple>${header.operationName} == 'actualizar'</simple>
+                    <unmarshal id="unmarshalActualizar">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wsrequerimientosembargo.Actualizar"/>
+                    </unmarshal>
+                    <bean id="actualizarRequest"
+                        method="actualizarRest" ref="beanRouteFacade"/>
+                    <to id="actualizarTo" uri="cxf:bean:toEndpointWsRequerimientosEmbargo"/>
+                    <marshal id="marshalActualizarResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wsrequerimientosembargo.ActualizarResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+    </camelContext>
+</blueprint>

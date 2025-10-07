@@ -1,0 +1,2214 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!--Property Placeholder -->
+    <cxf:cxfEndpoint address="/ServicioAutenticacion"
+        id="servicioAutenticacionEndpoint"
+        serviceClass="org.example.ldapoperation.LDAPOperation" wsdlURL="wsdl/ServicioAutenticacion.wsdl"/>
+    <!--REST -->
+    <cxf:rsServer address="/RSServicioAutenticacion"
+        id="servicioAutenticacionEndpointRest"
+        loggingFeatureEnabled="false" serviceClass="cl.coopeuch.core.autenticacion.service.rest.AutenticacionRest">
+   		<cxf:inInterceptors>
+   			<bean class="cl.coopeuch.cxf.interceptor.CustomLoggingInInterceptor" />
+		</cxf:inInterceptors>
+   		<cxf:outInterceptors>
+   			<bean class="org.apache.cxf.interceptor.LoggingOutInterceptor" />
+		</cxf:outInterceptors>
+    </cxf:rsServer>    
+    <cxf:cxfEndpoint address="[{endpoint.safesigner.authws}]"
+        id="endpointSafeSignerAuthWs" loggingFeatureEnabled="false"
+        serviceClass="cl.coopeuch.integracion.autenticacion.wsdl.safesigner.authws.AuthenticationWs" wsdlURL="wsdl/SafeSigner_AuthWs.wsdl">
+        <cxf:inInterceptors>
+            <bean class="cl.coopeuch.cxf.interceptor.ClientCustomLoggingInInterceptor" />
+        </cxf:inInterceptors>
+        <cxf:outInterceptors>
+            <bean class="cl.coopeuch.cxf.interceptor.ClientCustomLoggingOutInterceptor" />
+        </cxf:outInterceptors>
+    </cxf:cxfEndpoint>
+    <cxf:cxfEndpoint address="[{endpoint.safesigner.smsws}]"
+        id="endpointSmsSafesigner" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.autenticacion.wsdl.safesigner.smsws.SmsWs" wsdlURL="wsdl/SmsWs.wsdl"/>
+    <cxf:cxfEndpoint address="[{endpoint.safesigner.cardws}]"
+        id="endpointCardSafesigner" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.autenticacion.wsdl.safesigner.cardws.CardWs" wsdlURL="wsdl/CardWs.wsdl"/>
+    <cxf:rsClient address="[{rsnotificaciones.enviar.endpoint}]"
+        id="endpointRsNotificaciones" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="true"/>
+        </cxf:properties>
+    </cxf:rsClient>
+
+    <bean class="cl.coopeuch.util.RouteFacade" id="routeFacade"/>
+    <bean class="cl.coopeuch.util.LogIncidencias" id="beanLogIncidencias"/>
+	<bean id="logTraceIncidencias" class="org.slf4j.LoggerFactory" factory-method="getLogger">
+		<argument index="0" value="logAutenticacion" />
+	</bean>
+
+    <!--Local Beans -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyServicioAutenticacion"
+        persistent-id="servicioautenticacion" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.autentica}]/PortalWeb;charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.autentica}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.autentica}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.autentica}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.autentica}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.autentica}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.autentica}]"/>
+    </bean>
+    <!--borrar -->
+    <camelContext id="servicio-autenticacion" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="_routeCola">
+            <from id="_fromCola" uri="AMQ:queue:{{colas.servicio.autenticacion.in.temp}}?preserveMessageQos=true"/>
+            <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                id="createJMSCorrelationId-Cola" method="createJMSCorrelationId24"/>
+            <to id="_toInicioColas" uri="direct:inicio"/>
+        </route>
+        <route id="cxrs-RuteoOperaciones-rs">
+            <from id="inicioRestFrom" uri="cxfrs:bean:servicioAutenticacionEndpointRest"/>
+            <choice id="_choice3">
+                <when id="_when4">
+                    <simple>${header.operationName} == 'autenticaRut'</simple>
+                    <unmarshal id="rs1_unmarshal1">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.example.ldapoperation.AutenticaRut"/>
+                    </unmarshal>
+                    <bean id="rs1_bean1" method="autenticaRutRequest" ref="routeFacade"/>
+                    <marshal id="rs1_marshal1">
+                        <jaxb contextPath="org.xmlsoap.schemas.soap.envelope"/>
+                    </marshal>
+                    <to id="rs1_to1" uri="direct:inicio"/>
+                    <unmarshal id="rs1_unmarshal2">
+                        <jaxb contextPath="org.xmlsoap.schemas.soap.envelope"/>
+                    </unmarshal>
+                    <bean id="rs1_bean2" method="autenticaRutResponse" ref="routeFacade"/>
+                    <marshal id="rs1_marshal2">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.example.ldapoperation.AutenticaRutResponse1"/>
+                    </marshal>
+                </when>
+                <when id="_when13">
+                    <simple>${header.operationName} == 'creaUsuario'</simple>
+                    <unmarshal id="rs2_unmarshal1">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.example.ldapoperation.CreaUsuario"/>
+                    </unmarshal>
+                    <bean id="rs2_bean1" method="creaUsuarioRequest" ref="routeFacade"/>
+                    <marshal id="rs2_marshal1">
+                        <jaxb contextPath="org.xmlsoap.schemas.soap.envelope"/>
+                    </marshal>
+                    <to id="rs2_to1" uri="direct:inicio"/>
+                    <unmarshal id="rs2_unmarshal2">
+                        <jaxb contextPath="org.xmlsoap.schemas.soap.envelope"/>
+                    </unmarshal>
+                    <bean id="rs2_bean2" method="creaUsuarioResponse" ref="routeFacade"/>
+                    <marshal id="rs2_marshal2">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.example.ldapoperation.CreaUsuarioResponse"/>
+                    </marshal>
+                </when>
+                <when id="_when14">
+                    <simple>${header.operationName} == 'modificaClave'</simple>
+                    <unmarshal id="rs3_unmarshal1">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.example.ldapoperation.ModificaClave"/>
+                    </unmarshal>
+                    <bean id="rs3_bean1" method="modificaClaveRequest" ref="routeFacade"/>
+                    <marshal id="rs3_marshal1">
+                        <jaxb contextPath="org.xmlsoap.schemas.soap.envelope"/>
+                    </marshal>
+                    <to id="rs3_to1" uri="direct:inicio"/>
+                    <unmarshal id="rs3_unmarshal2">
+                        <jaxb contextPath="org.xmlsoap.schemas.soap.envelope"/>
+                    </unmarshal>
+                    <bean id="rs3_bean2" method="modificaClaveResponse" ref="routeFacade"/>
+                    <marshal id="rs3_marshal2">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.example.ldapoperation.ModificaClaveResponse"/>
+                    </marshal>
+                </when>
+                <when id="_when20">
+                    <simple>${header.operationName} == 'modificaClaveUser'</simple>
+                    <unmarshal id="rs4_unmarshal1">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.example.ldapoperation.EntradasModificaClaveUser"/>
+                    </unmarshal>
+                    <bean id="rs4_bean1"
+                        method="modificaClaveUserRequest" ref="routeFacade"/>
+                    <marshal id="rs4_marshal1">
+                        <jaxb contextPath="org.xmlsoap.schemas.soap.envelope"/>
+                    </marshal>
+                    <to id="rs4_to1" uri="direct:inicio"/>
+                    <unmarshal id="rs4_unmarshal2">
+                        <jaxb contextPath="org.xmlsoap.schemas.soap.envelope"/>
+                    </unmarshal>
+                    <bean id="rs4_bean2"
+                        method="modificaClaveUserResponse" ref="routeFacade"/>
+                    <marshal id="rs4_marshal2">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.example.ldapoperation.ModificaClaveUserResponse"/>
+                    </marshal>
+                </when>
+                <when id="_when22">
+                    <simple>${header.operationName} == 'validaUser'</simple>
+                    <unmarshal id="rs5_unmarshal1">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.example.ldapoperation.EntradasValidaUser"/>
+                    </unmarshal>
+                    <bean id="rs5_bean1" method="validaUserRequest" ref="routeFacade"/>
+                    <marshal id="rs5_marshal1">
+                        <jaxb contextPath="org.xmlsoap.schemas.soap.envelope"/>
+                    </marshal>
+                    <to id="rs5_to1" uri="direct:inicio"/>
+                    <unmarshal id="rs5_unmarshal2">
+                        <jaxb contextPath="org.xmlsoap.schemas.soap.envelope"/>
+                    </unmarshal>
+                    <bean id="rs5_bean2" method="validaUserResponse" ref="routeFacade"/>
+                    <marshal id="rs5_marshal2">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.example.ldapoperation.ValidaUserResponse"/>
+                    </marshal>
+                </when>
+                <when id="_when23">
+                    <simple>${header.operationName} == 'validaUsuario'</simple>
+                    <unmarshal id="rs6_unmarshal1">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.example.ldapoperation.ValidaUsuario"/>
+                    </unmarshal>
+                    <bean id="rs6_bean1" method="validaUsuarioRequest" ref="routeFacade"/>
+                    <marshal id="rs6_marshal1">
+                        <jaxb contextPath="org.xmlsoap.schemas.soap.envelope"/>
+                    </marshal>
+                    <to id="rs6_to1" uri="direct:inicio"/>
+                    <unmarshal id="rs6_unmarshal2">
+                        <jaxb contextPath="org.xmlsoap.schemas.soap.envelope"/>
+                    </unmarshal>
+                    <bean id="rs6_bean2" method="validaUsuarioResponse" ref="routeFacade"/>
+                    <marshal id="rs6_marshal2">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.example.ldapoperation.ValidaUsuarioResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <route id="cx-RuteoOperaciones-inicio">
+            <from id="servicioAutenticacion-Endpoint" uri="cxf:bean:servicioAutenticacionEndpoint?DataFormat=MESSAGE"/>
+            <to id="_toInicioWSDL" uri="direct:inicio"/>
+        </route>
+        <!--Inicio: Ruta se encarga de derivar cada una de las operaciones a un 
+			modulo de accion. -->
+        <route id="cx-RuteoOperaciones">
+            <!--Inicio: Corresponde a una excepcion en caso de que la operacion se 
+				vaya por error. -->
+            <from id="servicioAutenticacionEndpointListener" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <!--Respalda el mensaje de entrada del servicio. -->
+                <!--Respalda el correlation ID de la operacion llamada. -->
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                    id="createJMSCorrelationId" method="createJMSCorrelationId24"/>
+
+                <bean id="generarIdflujoLogRest" method="generarIdFlujoLog" ref="beanLogIncidencias"/>
+                <bean method="ofuscarCamposXMLFromExchange" ref="beanLogIncidencias"/>
+                <log id="logBodyInicio" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: Autenticacion(mismo) || Type: Inbound || Body: ${exchangeProperty.bodyOfuscado}" />
+
+                <choice id="ruteoOperaciones">
+                    <when id="rutaAutenticaRut">
+                        <simple>${body} contains 'autenticaRut'</simple>
+                        <to id="autenticaRutValidator" uri="validator:xsd/soapAutenticacion.xsd"/>
+                        <to id="autenticaRutTo" uri="direct:autenticaRut"/>
+                    </when>
+                    <when id="rutaCreaUsuario">
+                        <simple>${body} contains 'creaUsuario'</simple>
+                        <to id="creaUsuarioTo" uri="direct:creaUsuario"/>
+                    </when>
+                    <when id="rutaModificaClaveUser">
+                        <simple>${body} contains 'modificaClaveUser'</simple>
+                        <to id="modificaClaveUserTo" uri="direct:modificaClaveUserSS"/>
+                    </when>
+                    <when id="rutaModificaClave">
+                        <simple>${body} contains 'modificaClave'</simple>
+                        <to id="modificaClaveTo" uri="direct:modificaClave"/>
+                    </when>
+                    <when id="rutaValidaUsuario">
+                        <simple>${body} contains 'validaUsuario'</simple>
+                        <to id="validaUserValidator" uri="validator:xsd/soapAutenticacion.xsd"/>
+                        <to id="validaUsuarioTo" uri="direct:validaUsuario"/>
+                    </when>
+                    <when id="rutaValidaUser">
+                        <simple>${body} contains 'validaUser'</simple>
+                        <to id="validaUserValidator" uri="validator:xsd/soapAutenticacion.xsd"/>
+                        <to id="validaUsuarioTo" uri="direct:validaUserSS"/>
+                    </when>
+                    <otherwise id="_otherwise1"/>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <to uri="direct:excepcionLog"/>
+                    <bean beanType="cl.coopeuch.util.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally>
+                    <bean method="getBodyFromInputStream" ref="beanLogIncidencias"/>
+                    <log id="logBodyFinal" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: Autenticacion(mismo) || Type: Outbound || Body: ${exchangeProperty.bodyLog}" />
+                </doFinally>
+            </doTry>
+            <!--Fin: Corresponde a una excepcion en caso de que la operacion se vaya 
+				por error. -->
+        </route>
+        <!--Fin: Ruta se encarga de derivar cada una de las operaciones a un modulo 
+			de accion. -->
+        <!---->
+        <!---->
+        <!--Inicio: Esta ruta autentica rut cliente. -->
+        <route id="autenticaRut">
+            <!-- Inicio: Corresponde a una excepcion en caso de que la operacion se 
+				vaya por error. -->
+            <!-- <removeHeaders id="RemoveHeadersJMS_autenticaRut" pattern="JMS*"/> -->
+            <from id="autenticaRutFrom" uri="direct:autenticaRut"/>
+            <removeHeaders id="_removeHeaders16" pattern="*"/>
+            <setHeader headerName="autenticaRutRut" id="autenticaRutHeaderRut">
+                <xpath resultType="String">normalize-space(//rut)</xpath>
+            </setHeader>
+            <setHeader headerName="autenticaRutDV" id="autenticaRutHeaderDV">
+                <xpath resultType="String">//DV</xpath>
+            </setHeader>
+            <setHeader headerName="valida_campo_rut" id="_setHeader10">
+                <!-- Metodo calcula el digito verificador. -->
+                <method beanType="cl.coopeuch.util.Validaciones" method="validaSoloNumeros(${headers.autenticaRutRut})"/>
+            </setHeader>
+            <choice id="_choice5">
+                <when id="_when7">
+                    <simple>${headers.valida_campo_rut}  == 'Correcto'</simple>
+                    <choice id="_choice15">
+                        <when id="_when8">
+                            <simple>${headers.autenticaRutDV} == '' or ${headers.autenticaRutDV} == ' '</simple>
+                            <setHeader headerName="autenticaRutDV" id="_setHeader11">
+                                <!-- Metodo calcula el digito verificador. -->
+                                <method beanType="cl.coopeuch.util.Rut" method="calcularDv(${headers.autenticaRutRut})"/>
+                            </setHeader>
+                        </when>
+                    </choice>
+                    <doTry id="autenticaRutTry">
+                        <!-- Remueve de la cabecera todos los parametros JMS. -->
+                        <!-- Inicio: Asignacion de valores de entrada de la operaciones 'autenticaRut' 
+							en la cabecera del servicio -->
+                        <!-- Fin: Asignacion de valores de entrada de la operaciones 'autenticaRut' 
+							en la cabecera del servicio -->
+                        <choice id="_choice1">
+                            <!-- Inicio: Valida que los valores del rut y digito verificador sean 
+								iguales a 0 o vacio. -->
+                            <when id="_when1">
+                                <simple>${headers.autenticaRutRut} == ' ' or ${headers.autenticaRutRut} == '' or ${headers.autenticaRutRut} == '0' or ${headers.autenticaRutRut} contains '-' or ${headers.autenticaRutDV} contains '-'</simple>
+                                <to id="autenticaRutValidaRutError1" uri="xslt://transformations/error/errorAutenticaRut.xsl?saxon=true"/>
+                                <to id="_to7" uri="controlbus:command:language"/>
+                            </when>
+                            <!-- Fin: Valida que los valores del rut y digito verificador sean 
+								iguales a 0 o vacio. -->
+                            <!-- Inicio: Valida que los valores del rut y digito verificador distinto 
+								a 0 o vacio. -->
+                            <otherwise id="_otherwise6">
+                                <!-- Inicio: Deja en la cabecera los parametros. -->
+                                <!-- Fin: Deja en la cabecera los parametros. -->
+                                <!-- Inicio: Valida que el Rut sea valido. -->
+                                <choice id="_choice10">
+                                    <!-- verifica que el digito verificador sea igual a vacio, en caso 
+										de ser asi calcula el digito verificador. -->
+                                    <when id="_when17">
+                                    <simple>${headers.autenticaRutDV} == '' or ${headers.autenticaRutDV} == ' '</simple>
+                                    <setHeader
+                                    headerName="autenticaRutDV" id="autenticaRutHeaderDV">
+                                    <!-- Metodo calcula el digito verificador. -->
+                                    <method
+                                    beanType="cl.coopeuch.util.Rut"
+                                    id="autenticaRutObtieneDV" method="calcularDv(${headers.autenticaRutRut})"/>
+                                    </setHeader>
+                                    </when>
+                                </choice>
+                                <setHeader
+                                    headerName="autenticaRutRutCompleto" id="autenticaRutHeaderRutCompleto">
+                                    <simple>${headers.autenticaRutRut}${headers.autenticaRutDV}</simple>
+                                </setHeader>
+                                <setHeader headerName="validaRut" id="autenticaRutHeaderValidaRut">
+                                    <method
+                                    beanType="cl.coopeuch.util.Rut"
+                                    id="autenticaRutValidaRut" method="validaRut(${headers.autenticaRutRutCompleto})"/>
+                                </setHeader>
+                                <choice id="autenticaRutValidaRutResultado">
+                                    <when id="autenticaRutValido">
+                                    <simple>${headers.validaRut} == 'Correcto'</simple>
+                                    <!-- Inicio: Deja en la cabecera los parametros. -->
+                                    <!-- Fin: Deja en la cabecera los parametros. -->
+                                    <!-- Inicio: Realiza Llamada al servicio de producto, operacion 
+											consulta producto sitio. -->
+                                    <!-- <removeHeaders pattern="*"></removeHeaders> -->
+                                    <setHeader
+                                    headerName="producto.numeroCliente" id="numCliente_producto">
+                                    <simple>{{producto.numeroCliente}}</simple>
+                                    </setHeader>
+                                    <setHeader
+                                    headerName="producto.userID" id="userid_producto">
+                                    <simple>{{producto.userID}}</simple>
+                                    </setHeader>
+                                    <setHeader
+                                    headerName="producto.ultimoRegistro" id="ultimoRegistro_producto">
+                                    <simple>{{producto.ultimoRegistro}}</simple>
+                                    </setHeader>
+                                    <to
+                                    id="autenticaRutConsultarProductosSitioxsl" uri="xslt://transformations/mid/consultarProductosSitio.xsl?saxon=true"/>
+                                    <to
+                                    id="autenticaRutConsultarProductosSitioto" uri="cxf:{{endpoint.servicioproductos.url}}?dataFormat=MESSAGE"/>
+                                    <convertBodyTo
+                                    id="autenticaRutBodyTo" type="java.lang.String"/>
+                                    <to id="autenticaRutRespuestaTo" uri="xslt://transformations/out/xml2xml_autenticaRut.xsl?saxon=true"/>
+                                    <!-- Fin: Realiza Llamada al servicio de producto, operacion consulta 
+											producto sitio. -->
+                                    </when>
+                                    <otherwise id="autenticaRutError">
+                                    <bean
+                                    beanType="cl.coopeuch.util.BodyBackup"
+                                    id="autenticaRutRestoreBodyRutOkOtherWise" method="restoreBody"/>
+                                    <to
+                                    id="autenticaRutValidaRutError" uri="xslt://transformations/error/errorAutenticaRut.xsl?saxon=true"/>
+                                    </otherwise>
+                                </choice>
+                            </otherwise>
+                            <!-- Fin: Valida que el Rut sea valido. -->
+                            <!-- Fin: Valida que los valores del rut y digito verificador distinto 
+								a 0 o vacio. -->
+                        </choice>
+                        <doCatch id="autenticaRutCatch">
+                            <exception>java.lang.Exception</exception>
+                            <exception>java.io.IOException</exception>
+                            <bean beanType="cl.coopeuch.util.BodyBackup"
+                                id="autenticaRutRestoreBody" method="restoreBody"/>
+                            <setBody id="autenticaRutSetBodyError">
+                                <simple>ERROR:${exception}:${body}</simple>
+                            </setBody>
+                            <to id="autenticaRutFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                            <bean
+                                beanType="cl.coopeuch.util.error.BodyError"
+                                id="autenticaRutBodyError" method="setBodyError"/>
+                        </doCatch>
+                        <doFinally id="transferenciaExternaFinally"/>
+                    </doTry>
+                    <!-- Fin: Corresponde a una excepcion en caso de que la operacion se 
+						vaya por error. -->
+                </when>
+                <otherwise id="_otherwise24">
+                    <to id="autenticaRutValidaRutError1" uri="xslt://transformations/error/errorAutenticaRut.xsl?saxon=true"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!--Fin: Esta ruta autentica rut cliente. -->
+        <!---->
+        <!---->
+        <!--Inicio: Esta ruta crear usuario en LDAP. -->
+        <route id="creaUsuario">
+            <!--Inicio: Deja en la cabecera los parametros. -->
+            <!--Fin: Deja en la cabecera los parametros. -->
+            <!--Inicio: Valida que el rut ingresado sea correcto. -->
+            <!--Fin: Valida que el rut ingresado sea correcto. -->
+            <from id="creaUsuarioFrom" uri="direct:creaUsuario"/>
+            <setHeader headerName="Rut" id="creaUsuarioHeaderRut">
+                <xpath resultType="String">normalize-space(//Rut)</xpath>
+            </setHeader>
+            <setHeader headerName="validaRut" id="creaUsuarioHeaderValidaRut">
+                <method beanType="cl.coopeuch.util.Rut"
+                    id="creaUsuarioValidaRut" method="validaRut(${headers.Rut})"/>
+            </setHeader>
+            <convertBodyTo id="ruteoOperacionesBodyTo_crearUsuario" type="java.lang.String"/>
+            <choice id="creaUsuarioValidaRutValida">
+                <when id="creaUsuarioRutOk">
+                    <simple>${headers.validaRut} == 'NoLdap'</simple>
+                </when>
+                <otherwise id="creaUsuarioRutError">
+                    <to id="creaUsuarioValidaRutError" uri="xslt://transformations/error/errorCreaUsuario.xsl?saxon=true"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!--Fin: Esta ruta crear usuario en LDAP. -->
+        <!---->
+        <!---->
+        <!--Inicio: Esta ruta modifica la clave del cliente en la plataforma LDAP 
+			e IDG.. -->
+        <route id="modificaClave">
+            <from id="modificaClaveFrom" uri="direct:modificaClave"/>
+            <doTry id="modificaClaveTry">
+                <!--Inicio: Deja en la cabecera los parametros. -->
+                <!--Fin: Deja en la cabecera los parametros. -->
+                <!--valida que el rut ingresado sea correcto. -->
+                <setHeader headerName="rut" id="modificaClaveHeaderRut">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <setHeader headerName="operacion" id="modificaClaveHeaderOperacion">
+                    <constant>{{parametroOperacionAutenticacion}}</constant>
+                </setHeader>
+                <setHeader headerName="canal" id="modificaClaveHeaderCanal">
+                    <constant>{{parametroCanalAutenticacion}}</constant>
+                </setHeader>
+                <setHeader headerName="validaRut" id="modificarClaveHeaderValidaRut">
+                    <method beanType="cl.coopeuch.util.Rut"
+                        id="modificaClaveValidaRut" method="validaRut(${headers.rut})"/>
+                </setHeader>
+                <choice id="modificaClaveValidaRutResultado">
+                    <!--Inicio: valida que el rut ingresado sea correcto. -->
+                    <when id="resultadoRutValido">
+                        <simple>${headers.validaRut} == 'Correcto'</simple>
+                        <!--Inicio: Forma XSL para llamar a la operacion Modifica Clave User. -->
+                        <!--Fin: Forma XSL para llamar a la operacion Modifica Clave User. -->
+                        <to id="modificaClaveValidaRutTo" uri="xslt://transformations/mid/xml2xml_modificaClaveUser.xsl?saxon=true"/>
+                        <to id="modificaClaveModificaClaveUserTo" uri="direct:modificaClaveUser"/>
+                        <choice id="_choice12">
+                            <!--Inicio: Salida correcta desde la operacion Modifica Clave User -->
+                            <when id="_when21">
+                                <xpath resultType="String">//codigo='00'</xpath>
+                                <to id="modificaClaveError" uri="xslt://transformations/out/xml2xml_modificaClaveOk.xsl"/>
+                            </when>
+                            <!--Fin: Salida correcta desde la operacion Modifica Clave User -->
+                            <!--Inicio: Salida incorrecta desde la operacion Modifica Clave User -->
+                            <otherwise id="_otherwise13">
+                                <to id="modificaClaveOk" uri="xslt://transformations/error/errorModificaClave.xsl?saxon=true"/>
+                            </otherwise>
+                            <!--Fin: Salida incorrecta desde la operacion Modifica Clave User -->
+                        </choice>
+                    </when>
+                    <!--Fin: valida que el rut ingresado sea correcto. -->
+                    <!--Inicio: Envia respuesta de error en caso del rut ser erroneo. -->
+                    <otherwise id="_otherwise4">
+                        <to id="modificaClaveValidaRutTo" uri="xslt://transformations/error/errorModificaClave.xsl"/>
+                    </otherwise>
+                    <!--Fin: Envia respuesta de error en caso del rut ser erroneo. -->
+                </choice>
+                <doCatch id="modificaClaveCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.BodyBackup"
+                        id="modificaClaveRestoreBody" method="restoreBody"/>
+                    <setBody id="modificaClaveSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="modificaClaveFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="modificaClaveBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="modificaClaveFinally"/>
+            </doTry>
+        </route>
+        <!--Fin: Esta ruta modifica la clave del cliente en la plataforma LDAP 
+			e IDG. -->
+        <!---->
+        <!---->
+        <!--Inicio: Esta ruta modifica la clave del cliente en la plataforma LDAP 
+			e IDG. -->
+        <route id="modificaClaveUser">
+            <!--Inicio: Deja en la cabecera los parametros. -->
+            <!--Fin: Deja en la cabecera los parametros. -->
+            <from id="modificaClaveUserFrom" uri="direct:modificaClaveUser"/>
+            <removeHeaders id="_removeHeaders17" pattern="*"/>
+            <doTry id="modificaClaveUserTry">
+                <setProperty id="modificaClaveUserSetPropOrigen" propertyName="origen">
+                    <constant>IDG</constant>
+                </setProperty>
+                <setHeader headerName="SOAPAction" id="_setHeader44">
+                    <constant>modificaClaveUser</constant>
+                </setHeader>
+                <setHeader headerName="rut" id="modificaClaveUserHeaderRut">
+                    <xpath resultType="String">normalize-space(//rut)</xpath>
+                </setHeader>
+                <setHeader headerName="claveAntigua" id="modificaClaveUserHeaderClaveAntigua">
+                    <xpath resultType="String">normalize-space(//claveAntigua)</xpath>
+                </setHeader>
+                <setHeader headerName="nuevaClave" id="modificaClaveUserHeaderNuevaClave">
+                    <xpath resultType="String">normalize-space(//nuevaClave)</xpath>
+                </setHeader>
+                <setHeader headerName="FlagMod" id="modificaClaveUserHeaderFlagMod">
+                    <xpath resultType="String">normalize-space(//FlagMod)</xpath>
+                </setHeader>
+                <setHeader headerName="operacion" id="modificaClaveUserHeaderOperacion">
+                    <xpath resultType="String">translate(//operacion,'abcdefghijklmnopqrstuvwxyz','ABCDEFGHIJKLMNOPQRSTUVWXYZ')</xpath>
+                </setHeader>
+                <setHeader headerName="canal" id="modificaClaveUserHeaderCanal">
+                    <xpath resultType="String">normalize-space(//canal)</xpath>
+                </setHeader>
+                <setHeader headerName="validaRut" id="_setHeader12">
+                    <method beanType="cl.coopeuch.util.Rut" method="validaRut(${headers.rut})"/>
+                </setHeader>
+                <choice id="_choice16">
+                    <!--Inicio: valida que el rut ingresado sea correcto. -->
+                    <when id="_when9">
+                        <simple>${headers.validaRut} == 'Correcto'</simple>
+                        <choice id="modificaClaveUser_ValidaEntradaCanal">
+                            <when id="modificaClaveUser_ValidaEntradaCanal_When">
+                                <simple>${headers.operacion} == 'LOGIN' or ${headers.operacion} == ''</simple>
+                                <!--Inicio: Deja en la cabecera los parametros para llamar al Servicio 
+									Parametros. -->
+                                <!--Fin: Deja en la cabecera los parametros para llamar al Servicio 
+									Parametros. -->
+                                <!--Inicio: Forma XSL para llamar a la operacion Consulta Parametro. -->
+                                <!--Fin: Forma XSL para llamar a la operacion Consulta Parametro. -->
+                                <!--Se pasa a objeto la salida del servicio de parametros -->
+                                <!--Se guardan en el objeto DatosParametros todos los datos de los 
+									canales. -->
+                                <!--Se guardan en el objeto DatosParametros los datos del canal ingresado. -->
+                                <!--Se valida que el canal ingresado se encuentre registrado en la 
+									CNOFC y es guardado en una variable de propiedades. -->
+                                <!--Se guarda los datos de la politica en una variable de propiedades. -->
+                                <bean
+                                    beanType="cl.coopeuch.util.RouteFacade"
+                                    id="_methodValidaLargo" method="validaLargoClave"/>
+                                <to
+                                    id="pa_obtenerParametro-Modificacion-To" uri="sql-stored:classpath:sql/PA_consultarPoliticaPassCanal.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseParametros"/>
+                                <bean
+                                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                                    id="ValidaUser-parametro-Modificacion_jaxb" method="process"/>
+                                <choice id="_choiceValidaLargo">
+                                    <when id="_whenValidaLargo">
+                                    <simple>${headers.largoNuevaClave} &gt;= ${headers.minCaracteres} and ${headers.largoNuevaClave} &lt;= ${headers.maxCaracteres}</simple>
+                                    <setHeader
+                                    headerName="ParametroJaxb" id="Parametro_Jaxb">
+                                    <simple resultType="java.util.ArrayList">${headers.ListParametros}</simple>
+                                    </setHeader>
+                                    <setProperty
+                                    id="Input_ExisteCanal" propertyName="ExisteCanal">
+                                    <method
+                                    beanType="cl.coopeuch.autentica.Autenticacion" method="validar_canal(${property.ListParametros},${headers.canal})"/>
+                                    </setProperty>
+                                    <setProperty id="Datos_canal" propertyName="DatosCanal">
+                                    <method
+                                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel" method="guardarParametros(${property.ListParametros},${headers.canal})"/>
+                                    </setProperty>
+                                    <choice id="modificaClaveUserExisteCanal">
+                                    <when id="ExisteCanal">
+                                    <simple>${property.ExisteCanal} == 'true'</simple>
+                                    <!--Inicio: Se valida que el canal exista en la CNOFC. -->
+                                    <choice id="modificaClaveUserCanalALL">
+                                    <when id="comprobarCanal">
+                                    <simple>${headers.canal} != 'ALL'</simple>
+                                    <!--Inicio: Se valida que el canal sea distinto a 'ALL'. -->
+                                    <!--Remueve de la cabecera todos los parametros JMS. -->
+                                    <!--Se realiza la transformacion del objeto parametro -->
+                                    <!--Inicio: Deja en la cabecera los parametros para llamar 
+															al Servicio Autheticacion de IDG. -->
+                                    <!--Fin: Deja en la cabecera los parametros para llamar al 
+															Servicio Administracion de IDG. -->
+                                    <!--Inicio: Realiza llamada al Servicio Administracion de IDG 
+															operacion UserLockoutGet -->
+                                    <!--Guarda en la cabecera la cookies para mantener la session 
+															entre las operaciones del Servicio Administracion de IDG -->
+                                    <!--Fin: Prepara la llamada al Servicio Administracion de IDG 
+															operacion UserLockoutGet -->
+                                    <!--Comprueba que la trama de salida de la operacion UserLockoutGet 
+															se satisfactoria o erronea. -->
+                                    <!--Incio: Comprueba la llamada al Servicio Administracion 
+															de IDG operacion UserLockoutGet -->
+                                    <removeHeaders
+                                    id="Eliminar_Cabeceras" pattern="ParametroJaxb|DatosCanal"/>
+                                    <setHeader
+                                    headerName="IDG.admin.grupo.clientes" id="Grupo_Cliente">
+                                    <simple>{{IDG.admin.grupo.clientes}}</simple>
+                                    </setHeader>
+                                    <setHeader
+                                    headerName="IDG.admin.grupo.app" id="Grupo_77">
+                                    <simple>{{IDG.admin.grupo.app}}</simple>
+                                    </setHeader>
+                                    <setHeader
+                                    headerName="IDG.admin.user" id="IDG_User">
+                                    <simple>{{IDG.admin.user}}</simple>
+                                    </setHeader>
+                                    <setHeader
+                                    headerName="IDG.admin.password" id="IDG_Password">
+                                    <simple>{{IDG.admin.password}}</simple>
+                                    </setHeader>
+                                    <to
+                                    id="xml2xml_IDGLogin_EstadoUsuario" uri="xslt://transformations/IDGsession/xml2xml_IDGLogin.xsl"/>
+                                    <to
+                                    id="EstadoUsuario_IDGLogin_To" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                                    <convertBodyTo
+                                    id="EstadoUsuario_ConvertBodyTo" type="java.lang.String"/>
+                                    <setHeader
+                                    headerName="Cookie" id="EstadoUsuario_Cookie">
+                                    <simple>${headers.Set-Cookie}</simple>
+                                    </setHeader>
+                                    <to
+                                    id="xml2xml_IDGUserLockoutGet_EstadoUsuario" uri="xslt://transformations/IDGsession/xml2xml_UserLockoutGet.xsl"/>
+                                    <to
+                                    id="modificaClaveUserIDGUserLockoutGet_EstadoUsuario" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                                    <bean
+                                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                                    id="TramaSalida" method="comprobarSalida"/>
+                                    <choice id="modificaClaveUser_EstadoUsuario_Choice">
+                                    <when id="modificaClaveUser_EstadoUsuario_When">
+                                    <simple>${property.SalidaIDG} == 'Exito'</simple>
+                                    <!--Inicio: Se pasa a objeto la salida exitosa de los bloqueos 
+																	del usuario. -->
+                                    <!--Fin: Se pasa a objeto la salida exitosa de los bloqueos 
+																	del usuario. -->
+                                    <!--Obtiene la cantidad de fallo que tiene la politica -->
+                                    <!--Se realiza la transformacion del objeto de bloqueos de 
+																	usuario -->
+                                    <!--Inicio: Comprueba la cantidad de bloqueos. -->
+
+                                    <convertBodyTo
+                                    id="modificaClaveUserBodyTo" type="java.lang.String"/>
+                                    <to
+                                    id="modificaClaveUserLockout" uri="xslt://transformations/mid/recuperarBloqueos.xsl?saxon=true"/>
+
+                                    <unmarshal id="AdministradorIDG_Unmarshal">
+
+                                    <jaxb contextPath="cl.coopeuch.administradorIDG"/>
+                                    </unmarshal>
+                                    <bean
+                                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                                    id="userLockGetParam_jaxb" method="guardarDatosBloqueo"/>
+
+                                    <setHeader
+                                    headerName="ValidaBloqueo" id="ValidaBloqueo">
+
+                                    <method
+                                    beanType="cl.coopeuch.autentica.Autenticacion" method="validarBloqueo(${property.bloqueos},${property.DatosCanal})"/>
+                                    </setHeader>
+                                    <marshal id="AdministradorIDG_Marshal">
+
+                                    <jaxb contextPath="cl.coopeuch.administradorIDG"/>
+                                    </marshal>
+                                    <choice id="ValidaBloqueos_Choice">
+
+                                    <when id="ValidaBloqueos_When">
+                                    <simple>${headers.ValidaBloqueo} != 0</simple>
+                                    <!--Es llamada la ruta 'rutaPasswordSet' para realizar 
+																			el cambio de la clave -->
+
+                                    <convertBodyTo
+                                    id="cambio_clave_no_bloqueada" type="java.lang.String"/>
+
+                                    <to
+                                    id="cambio_clave_no_bloqueada_to" uri="direct:rutaPasswordSet"/>
+                                    </when>
+
+                                    <otherwise id="claveBloqueada">
+                                    <!--Se realiza la transformacion del objeto de bloqueos 
+																			de usuario -->
+                                    <!--Inicio: Deja en la cabecera los parametros para enviar 
+																			a la salida de la operacion. -->
+                                    <!--Fin: Deja en la cabecera los parametros para enviar 
+																			a la salida de la operacion. -->
+
+                                    <marshal id="_marshal1">
+
+                                    <jaxb contextPath="cl.coopeuch.administradorIDG"/>
+                                    </marshal>
+
+                                    <convertBodyTo
+                                    id="modificaClaveUserBody_clave_bloqueda" type="java.lang.String"/>
+
+                                    <setHeader
+                                    headerName="error.descripcion" id="usuariobloqueado_descripcion">
+                                    <simple>{{autentica.error.usuariobloqueado.descripcion}}</simple>
+                                    </setHeader>
+
+                                    <setHeader
+                                    headerName="error.codigo" id="usuariobloqueado_codigo">
+                                    <simple>{{autentica.error.usuariobloqueado.codigo}}</simple>
+                                    </setHeader>
+
+                                    <to
+                                    id="modificaClaveUserLockout_Clave_Bloqueada" uri="xslt://transformations/error/erroresIDG.xsl?saxon=true"/>
+                                    </otherwise>
+                                    </choice>
+                                    <!--Fin: Comprueba la cantidad de bloqueos. -->
+                                    </when>
+                                    <when id="_when15">
+                                    <simple>${headers.SalidaIDG} == 'Fallo'</simple>
+                                    <!--Se pasa a objeto la salida erronea de los servicio IDG. -->
+                                    <!--Guarda en el objeto error la salida de las oepraciones 
+																	IDG. -->
+
+                                    <convertBodyTo
+                                    id="modificaClaveUserBodyTo" type="java.lang.String"/>
+                                    <to
+                                    id="xml2xml_obtenerErroresIDG" uri="xslt://transformations/mid/obtenerErroresIDG.xsl"/>
+
+                                    <unmarshal id="_unmarshal70">
+
+                                    <jaxb contextPath="cl.coopeuch.erroresIDG"/>
+                                    </unmarshal>
+                                    <bean
+                                    beanType="cl.coopeuch.util.error.ErroresIDG"
+                                    id="errores_IDG" method="process"/>
+                                    <choice id="_choice13">
+
+                                    <when id="_when120">
+                                    <simple>${property.Codigo_Interno} == 5205003</simple>
+                                    <!--Se pasa a objeto la salida erronea de los servicio 
+																			IDG. -->
+
+                                    <marshal id="_marshal160">
+
+                                    <jaxb contextPath="cl.coopeuch.erroresIDG"/>
+                                    </marshal>
+
+                                    <choice id="permite_creacion_clave_usuario_no_existe_choice2">
+
+                                    <when id="permite_creacion_clave_usuario_no_existe_when2">
+                                    <simple>${property.DatosCanal.valor} == 1</simple>
+                                    <!--Creacion de usuario en IDG. -->
+
+                                    <to
+                                    id="permite_creacion_usuario_usuario_no_existe_modificaClaveUserRutaPasswordCreate2" uri="direct:rutaUserCreate"/>
+                                    </when>
+
+                                    <otherwise id="_otherwise2">
+                                    <!--Inicio: Deja en la cabecera los parametros. -->
+                                    <!--Fin: Deja en la cabecera los parametros. -->
+
+                                    <setHeader
+                                    headerName="error.descripcion" id="error_permite_creacion_password_usuario_no_existe_descripcion3">
+                                    <simple>{{autentica.error.cambioClave.descripcion}}</simple>
+                                    </setHeader>
+
+                                    <setHeader
+                                    headerName="error.codigo" id="error_permite_creacion_password_usuario_no_existe_codigo3">
+                                    <simple>{{autentica.error.cambioClave.codigo}}</simple>
+                                    </setHeader>
+
+                                    <to
+                                    id="error_permite_creacion_password_usuario_no_existe_to2" uri="xslt://transformations/error/erroresIDG.xsl?saxon=true"/>
+
+                                    <setHeader
+                                    headerName="org.apache.cxf.message.Message.RESPONSE_CODE" id="_setHeader47">
+
+                                    <simple resultType="Integer">200</simple>
+                                    </setHeader>
+                                    </otherwise>
+                                    </choice>
+                                    </when>
+                                    </choice>
+                                    </when>
+                                    <otherwise id="validacionCanalNoExiste"/>
+                                    </choice>
+                                    <!--Incio: Comprueba la llamada al Servicio Administracion 
+															de IDG operacion UserLockoutGet -->
+                                    </when>
+                                    <otherwise id="validacionCanalNoExiste">
+                                    <!--Se realiza la transformacion de los datos . -->
+                                    <!--Inicio: Llama a la ruta 'rutaLdapUserModify'. -->
+                                    <to
+                                    id="modificaClaveUserErrorSubName" uri="xslt://transformations/error/errorDatosModificaClaveUser.xsl?saxon=true"/>
+                                    <!--Fin: Llama a la ruta 'rutaLdapUserModify'. -->
+                                    </otherwise>
+                                    <!--Fin: Se valida que el canal sea distinto a 'ALL'. -->
+                                    </choice>
+                                    </when>
+                                    <otherwise id="validacionCanalNoExiste">
+                                    <!--Se realiza la transformacion de los datos . -->
+                                    <to
+                                    id="modificaClaveUserErrorSubName" uri="xslt://transformations/error/errorDatosModificaClaveUser.xsl?saxon=true"/>
+                                    </otherwise>
+                                    <!--Fin: Se valida que el canal exista en la CNOFC. -->
+                                    </choice>
+                                    </when>
+                                    <otherwise id="_otherwiseValidaLargo">
+                                    <setHeader
+                                    headerName="error.descripcionValidaLargo" id="error_modificacion_password_descripcion3">
+                                    <method
+                                    beanType="cl.coopeuch.util.error.GlosaError" method="modificar('{{autentica.error.caracteresClave.descripcion}}','${headers.maxCaracteres}','${headers.minCaracteres}')"/>
+                                    </setHeader>
+                                    <setHeader
+                                    headerName="error.codigo" id="error_modificacion_password_codigo3">
+                                    <simple>{{autentica.error.caracteresClave.codigo}}</simple>
+                                    </setHeader>
+                                    <to
+                                    id="error_modificacion_password_to_validaLargo" uri="xslt://transformations/error/erroresLargoPass.xsl?saxon=true"/>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="_otherwise3">
+                                <to
+                                    id="modificaClaveUserErrorLoginCanal" uri="xslt://transformations/error/errorDatosModificaClaveUser.xsl?saxon=true"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <!--Fin: valida que el rut ingresado sea correcto. -->
+                    <!--Inicio: Envia respuesta de error en caso del rut ser erroneo. -->
+                    <otherwise id="_otherwise25">
+                        <setHeader headerName="CodigoError" id="_setHeader13">
+                            <constant>01</constant>
+                        </setHeader>
+                        <to id="_to9" uri="xslt://transformations/error/errorDatosModificaClaveUser.xsl?saxon=true"/>
+                    </otherwise>
+                    <!--Fin: Envia respuesta de error en caso del rut ser erroneo. -->
+                </choice>
+                <removeHeaders id="_removeHeaders4" pattern="canal|claveAntigua|Cookie|FlagMod|breadcrumbId|Host|nuevaClave|operacion|PoliticaCanal|rut|Set-Cookie|validaRut|provider_url|tipoautenticacion"/>
+                <removeHeaders id="_removeHeaders5" pattern="autentica*"/>
+                <removeHeaders id="_removeHeaders6" pattern="error*"/>
+                <removeHeaders id="_removeHeaders7" pattern="IDG*"/>
+                <removeHeaders id="_removeHeaders8" pattern="JMS*"/>
+                <removeHeaders id="_removeHeaders9" pattern="parametro*"/>
+                <removeHeaders id="_removeHeaders10" pattern="Valida*"/>
+                <removeHeaders id="_removeHeaders11" pattern="security*"/>
+                <doCatch id="modificaClaveUserCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.BodyBackup"
+                        id="modificaClaveUserRestoreBody" method="restoreBody"/>
+                    <setBody id="modificaClaveUserSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="modificaClaveUserFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="modificaClaveUserBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!---->
+        <!---->
+        <!--Inicio: Esta ruta valida el cliente en la plataforma LDAP. -->
+        <route id="validaUsuario">
+            <from id="validaUsuarioFrom" uri="direct:validaUsuario"/>
+            <doTry id="validaUsuarioTry">
+                <!--Inicio: Deja en la cabecera los parametros. -->
+                <!--Fin: Deja en la cabecera los parametros. -->
+                <!--Busca el digito verificador. -->
+                <!--valida que el rut ingresado sea correcto. -->
+                <setHeader headerName="SOAPAction" id="_setHeader45">
+                    <constant>http://www.example.org/LDAPOperation/validaUsuario</constant>
+                </setHeader>
+                <setHeader headerName="operacion" id="validaUsuarioHeaderOperacion">
+                    <constant>{{parametro.operacion.validaUsuario.autenticacion}}</constant>
+                </setHeader>
+                <setHeader headerName="canal" id="validaUsuarioHeaderCanal">
+                    <constant>{{parametroCanalAutenticacion}}</constant>
+                </setHeader>
+                <setHeader headerName="Rut" id="validaUsuarioHeaderRut">
+                    <xpath resultType="String">//Rut</xpath>
+                </setHeader>
+                <setHeader headerName="Clave" id="validaUsuarioHeaderClave">
+                    <xpath resultType="String">//Clave</xpath>
+                </setHeader>
+                <setHeader headerName="DV" id="validaUsuarioHeaderDV">
+                    <xpath resultType="String">//DV</xpath>
+                </setHeader>
+                <choice id="_choice2">
+                    <when id="_when2">
+                        <simple>${headers.DV} == '' or ${headers.Rut} == ''</simple>
+                        <!--Busca el digito verificador. -->
+                        <to id="_to11" uri="xslt://transformations/error/errorValidaUsuario.xsl"/>
+                    </when>
+                    <otherwise id="_otherwise26">
+                        <setHeader headerName="rutCompleto" id="_setHeader21">
+                            <simple>${headers.Rut}${headers.DV}</simple>
+                        </setHeader>
+                        <setHeader headerName="validaRut" id="validaUsuarioHeaderValidaRut">
+                            <method beanType="cl.coopeuch.util.Rut"
+                                id="validaUsuarioValidaRut" method="validaRut(${headers.rutCompleto})"/>
+                        </setHeader>
+                        <choice id="_choice6">
+                            <when id="_when16">
+                                <simple>${headers.validaRut} == 'Correcto'</simple>
+                                <!--Inicio: llama a la ruta para validar el usuario en IDG o LDAP -->
+                                <!--Fin: llama a la ruta para validar el usuario en IDG o LDAP -->
+                                <to id="_to1" uri="xslt://transformations/mid/xml2xml_validaRutValidaUsuario.xsl?saxon=true"/>
+                                <to id="_to2" uri="direct:validaUser"/>
+                                <choice id="_choice7">
+                                    <when id="_when18">
+                                    <!--Valida que la respuesta del valida user sea exitosa. -->
+                                    <xpath resultType="String">//codigo='00'</xpath>
+                                    <to id="validaUsuarioOk" uri="xslt://transformations/out/xml2xml_validaUsuarioOk.xsl"/>
+                                    </when>
+                                    <otherwise id="_otherwise8">
+                                    <setHeader
+                                    headerName="org.apache.cxf.message.Message.RESPONSE_CODE" id="_setHeader14">
+                                    <simple resultType="java.lang.Integer">200</simple>
+                                    </setHeader>
+                                    <to id="validaUsuarioErrorRut" uri="xslt://transformations/error/errorValidaUsuario.xsl"/>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="_otherwise9">
+                                <to id="_to3" uri="xslt://transformations/error/errorValidaUsuario.xsl"/>
+                            </otherwise>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="validaUsuarioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.BodyBackup"
+                        id="validaUsuarioRestoreBody" method="restoreBody"/>
+                    <setBody id="validaUsuarioSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="validaUsuarioFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="validaUsuarioBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="validaUsuarioFinally"/>
+            </doTry>
+        </route>
+        <!--Fin: Esta ruta valida el cliente en la plataforma LDAP. -->
+        <!---->
+        <!---->
+        <!--Inicio: Esta ruta valida el cliente en la plataforma LDAP e IDG. -->
+        <route id="validaUser">
+            <from id="validaUserFrom" uri="direct:validaUser"/>
+            <doTry id="validaUserTry">
+                <!--Inicio: Deja en la cabecera los parametros. -->
+                <!--Concatena el rut del cliente -->
+                <!--Valida que el rut del cliente sea correcto. -->
+                <!--Fin: Deja en la cabecera los parametros. -->
+                <!--Inicio: Valida que el rut del cliente sea correcto. -->
+                <!--Fin: Valida que el rut del cliente sea correcto. -->
+                <setProperty id="validaUserSetProp" propertyName="origen">
+                    <constant>IDG</constant>
+                </setProperty>
+                <setHeader headerName="SOAPAction" id="_setHeader46">
+                    <constant>http://www.example.org/LDAPOperation/validaUser</constant>
+                </setHeader>
+                <setHeader headerName="operacion" id="validaUserHeaderOperacion">
+                    <xpath resultType="String">//operacion</xpath>
+                </setHeader>
+                <setHeader headerName="canal" id="validaUserHeaderCanal">
+                    <xpath resultType="String">//canal</xpath>
+                </setHeader>
+                <setHeader headerName="Rut" id="validaUserHeaderRut">
+                    <xpath resultType="String">//Rut</xpath>
+                </setHeader>
+                <setHeader headerName="Clave" id="validaUserHeaderClave">
+                    <xpath resultType="String">//Clave</xpath>
+                </setHeader>
+                <setHeader headerName="DV" id="validaUserHeaderRut">
+                    <xpath resultType="String">//DV</xpath>
+                </setHeader>
+                <setHeader headerName="rutCompleto" id="_setHeader22">
+                    <simple>${headers.Rut}${headers.DV}</simple>
+                </setHeader>
+                <setHeader headerName="validaRut" id="_setHeader23">
+                    <method beanType="cl.coopeuch.util.Rut" method="validaRut(${headers.rutCompleto})"/>
+                </setHeader>
+                <choice id="_choice9">
+                    <when id="_when19">
+                        <simple>${headers.validaRut} == 'Correcto'</simple>
+                        <!--Inicio: Deja en la cabecera los valores de entrada para el servicio 
+							de parametro. -->
+                        <!--Fin: Deja en la cabecera los valores de entrada para el servicio 
+							de parametro. -->
+                        <!--Inicio: Forma XSL para llamar a la operacion Consulta Parametro. -->
+                        <!--Fin: Forma XSL para llamar a la operacion Consulta Parametro. -->
+                        <!--Se pasa a objeto la salida del servicio de parametros -->
+                        <!--Se guardan en el objeto DatosParametros todos los datos de los 
+							canales. -->
+                        <!--Se valida que el canal ingresado se encuentre registrado en la 
+							CNOFC y es guardado en una variable de propiedades. -->
+                        <!--Se guardan en el objeto DatosParametros los datos del canal ingresado. -->
+                        <!--Se guarda los datos de la politica en una variable de propiedades. -->
+                        <!--Inicio: Canal ingreda se encuentra registrado en CNOFC -->
+                        <to id="pa_obtenerParametro-To" uri="sql-stored:classpath:sql/PA_consultarPoliticaPassCanal.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseParametros"/>
+                        <bean
+                            beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                            id="ValidaUser_parametro_jaxb" method="process"/>
+                        <setHeader headerName="ParametroJaxb" id="ValidaUser_Parametro_Jaxb">
+                            <simple resultType="java.util.ArrayList">${headers.ListParametros}</simple>
+                        </setHeader>
+                        <setProperty id="ValidaUser_Input_ExisteCanal" propertyName="ExisteCanal">
+                            <method
+                                beanType="cl.coopeuch.autentica.Autenticacion" method="validar_canal(${property.ListParametros},${headers.canal})"/>
+                        </setProperty>
+                        <setProperty id="ValidaUser_Datos_canal" propertyName="DatosCanal">
+                            <method
+                                beanType="cl.coopeuch.util.transformacion.ProcesoCamel" method="guardarParametros(${property.ListParametros},${headers.canal})"/>
+                        </setProperty>
+                        <choice id="ValidaUser_ExisteCanal_Choice">
+                            <when id="ValidaUser_ExisteCanal_When">
+                                <simple>${property.ExisteCanal} == 'true'</simple>
+                                <!--Inicio: Valida canal sea igual a SIT o PSW -->
+                                <choice id="ValidaUser_CanalSIT_Choice">
+                                    <when id="ValidaUser_CanalSIT_When">
+                                    <simple>${property.DatosCanal.descripcion} == 'SIT' or ${property.DatosCanal.descripcion} == 'SITCLI'</simple>
+                                    <!--Remueve de la cabecera todos los parametros JMS. -->
+                                    <!--Se realiza la transformacion del objeto parametro. -->
+                                    <!--Inicio: Deja en la cabecera los valores de parametro de entrada 
+											de la operacion authenticacion IDG. -->
+                                    <!--Fin: Deja en la cabecera los valores de parametro de entrada 
+											de la operacion authenticacion IDG. -->
+                                    <!--Llama a la ruta para authenticar al usuario en la plataforma 
+											IDG, por la politica SIT o PSW. -->
+                                    <!--Analiza la respuesta de la validacion en IDG de las politica 
+											SIT o PSW. -->
+                                    <!--<to id="f" uri="direct:autenticacionIDG"/> -->
+                                    <removeHeaders
+                                    id="Eliminar_Cabeceras_ValidaUser" pattern="ParametroJaxb|DatosCanal"/>
+                                    <convertBodyTo
+                                    id="error_ValidaUser_convert" type="java.lang.String"/>
+                                    <setHeader headerName="userId" id="validaUserHeaderUserId">
+                                    <simple>{{IDG.admin.grupo.clientes}}/${headers.Rut}${headers.DV}</simple>
+                                    </setHeader>
+                                    <setHeader headerName="item" id="validaUserHeaderItem">
+                                    <simple>${headers.Clave}</simple>
+                                    </setHeader>
+                                    <setHeader
+                                    headerName="AuthenticationType" id="validaUserHeaderAuthenticationType">
+                                    <simple>{{IDG.admin.tipoAutentica}}</simple>
+                                    </setHeader>
+                                    <setHeader
+                                    headerName="passwordName" id="validaUserHeaderPasswordName">
+                                    <simple>${property.DatosCanal.descripcion.substring(0,3)}</simple>
+                                    </setHeader>
+                                    <to id="EstadoUser" uri="direct:validaEstadoUsuarioIDG"/>
+                                    <to id="Valida_Respuesta_IDG" uri="direct:rutaValidaRespuestaAuthentica"/>
+                                    </when>
+                                    <when id="ValidaUser_CanalPSW_When">
+                                    <simple>${property.DatosCanal.descripcion} == 'PSW'</simple>
+                                    <!--Remueve de la cabecera todos los parametros JMS. -->
+                                    <!--Se realiza la transformacion del objeto parametro. -->
+                                    <!--Inicio: Deja en la cabecera los valores de entrada para el 
+											servicio de authenticacion IDG. -->
+                                    <!--Fin: Deja en la cabecera los valores de entrada para el servicio 
+											de authenticacion IDG. -->
+                                    <!--Llama a la ruta para authenticar al usuario en la plataforma 
+											IDG, por la politica SIT o PSW. -->
+                                    <!--Analiza la respuesta de la validacion en IDG de las politica 
+											SIT o PSW. -->
+                                    <removeHeaders
+                                    id="Eliminar_Cabeceras_ValidaUser_PSW" pattern="ParametroJaxb|DatosCanal"/>
+                                    <convertBodyTo
+                                    id="error_ValidaUser_convert_PSW" type="java.lang.String"/>
+                                    <setHeader headerName="userId" id="validaUserHeaderUserId_PSW">
+                                    <simple>{{IDG.admin.grupo.clientes}}/${headers.Rut}${headers.DV}</simple>
+                                    </setHeader>
+                                    <setHeader headerName="item" id="validaUserHeaderItem_PSW_clave">
+                                    <simple>${headers.Clave}</simple>
+                                    </setHeader>
+                                    <setHeader
+                                    headerName="AuthenticationType" id="validaUserHeaderAuthenticationType_PSW">
+                                    <simple>{{IDG.admin.tipoAutentica}}</simple>
+                                    </setHeader>
+                                    <setHeader
+                                    headerName="passwordName" id="validaUserHeaderPasswordName_PSW_descipcion">
+                                    <simple>${property.DatosCanal.descripcion}</simple>
+                                    </setHeader>
+                                    <to
+                                    id="ValidaUser_PSW_ruta_autenticacionIDG" uri="direct:autenticacionIDG"/>
+                                    <to id="Valida_Respuesta_IDG_2" uri="direct:rutaValidaRespuestaAuthentica"/>
+                                    </when>
+                                </choice>
+                                <!--Fin: Valida canal sea igual a SIT o PSW -->
+                            </when>
+                            <otherwise id="_otherwise20">
+                                <!--Se realiza la transformacion del objeto parametro. -->
+                                <!--Inicio: Deja en la cabecera los valores de la salida erronea. -->
+                                <!--Inicio: Deja en la cabecera los valores de la salida erronea. -->
+                                <setHeader
+                                    headerName="tipo_autenticacion" id="tipo_autenticacion_canal_validaUser">
+                                    <simple>{{autentica.error.canal.tipo_autenticacion.IDG}}</simple>
+                                </setHeader>
+                                <setHeader
+                                    headerName="descripcion_error" id="descricion_canal_valida_autenticacion">
+                                    <simple>{{autentica.error.canal.descripcion}}</simple>
+                                </setHeader>
+                                <setHeader headerName="codigo_error" id="codigo_canal">
+                                    <simple>{{autentica.error.canal.codigo}}</simple>
+                                </setHeader>
+                                <to id="ValidaUser_Error_canal2" uri="xslt://transformations/error/errorValidaUserCanal.xsl"/>
+                            </otherwise>
+                        </choice>
+                        <!--Fin: Canal ingresada se encuentra registrado en CNOFC -->
+                    </when>
+                    <otherwise id="_otherwise11">
+                        <removeHeaders id="_removeHeaders18" pattern="*"/>
+                        <to id="_to5" uri="xslt://transformations/error/errorValidaUser.xsl"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="validaUserCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.BodyBackup"
+                        id="validaUserRestoreBody" method="restoreBody"/>
+                    <setBody id="validaUserSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="validaUserFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="validaUserBodyError" method="setBodyError"/>
+                </doCatch>
+                <removeHeaders id="_removeHeaders1" pattern="AuthenticationType|breadcrumbId|canal|Clave|codigo_error|descripcion_error|DV|Host|item|operacion|passwordName|Rut|rutCompleto|tipo_autenticacion|userId|validaRut|SOAPAction|CodigoError|DescripcionError|NuevaClave|provider_url|rut_atenticado|tipoautenticacion"/>
+                <removeHeaders id="_removeHeaders12" pattern="autentica*"/>
+                <removeHeaders id="_removeHeaders13" pattern="producto*"/>
+                <removeHeaders id="_removeHeaders14" pattern="security*"/>
+                <removeHeaders id="_removeHeaders15" pattern="valida*"/>
+                <removeHeaders id="_removeHeaders2" pattern="JMS*"/>
+                <removeHeaders id="_removeHeaders3" pattern="parametro*"/>
+                <doFinally id="validaUserFinally"/>
+            </doTry>
+        </route>
+        <!--Fin: Esta ruta valida el cliente en la plataforma LDAP e IDG. -->
+        <!---->
+        <!--Inicio: Esta ruta valida estado de usuario en la plataforma IDG. -->
+        <route id="validaEstadoUsuarioIDG">
+            <from id="validaEstadoUsuarioIDG" uri="direct:validaEstadoUsuarioIDG"/>
+            <to id="validaEstadoUsuarioXml2xmlIDG" uri="xslt://transformations/IDGsession/xml2xml_IDGValidate.xsl"/>
+            <removeHeaders id="_removeHeaders19" pattern="CamelCxfMessage|CamelHttpPath|CamelHttpUri|operationName"/>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                id="validaEstadoUsuarioIDG_TramaSalida" method="process"/>
+            <to id="validaEstadoUsuarioIDGTo" uri="cxf:{{endpoint.IDG.url.AuthService}}?dataFormat=MESSAGE"/>
+            <convertBodyTo id="validaEstadoUsuarioIDG_convert" type="java.lang.String"/>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                id="validaEstadoUsuarioIDG_TramaSalida" method="comprobarSalida"/>
+            <choice id="validaEstadoUsuarioIDG_Choice">
+                <when id="validaEstadoUsuarioIDG_When">
+                    <simple>${property.SalidaIDG} == 'Exito'</simple>
+                    <setProperty id="_setProperty1" propertyName="fechaExpiracion">
+                        <xpath resultType="java.lang.String">//PasswordChallenge/ExpiryDate</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty2" propertyName="fechaUltModificacion">
+                        <xpath resultType="java.lang.String">//PasswordChallenge/AllowChangeAfterDate</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty3" propertyName="flagModificacion">
+                        <xpath resultType="java.lang.String">//PasswordChallenge/changeRequired</xpath>
+                    </setProperty>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="validaEstadoUsuarioIDG_TramaSalida" method="comprobarExpiraClave"/>
+                    <choice id="_choice17">
+                        <when id="_when10">
+                            <simple>${property.expiraClave} == 'TRUE'</simple>
+                            <setProperty id="_setProperty4" propertyName="SalidaIDG">
+                                <constant>Fallo</constant>
+                            </setProperty>
+                            <convertBodyTo id="_convertBodyTo1" type="java.lang.String"/>
+                            <to id="_to10" uri="xslt://transformations/mid/obtenerErrorExpiraUsuarioIDG.xsl"/>
+                            <unmarshal id="_unmarshal1">
+                                <jaxb contextPath="cl.coopeuch.erroresIDG"/>
+                            </unmarshal>
+                            <bean
+                                beanType="cl.coopeuch.util.error.ErroresIDG"
+                                id="_bean1" method="process"/>
+                            <marshal id="_marshal2">
+                                <jaxb contextPath="cl.coopeuch.erroresIDG"/>
+                            </marshal>
+                        </when>
+                        <when id="_when11">
+                            <simple>${property.expiraClave} == 'FALSE'</simple>
+                            <to id="ValidaUser_SIT" uri="direct:autenticacionIDG"/>
+                        </when>
+                    </choice>
+                </when>
+                <when id="_when12">
+                    <simple>${property.SalidaIDG} == 'Fallo'</simple>
+                    <!--Se pasa a objeto la salida erronea de los servicio IDG. -->
+                    <!--Guarda en el objeto error la salida de las oepraciones IDG. -->
+                    <!--Se pasa a objeto la salida erronea de los servicio IDG. -->
+                    <convertBodyTo id="validaEstadoUsuario_BodyTo" type="java.lang.String"/>
+                    <to
+                        id="validaEstadoUsuarioIDG_xml2xml_obtenerErroresIDG" uri="xslt://transformations/mid/obtenerErroresIDG.xsl"/>
+                    <unmarshal id="validaEstadoUsuarioIDG_unmarshal">
+                        <jaxb contextPath="cl.coopeuch.erroresIDG"/>
+                    </unmarshal>
+                    <bean beanType="cl.coopeuch.util.error.ErroresIDG"
+                        id="validaEstadoUsuarioIDG_errores_IDG" method="process"/>
+                    <marshal id="validaEstadoUsuarioIDG_marshal">
+                        <jaxb contextPath="cl.coopeuch.erroresIDG"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <!--Fin -->
+        <!---->
+        <!--Inicio: Esta ruta authentica el usuario en la plataforma IDG. -->
+        <route id="autenticacionIDG">
+            <!--Inicio: Forma XSL para llamar a la operacion athenticacion de IDG. -->
+            <!--Fin: Forma XSL para llamar a la operacion athenticacion de IDG. -->
+            <!--Comprueba que la trama de salida de la operacion UserLockoutGet se 
+				satisfactoria o erronea. -->
+            <!--Inicio: valida la respuesta de la operacion authenticacion de IDG. -->
+            <from id="autenticacionIDG" uri="direct:autenticacionIDG"/>
+            <to id="validaUserXml2xmlIDGAuthenticate1" uri="xslt://transformations/IDGsession/xml2xml_IDGAuthenticate.xsl"/>
+            <to id="validauserIDGAuthTo" uri="cxf:{{endpoint.IDG.url.AuthService}}?dataFormat=MESSAGE"/>
+            <convertBodyTo id="autenticacionIDG_convert" type="java.lang.String"/>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                id="autenticacionIDG_TramaSalida" method="comprobarSalida"/>
+            <choice id="autenticacionIDG_Choice">
+                <when id="autenticacionIDG_When">
+                    <simple>${property.SalidaIDG} == 'Exito'</simple>
+                    <convertBodyTo id="autenticacionIDG_To" type="java.lang.String"/>
+                </when>
+                <when id="_when3">
+                    <simple>${property.SalidaIDG} == 'Fallo'</simple>
+                    <!--Se pasa a objeto la salida erronea de los servicio IDG. -->
+                    <!--Guarda en el objeto error la salida de las oepraciones IDG. -->
+                    <!--Se pasa a objeto la salida erronea de los servicio IDG. -->
+                    <convertBodyTo id="autenticacionIDG_BodyTo" type="java.lang.String"/>
+                    <to id="autenticacionIDG_xml2xml_obtenerErroresIDG" uri="xslt://transformations/mid/obtenerErroresIDG.xsl"/>
+                    <unmarshal id="autenticacionIDG_unmarshal70">
+                        <jaxb contextPath="cl.coopeuch.erroresIDG"/>
+                    </unmarshal>
+                    <bean beanType="cl.coopeuch.util.error.ErroresIDG"
+                        id="autenticacionIDG_errores_IDG" method="process"/>
+                    <marshal id="autenticacionIDG_marshal">
+                        <jaxb contextPath="cl.coopeuch.erroresIDG"/>
+                    </marshal>
+                </when>
+            </choice>
+            <!--Fin: valida la respuesta de la operacion authenticacion de IDG. -->
+        </route>
+        <!--Fin: Esta ruta authentica el usuario en la plataforma IDG -->
+        <!---->
+        <!---->
+        <!--Inicio: Esta ruta valida la respuesta de IDG y deriva los flujos. -->
+        <route id="rutaValidaRespuestaAuthentica">
+            <!--Inicio: Valida que la respuesta de la operacion de authenticacion. -->
+            <from id="FromrutaValidaRespuestaAuthentica" uri="direct:rutaValidaRespuestaAuthentica"/>
+            <choice id="ValidaUser_CanalSIT_Choice_Fallo">
+                <when id="ValidaUser_CanalSIT_When_Fallo">
+                    <simple>${property.SalidaIDG} == 'Fallo'</simple>
+                    <!--Inicio: Valida que la respuesta de error de la operacion de authenticacion. -->
+                    <choice id="ValidaUser_CanalSIT_Choice_Error">
+                        <when id="ValidaUser_CanalSIT_When_Error_5203004">
+                            <simple>${property.Codigo_Interno} == 5203111 or ${property.Codigo_Interno} == 5203004</simple>
+                            <!--Inicio: Deja en la cabecera los valores de salida de la operacion. -->
+                            <!--Fin: Deja en la cabecera los valores de salida de la operacion. -->
+                            <setHeader headerName="tipo_autenticacion" id="tipo_autenticacion_canal_5203004">
+                                <simple>{{autentica.error.canal.tipo_autenticacion.IDG}}</simple>
+                            </setHeader>
+                            <setHeader headerName="descripcion_error" id="descricion_canal_5203004">
+                                <simple>{{autentica.error.idg.existeUsuario.descripcion}}</simple>
+                            </setHeader>
+                            <setHeader headerName="codigo_error" id="codigo_canal_5203004">
+                                <simple>${property.Codigo_Interno}</simple>
+                            </setHeader>
+                            <to id="ValidaUser_Error_5203113" uri="xslt://transformations/error/errorValidaUserCanal.xsl?saxon=true"/>
+                        </when>
+                        <when id="ValidaUser_CanalSIT_When_Error_5203113">
+                            <simple>${property.Codigo_Interno} == 5203113</simple>
+                            <!--Inicio: Deja en la cabecera los valores de salida de la operacion. -->
+                            <!--Fin: Deja en la cabecera los valores de salida de la operacion. -->
+                            <setHeader headerName="tipo_autenticacion" id="tipo_autenticacion_canal_5203113">
+                                <simple>{{autentica.error.canal.tipo_autenticacion.IDG}}</simple>
+                            </setHeader>
+                            <setHeader headerName="descripcion_error" id="descricion_canal_5203113">
+                                <simple>{{autentica.error.clave.incorrecta.login.descripcion}}</simple>
+                            </setHeader>
+                            <setHeader headerName="codigo_error" id="codigo_canal_5203113">
+                                <simple>${property.Codigo_Interno}</simple>
+                            </setHeader>
+                            <to id="ValidaUser_Error_5203113" uri="xslt://transformations/error/errorValidaUserCanal.xsl?saxon=true"/>
+                        </when>
+                        <when id="ValidaUser_CanalSIT_When_Error_5203017">
+                            <simple>${property.Codigo_Interno} == 5203017</simple>
+                            <!--Inicio: Deja en la cabecera los valores de salida de la operacion. -->
+                            <!--Fin: Deja en la cabecera los valores de salida de la operacion. -->
+                            <setHeader headerName="tipo_autenticacion" id="tipo_autenticacion_canal_5203017">
+                                <simple>{{autentica.error.canal.tipo_autenticacion.IDG}}</simple>
+                            </setHeader>
+                            <setHeader headerName="descripcion_error" id="descricion_canal_5203017">
+                                <simple>{{autentica.error.clave.bloqueara.login.descripcion}}</simple>
+                            </setHeader>
+                            <setHeader headerName="codigo_error" id="codigo_canal_5203017">
+                                <simple>${property.Codigo_Interno}</simple>
+                            </setHeader>
+                            <to id="ValidaUser_Error_5203017" uri="xslt://transformations/error/errorValidaUserCanal.xsl?saxon=true"/>
+                        </when>
+                        <when id="ValidaUser_CanalSIT_When_Error_5203016">
+                            <simple>${property.Codigo_Interno} == 5203016</simple>
+                            <!--Inicio: Deja en la cabecera los valores de salida de la operacion. -->
+                            <!--Fin: Deja en la cabecera los valores de salida de la operacion. -->
+                            <setHeader headerName="tipo_autenticacion" id="tipo_autenticacion_canal_5203016">
+                                <simple>{{autentica.error.canal.tipo_autenticacion.IDG}}</simple>
+                            </setHeader>
+                            <setHeader headerName="descripcion_error" id="descricion_canal_5203016">
+                                <simple>{{autentica.error.clave.bloqueada.login.descripcion}}</simple>
+                            </setHeader>
+                            <setHeader headerName="codigo_error" id="codigo_canal_5203016">
+                                <simple>${property.Codigo_Interno}</simple>
+                            </setHeader>
+                            <to id="ValidaUser_Error_5203016" uri="xslt://transformations/error/errorValidaUserCanal.xsl?saxon=true"/>
+                        </when>
+                        <when id="ValidaUser_CanalSIT_When_Error_5203112">
+                            <simple>${property.Codigo_Interno} == 5203112</simple>
+                            <!--Inicio: Deja en la cabecera los valores de salida de la operacion. -->
+                            <!--Fin: Deja en la cabecera los valores de salida de la operacion. -->
+                            <setHeader headerName="tipo_autenticacion" id="tipo_autenticacion_canal_5203112">
+                                <simple>{{autentica.error.canal.tipo_autenticacion.IDG}}</simple>
+                            </setHeader>
+                            <setHeader headerName="descripcion_error" id="descricion_canal_5203112">
+                                <simple>{{autentica.error.cambio.clave.login.descripcion}}</simple>
+                            </setHeader>
+                            <setHeader headerName="codigo_error" id="codigo_canal_5203112">
+                                <simple>${property.Codigo_Interno}</simple>
+                            </setHeader>
+                            <to id="ValidaUser_Error_5203112" uri="xslt://transformations/error/errorValidaUserCanal.xsl?saxon=true"/>
+                        </when>
+                        <when id="ValidaUser_CanalSIT_When_Error_5202096">
+                            <simple>${property.Codigo_Interno} == 5202096</simple>
+                            <!--Inicio: Deja en la cabecera los valores de salida de la operacion. -->
+                            <!--Fin: Deja en la cabecera los valores de salida de la operacion. -->
+                            <setHeader headerName="tipo_autenticacion" id="tipo_autenticacion_canal_5202096">
+                                <simple>{{autentica.error.canal.tipo_autenticacion.IDG}}</simple>
+                            </setHeader>
+                            <setHeader headerName="descripcion_error" id="descricion_canal_5202096">
+                                <simple>{{autentica.error.clave.multiple.grupo.login.descripcion}}</simple>
+                            </setHeader>
+                            <setHeader headerName="codigo_error" id="codigo_canal_5202096">
+                                <simple>${property.Codigo_Interno}</simple>
+                            </setHeader>
+                            <to id="ValidaUser_Error_5202096" uri="xslt://transformations/error/errorValidaUserCanal.xsl?saxon=true"/>
+                        </when>
+                        <otherwise id="_otherwise21">
+                            <!--Inicio: Deja en la cabecera los valores de salida de la operacion. -->
+                            <!--Fin: Deja en la cabecera los valores de salida de la operacion. -->
+                            <setHeader headerName="tipo_autenticacion" id="tipo_autenticacion_canal_-1">
+                                <simple>{{autentica.error.canal.tipo_autenticacion.IDG}}</simple>
+                            </setHeader>
+                            <setHeader headerName="descripcion_error" id="descricion_canal_-1">
+                                <simple>{{autentica.error.errorGeneralClave.descripcion}}</simple>
+                            </setHeader>
+                            <setHeader headerName="codigo_error" id="codigo_canal_-1">
+                                <simple>{{autentica.error.errorGeneralClave.codigo}}</simple>
+                            </setHeader>
+                            <to id="ValidaUser_Error_-1" uri="xslt://transformations/error/errorValidaUserCanal.xsl?saxon=true"/>
+                        </otherwise>
+                    </choice>
+                    <!--Fin: Valida que la respuesta de error de la operacion de authenticacion. -->
+                </when>
+                <when id="ValidaUser_CanalSIT_When_Exito">
+                    <simple>${property.SalidaIDG} == 'Exito'</simple>
+                    <setHeader headerName="tipo_autenticacion" id="_setHeader43">
+                        <simple>IDG</simple>
+                    </setHeader>
+                    <to id="validaUserResultadoOk" uri="xslt://transformations/out/xml2xml_validaUserOk.xsl"/>
+                    <setProperty id="setPropertyLogeoIDGOk" propertyName="loginIDGOk">
+                        <simple>true</simple>
+                    </setProperty>
+                </when>
+            </choice>
+            <choice id="_choice22">
+                <when id="_when30">
+                    <simple>${header.org.apache.cxf.message.Message.RESPONSE_CODE} != 200</simple>
+                    <setHeader
+                        headerName="org.apache.cxf.message.Message.RESPONSE_CODE" id="_setHeader37">
+                        <simple resultType="java.lang.Integer">200</simple>
+                    </setHeader>
+                </when>
+            </choice>
+            <!--Fin: Valida que la respuesta de la operacion de authenticacion. -->
+        </route>
+        <!--Fin: Esta ruta valida la respuesta de IDG y deriva los flujos. -->
+        <!---->
+        <!---->
+        <!--Inicio: Esta ruta creacion usuario la clave del cliente en IDG. -->
+        <route id="rutaUserCreate">
+            <!--Inicio: Realiza la llamada a las operaciones de IDG para la creacion 
+				del usuario. -->
+            <!--Guarda en la cabecera la cookies para mantener la session entre las 
+				operaciones del Servicio Administracion de IDG -->
+            <!--Realiza la llamada a la operacion 'UserCreate' para la creacion del 
+				usuario. -->
+            <!--Comprueba que la trama de salida de la operacion UserLockoutGet se 
+				satisfactoria o erronea. -->
+            <!--Fin: Realiza la llamada a las operaciones de IDG para la creacion 
+				del usuario. -->
+            <from id="modificaClaveUserRutaUserCreate" uri="direct:rutaUserCreate"/>
+            <to id="crear_usuario_xml2xml_IDGLoginXSL" uri="xslt://transformations/IDGsession/xml2xml_IDGLogin.xsl"/>
+            <to id="crear_usuario_IDGLoginTo" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+            <setHeader headerName="Cookie" id="crear_usuario_setHeader">
+                <simple>${headers.Set-Cookie}</simple>
+            </setHeader>
+            <convertBodyTo id="crear_usuario_convertIDGLoginTo" type="java.lang.String"/>
+            <to id="crear_usuario_xml2xml_IDGUserCreate" uri="xslt://transformations/IDGsession/xml2xml_IDGUserCreate.xsl"/>
+            <to id="crear_usuario_IDGUserCreate" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                id="TramaSalida5" method="comprobarSalida"/>
+            <to id="creacion_usuario_xml2xml_IDGLogoutXSL" uri="xslt://transformations/IDGsession/xml2xml_IDGLogout.xsl"/>
+            <to id="creacion_usuario_IDGLogoutTo" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+            <choice id="crear_usuario_modificaClaveUserCreateRetorno">
+                <when id="crear_usuario_modificaClaveUserCreateError">
+                    <simple>${headers.SalidaIDG} == 'Exito'</simple>
+                    <!--LLamada a la ruta para creacion de clave. -->
+                    <to
+                        id="crear_usuario_modificaClaveUser_rutaCrearUsuario" uri="direct:rutaPasswordCreate"/>
+                    <convertBodyTo
+                        id="crear_usuario_convertIDGLoginTo_creacion_usuario" type="java.lang.String"/>
+                </when>
+                <otherwise id="_otherwise7"/>
+            </choice>
+        </route>
+        <!--Fin: Esta ruta creacion usuario la clave del cliente en IDG. -->
+        <!---->
+        <!---->
+        <!--Inicio: Esta ruta modifica la clave del cliente en IDG. -->
+        <route id="rutaPasswordSet">
+            <!--Inicio: Deja en la cabecera los parametros. -->
+            <!--Fin: Deja en la cabecera los parametros. -->
+            <!--Inicio: Realiza la llamada a la operacion 'UserPasswordSet' del servicio 
+				administracion IDG. -->
+            <!--Fin: Realiza la llamada a la operacion 'UserPasswordSet' del servicio 
+				administracion IDG. -->
+            <!--Comprueba que la trama de salida de la operacion UserLockoutGet se 
+				satisfactoria o erronea. -->
+            <!--Incio: Comprueba la llamada al Servicio Administracion de IDG operacion 
+				UserPasswordSet -->
+            <from id="modificaClaveUserRutaPasswordCreate" uri="direct:rutaPasswordSet"/>
+            <setHeader headerName="PoliticaCanal" id="PoliticaCanal">
+                <simple>${property.DatosCanal.descripcion.substring(0,3)}</simple>
+            </setHeader>
+            <setHeader headerName="autentica.cambio.clave" id="cambio_clave">
+                <simple>{{autentica.cambio.clave}}</simple>
+            </setHeader>
+            <setHeader headerName="autentica.limpia.historial.clave" id="limpiar_historial_clave">
+                <simple>{{autentica.limpia.historial.clave}}</simple>
+            </setHeader>
+            <setHeader headerName="autentica.limpia.recuperacion.clave" id="recuperacion_clave">
+                <simple>{{autentica.limpia.recuperacion.clave}}</simple>
+            </setHeader>
+            <to id="xml2xml_IDGUserPasswordSet" uri="xslt://transformations/IDGsession/xml2xml_IDGUserPasswordSet.xsl"/>
+            <to id="modificaClaveUserIDGUserPasswordSet" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                id="ValidaTramaSalida_CambioClave" method="comprobarSalida"/>
+            <choice id="cambioClave">
+                <when id="cambioClave_EXito">
+                    <simple>${headers.SalidaIDG} == 'Exito'</simple>
+                    <!--Inicio: Deja en la cabecera los parametros. -->
+                    <!--Fin: Deja en la cabecera los parametros. -->
+                    <!--Se utiliza el wireTap para enviar la respuesta OK del cambio de 
+						clave y en paralelo se envia el e-mail. -->
+                    <setHeader headerName="tipoautenticacion" id="_setHeader25">
+                        <constant>IDG</constant>
+                    </setHeader>
+                    <wireTap id="cambioClave_WireTapTo" uri="direct:rutaResultadoOk"/>
+                    <to id="cambioClave_modificaClaveUserOk" uri="xslt://transformations/out/xml2xml_modificaClaveUserOk.xsl"/>
+                </when>
+                <when id="cambioClave_Error">
+                    <simple>${headers.SalidaIDG} == 'Fallo'</simple>
+                    <!--Forma XSLT para obtener el error de la operacion 'UserPasswordSet' 
+						del servicio de administracion IDG . -->
+                    <!--Se pasa a objeto la salida erronea de los servicio IDG. -->
+                    <!--Guarda en el objeto error la salida de las oepraciones IDG. -->
+                    <!--Se pasa a objeto la salida erronea de los servicio IDG. -->
+                    <!--Inicio: Analiza la respuesta erronea del servicio administracion 
+						IDG -->
+                    <to
+                        id="error_modificacion_password_xml2xml_obtenerErroresIDG" uri="xslt://transformations/mid/obtenerErroresIDG.xsl"/>
+                    <unmarshal id="error_modificacion_unmarshal">
+                        <jaxb contextPath="cl.coopeuch.erroresIDG"/>
+                    </unmarshal>
+                    <bean beanType="cl.coopeuch.util.error.ErroresIDG"
+                        id="error_modificacion_errores_IDG" method="process"/>
+                    <marshal id="error_modificacion_marshal">
+                        <jaxb contextPath="cl.coopeuch.erroresIDG"/>
+                    </marshal>
+                    <convertBodyTo id="error_modificacion_convert" type="java.lang.String"/>
+                    <choice id="error_modificacion_password_choice">
+                        <when id="error_modificacion_password_when">
+                            <simple>${property.Codigo_Interno} == 5206001</simple>
+                            <!--Inicio: Analiza la respuesta erronea con codigo 5206001 -->
+                            <choice id="error_5206001_modificacion_password_choice">
+                                <when id="error_5206001_modificacion_password_when">
+                                    <simple>${property.Mensaje} contains 'The password does not meet the following password rules: Cannot Repeat History Value.'</simple>
+                                    <!--Inicio: Deja en la cabecera los parametros. -->
+                                    <!--Fin: Deja en la cabecera los parametros. -->
+                                    <setHeader
+                                    headerName="error.descripcion" id="error_5206001_modificacion_password_descripcion2">
+                                    <simple>{{autentica.error.claveUtilizada.descripcion}}</simple>
+                                    </setHeader>
+                                    <setHeader headerName="error.codigo" id="error_5206001_modificacion_password_codigo2">
+                                    <simple>{{autentica.error.caracteresClave.codigo}}</simple>
+                                    </setHeader>
+                                    <to
+                                    id="error_5206001_modificacion_password_to" uri="xslt://transformations/error/erroresIDG.xsl?saxon=true"/>
+                                    <setHeader
+                                    headerName="org.apache.cxf.message.Message.RESPONSE_CODE" id="_setHeader49">
+                                    <simple resultType="Integer">200</simple>
+                                    </setHeader>
+                                </when>
+                                <otherwise id="_otherwise5">
+                                    <!--Inicio: Deja en la cabecera los parametros. -->
+                                    <!--Fin: Deja en la cabecera los parametros. -->
+                                    <setHeader
+                                    headerName="error.descripcion" id="error_modificacion_password_descripcion2">
+                                    <method
+                                    beanType="cl.coopeuch.util.error.GlosaError" method="modificar('{{autentica.error.caracteresClave.descripcion}}','${property.DatosCanal.valor2}','${property.DatosCanal.codigoReferencia}')"/>
+                                    </setHeader>
+                                    <setHeader headerName="error.codigo" id="error_modificacion_password_codigo2">
+                                    <simple>{{autentica.error.caracteresClave.codigo}}</simple>
+                                    </setHeader>
+                                    <to
+                                    id="error_modificacion_password_to" uri="xslt://transformations/error/erroresIDG.xsl?saxon=true"/>
+                                </otherwise>
+                            </choice>
+                            <!--Fin: Analiza la respuesta erronea con codigo 5206001 -->
+                        </when>
+                        <when id="error_permite_creacion_password_when2">
+                            <simple>${property.Codigo_Interno} == 5205003 or  ${property.Codigo_Interno} == 5205150</simple>
+                            <!--Inicio: Comprueba que el canal permita la creacion de contrasena. -->
+                            <choice id="permite_creacion_clave_choice">
+                                <when id="permite_creacion_clave_when">
+                                    <simple>${property.DatosCanal.valor} == 1</simple>
+                                    <!--Llama a la ruta para la creacion de la password. -->
+                                    <to
+                                    id="permite_creacion_usuario_modificaClaveUserRutaPasswordCreate" uri="direct:rutaPasswordCreate"/>
+                                </when>
+                                <otherwise id="_otherwise14">
+                                    <!--Inicio: Deja en la cabecera los parametros. -->
+                                    <!--Fin: Deja en la cabecera los parametros. -->
+                                    <setHeader
+                                    headerName="error.descripcion" id="error_permite_creacion_password_descripcion2">
+                                    <simple>{{autentica.error.cambioClave.descripcion}}</simple>
+                                    </setHeader>
+                                    <setHeader headerName="error.codigo" id="error_permite_creacion_password_codigo2">
+                                    <simple>{{autentica.error.cambioClave.codigo}}</simple>
+                                    </setHeader>
+                                    <to
+                                    id="error_permite_creacion_password_to" uri="xslt://transformations/error/erroresIDG.xsl?saxon=true"/>
+                                    <setHeader
+                                    headerName="org.apache.cxf.message.Message.RESPONSE_CODE" id="_setHeader48">
+                                    <simple resultType="Integer">200</simple>
+                                    </setHeader>
+                                </otherwise>
+                            </choice>
+                            <!--Fin: Comprueba que el canal permita la creacion de contrasena. -->
+                        </when>
+                        <otherwise id="_otherwise15">
+                            <!--Inicio: Comprueba que el canal permita la creacion de contrasena. -->
+                            <choice id="permite_creacion_clave_choice2">
+                                <when id="permite_creacion_clave_when2">
+                                    <simple>${property.DatosCanal.valor} == 1</simple>
+                                    <!--Llama a la ruta para la creacion de la password. -->
+                                    <to
+                                    id="permite_creacion_usuario_modificaClaveUserRutaPasswordCreate2" uri="direct:rutaPasswordCreate"/>
+                                </when>
+                                <otherwise id="_otherwise16">
+                                    <!--Inicio: Deja en la cabecera los parametros. -->
+                                    <!--Fin: Deja en la cabecera los parametros. -->
+                                    <setHeader
+                                    headerName="error.descripcion" id="error_permite_creacion_password_descripcion3">
+                                    <simple>{{autentica.error.cambioClave.descripcion}}</simple>
+                                    </setHeader>
+                                    <setHeader headerName="error.codigo" id="error_permite_creacion_password_codigo3">
+                                    <simple>{{autentica.error.cambioClave.codigo}}</simple>
+                                    </setHeader>
+                                    <to
+                                    id="error_permite_creacion_password_to2" uri="xslt://transformations/error/erroresIDG.xsl?saxon=true"/>
+                                </otherwise>
+                            </choice>
+                            <!--Fin: Comprueba que el canal permita la creacion de contrasena. -->
+                        </otherwise>
+                    </choice>
+                    <!--Fin: Analiza la respuesta erronea del servicio administracion IDG -->
+                </when>
+            </choice>
+            <!--Fin: Comprueba la llamada al Servicio Administracion de IDG operacion 
+				UserPasswordSet -->
+        </route>
+        <!--Fin: Esta ruta modifica la clave del cliente en IDG. -->
+        <!---->
+        <!---->
+        <!--Inicio: Esta ruta creacion de la clave del cliente en IDG. -->
+        <route id="rutaPasswordCreate">
+            <!--Inicio: Realiza llamada al Servicio Administracion de IDG operacion 
+				UserLockoutGet -->
+            <!--Guarda en la cabecera la cookies para mantener la session entre las 
+				operaciones del Servicio Administracion de IDG -->
+            <!--Inicio: Deja en la cabecera los parametros. -->
+            <!--Fin: Deja en la cabecera los parametros. -->
+            <!--Inicio: Realiza llamada al Servicio Administracion de IDG operacion 
+				UserPasswordCreate -->
+            <!--Fin: Realiza llamada al Servicio Administracion de IDG operacion UserPasswordCreate -->
+            <!--Analiza la salida de la operacion UserPasswordCreate. -->
+            <from id="modificaClaveUserRutaPasswordCreate" uri="direct:rutaPasswordCreate"/>
+            <to id="xml2xml_IDGLoginXSL3" uri="xslt://transformations/IDGsession/xml2xml_IDGLogin.xsl"/>
+            <to id="IDGLoginTo3" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+            <setHeader headerName="Cookie" id="_setHeader113">
+                <simple>${headers.Set-Cookie}</simple>
+            </setHeader>
+            <convertBodyTo id="convertIDGLoginTo10" type="java.lang.String"/>
+            <setHeader headerName="autentica.cambio.clave" id="cambio_clave_crear_usuario">
+                <simple>{{autentica.cambio.clave}}</simple>
+            </setHeader>
+            <setHeader headerName="autentica.limpia.historial.clave" id="limpiar_historial_clave_crear_usuario">
+                <simple>{{autentica.limpia.historial.clave}}</simple>
+            </setHeader>
+            <setHeader headerName="autentica.limpia.recuperacion.clave" id="recuperacion_clave_crear_usuario">
+                <simple>{{autentica.limpia.recuperacion.clave}}</simple>
+            </setHeader>
+            <setHeader headerName="PoliticaCanal" id="PoliticaCanal_Password">
+                <simple>${property.DatosCanal.descripcion.substring(0,3)}</simple>
+            </setHeader>
+            <to id="xml2xml_IDGUserPasswordCreate" uri="xslt://transformations/IDGsession/xml2xml_IDGUserPasswordCreate.xsl"/>
+            <to id="modificaClaveUserIDGUserPasswordCreate" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                id="TramaSalida15" method="comprobarSalida"/>
+            <setHeader headerName="InternalCodeIDG" id="_setHeader15">
+                <xpath resultType="Long">//InternalCode</xpath>
+            </setHeader>
+            <to id="creacion_password_xml2xml_obtenerErroresIDG" uri="xslt://transformations/mid/obtenerErroresIDG.xsl"/>
+            <unmarshal id="creacion_password_unmarshal">
+                <jaxb contextPath="cl.coopeuch.erroresIDG"/>
+            </unmarshal>
+            <bean beanType="cl.coopeuch.util.error.ErroresIDG"
+                id="creacion_password_errores_IDG" method="process"/>
+            <marshal id="creacion_password_marshal">
+                <jaxb contextPath="cl.coopeuch.erroresIDG"/>
+            </marshal>
+            <choice id="_choice8">
+                <when id="creacion_password_validasinidg_when">
+                    <simple>${headers.InternalCodeIDG}  == 5206001</simple>
+                    <setHeader headerName="error.descripcion" id="error_creacion_password_sinidg_descripcion">
+                        <method
+                            beanType="cl.coopeuch.util.error.GlosaError" method="modificar('{{autentica.error.caracteresClave.descripcion}}','${property.DatosCanal.valor2}','${property.DatosCanal.codigoReferencia}')"/>
+                    </setHeader>
+                    <setHeader headerName="error.codigo" id="error_creacion_password_sinidg_codigo">
+                        <simple>{{autentica.error.caracteresClave.codigo}}</simple>
+                    </setHeader>
+                    <to id="error_creacion_password_sinidg_to" uri="xslt://transformations/error/erroresIDG.xsl?saxon=true"/>
+                </when>
+                <otherwise id="_otherwise10">
+                    <to id="creacion_password_xml2xml_IDGLogoutXSL" uri="xslt://transformations/IDGsession/xml2xml_IDGLogout.xsl"/>
+                    <to id="creacion_password_IDGLogoutTo" uri="cxf:{{endpoint.IDG.url.AdminService}}?dataFormat=MESSAGE"/>
+                    <choice id="creacion_password_choice">
+                        <when id="creacion_password_when">
+                            <simple>${headers.SalidaIDG} == 'Exito'</simple>
+                            <!--Inicio: Deja en la cabecera los parametros. -->
+                            <!--Fin: Deja en la cabecera los parametros. -->
+                            <!--Se utiliza el wireTap para enviar la respuesta OK del cambio de 
+								clave y en paralelo se envia el e-mail. -->
+                            <convertBodyTo id="convertIDGLoginTo_exito_Creacion_Clave" type="java.lang.String"/>
+                            <setHeader headerName="tipoautenticacion" id="tipoautenticacion_IDG">
+                                <constant>IDG</constant>
+                            </setHeader>
+                            <wireTap id="WireTapTo6" uri="direct:rutaResultadoOk"/>
+                            <convertBodyTo id="crear_usuario_convertIDGLoginqwqqewTo" type="java.lang.String"/>
+                            <to id="creacion_password_to" uri="xslt://transformations/out/xml2xml_modificaClaveUserOk.xsl"/>
+                        </when>
+                        <otherwise id="creacion_password_otherwise">
+                            <!--Se pasa a objeto la salida erronea de los servicio IDG. -->
+                            <!--Guarda en el objeto error la salida de las oepraciones IDG. -->
+                            <!--Se pasa a objeto la salida erronea de los servicio IDG. -->
+                            <!--Inicio: Evalua errores del servicio de administracion IDG. -->
+                            <to id="creacion_password_xml2xml_obtenerErroresIDG" uri="xslt://transformations/mid/obtenerErroresIDG.xsl"/>
+                            <unmarshal id="creacion_password_unmarshal">
+                                <jaxb contextPath="cl.coopeuch.erroresIDG"/>
+                            </unmarshal>
+                            <bean beanType="cl.coopeuch.util.error.ErroresIDG"
+                                id="creacion_password_errores_IDG" method="process"/>
+                            <marshal id="creacion_password_marshal">
+                                <jaxb contextPath="cl.coopeuch.erroresIDG"/>
+                            </marshal>
+                            <convertBodyTo
+                                id="creacion_password_convert" type="java.lang.String"/>
+                            <choice id="error_creacion_password_choice">
+                                <when id="error_creacion_password_when">
+                                    <!--Error cliente tiene clave en politica solicitante. -->
+                                    <simple>${property.Codigo_Interno} == 5205149</simple>
+                                    <!--Inicio: Deja en la cabecera los parametros. -->
+                                    <!--Fin: Deja en la cabecera los parametros. -->
+                                    <setHeader
+                                    headerName="error.descripcion" id="error_creacion_password_descripcion">
+                                    <simple>replace({{autentica.error.existeClave.descripcion}},'tipoPassword',PoliticaCanal)</simple>
+                                    </setHeader>
+                                    <setHeader headerName="error.codigo" id="error_creacion_password_codigo">
+                                    <simple>{{autentica.error.existeClave.codigo}}</simple>
+                                    </setHeader>
+                                    <to id="error_creacion_password_to" uri="xslt://transformations/error/erroresIDG.xsl?saxon=true"/>
+                                </when>
+                                <when id="error_creacion_password_when2">
+                                    <!--Error clave no posee cantidad de caracteres solicitada por la 
+										politica. -->
+                                    <simple>${property.Codigo_Interno} == 5206001</simple>
+                                    <!--Inicio: Deja en la cabecera los parametros. -->
+                                    <!--Fin: Deja en la cabecera los parametros. -->
+                                    <setHeader
+                                    headerName="error.descripcion" id="error_creacion_password_descripcion2">
+                                    <simple>replace(replace({{autentica.error.caracteresClave.descripcion}},'carac_min',${property.DatosCanal.codigoReferencia}),'carac_max',${property.DatosCanal.valor2})</simple>
+                                    </setHeader>
+                                    <setHeader headerName="error.codigo" id="error_creacion_password_codigo2">
+                                    <simple>{{autentica.error.caracteresClave.codigo}}</simple>
+                                    </setHeader>
+                                    <to id="error_creacion_password_to2" uri="xslt://transformations/error/erroresIDG.xsl?saxon=true"/>
+                                </when>
+                                <when id="error_creacion_password_when3">
+                                    <simple>${property.Codigo_Interno} == 5205003</simple>
+                                    <to
+                                    id="modificaClaveUser_rutaUserCreate" uri="direct:rutaUserCreate"/>
+                                </when>
+                                <otherwise id="error_creacion_password_otherwise">
+                                    <!--Inicio: Deja en la cabecera los parametros. -->
+                                    <!--Fin: Deja en la cabecera los parametros. -->
+                                    <setHeader
+                                    headerName="error.descripcion" id="error_creacion_password_descripcion4">
+                                    <simple>${property.Mensaje}</simple>
+                                    </setHeader>
+                                    <setHeader headerName="error.codigo" id="error_creacion_password_codigo4">
+                                    <simple>${property.Codigo_Interno}</simple>
+                                    </setHeader>
+                                    <to id="error_creacion_password_to4" uri="xslt://transformations/error/erroresIDG.xsl?saxon=true"/>
+                                </otherwise>
+                            </choice>
+                            <!--Fin: Evalua errores del servicio de administracion IDG. -->
+                        </otherwise>
+                    </choice>
+                    <!--Fin: Realiza llamada al Servicio Administracion de IDG operacion 
+						UserLockoutGet -->
+                </otherwise>
+            </choice>
+        </route>
+        <!--Fin: Esta ruta creacion de la clave del cliente en IDG. -->
+        <!---->
+        <!---->
+        <!--Inicio: Esta ruta se encarga de realizar el envio de e-mail. -->
+        <route id="rutaResultadoOk">
+            <!--Inicio: Deja en la cabecera los parametros. -->
+            <!--Fin: Deja en la cabecera los parametros. -->
+            <!--Remueve de la cabecera todos los parametros JMS. -->
+            <!--Inicio: Llama al servicio de persona operacion 'traeDatosPersonales'. -->
+            <!--Fin: Llama al servicio de persona operacion 'traeDatosPersonales'. -->
+            <!--Inicio: Deja en la cabecera los parametros. -->
+            <!--Fin: Deja en la cabecera los parametros. -->
+            <!--Inicio: Llama al servicio de envio email transferencia operacion 'enviaEmailTransferencia'. -->
+            <from id="resultadoOk" uri="direct:rutaResultadoOk"/>
+            <setProperty propertyName="persona.userID" id="personaUserID">
+                <simple>{{persona.userID}}</simple>
+            </setProperty>
+            <setProperty propertyName="persona.codigoCliente" id="personaCodigoCliente">
+                <simple>{{persona.codigoCliente}}</simple>
+            </setProperty>
+            <to id="consultaDatosPersona_envio_email" uri="xslt://transformations/mid/consultaDatosPersona.xsl"/>
+            <removeHeaders id="consultaDatosPersonaRemoveHeadersJMS" pattern="*"/>
+            <to id="consultaDatosPersonaTo" uri="cxf:{{endpoint.serviciopersona.url}}?dataFormat=MESSAGE&amp;loggingFeatureEnabled=true"/>
+            <convertBodyTo id="consultaDatosPersonaBodyTo_envio_email" type="java.lang.String"/>
+            <setProperty propertyName="primerNombre" id="consultaDatosPersonaHeaderPrimerNombre">
+                <xpath resultType="String">//primerNombre</xpath>
+            </setProperty>
+            <setProperty propertyName="apellidoPaterno" id="consultaDatosPersonaHeaderApellidoPaterno">
+                <xpath resultType="String">//apellidoPaterno</xpath>
+            </setProperty>
+            <setProperty propertyName="apellidoMaterno" id="consultaDatosPersonaHeaderApellidoMaterno">
+                <xpath resultType="String">//apellidoMaterno</xpath>
+            </setProperty>
+            <setProperty propertyName="correoElectronico" id="consultaDatosPersonaHeaderCorreoElectronico">
+                <xpath resultType="String">//correoElectronico</xpath>
+            </setProperty>
+            <setProperty propertyName="envio.email.plantilla.cambio.clave" id="Plantilla">
+                <simple>{{envio.email.plantilla.cambio.clave}}</simple>
+            </setProperty>
+            <setProperty propertyName="envio.email.correo.cambio.clave" id="CorreoEntrante">
+                <simple>{{envio.email.correo.cambio.clave}}</simple>
+            </setProperty>
+            <setProperty propertyName="envio.email.asunto.cambio.clave" id="Asunto">
+                <simple>{{envio.email.asunto.cambio.clave}}</simple>
+            </setProperty>
+            <setProperty id="idNotificacionCambioClave" propertyName="idNotificacion">
+                <simple>{{rsnotificaciones.idnotificacion.cambioclave}}</simple>
+            </setProperty>
+            <setProperty propertyName="fechahora" id="fechahora">
+                <!--Se realiza llamada al servidor de para obtener la fecha y hora -->
+                <method beanType="cl.coopeuch.autentica.Autenticacion" method="obtenerHora()"/>
+            </setProperty>
+            <to id="envioEmail" uri="xslt://transformations/mid/envioEmail.xsl?saxon=true"/>
+            <to id="toEnviarRsNotificaciones" uri="direct:enviarRsNotificaciones"/>
+            <!--Fin: Llama al servicio de envio email transferencia operacion 'enviaEmailTransferencia'. -->
+        </route>
+        <route id="enviarRsNotificacionesRoute">
+            <from id="enviarRsNotificacionesFrom" uri="direct:enviarRsNotificaciones"/>
+            <log id="enviarRsNotificacionesLogEntrada" message="\nServicioAutenticacion: Entrada a enviarRsNotificacionesRoute"/>
+            <convertBodyTo id="envioEmailConvertToString" type="java.lang.String"/>
+            <setBody id="envioEmailSetBodyEntradaXSLT">
+                <xpath>//entrada</xpath>
+            </setBody>
+            <bean id="requestNotificacion" method="requestNotificacion" ref="routeFacade"/>
+            <to id="envioNotificacion" uri="cxfrs://bean://endpointRsNotificaciones"/>
+            <log id="enviarRsNotificacionesLogSalida" message="\nServicioAutenticacion: Salida enviarRsNotificacionesRoute"/>
+        </route>
+        <!--Fin: Esta ruta se encarga de realizar el envio de e-mail. -->
+        <route id="validaUserSS">
+            <from id="fromValidaUserSS" uri="direct:validaUserSS"/>
+            <doTry id="validaUserSSDoTry">
+                <setProperty id="validaUserSSSetProp" propertyName="origen">
+                    <constant>SS</constant>
+                </setProperty>
+                <setProperty id="validaUserSSPropOperacion" propertyName="operacion">
+                    <xpath resultType="String">//operacion</xpath>
+                </setProperty>
+                <setProperty id="validaUserSSPropCanal" propertyName="canal">
+                    <xpath resultType="String">//canal</xpath>
+                </setProperty>
+                <setProperty id="validaUserSSPropRut" propertyName="rut">
+                    <xpath resultType="String">//Rut</xpath>
+                </setProperty>
+                <setProperty id="validaUserSSPropClave" propertyName="clave">
+                    <xpath resultType="String">//Clave</xpath>
+                </setProperty>
+                <setProperty id="validaUserSSPropDV" propertyName="dv">
+                    <xpath resultType="String">//DV</xpath>
+                </setProperty>
+                <setProperty id="validaUserSSPropRutCompleto" propertyName="rutCompleto">
+                    <simple>${property.rut}${property.dv}</simple>
+                </setProperty>
+                <setProperty id="validaUserSSPropValidaRut" propertyName="validaRut">
+                    <method beanType="cl.coopeuch.util.Rut" method="validaRut(${property.rutCompleto})"/>
+                </setProperty>
+                <choice id="validaUserSSChoiceValidaRut">
+                    <when id="validaUserSSWhenValidaRut">
+                        <simple>${property.validaRut} == 'Correcto'</simple>
+
+                        <bean id="VUGenerarBodyRequestPAConsultarPoliticaPassCanal" 
+                            method="generarBodyRequestPAConsultarPoliticaPassCanal" ref="beanLogIncidencias"/>
+                        <log id="logValidaUserConPolPassCanalPARequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: SQLSERVER_PA || Type: Request || Body: ${exchangeProperty.bodyLog}" />
+                        <to id="validaUserSSObtieneParametro" uri="sql-stored:classpath:sql/PA_consultarPoliticaPassCanal.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseParametros"/>
+                        <log id="logValidaUserConPolPassCanalPAResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: SQLSERVER_PA || Type: Response || Body: ${header.responseParametros}" />
+                        
+                        <bean beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                            id="validaUserSSProcesaParametro" method="process"/>
+                        <setProperty id="validaUserSSExisteCanal" propertyName="existeCanal">
+                            <method beanType="cl.coopeuch.autentica.Autenticacion" method="validar_canal(${property.ListParametros},${property.canal})"/>
+                        </setProperty>
+                        <setProperty id="validaUserSSDatosCanal" propertyName="DatosCanal">
+                            <method beanType="cl.coopeuch.util.transformacion.ProcesoCamel" method="guardarParametros(${property.ListParametros},${property.canal})"/>
+                        </setProperty>
+                        <choice id="validaUserSSExisteCanalChoice">
+                            <when id="validaUserSSExisteCanalWhen">
+                                <simple>${property.existeCanal}</simple>
+                                <!--Inicio: Valida canal sea igual a SIT o PSW -->
+                                <bean id="validaUserSSRequestAuthValidate"
+                                    method="requestAuthValidate" ref="routeFacade"/>
+                                <to id="validaUserSSToAuthWs" uri="cxf:bean:endpointSafeSignerAuthWs?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}"/>
+                                <bean id="validaUserSSResponseAuthValidate"
+                                    method="responseAuthValidate" ref="routeFacade"/>
+                                <wireTap id="validaUserSSWiretapLogAuthValidate" uri="direct:logMigracionSS"/>
+                                <choice id="validaUserSSValidaAutenticacion">
+                                    <when id="validaUserSSWhenValidaAutenticacion">
+                                        <simple>${exchangeProperty.authValidateRespuesta}</simple>
+                                        <to id="limpiaCabeceraOk-to" uri="direct:limpiarCabeceraSalida"/>
+                                        <to id="validaUserSSResultadoOk" uri="xslt://transformations/out/xml2xml_validaUserOk.xsl"/>
+                                        <bean id="transformacionOk_bean" method="transformacionMensajeOut" ref="routeFacade"/>
+                                    </when>
+                                    <otherwise id="validaUserSSOtherwhiseValidaAutenticacion">
+                                        <to id="limpiaCabeceraErr-to" uri="direct:limpiarCabeceraSalida"/>
+                                        <to id="validaUserSSXsltError" uri="xslt://transformations/error/errorValidaUserCanal.xsl?saxon=false"/>
+                                        <bean id="_bean2" method="transformacionMensajeOut" ref="routeFacade"/>
+                                        <to id="validaUserSSErrorToMigracion" uri="direct:validaUserSSMigracion"/>
+                                    </otherwise>
+                                </choice>
+                                <choice id="validaUserSSCanalSIT_Choice">
+                                    <when id="validaUserSSCanalSIT_When">
+                                        <simple>${property.DatosCanal.descripcion} == 'SIT'</simple>
+                                    </when>
+                                    <when id="validaUserSSCanalPSW_When">
+                                        <simple>${property.DatosCanal.descripcion} == 'PSW'</simple>
+                                    </when>
+                                </choice>
+                            </when>
+                            <otherwise id="validaUserSSExisteCanalOtherwhise">
+                                <setProperty
+                                    id="validaUserSSExisteCanalSetTipoAutenticacion" propertyName="tipo_autenticacion">
+                                    <simple>{{autenticacion.ss}}</simple>
+                                </setProperty>
+                                <setProperty
+                                    id="validaUserSSExisteCanalSetDescripcion" propertyName="descripcion_error">
+                                    <simple>{{autentica.error.canal.descripcion}}</simple>
+                                </setProperty>
+                                <setProperty
+                                    id="validaUserSSExisteCanalSetCodigo" propertyName="codigo_error">
+                                    <simple>{{autentica.error.canal.codigo}}</simple>
+                                </setProperty>
+                                <to id="validaUserSSExisteCanalToErrorXslt" uri="xslt://transformations/error/errorValidaUserCanal.xsl"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="validaUserSSOtherwhiseValidaRut">
+                        <removeHeaders id="validaUserSSRemoveHeadersValidaRut" pattern="*"/>
+                        <to id="validaUserSSValidaRutError" uri="xslt://transformations/error/errorValidaUser.xsl"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="validaUserSSDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to uri="direct:excepcionLog"/>
+                    <bean beanType="cl.coopeuch.util.BodyBackup"
+                        id="validaUserSSExceptionRestoreBody" method="restoreBody"/>
+                    <setBody id="validaUserSSExceptionSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="validaUserSSExceptionToFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="validaUserSSExceptionBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="logMigracionSS">
+            <from id="fromLogMigracionSS" uri="direct:logMigracionSS"/>
+            <to id="logMigracionSSToSql" uri="sql-stored:classpath:sql/pa_insMigracionSSLog.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseMigracion"/>
+        </route>
+        <route id="validaUserSSMigracion">
+            <from id="validaUserSSMigracionFrom" uri="direct:validaUserSSMigracion"/>
+            <choice id="validaUserSSSSChoiceMigracion">
+                <when id="validaUserSSSSWhenMigracion">
+                    <simple>${properties:propiedad.migracion} == 1</simple>
+                    <setBody id="validaUserSSSSMigracionSetBody">
+                        <simple>${exchangeProperty.theoriginalbody}</simple>
+                    </setBody>
+                    <removeHeaders
+                        id="validaUserSSMigracionRemoveHeaders" pattern="*"/>
+                    <to id="validaUserSSToMigracionToIDG" uri="direct:validaUser"/>
+                    <choice id="validaUserSSMigracionCreaUsuarioChoice">
+                        <when id="validaUserSSMigracionCreaUsuarioWhen">
+                            <simple>${property.codRespuestaValidarUsuarioSS} == 5 and ${property.loginIDGOk}</simple>
+                            <setProperty
+                                id="validaUserSSMigracionPropRut" propertyName="rut">
+                                <simple>${property.rutCompleto}</simple>
+                            </setProperty>
+                            <setProperty
+                                id="validaUserSSMigracionPropClave" propertyName="nuevaClave">
+                                <simple>${property.clave}</simple>
+                            </setProperty>
+                            <wireTap
+                                id="validaUserSSMigracionCreaUsuarioCreateSS" uri="direct:rutaUserCreateSS"/>
+                        </when>
+                    </choice>
+                </when>
+            </choice>
+        </route>
+        <route id="limpiarCabeceraSalida">
+            <from id="limpiarCabeceraSalidaFrom" uri="direct:limpiarCabeceraSalida"/>
+            <removeHeaders id="limpiaSalida_RemoveHeaders" pattern="*"/>
+            <setBody id="limpiaSalida_SetBody">
+                <simple>&lt;trama&gt;algo&lt;/trama&gt;</simple>
+            </setBody>
+        </route>
+        <route id="modificaClaveUserSS">
+            <from id="fromModificaClaveUserSS" uri="direct:modificaClaveUserSS"/>
+                <doTry id="modificaClaveUserSSDoTry">
+                <setProperty id="modificaClaveUserSSSetPropIDGOk" propertyName="modificaClaveUserIDGOk">
+                    <constant>true</constant>
+                </setProperty>
+                <setProperty id="modificaClaveUserSSSetPropOrigen" propertyName="origen">
+                    <constant>SS</constant>
+                </setProperty>
+                <setProperty id="modificaClaveUserSSsetPropRut" propertyName="rut">
+                    <xpath resultType="String">normalize-space(//rut)</xpath>
+                </setProperty>
+                <setProperty id="modificaClaveUserSSsetPropClaveAntigua" propertyName="claveAntigua">
+                    <xpath resultType="String">normalize-space(//claveAntigua)</xpath>
+                </setProperty>
+                <setProperty id="modificaClaveUserSSsetPropNuevaClave" propertyName="nuevaClave">
+                    <xpath resultType="String">normalize-space(//nuevaClave)</xpath>
+                </setProperty>
+                <setProperty id="modificaClaveUserSSsetPropFlagMod" propertyName="FlagMod">
+                    <xpath resultType="String">normalize-space(//FlagMod)</xpath>
+                </setProperty>
+                <setProperty id="modificaClaveUserSSsetPropOperacion" propertyName="operacion">
+                    <xpath resultType="String">translate(//operacion,'abcdefghijklmnopqrstuvwxyz','ABCDEFGHIJKLMNOPQRSTUVWXYZ')</xpath>
+                </setProperty>
+                <setProperty id="modificaClaveUserSSsetPropCanal" propertyName="canal">
+                    <xpath resultType="String">normalize-space(//canal)</xpath>
+                </setProperty>
+                <setProperty id="modificaClaveUserSSValidaRut" propertyName="validaRut">
+                    <method beanType="cl.coopeuch.util.Rut" method="validaRut(${property.rut})"/>
+                </setProperty>
+                <choice id="modificaClaveUserSSChoiceValidaRut">
+                    <when id="modificaClaveUserSSWhenValidaRut">
+                        <simple>${property.validaRut} == 'Correcto'</simple>
+                        <choice id="modificaClaveUserSSValidaEntradaCanalChoice">
+                            <when id="modificaClaveUserSSValidaEntradaCanalWhen">
+                                <simple>${property.operacion} == 'LOGIN' or ${property.operacion} == '' or ${property.operacion} == 'LOGIN_DALE' </simple>
+                                <bean id="modificaClaveUserSSValidaLargo"
+                                    method="validaLargoClave" ref="routeFacade"/>
+                                <bean id="MCUGenerarBodyRequestPAConsultarPoliticaPassCanal"
+                                    method="generarBodyRequestPAConsultarPoliticaPassCanal" ref="beanLogIncidencias"/>
+                                <log id="logModClaveUserConPolPassCanalPARequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: SQLSERVER_PA || Type: Request || Body: ${exchangeProperty.bodyLog}" />
+                                <to id="modificaClaveUserSSPa_obtenerParametro" uri="sql-stored:classpath:sql/PA_consultarPoliticaPassCanal.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseParametros"/>
+                                <log id="logModClaveUserConPolPassCanalPAResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: SQLSERVER_PA || Type: Response || Body: ${header.responseParametros}" />
+                                <bean beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                                    id="modificaClaveUserSSProcesaParametro" method="process"/>
+                                <choice id="modificaClaveUserSSChoiceValidaLargo">
+                                    <when id="modificaClaveUserSSWhenValidaLargo">
+                                        <simple>${property.largoNuevaClave} &gt;= ${headers.minCaracteres} and ${property.largoNuevaClave} &lt;= ${headers.maxCaracteres}</simple>
+                                        <setProperty id="modificaClaveUserSSExisteCanal" propertyName="existeCanal">
+                                            <method beanType="cl.coopeuch.autentica.Autenticacion" method="validar_canal(${property.ListParametros},${property.canal})"/>
+                                        </setProperty>
+                                        <setProperty id="modificaClaveUserSSDatosCanal" propertyName="DatosCanal">
+                                            <method beanType="cl.coopeuch.util.transformacion.ProcesoCamel" method="guardarParametros(${property.ListParametros},${property.canal})"/>
+                                        </setProperty>
+                                        <choice id="modificaClaveUserSSChoiceExisteCanal">
+                                            <when id="modificaClaveUserSSWhenExisteCanal">
+                                                <simple>${property.existeCanal}</simple>
+                                                <choice id="modificaClaveUserSSCanalChoice">
+                                                    <when id="modificaClaveUserSSCWhenCanalALL">
+                                                        <simple>${property.canal} != 'ALL'</simple>
+                                                        <bean id="modificaClaveUserSSRequestAuthChange"
+                                                            method="authChangeRequest" ref="routeFacade"/>
+                                                        <to id="modificaClaveUserSSToAuthWs" uri="cxf:bean:endpointSafeSignerAuthWs?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}"/>
+                                                        <bean id="modificaClaveUserSSResponseAuthChange"
+                                                            method="authChangeResponse" ref="routeFacade"/>
+                                                        <wireTap id="modificaClaveUserSSWiretapLogAuthChange" uri="direct:logMigracionSS"/>
+                                                        <choice id="modificaClaveUserSSValidaCambioClave">
+                                                            <when id="modificaClaveUserSSWhenCambioClave">
+                                                                <simple>${exchangeProperty.authChangeRespuesta}</simple>
+                                                                <to id="modificaClaveUserOk-to" uri="direct:limpiarCabeceraSalida"/>
+                                                                <to id="modificaClaveUserSSCambioClaveOk" uri="xslt://transformations/out/xml2xml_modificaClaveUserOk.xsl"/>
+                                                                <wireTap id="modificaClaveUserSSOkToMigracionIDG" uri="direct:modificaClaveUserSSMigracion"/>
+                                                                <wireTap id="modificaClaveUserSSCardCreateUser_wireTap" uri="direct:cardCreateUser"/>
+                                    
+                                                                <!-- ////////////////////////////////////////////////////////////////// -->
+                                                                
+                                                                <log id="dale-log1" loggingLevel="INFO" message="FLUJO LOGIN_DALE"/>
+                                                                
+                                                                <choice id="validaDaleChoise">
+                                                                    <when id="validaDaleWhen">
+                                                                        <simple>${property.operacion} != 'LOGIN_DALE' </simple> 
+                                                                        <wireTap id="modificaClaveUserSS_WireTapToNotificacion" uri="direct:rutaResultadoOk"/>
+                                                                    </when>
+                                                                </choice>
+
+                                                                <!-- ////////////////////////////////////////////////////////////////// -->
+                                                                <bean id="modificaClaveUserOk_bean"
+                                                                    method="transformacionMensajeOut" ref="routeFacade"/>
+                                                            </when>
+                                                            <otherwise id="modificaClaveUserSSOtherwhiseValidaCambioClave">
+                                                                <to id="modificaClaveUserErr-to" uri="direct:limpiarCabeceraSalida"/>
+                                                                <to id="modificaClaveUserSSXsltError" uri="xslt://transformations/error/erroresIDG.xsl?saxon=true"/>
+                                                                <bean id="modificaClaveUserErr_bean"
+                                                                    method="transformacionMensajeOut" ref="routeFacade"/>
+                                                                <to id="modificaClaveUserSSToMigracion" uri="direct:modificaClaveUserSSMigracion"/>
+                                                                <choice id="modificaClaveUserSSCambioClaveCreaUsuarioChoice">
+                                                                    <when id="modificaClaveUserSSWhenCambioClaveCreaUsuarioWhen">
+                                                                        <simple>${exchangeProperty.codRespuestaAuthChangeSS} == 5 and ${property.DatosCanal.valor} == 1 and ${property.modificaClaveUserIDGOk}</simple>
+                                                                        <wireTap id="modificaClaveUserSSMigracionCreaUsuarioCreateSS" uri="direct:rutaUserCreateSS"/>
+                                                                    </when>
+                                                                </choice>
+                                                            </otherwise>
+                                                        </choice>
+                                                    </when>
+                                                    <otherwise id="modificaClaveUserSSOtherwhiseCanal">
+                                                        <to id="modificaClaveUserSSErrorCanal" uri="xslt://transformations/error/errorDatosModificaClaveUser.xsl?saxon=true"/>
+                                                    </otherwise>
+                                                </choice>
+                                            </when>
+                                            <otherwise id="modificaClaveUserSSOtherwhiseExisteCanal">
+                                                <to id="modificaClaveUserSSExisteCanalErrorXslt" uri="xslt://transformations/error/errorDatosModificaClaveUser.xsl?saxon=true"/>
+                                            </otherwise>
+                                        </choice>
+                                    </when>
+                                    <when id="_when5">
+                                        <simple>${headers.minCaracteres} == '' and ${headers.maxCaracteres} == ''</simple>
+                                        <to id="modificaClaveUserSSNoExisteCanalXslt" uri="xslt://transformations/error/errorDatosModificaClaveUser.xsl?saxon=true"/>
+                                    </when>
+                                    <otherwise id="modificaClaveUserSSOtherwhiseValidaLargo">
+                                        <setProperty id="modificaClaveUserSSErrorDescripcionValidaLargo" propertyName="error.descripcionValidaLargo">
+                                            <method beanType="cl.coopeuch.util.error.GlosaError" method="modificar('{{autentica.error.caracteresClave.descripcion}}','${headers.maxCaracteres}','${headers.minCaracteres}')"/>
+                                        </setProperty>
+                                        <setProperty id="modificaClaveUserSSErrorCodigoValidaLargo" propertyName="error.codigo">
+                                            <simple>{{autentica.error.caracteresClave.codigo}}</simple>
+                                        </setProperty>
+                                        <to id="modificaClaveUserSSErrorValidaLargoXslt" uri="xslt://transformations/error/erroresLargoPass.xsl?saxon=true"/>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="modificaClaveUserSSValidaEntradaCanaOtherwise">
+                                <to id="modificaClaveUserSSErrorLoginCanal" uri="xslt://transformations/error/errorDatosModificaClaveUser.xsl?saxon=true"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="modificaClaveUserSSOtherwiseValidaRut">
+                        <setProperty
+                            id="modificaClaveUserSSValidaRutSetCodigoError" propertyName="CodigoError">
+                            <constant>01</constant>
+                        </setProperty>
+                        <to id="modificaClaveUserSSValidaRutErrorXslt" uri="xslt://transformations/error/errorDatosModificaClaveUser.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="modificaClaveUserSSDoCatch">
+                     <exception>java.lang.Exception</exception>
+                     <to uri="direct:excepcionLog"/>
+                     <bean beanType="cl.coopeuch.util.BodyBackup"
+                         id="modificaClaveUserSSExceptionRestoreBody" method="restoreBody"/>
+                     <setBody id="modificaClaveUserSSExceptionSetBodyError">
+                         <simple>ERROR:${exception}:${body}</simple>
+                     </setBody>
+                     <to id="modificaClaveUserSSExceptionToFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+<!--                     <to id="modificaClaveUserExc-to" uri="direct:limpiarCabeceraSalida"/> -->
+<!--                     <bean id="modificaClaveUserExc_bean" -->
+<!--                         method="transformacionMensajeOut" ref="routeFacade"/> -->
+                     <bean beanType="cl.coopeuch.util.error.BodyError"
+                         id="modificaClaveUserSSExceptionBodyError" method="setBodyError"/>
+                 </doCatch>
+                </doTry>
+        </route>
+        <route id="modificaClaveUserSSMigracion">
+            <from id="modificaClaveUserSSMigracionFrom" uri="direct:modificaClaveUserSSMigracion"/>
+            <choice id="modificaClaveUserSSShoiceMigracion">
+                <when id="modificaClaveUserSSWhenMigracion">
+                    <simple>${properties:propiedad.migracion} == 1</simple>
+                    <setBody id="modificaClaveUserSSMigracionSetBody">
+                        <simple>${exchangeProperty.theoriginalbody}</simple>
+                    </setBody>
+                    <removeHeaders
+                        id="modificaClaveUserSSMigracionRemoveHeaders" pattern="*"/>
+                    <to id="modificaClaveUserSSToMigracionToIDG" uri="direct:modificaClaveUser"/>
+                    <choice id="modificaClaveUserSSMigracionRespIDGChoice">
+                        <when id="modificaClaveUserSSMigracionRespIDGWhen">
+                            <xpath resultType="String">//codigo!='00'</xpath>
+                            <setProperty
+                                id="setPropertymodificaClaveUserIDGNOk" propertyName="modificaClaveUserIDGOk">
+                                <simple>false</simple>
+                            </setProperty>
+                        </when>
+                    </choice>
+                </when>
+            </choice>
+        </route>
+        <route id="rutaUserCreateSS">
+            <from id="rutaUserCreateSSFrom" uri="direct:rutaUserCreateSS"/>
+            <bean id="userCreateSSRequestAuthCreate"
+                method="authCreateRequest" ref="routeFacade"/>
+            <to id="userCreateSSToAuthWs" uri="cxf:bean:endpointSafeSignerAuthWs?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}"/>
+            <bean id="userCreateSSResponseAuthCreate"
+                method="authCreateResponse" ref="routeFacade"/>
+            <wireTap id="cardCreateUser-to" uri="direct:cardCreateUser"/>
+            <wireTap id="userCreateSSWiretapLogAuthCreate" uri="direct:logMigracionSS"/>
+        </route>
+        <route id="cardCreateUser">
+            <from id="cardCreateUserFrom" uri="direct:cardCreateUser"/>
+            <choice id="cardCreateUser-choice">
+                <when id="cardCreateUser-when">
+                    <simple>${exchangeProperty.codRespuestaSafeSigner} == 0</simple>
+                    <bean id="requestCardCreateUser"
+                        method="requestCardCreateUser" ref="routeFacade"/>
+                    <to id="cxfServiceCardCreate" uri="cxf:bean:endpointCardSafesigner?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}"/>
+                    <bean id="responseCardCreateUser"
+                        method="responseCardCreateUser" ref="routeFacade"/>
+                    <log id="cardCreateUser-log" message="Estado CARD Create: ${exchangeProperty.STATUS_CARD_CREATE}"/>
+                    <log id="cardCreateUser-log2" message="Mensaje CARD Create: ${exchangeProperty.MENSAJE}"/>
+                    <to id="smsCreate-to" uri="direct:smsCreate"/>
+                </when>
+            </choice>
+        </route>
+        <route id="smsCreate">
+            <from id="smsCreateFrom" uri="direct:smsCreate"/>
+            <bean id="requestSmsCreate" method="requestSmsActivation" ref="routeFacade"/>
+            <to id="cxfServiceSmsCreate" uri="cxf:bean:endpointSmsSafesigner?continuationTimeout=5000&amp;password={{safesigner.clave}}&amp;username={{safesigner.usuario}}"/>
+            <bean id="responseSmsCreate" method="responseSmsCreate" ref="routeFacade"/>
+            <log id="smsCreate-log" message="Estado SMS Create: ${exchangeProperty.STATUS_SMS_CREATE}"/>
+            <log id="smsCreate-log2" message="Mensaje SMS Create: ${exchangeProperty.MENSAJE}"/>
+        </route>
+        <route id="exceptionToLogRoute">
+            <from id="exceptionToLogFrom" uri="direct:excepcionLog"/>
+            <log id="logExcepcionInfo" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: Excepcion || Type: Info || Body: Clase: ${exception.class} , Mensaje: ${exception.message}" />
+        </route>
+    </camelContext>
+</blueprint>

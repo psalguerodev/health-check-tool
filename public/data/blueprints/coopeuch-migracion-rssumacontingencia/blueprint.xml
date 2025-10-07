@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyWSContingenciaSuma"
+        persistent-id="wsumacontingencia" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <cxf:rsClient address="[{rest.notificaciones.enviar.endpoint}]"
+        id="endpointRSNotificaciones" loggingFeatureEnabled="true">
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <camelContext id="EnviarCorreoAdvertenciaCatalogoSuma" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="_routeEnviarCorreoAdvertenciaJms">
+            <from id="fromEnviarCorreoAdvertenciaJms" uri="AMQ:queue:{{amq.catalogosuma.faul}}?preserveMessageQos=true"/>
+            <log id="_log1" message="${body}"/>
+            <log id="_log2" message="@@@@@@@@@@@@@@@@@@@@@@@@@@@@1 ${header.doc_id}"/>
+            <log id="_log3" message="@@@@@@@@@@@@@@@@@@@@@@@@@@@@2 ${header.numeroSolicitud}"/>
+            <to id="toConsultarDetalleSolicitud" uri="direct:consultarDetalleSolicitud"/>
+            <to id="toEnviarNotificacion" uri="direct:enviarnotificacion"/>
+        </route>
+        <route id="routeConsultarDetalleSolicitud">
+            <from id="fromConsultarDetalleSolicitud" uri="direct:consultarDetalleSolicitud"/>
+            <setProperty id="_setProperty1" propertyName="userid">
+                <simple>{{consultardetallesolicitud.userid}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty2" propertyName="canal">
+                <simple>{{consultardetallesolicitud.canalllamada}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty3" propertyName="tipoconsulta">
+                <simple>{{consultardetallesolicitud.tipoconsulta}}</simple>
+            </setProperty>
+            <bean beanType="cl.coopeuch.integracion.util.RouteFacade"
+                id="_bean1" method="createJMSCorrelationId24"/>
+            <bean beanType="cl.coopeuch.integracion.util.RouteFacade"
+                id="_bean2" method="consultarDetalleSolicitudRequest"/>
+            <to id="_toConsultarDetalleSolicitud" uri="AMQ:{{amq.gestioncredito.req}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+            <log id="_log6" message="${body}"/>
+            <unmarshal id="_unmarshal1">
+                <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.xsd"/>
+            </unmarshal>
+        </route>
+        <route id="routeEnviarNotificacion">
+            <from id="fromEnviarNotificacion" uri="direct:enviarnotificacion"/>
+            <setHeader headerName="CamelHttpMethod" id="_setHeader4">
+                <constant>POST</constant>
+            </setHeader>
+            <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader6">
+                <constant>application/json</constant>
+            </setHeader>
+            <setProperty id="_setProperty4" propertyName="idnotificacion">
+                <simple>{{rest.notificaciones.enviar.idNotificacion}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty5" propertyName="plantilla">
+                <simple>{{rest.notificaciones.enviar.plantilla}}</simple>
+            </setProperty>
+            <setProperty id="_setProperty6" propertyName="email.destinatarios">
+                <simple>{{email.destinatarios}}</simple>
+            </setProperty>
+            <bean beanType="cl.coopeuch.integracion.util.RouteFacade"
+                id="_bean3" method="enviarRequest"/>
+            <wireTap id="wireLogCorreo" uri="direct:logcorreo"/>
+            <to id="_toRSNotificaciones" uri="cxfrs:bean:endpointRSNotificaciones?exchangePattern=InOut&amp;bridgeEndpoint=true&amp;throwExceptionOnFailure=false"/>
+        </route>
+        <route id="_routeLogs">
+            <from id="fromLog" uri="direct:logcorreo"/>
+            <to id="_tologCorreoContingencia" uri="file:logCorreoContingencia?fileExist=Append&amp;fileName=logCorreoContingencia-${date:now:yyyyMMdd}.txt&amp;readLock=fileLock"/>
+        </route>
+    </camelContext>
+</blueprint>

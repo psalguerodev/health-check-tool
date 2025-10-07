@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+	xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+	xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+	xmlns:http="http://cxf.apache.org/transports/http/configuration"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+	<cm:property-placeholder id="propertyGlobal"
+		persistent-id="global" placeholder-prefix="{[" placeholder-suffix="]}"
+		update-strategy="reload" />
+	<cm:property-placeholder id="propertyLocal"
+		persistent-id="wslogplataformas" placeholder-prefix="[{"
+		placeholder-suffix="}]" update-strategy="reload" />
+	<bean class="org.apache.commons.dbcp.BasicDataSource"
+		destroy-method="close" id="dataSourceSqlServer">
+		<property name="driverClassName"
+			value="net.sourceforge.jtds.jdbc.Driver" />
+		<property name="url"
+			value="[{jdbc.sqlserver.url.wslogplataformas}];charset=iso_1" />
+		<property name="username"
+			value="[{jdbc.sqlserver.username.wslogplataformas}]" />
+		<property name="password"
+			value="[{jdbc.sqlserver.password.wslogplataformas}]" />
+	</bean>
+	<bean
+		class="cl.coopeuch.integracion.logplataformas.util.RouteFacade"
+		id="beanRouteFacade" />
+	<camelcxf:cxfEndpoint address="/WSLogPlataformas"
+		id="endpointWSLogPlataformas"
+		serviceClass="cl.coopeuch.integracion.logplataformas.wsdl.WSLogPlataformasSOAPPortType"
+		loggingFeatureEnabled="true" wsdlURL="etc/wsdl/WSLogPlataformas.wsdl">
+		<camelcxf:properties>
+			<entry key="schema-validation-enabled" value="true" />
+		</camelcxf:properties>
+	</camelcxf:cxfEndpoint>
+	<camelcxf:rsServer address="/RSLogPlataformas"
+		id="endpointRSLogPlataformas"
+		serviceClass="cl.coopeuch.integracion.logplataformas.wsdl.WSLogPlataformasSOAPPortType" />
+	<bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider"
+		id="jsonProvider" />
+	<camelContext id="servicio-log-plataformas"
+		xmlns="http://camel.apache.org/schema/blueprint">
+		<route id="inicio-soap">
+			<from id="soapInicio" uri="cxf:bean:endpointWSLogPlataformas" />
+			<doTry>
+				<setProperty propertyName="rutSoap">
+					<simple>${body.get(0).rut}</simple>
+				</setProperty>
+				<setProperty propertyName="rutValido">
+					<method ref="beanRouteFacade"
+						method="validaRutFormato(${property.rutSoap})" />
+				</setProperty>
+				<choice>
+					<when>
+						<simple>${property.rutValido} == 0</simple>
+						<bean id="responseRutInvalidoSoap" method="responseErrorRut"
+							ref="beanRouteFacade" />
+						<stop />
+					</when>
+					<otherwise>
+						<to id="soapToInicioSoap" uri="direct:iniciows" />
+					</otherwise>
+				</choice>
+				<doCatch>
+					<exception>java.lang.Exception</exception>
+					<to id="InicioRestException-To" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="inicio-rest">
+			<from id="restInicio" uri="cxfrs:bean:endpointRSLogPlataformas" />
+			<log message="rut: ${body.get(0).rut}" />
+			<setProperty propertyName="rutRest">
+				<simple>${body.get(0).rut}</simple>
+			</setProperty>
+			<setProperty propertyName="rutValido">
+				<method ref="beanRouteFacade"
+					method="validaRutFormato(${property.rutRest})" />
+			</setProperty>
+			<choice>
+				<when>
+					<simple>${property.rutValido} == 0</simple>
+					<bean id="responseRutInvalidoRest" method="responseErrorRut"
+						ref="beanRouteFacade" />
+					<stop />
+				</when>
+				<otherwise>
+					<to id="soapToInicioRest" uri="direct:iniciows" />
+				</otherwise>
+			</choice>
+		</route>
+		<route id="cxf-inicio">
+			<from id="inicioFromServicio" uri="direct:iniciows" />
+			<doTry id="inicioTry">
+				<choice>
+					<when>
+						<simple>${body} == null</simple>
+						<throwException exceptionType="java.lang.Exception"
+							id="throwExceptionBodyOperacionInvalida"
+							message="La operacion solicitada es invalida" />
+						<to id="exceptionValBodyNull" uri="direct:excepcion" />
+					</when>
+					<otherwise>
+						<setProperty id="inicioSetRequest"
+							propertyName="requestEntrada">
+							<simple>${body}</simple>
+						</setProperty>
+						<setProperty id="inicioSetTipoRequest"
+							propertyName="tipoRequest">
+							<simple>${header.operationName}</simple>
+						</setProperty>
+						<choice id="inicioChoiceOperacion">
+							<when id="inicioWhenOperacionGuardarLog">
+								<simple>${header.operationName} == 'guardarLog'</simple>
+								<to id="toGuardarLog" uri="direct:guardarLog" />
+							</when>
+							<when id="inicioWhenOperacionVolcarHistorico">
+								<simple>${header.operationName} == 'volcarHistorico'</simple>
+								<to id="toVolcarHistorico" uri="direct:volcarHistorico" />
+							</when>
+							<otherwise id="inicioOtherwise">
+								<setProperty id="inicioSetTipoRequest"
+									propertyName="tipoRequest">
+									<simple>error</simple>
+								</setProperty>
+								<throwException
+									exceptionType="java.lang.Exception"
+									id="throwExceptionOperacionInvalida"
+									message="La operacion solicitada es invalida" />
+								<to id="exceptionOperacion" uri="direct:excepcion" />
+							</otherwise>
+						</choice>
+					</otherwise>
+				</choice>
+				<doCatch id="inicioDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="inicioCodigoError"
+						propertyName="codigoError">
+						<constant>500</constant>
+					</setProperty>
+					<to id="inicioToExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="guardarLog">
+			<from id="guardarLog-From" uri="direct:guardarLog" />
+			<doTry id="guardarLog-Try">
+				<setBody id="guardarLogSetBody">
+					<simple>$simple{body.get(0)}</simple>
+				</setBody>
+				<to id="guardarLogSqlTo"
+					uri="sql-stored:PA_AgregarLogPlataforma(
+								CHAR ${body.idPlataforma},
+								VARCHAR ${body.origenLlamada},
+								VARCHAR ${body.destinoLlamada},
+								CHAR ${body.nivelLog},
+								VARCHAR ${body.detalleLog},
+								VARCHAR ${body.rut},
+								OUT VARCHAR retornoMsg,
+								OUT INTEGER retornoId,
+								OUT INTEGER codigoRegistro)?dataSource=dataSourceSqlServer" />
+				<bean id="guardarLogBean" method="responseGuardarLog"
+					ref="beanRouteFacade" />
+				<doCatch id="guardarLog-DoCatch">
+					<exception>java.lang.Exception</exception>
+					<to id="guardarLog-ToExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="volcarHistorico">
+			<from id="volcarHistorico-From" uri="direct:volcarHistorico" />
+			<doTry id="volcarHistorico-DoTry">
+				<setBody id="volcarHistoricoSetBody">
+					<simple>$simple{body.get(0)}</simple>
+				</setBody>
+				<when>
+					<simple>${body.usuarioEjecucion} != {{jdbc.sqlserver.username.wslogplataformas}}</simple>
+					<bean id="volcadoHistoricoBeanUsuario"
+						method="validaUsuarioEjecucion" ref="beanRouteFacade" />
+					<stop />
+				</when>
+				<to id="volcadoHistoricoSqlTo"
+					uri="sql-stored:PA_VolcarHistoricoLogPlataforma(
+								OUT VARCHAR retornoMsg,
+								OUT INTEGER retornoId,
+								OUT VARCHAR fechaVolcado)?dataSource=dataSourceSqlServer" />
+				<bean id="volcadoHistoricoBean"
+					method="responseVolcarHistorico" ref="beanRouteFacade" />
+				<doCatch id="VolcarHistorico-DoCatch">
+					<exception>java.lang.Exception</exception>
+					<to id="VolcarHistorico-To" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="excepcion">
+			<from id="excepcionfrom" uri="direct:excepcion" />
+			<doTry id="excepcionTry">
+				<bean id="beanExceptionLog" method="excepcionLog"
+					ref="beanRouteFacade" />
+				<doCatch id="excepcionDoCatch">
+					<exception>java.lang.Exception</exception>
+					<bean id="beanExceptionLog" method="excepcionLog"
+						ref="beanRouteFacade" />
+				</doCatch>
+			</doTry>
+		</route>
+	</camelContext>
+</blueprint>

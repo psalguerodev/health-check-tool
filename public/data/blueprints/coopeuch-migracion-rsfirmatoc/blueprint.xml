@@ -1,0 +1,542 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <cm:property-placeholder persistent-id="WSFirmaDigital"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/WSFirmaToc"
+        id="servicioFirmaAvanzadaEndpoint"
+        serviceClass="cl.coopeuch.integracion.wsdl.firmatoc.FirmarPort" wsdlURL="etc/wsdl/FirmaToc.wsdl"/>
+    <cxf:cxfEndpoint address="[{endpoint.serviciopersona.url}]"
+        id="endpointPersona"
+        serviceClass="cl.coopeuch.integracion.wsdl.serviciopersona.PersonaPortType" wsdlURL="etc/wsdl/ServicioPersona.wsdl"/>
+    <cxf:cxfEndpoint address="[{firmar.documento.avanzada}]"
+        id="endpointFirmaAvanzada"
+        serviceClass="cl.coopeuch.integracion.wsdl.toc.avanzada.DocumentSigner" wsdlURL="etc/wsdl/DocumentSigner.wsdl"/>
+    <cxf:cxfEndpoint
+        address="{{servicio.firmar.documentos.validar.trx}}"
+        id="serviciosToc"
+        serviceClass="cl.coopeuch.integracion.wsdl.toc.WSTOCSOAPPortType" wsdlURL="etc/wsdl/WSTOC.wsdl"/>
+    <cxf:rsServer address="/RSFirmaToc" id="firmarRest" serviceClass="cl.coopeuch.integracion.rest.firmatoc.FirmarRest"/>
+    <bean class="cl.coopeuch.integracion.util.RouteFacade" id="routeFacade"/>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSource">
+        <property name="driverClassName" value="[{jdbc.firma.digital.driverClassName}]"/>
+        <property name="url" value="[{jdbc.firma.digital.url}]/[{jdbc.firma.digital.database}];charset=iso_1"/>
+        <property name="username" value="[{jdbc.firma.digital.username}]"/>
+        <property name="password" value="[{jdbc.firma.digital.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.firma.digital.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.firma.digital.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.firma.digital.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{jdbc.firma.digital.maxActive}]"/>
+    </bean>
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <camelContext id="ServicioFirmarCertificados" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="_routeEntradaREST">
+            <from id="_from4" uri="cxfrs:bean:firmarRest?bindingStyle=SimpleConsumer&amp;provider=jsonProvider"/>
+            <to id="_to21" uri="direct:unmarshallJson"/>
+            <removeHeaders id="_removeHeaders1" pattern="*"/>
+        </route>
+        <route id="_routeEntradaSOAP">
+            <from id="_from2" uri="direct:unmarshallJson"/>
+            <choice id="_choice5">
+                <when id="_when7">
+                    <simple>${header.operationName} == 'firmar'</simple>
+                    <unmarshal id="_unmarshal2">
+                        <json library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsdl.firmatoc.FirmarDocumentoRequest"/>
+                    </unmarshal>
+                    <toD id="_toD1" uri="direct:${header.operationName}"/>
+                    <marshal id="_marshal2">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsdl.firmatoc.FirmarDocumentoResponse"/>
+                    </marshal>
+                </when>
+                <when id="_when8">
+                    <simple>${header.operationName} == 'autenticar'</simple>
+                    <unmarshal id="_unmarshal3">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsdl.firmatoc.AutenticarRequest"/>
+                    </unmarshal>
+                    <toD id="_toD2" uri="direct:${header.operationName}"/>
+                    <marshal id="_marshal3">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsdl.firmatoc.AutenticarResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <route id="Inicio">
+            <from id="_EntradaSOAP" uri="cxf:bean:servicioFirmaAvanzadaEndpoint"/>
+            <toD id="_to1" uri="direct:${header.operationName}"/>
+        </route>
+        <route id="_routeFirmarDocumento">
+            <from id="_fromFirmarDocumento" uri="direct:firmar"/>
+            <doTry id="_doTry9">
+                <bean
+                    beanType="cl.coopeuch.integracion.util.RouteFacade"
+                    id="_bean4" method="insertarCuerpo"/>
+                <setHeader headerName="idTransaccion" id="_setHeader6">
+                    <simple>${body.entrada.idTransaccion}</simple>
+                </setHeader>
+                <setProperty id="setPropertyEntradaPrincipalVal" propertyName="bodyInFirmaDigital">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="_setProperty7" propertyName="carpetaPrincipal">
+                    <simple>${body.entrada.carpetaPrincipal}</simple>
+                </setProperty>
+                <bean
+                    beanType="cl.coopeuch.integracion.util.RouteFacade"
+                    id="_bean13" method="transformarRequestFirmaRequestAutenticar"/>
+                <log id="_log1" message="Entrada Autenticar:\n${body}"/>
+                <to id="_to11" uri="direct:autenticar1"/>
+                <log id="_log2" message="Salida Autenticar:\n${body}"/>
+                <setBody id="_setBody6">
+                    <simple>${property.bodyInFirmaDigital}</simple>
+                </setBody>
+                <log id="_log13" message="${body.entrada.correoElectronico}"/>
+                <when id="_when2">
+                    <simple>${body.entrada.correoElectronico} == null or ${body.entrada.correoElectronico.trim} == ''</simple>
+                    <to id="_to6" uri="direct:persona"/>
+                </when>
+                <to id="_toAWS" uri="direct:BuscarDocumentoAWS"/>
+                <log id="_log14" message="Paso1"/>
+                <to id="_toToc" uri="direct:TipoFirmaToc"/>
+                <log id="_log15" message="Paso2"/>
+                <doCatch id="_doCatch5">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log10" message="Salida Autenticarexc:\n${body}"/>
+                    <setHeader headerName="operationName" id="_setHeader3">
+                        <constant>firmar</constant>
+                    </setHeader>
+                    <to id="_to22" uri="direct:excepcion"/>
+                    <stop id="_stop9"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeTipoFirmaToc">
+            <from id="_fromFirmarToc" uri="direct:TipoFirmaToc"/>
+            <doTry id="_doTry4">
+                <choice id="_choiceTipoFirmaToc">
+                    <when id="_whenTipoFirmaToc">
+                        <simple>${property.bodyInFirmaDigital.entrada.tipoFirma} == 'FEA'</simple>
+                        <to id="_to2" uri="direct:FirmaAvanzada"/>
+                    </when>
+                    <when id="_whenTipoFirmaToc">
+                        <simple>${property.bodyInFirmaDigital.entrada.tipoFirma} == 'FES'</simple>
+                        <to id="_to3" uri="direct:FirmaSimple"/>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException1" message="?El valor ingresado en el atributo tipoFirma es incorrecto"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="ExceptionTipoFirmaToc">
+                    <exception>java.lang.Exception</exception>
+                    <setHeader headerName="operationName" id="_setHeader4">
+                        <simple>${property.operacion}</simple>
+                    </setHeader>
+                    <to id="toExceptionTipoFirmaToc" uri="direct:excepcion"/>
+                    <stop id="_stop4"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeFirmaSimple">
+            <from id="fromfirmaSimple" uri="direct:FirmaSimple"/>
+            <doTry id="_doTry3">
+                <setHeader headerName="SOAPAction" id="_setHeader1">
+                    <constant>{{servicio.firmar.documentos.simple.soapaction}}</constant>
+                </setHeader>
+                <setHeader headerName="operationName" id="_setHeader2">
+                    <constant>{{servicio.firmar.documentos.simple.operationname}}</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="_setHeader9">
+                    <constant>{{servicio.firmar.documentos.validar.namespace}}</constant>
+                </setHeader>
+                <setHeader
+                    headerName="servicio.firmar.documento.simple.cfgName" id="_setHeader10">
+                    <simple>{{servicio.firmar.documento.simple.cfgName}}</simple>
+                </setHeader>
+                <setHeader
+                    headerName="servicio.firmar.documento.simple.tipo1" id="_setHeader11">
+                    <simple>{{servicio.firmar.documento.simple.tipo1}}</simple>
+                </setHeader>
+                <setHeader
+                    headerName="servicio.firmar.documento.simple.tipo2" id="_setHeader12">
+                    <simple>{{servicio.firmar.documento.simple.tipo2}}</simple>
+                </setHeader>
+                <setHeader
+                    headerName="servicio.firmar.documento.simple.tipo3" id="_setHeader13">
+                    <simple>{{servicio.firmar.documento.simple.tipo3}}</simple>
+                </setHeader>
+                <bean
+                    beanType="cl.coopeuch.integracion.util.RouteFacade"
+                    id="_bean11" method="construirFirmaSimpleRequest"/>
+                <to id="_to5" uri="cxf:bean:serviciosToc"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.util.RouteFacade"
+                    id="_bean12" method="construirFirmaSimpleResponse"/>
+                <to id="_to13" uri="direct:GuardarDocumentoFirmado"/>
+                <doCatch id="ExceptionFirmarDocumentoSimple">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toExceptionFirmarDocumentoSimple" uri="direct:excepcion"/>
+                    <stop id="_stop3"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeFirmaAvanzada">
+            <from id="fromfirmaAvanzada" uri="direct:FirmaAvanzada"/>
+            <doTry id="_doTry2">
+                <setHeader headerName="operationNamespace" id="setHeaderOpeNameSpaceFirmaAvanzada">
+                    <constant>{{servicio.firmar.documento.avanzada.namespace}}</constant>
+                </setHeader>
+                <setHeader headerName="operationName" id="setHeaderOpNameFirmaAvanzada">
+                    <constant>{{servicio.firmar.documento.avanzada.operationname}}</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="setHeaderSOAPActFirmaAvanzada">
+                    <constant>{{servicio.firmar.documento.avanzada.soapaction}}</constant>
+                </setHeader>
+                <bean
+                    beanType="cl.coopeuch.integracion.util.RouteFacade"
+                    id="_bean2" method="construirFirmaAvanzada"/>
+                <to id="_to4" uri="cxf:bean:endpointFirmaAvanzada"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.util.RouteFacade"
+                    id="_bean17" method="construirFirmaAvanzadaResponse"/>
+                <log id="_log16" message="11.-${body}"/>
+                <to id="_to9" uri="direct:GuardarDocumentoFirmado"/>
+                <doCatch id="ExceptionFirmarDocumentoAvanzado">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toExceptionFirmarDocumentoAvanzado" uri="direct:excepcion"/>
+                    <stop id="_stop2"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="pollEnrichObtenerDocumentoAWS">
+            <from id="_fromObtenerDocumentoAWS" uri="direct:BuscarDocumentoAWS"/>
+            <doTry id="_doTry1">
+                <pollEnrich id="_pollEnrichObtenerDocumentoAWS" timeout="5000">
+                    <simple>aws-s3://{{amazon.s3.default.bucket}}?accessKey={{amazon.aws.access.key.id}}&amp;region=us-west-2&amp;secretKey=RAW({{amazon.aws.access.key.secret}})&amp;deleteAfterRead=false&amp;prefix=${property.carpetaPrincipal}/${property.bodyInFirmaDigital.entrada.rutaDocumento}</simple>
+                </pollEnrich>
+                <setHeader headerName="CamelFileName" id="_setHeader5">
+                    <simple>${header.CamelAwsS3Key}</simple>
+                </setHeader>
+                <setProperty id="_setProperty2" propertyName="nombreArchivo">
+                    <simple>${header.CamelAwsS3Key}</simple>
+                </setProperty>
+                <bean
+                    beanType="cl.coopeuch.integracion.util.RouteFacade"
+                    id="_bean1" method="obtenerDocumentoAWS"/>
+                <doCatch id="ExceptionObtenerPDFAWS">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toExceptionObtenerPDFAWS" uri="direct:excepcion"/>
+                    <stop id="_stop1"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routePersona">
+            <from id="_fromPersona" uri="direct:persona"/>
+            <doTry id="_doTry5">
+                <removeHeaders id="_removeHeaders3" pattern="*"/>
+                <setHeader headerName="servicio.persona.userId" id="_setHeader7">
+                    <simple>{{servicio.persona.userId}}</simple>
+                </setHeader>
+                <setHeader headerName="servicio.persona.codigoCliente" id="_setHeader8">
+                    <simple>{{servicio.persona.codigoCliente}}</simple>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="setHeaderOpeNameSpacePersona">
+                    <constant>{{servicio.persona.namespace}}</constant>
+                </setHeader>
+                <setHeader headerName="operationName" id="setHeaderOpNamePersona">
+                    <constant>{{servicio.persona.operationname}}</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="setHeaderSOAPActPersona">
+                    <constant>{{servicio.persona.soapaction}}</constant>
+                </setHeader>
+                <bean
+                    beanType="cl.coopeuch.integracion.util.RouteFacade"
+                    id="_bean5" method="requestPersona"/>
+                <to id="_to7" uri="cxf:bean:endpointPersona"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.util.RouteFacade"
+                    id="_bean18" method="responsePersona"/>
+                <log id="_log11" message="333.- ${body.correoElectronico}"/>
+                <setProperty id="_setProperty1" propertyName="correoElectronico">
+                    <simple>${body.correoElectronico}</simple>
+                </setProperty>
+                <when id="_when3">
+                    <simple>${property.correoElectronico} == null or ${property.correoElectronico} == ''</simple>
+                    <setProperty id="_setProperty5" propertyName="correoElectronico">
+                        <simple>{{servicio.persona.mail.defecto}}</simple>
+                    </setProperty>
+                </when>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to10" uri="direct:excepcion"/>
+                    <stop id="_stop5"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="GuardarDocumentoFirmado">
+            <from id="_from3" uri="direct:GuardarDocumentoFirmado"/>
+            <setHeader headerName="CamelAwsS3Key" id="_setHeader15">
+                <simple>${property.carpetaPrincipal}/${property.bodyInFirmaDigital.entrada.rutaDocumento.replace('.pdf','')}_${property.bodyInFirmaDigital.entrada.tipoFirma}.pdf</simple>
+            </setHeader>
+            <to id="_to8" uri="aws-s3://{{amazon.s3.default.bucket}}?accessKey={{amazon.aws.access.key.id}}&amp;secretKey=RAW({{amazon.aws.access.key.secret}})"/>
+            <bean beanType="cl.coopeuch.integracion.util.RouteFacade"
+                id="_bean3" method="obtenerDocumentoAWS"/>
+        </route>
+        <route id="_route2">
+            <from id="_from2" uri="direct:autenticar"/>
+            <bean beanType="cl.coopeuch.integracion.util.RouteFacade"
+                id="_bean6" method="insertarCuerpoAuth"/>
+            <to id="_to20" uri="direct:autenticar1"/>
+        </route>
+        <route id="_routeValidarTransaccion">
+            <from id="_fromvalidarTransaccion" uri="direct:autenticar1"/>
+            <setProperty id="_setProperty6" propertyName="operacion">
+                <simple>${header.operationName}</simple>
+            </setProperty>
+            <doTry id="_doTry6">
+                <setProperty id="_setHeader16" propertyName="dia">
+                    <simple>${date:now:dd/MM/yyyy}</simple>
+                </setProperty>
+                <setProperty id="_setHeader17" propertyName="hora">
+                    <simple>${date:now:HH:mm:ss.SSS}</simple>
+                </setProperty>
+                <setProperty id="_setProperty3" propertyName="bodyInAutenticar">
+                    <simple>${body}</simple>
+                </setProperty>
+                <to id="_tovalidarTransaccion" uri="sql:classpath:etc/sql/QueryValidacionUsuario.sql?dataSource=dataSource"/>
+                <convertBodyTo id="_convertBodyTo2" type="String"/>
+                <log id="_log3" message="QueryValida:${body}"/>
+                <choice id="_choice2">
+                    <when id="_when4">
+                        <simple>${body} contains 'TRUE'</simple>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException3" message="?La transaccion ya existe"/>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <setBody id="_setBody3">
+                            <simple>${property.bodyInAutenticar}</simple>
+                        </setBody>
+                        <to id="_toInsertarValidarTransaccion" uri="sql:classpath:etc/sql/InsertarValidacionUsuario.sql?dataSource=dataSource"/>
+                        <log id="_log4" message="QueryInserta:${body}"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <setHeader headerName="operationName" id="_setHeader27">
+                        <simple>${property.operacion}</simple>
+                    </setHeader>
+                    <to id="_to12" uri="direct:excepcion"/>
+                    <stop id="_stop6"/>
+                </doCatch>
+            </doTry>
+            <setBody id="_setBody5">
+                <simple>${property.bodyInAutenticar}</simple>
+            </setBody>
+            <log id="_log6" message="Entrada IOC: ${body}"/>
+            <to id="_to17" uri="direct:irIOC7430"/>
+            <log id="_log7" message="Salida IOC:${body}"/>
+            <setProperty id="_setProperty9" propertyName="salidaOK">
+                <simple>${body}</simple>
+            </setProperty>
+            <setBody id="_setBody2">
+                <simple>${property.bodyInAutenticar}</simple>
+            </setBody>
+            <bean beanType="cl.coopeuch.integracion.util.RouteFacade"
+                id="_bean7" method="insertarCuerpoAuth"/>
+            <log id="_log8" message="Valida Toc Entrada:${body}"/>
+            <doTry id="_doTry11">
+                <to id="_to15" uri="direct:validarPersona"/>
+                <log id="_log9" message="Valida Toc Salida:${body}"/>
+                <doCatch id="_doCatch7">
+                    <exception>java.lang.Exception</exception>
+                    <setHeader headerName="operationName" id="_setHeader28">
+                        <simple>${property.operacion}</simple>
+                    </setHeader>
+                    <to id="_to24" uri="direct:excepcion"/>
+                    <stop id="_stop8"/>
+                </doCatch>
+            </doTry>
+            <setProperty id="_setProperty4" propertyName="salidaValidarUsuario">
+                <simple>${body}</simple>
+            </setProperty>
+            <doTry id="_doTry10">
+                <choice id="_choice3">
+                    <when id="_when6">
+                        <simple>${property.rutIoc.trim} != ${property.rutValidaToc.trim}</simple>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException6" message="El rut es distinto al de la validacion en toc"/>
+                    </when>
+                    <when id="_when5">
+                        <simple>${body.salida.resultadoBio} != '1'</simple>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException4" message="Resultado no valido"/>
+                    </when>
+                    <otherwise id="_otherwise3">
+                        <to id="_toBuscarValidarTransaccion" uri="sql:classpath:etc/sql/ObtenerValidacionUsuario.sql?dataSource=dataSource&amp;outputType=SelectOne&amp;outputClass=cl.coopeuch.integracion.modelo.ValidacionUsuario"/>
+                        <log id="_log5" message="QueryObtenerValidacion:${body}"/>
+                        <bean
+                            beanType="cl.coopeuch.integracion.util.RouteFacade"
+                            id="_bean10" method="validacionesTiempo"/>
+                        <choice id="_choice1">
+                            <when id="_when1">
+                                <simple>${body} == false</simple>
+                                <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="_throwException5" message="Tiempo de la transaccion invalido"/>
+                            </when>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <setBody id="_setBody1">
+                    <simple>${property.salidaOK}</simple>
+                </setBody>
+                <doCatch id="_doCatch6">
+                    <exception>java.lang.Exception</exception>
+                    <setHeader headerName="operationName" id="_setHeader29">
+                        <simple>${property.operacion}</simple>
+                    </setHeader>
+                    <to id="_to23" uri="direct:excepcion"/>
+                    <stop id="_stop7"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeValidarPersona">
+            <from id="_from5" uri="direct:validarPersona"/>
+            <doTry id="_doTry7">
+                <setHeader
+                    headerName="servicio.firmar.documentos.validar.trx.nombreUsuario" id="_setHeader18">
+                    <simple>{{servicio.firmar.documentos.validar.trx.nombreUsuario}}</simple>
+                </setHeader>
+                <setHeader
+                    headerName="servicio.firmar.documentos.validar.trx.passUsuario" id="_setHeader19">
+                    <simple>{{servicio.firmar.documentos.validar.trx.passUsuario}}</simple>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="_setHeader23">
+                    <constant>{{servicio.firmar.documentos.validar.soapaction}}</constant>
+                </setHeader>
+                <setHeader headerName="operationName" id="_setHeader24">
+                    <constant>{{servicio.firmar.documentos.validar.operationname}}</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="_setHeader25">
+                    <constant>{{servicio.firmar.documentos.validar.namespace}}</constant>
+                </setHeader>
+                <bean
+                    beanType="cl.coopeuch.integracion.util.RouteFacade"
+                    id="_bean9" method="requestAutenticarToc"/>
+                <to id="_to14" uri="cxf:bean:serviciosToc"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.util.RouteFacade"
+                    id="_bean8" method="responseAutenticarToc"/>
+                <doCatch id="_doCatch3">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to16" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route1">
+            <from id="_from1" uri="direct:irIOC7430"/>
+            <doTry id="_doTry8">
+                <setHeader headerName="servicio.firmar.ioc.fmtnme" id="_setHeader14">
+                    <simple>{{servicio.firmar.ioc.fmtnme}}</simple>
+                </setHeader>
+                <setHeader headerName="servicio.firmar.ioc.codbnk" id="_setHeader20">
+                    <simple>{{servicio.firmar.ioc.codbnk}}</simple>
+                </setHeader>
+                <setHeader headerName="servicio.firmar.ioc.codtrn" id="_setHeader21">
+                    <simple>{{servicio.firmar.ioc.codtrn}}</simple>
+                </setHeader>
+                <setHeader headerName="servicio.firmar.ioc.codcnl" id="_setHeader22">
+                    <simple>{{servicio.firmar.ioc.codcnl}}</simple>
+                </setHeader>
+                <setHeader headerName="servicio.firmar.ioc.codope" id="_setHeader26">
+                    <simple>{{servicio.firmar.ioc.codope}}</simple>
+                </setHeader>
+                <bean
+                    beanType="cl.coopeuch.integracion.util.TransaformacionesIOC"
+                    id="_bean14" method="transformarXMLaTrama7430"/>
+                <marshal id="_marshal1">
+                    <bindy
+                        classType="cl.coopeuch.integracion.modelo.IOC743001I" type="Fixed"/>
+                </marshal>
+                <bean
+                    beanType="cl.coopeuch.integracion.util.RouteFacade"
+                    id="_bean15" method="idJMS"/>
+                <to id="_to18" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="_log12" message="SalidaIOC::::|${body}|"/>
+                <choice id="_choice6">
+                    <when id="_when9">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_unmarshal4">
+                            <bindy
+                                classType="cl.coopeuch.integracion.modelo.IOC743001OERR" type="Fixed"/>
+                        </unmarshal>
+                        <setProperty id="_setProperty8" propertyName="codErrorIOC">
+                            <simple>4${body.codError}</simple>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException7" message="?${body.descError}"/>
+                    </when>
+                    <otherwise id="_otherwise6">
+                        <unmarshal id="_unmarshal1">
+                            <bindy
+                                classType="cl.coopeuch.integracion.modelo.IOC743001O" type="Fixed"/>
+                        </unmarshal>
+                    </otherwise>
+                </choice>
+                <bean
+                    beanType="cl.coopeuch.integracion.util.TransaformacionesIOC"
+                    cache="true" id="_bean16" method="transformarTrama7430aXML"/>
+                <doCatch id="_doCatch4">
+                    <exception>java.lang.Exception</exception>
+                    <setHeader headerName="operationName" id="_setHeader30">
+                        <simple>${property.operacion}</simple>
+                    </setHeader>
+                    <to id="_to19" uri="direct:excepcion"/>
+                    <stop id="_stop10"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- ruta que captura errores del servicio -->
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean
+                    beanType="cl.coopeuch.integracion.util.RouteFacade"
+                    id="beanExceptionAmq" method="excepcionAmq"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.util.RouteFacade"
+                    id="excepcionBeanExcepcion" method="generarExcepcion"/>
+                <removeHeaders id="_removeHeaders2" pattern="*"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

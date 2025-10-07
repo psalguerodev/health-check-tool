@@ -1,0 +1,778 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+	xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+	xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+
+	<cxf:cxfEndpoint
+		address="/convenios/WSServicioPermisosUsuario"
+		id="servicioPermisosUsuarioEndpoint"
+		wsdlURL="etc/wsdl/WSServicioPermisosUsuario.wsdl"
+		serviceClass="cl.coopeuch.integracion.serviciopermisosusuario.wsdl.WSServicioPermisosUsuarioSoapPortType" />
+	<cm:property-placeholder id="propertyGlobal"
+		persistent-id="global" placeholder-prefix="{[" placeholder-suffix="]}"
+		update-strategy="reload" />
+	<cm:property-placeholder
+		id="servicioPermisosUsuario" persistent-id="wsserviciopermisosusuario"
+		update-strategy="reload" />
+
+	<bean
+		class="org.apache.activemq.camel.component.ActiveMQComponent"
+		id="beanAMQ">
+		<property name="brokerURL" value="{[amq.broker.url]}" />
+		<property name="userName" value="{[amq.username]}" />
+		<property name="password" value="{[amq.password]}" />
+		<property name="usePooledConnection" value="true" />
+	</bean>
+	<bean
+		class="cl.coopeuch.integracion.serviciopermisosusuario.util.RouteFacade"
+		id="beanRouteFacade" />
+	<camelContext id="servicio-permisosusuario"
+		xmlns="http://camel.apache.org/schema/blueprint">
+		<route id="cxf-inicio">
+			<from id="servicioPermisosUsuarioEndpointListener"
+				uri="cxf:bean:servicioPermisosUsuarioEndpoint?DataFormat=MESSAGE" />
+			<doTry id="ruteoOperacionesTry">
+				<convertBodyTo id="routeOperationBody"
+					type="java.lang.String" />
+				<bean
+					beanType="cl.coopeuch.integracion.serviciopermisosusuario.util.RouteFacade"
+					id="backupBody" method="backupBody" />
+				<choice id="routeOperations">
+					<when id="routeOperationAutenticar">
+						<simple>${body} contains 'autenticarRequest'</simple>
+						<setProperty id="inicioSetTipoRequest1"
+							propertyName="tipoRequest">
+							<simple>AutenticarRequest</simple>
+						</setProperty>
+						<to id="toLogin" uri="direct:autenticar" />
+					</when>
+					<when id="routeOperationSolicitarClaveOTP">
+						<simple>${body} contains 'solicitarClaveOTPRequest'</simple>
+
+						<setProperty id="inicioSetTipoRequest2"
+							propertyName="tipoRequest">
+							<simple>SolicitarClaveOTPRequest</simple>
+						</setProperty>
+						<to id="toSolicitarClaveOTP" uri="direct:solicitarClaveOTP" />
+					</when>
+					<when id="routeOperationModificarClaveUsuario">
+						<simple>${body} contains 'actualizarClaveRequest'</simple>
+						<setProperty id="inicioSetTipoRequest3"
+							propertyName="tipoRequest">
+							<simple>ActualizarClaveRequest</simple>
+						</setProperty>
+						<to id="toactualizarClave" uri="direct:actualizarClave" />
+					</when>
+				</choice>
+				<doCatch id="cxf-inicioCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="ruteoOperacionesPropertyCodigo"
+						propertyName="codigoError">
+						<simple>800</simple>
+					</setProperty>
+					<to id="cxfinicioExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="autenticar">
+			<from id="autenticarFrom" uri="direct:autenticar" />
+			<doTry id="autenticarTry">
+				<log id="logAutenticar01" loggingLevel="INFO" message="WSServicioPermisosUsuario -> inicio autenticar : {{endpoint.idgcontainer.service}}" />
+				<setProperty propertyName="rut" id="rutReq">
+					<xpath resultType="String">//rut</xpath>
+				</setProperty>
+				<log id="logAutenticar02" loggingLevel="INFO" message="WSServicioPermisosUsuario -> autenticar - validando Rut : ${exchangeProperty.rut}" />
+				<setProperty propertyName="validaRut" id="autenticarValidaRut">
+					<method
+						beanType="cl.coopeuch.integracion.serviciopermisosusuario.util.RouteFacade"
+						id="autenticarValidaRutMethod" method="validaRut(${exchangeProperty.rut})" />
+				</setProperty>
+				<setProperty propertyName="password" id="autenticarHeaderPassword">
+					<xpath resultType="String">//password</xpath>
+				</setProperty>
+				<setProperty propertyName="GroupId"
+					id="autenticaRutHeaderGroupId">
+					<simple>{{user.default.group}}</simple>
+				</setProperty>			
+
+				<choice id="autenticarRutValidation">
+					<when id="validateUserRutOk">
+						<simple>${exchangeProperty.password} != '' and ${exchangeProperty.validaRut} == 'Correcto' </simple>
+						<to id="validaoruserXsl"
+							uri="xslt://etc/xsl/request/autenticaRut.xsl" />
+						<convertBodyTo id="validaoruserRequestStr"
+							type="java.lang.String" />
+
+						<log id="logAutenticar03" loggingLevel="INFO" message="WSServicioPermisosUsuario -> autenticar - inicio WSAutenticacionIDG : {{endpoint.idgcontainer.service}}" />		
+						<to id="cxfaunticateUserRequest"
+							uri="cxf:{{endpoint.idgcontainer.service}}?dataFormat=MESSAGE" />
+						<convertBodyTo id="validorUserFromIDGContainer"
+							type="java.lang.String" />						
+						<log id="logAutenticar04" loggingLevel="INFO" message="WSServicioPermisosUsuario -> autenticar - fin WSAutenticacionIDG ${body}" />
+
+
+						<setProperty propertyName="validarUserStatusCode"
+							id="validarUserStatusCode">
+							<xpath resultType="String">//serviceStatus/status</xpath>
+						</setProperty>
+
+
+						<choice id="validateUserStatusChoice">
+							<when id="validateUsertatusSuccess">
+								<simple>${exchangeProperty.validarUserStatusCode} == '200'</simple>
+								<log id="logAutenticar05" loggingLevel="INFO" message="WSServicioPermisosUsuario -> autenticar - inicio WSServicioUsuarioConvenio : {{endpoint.UsuarioConvenio.service}}" />
+								<setProperty propertyName="lastLogin"
+									id="lastLoginResponse">
+									<xpath resultType="String">//lastLogin</xpath>
+								</setProperty>
+
+								<!-- utf8 --> 
+								<removeHeaders id="_removeHeaders2" pattern="JMS*"/> 
+								<setProperty id="_setProperty9" propertyName="Exchange.HTTP_CHARACTER_ENCODING"> 
+									<constant>utf-8</constant> 
+								</setProperty> 
+								<setProperty id="_setProperty10" propertyName="Exchange.CONTENT_TYPE"> 
+									<constant>text/xml;charset=utf-8</constant> 
+								</setProperty> 
+								<setProperty id="_setProperty11" propertyName="Exchange.CONTENT_ENCODING"> 
+									<constant>utf-8</constant> 
+								</setProperty> 
+								<setProperty id="_setProperty12" propertyName="Exchange.CHARSET_NAME"> 
+									<constant>utf-8</constant> 
+								</setProperty> 								
+
+								<to id="getUserDetailsRequestXsl"
+									uri="xslt://etc/xsl/request/getUserDetails.xsl" />
+								<to id="cxfUserDetailsRequest"
+									uri="cxf:{{endpoint.UsuarioConvenio.service}}?dataFormat=MESSAGE" />
+								<convertBodyTo id="getUserDetailResponseBody"
+									type="java.lang.String" />
+								<log id="logAutenticar06" loggingLevel="INFO" message="WSServicioPermisosUsuario -> autenticar - fin WSServicioUsuarioConvenio ${body}" />
+
+								<setProperty propertyName="firstName"
+									id="rawFirstNameResp">
+									<xpath resultType="String">//firstName</xpath>
+								</setProperty>
+								<setProperty propertyName="secondName"
+									id="rawSecondNameResp">
+									<xpath resultType="String">//secondName</xpath>
+								</setProperty>
+								<setProperty propertyName="lastName"
+									id="rawLastNameResp">
+									<xpath resultType="String">//lastName</xpath>
+								</setProperty>
+								<setProperty propertyName="secondLastName"
+									id="rawSecondLastNameResp">
+									<xpath resultType="String">//secondLastName</xpath>
+								</setProperty>
+								<setProperty propertyName="userType"
+											 id="userTypeResp1">
+									<xpath resultType="String">//userType</xpath>
+								</setProperty>
+
+								<setProperty propertyName="defaultRegion"
+									id="defaultRegionResp1">
+									<xpath resultType="String">//defaultRegion</xpath>
+								</setProperty>					
+
+
+								<log id="logAutenticar07" loggingLevel="INFO" message="WSServicioPermisosUsuario -> autenticar - inicio WSSolicitudConvenio : {{endpoint.solicitud.service}}" />
+								<to id="getUserPermissionDetailsXsl"
+									uri="xslt://etc/xsl/request/getUserPermissionDetails.xsl" />
+
+								<convertBodyTo
+									id="getUserPermissionDetailsRequestStr" type="java.lang.String" />
+								<to id="cxuserPermissionRequest"
+									uri="cxf:{{endpoint.solicitud.service}}?dataFormat=MESSAGE" />
+								<convertBodyTo id="solicitudContainerResponse"
+									type="java.lang.String" />
+								<log id="logAutenticar08" loggingLevel="INFO" message="WSServicioPermisosUsuario -> autenticar - fin WSSolicitudConvenio ${body}" />
+
+								<setProperty id="userPermissionsDTOProperty"
+									propertyName="userPermissionsDTO">
+									<method
+										beanType="cl.coopeuch.integracion.serviciopermisosusuario.util.RouteFacade"
+										id="userPermissionsResponseProcessor"
+										method="checkUserPermissionDetailsResponse(${body})" />
+								</setProperty>
+
+								<setProperty propertyName="moduleListStr"
+									id="moduleListStr">
+									<simple>${exchangeProperty.userPermissionsDTO.moduleListStr}</simple>
+								</setProperty>
+								<setProperty propertyName="adminUser" id="adminUser">
+									<simple>${exchangeProperty.userPermissionsDTO.adminUser}</simple>
+								</setProperty>
+
+
+								<to id="autenticarAuditRequestsXsl"
+									uri="xslt://etc/xsl/request/autenticarAuditRequest.xsl" />
+
+								<log id="logAutenticar09" loggingLevel="INFO" message="WSServicioPermisosUsuario -> autenticar - inicio WSServicioDeAuditoria : {{endpoint.audit.service}}" /> 
+								<to id="cxuserPermissionRequest"
+									uri="cxf:{{endpoint.audit.service}}?dataFormat=MESSAGE" /> 
+								<log id="logAutenticar10" loggingLevel="INFO" message="WSServicioPermisosUsuario -> autenticar - fin WSServicioDeAuditoria" />
+
+								<setProperty propertyName="userPermissions"
+									id="userPermissions">
+									<simple>${exchangeProperty.userPermissionsDTO.userPermissions}</simple>
+								</setProperty>
+
+
+								<choice id="userPermissionsChoice">
+									<when id="userPermissionsChoiceNotEmpty">
+										<simple>${exchangeProperty.userPermissionsDTO.userPermissions} != ''</simple>
+										<to id="autenticarResponseXml"
+											uri="xslt://etc/xsl/response/autenticarResponse.xsl" />
+									</when>
+									<otherwise id="userPermissionsChoicEmpty">
+										<to id="userPermissionsEmpty"
+											uri="xslt://etc/xsl/error/autenticarInvalidUser.xsl" />
+									</otherwise>
+								</choice>
+
+							</when>
+							<when id="validateUserPasswordChangeRequired">
+								<simple>${exchangeProperty.validarUserStatusCode} == '300'</simple>
+								<to id="autenticarResponsePasswordChangeXml"
+									uri="xslt://etc/xsl/error/autenticarPasswordChangerequired.xsl" />
+							</when>
+							<when id="validateUserBlocked">
+								<simple>${exchangeProperty.validarUserStatusCode} == '400'</simple>
+								<to id="blockUserRequestXsl"
+									uri="xslt://etc/xsl/request/blockUser.xsl" />
+								<to id="cxfUserDetailsRequest"
+									uri="cxf:{{endpoint.usuarioportalconvenio.service}}?dataFormat=MESSAGE" />
+								<to id="autenticarResponsePasswordChangeXml"
+									uri="xslt://etc/xsl/error/autenticarUserBlocked.xsl" />
+							</when>
+							<when id="validateUserBlocked">
+								<simple>${exchangeProperty.validarUserStatusCode} == '500' or ${exchangeProperty.validarUserStatusCode} == '700'</simple>
+								<to id="autenticarResponsePasswordChangeXml"
+									uri="xslt://etc/xsl/error/autenticarInvalidUser.xsl" />
+							</when>
+							<otherwise id="aunthicateUsertatusFailure">
+								<to id="rutValidationfailed"
+									uri="xslt://etc/xsl/error/autenticarInvalidUser.xsl" />
+							</otherwise>
+						</choice>
+					</when>
+					<otherwise id="_otherwise2">
+						<to id="authicateRutInvalid"
+							uri="xslt://etc/xsl/error/autenticarInvalidUser.xsl?saxon=true" />
+					</otherwise>
+				</choice>
+				<doCatch id="autenticaRutCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="autenticaRutPropertyCodigo"
+						propertyName="codigoError">
+						<simple>800</simple>
+					</setProperty>
+					<to id="autenticaRutExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="solicitarClaveOTP">
+			<from id="solicitarClaveOTPFrom" uri="direct:solicitarClaveOTP" />
+			<doTry id="solicitarClaveOTPTry">
+				<setProperty propertyName="rut" id="solicitarClaveOTPRutReq">
+					<xpath resultType="String">//rut</xpath>
+				</setProperty>
+				<setProperty propertyName="validaRut"
+					id="solicitarClaveOTPValidaRut">
+					<method
+						beanType="cl.coopeuch.integracion.serviciopermisosusuario.util.RouteFacade"
+						id="solicitarClaveOTPValidaRutMethod"
+						method="validaRut(${exchangeProperty.rut})" />
+				</setProperty>
+				<setProperty propertyName="inputEmail" id="inputEmail">
+					<xpath resultType="String">//email</xpath>
+				</setProperty>				
+				<setProperty propertyName="inputValidateEmail" id="inputValidateEmail">
+					<xpath resultType="String">//validateEmail</xpath>
+				</setProperty>
+				<setProperty propertyName="GroupId"
+					id="solicitarClaveOTPHeaderDV">
+					<simple>{{user.default.group}}</simple>
+				</setProperty>
+
+				<choice id="solicitarClaveOTPChoice1">
+					<when id="solicitarClaveOTPValidateUserRutOk">
+						<simple>${exchangeProperty.validaRut} == 'Correcto'</simple>
+						<to id="obtenerEestadoDeUsuarioIsUserBlockedXsl"
+							uri="xslt://etc/xsl/request/isUserBlocked.xsl" />
+						<convertBodyTo
+							id="obtenerEestadoDeUsuarioIsUserBlockedRequestStr"
+							type="java.lang.String" />
+
+						<to id="obtenerEestadoDeUsuarioIsUserBlockedRequest"
+							uri="cxf:{{endpoint.idgcontainer.service}}?dataFormat=MESSAGE" />
+						<convertBodyTo
+							id="obtenerEestadoDeUsuarioIsUserBlockedResponse"
+							type="java.lang.String" />
+
+						<setProperty
+							propertyName="solicitarClaveOTPIsUserBlockedStatusCode"
+							id="solicitarClaveOTPObtenerEestadoDeUsuario">
+							<xpath resultType="String">//serviceStatus/status</xpath>
+						</setProperty>
+						<setProperty
+							propertyName="solicitarClaveOTPIsUserBlockedStatus"
+							id="solicitarClaveOTPObtenerEestadoDeUsuario">
+							<xpath resultType="String">//userStatus</xpath>
+						</setProperty>
+
+						<choice id="solicitarClaveOTPChoice2">
+							<when id="solicitarClaveOTPValidateUserEmail">
+								<simple>${exchangeProperty.solicitarClaveOTPIsUserBlockedStatus} != 'USER_BLOCKED' || ${exchangeProperty.inputValidateEmail} == 'true'</simple>
+								<to id="solicitarClaveOTPGetUserDetailsRequestXsl"
+									uri="xslt://etc/xsl/request/getUserDetails.xsl" />
+								<to id="solicitarClaveOTPUserDetailsRequest"
+									uri="cxf:{{endpoint.UsuarioConvenio.service}}?dataFormat=MESSAGE" />
+								<convertBodyTo
+									id="solicitarClaveOTPUserDetailResponseBody"
+									type="java.lang.String" />
+								<setProperty propertyName="solicitarClaveOTPEmailResponse"
+									id="solicitarClaveOTPEmailResponse">
+									<xpath resultType="String">//email</xpath>
+								</setProperty>
+								<setProperty propertyName="inputPhoneMovil"
+									id="solicitarClaveOTPSMSMovilResponse">
+									<xpath resultType="String">//phoneMovil</xpath>
+								</setProperty>
+								<setProperty
+									propertyName="solicitarClaveOTPFirstNameResponse"
+									id="solicitarClaveOTPFirstNameResponse">
+									<xpath resultType="String">//firstName</xpath>
+								</setProperty>
+
+								<choice id="solicitarClaveOTPChoice3">									
+									<when id="solicitarClaveOTPGetUserDetails">
+										<simple>${exchangeProperty.inputValidateEmail} == 'false' or ${exchangeProperty.solicitarClaveOTPEmailResponse} == ${exchangeProperty.inputEmail}</simple>
+
+										<to id="solicitarClaveOTPRequestXsl"
+											uri="xslt://etc/xsl/request/solicitarOTP.xsl" />
+										<to id="solicitarClaveOTPRequest"
+											uri="cxf:{{endpoint.challengeotp.service}}?dataFormat=MESSAGE" />
+										<convertBodyTo
+											id="solicitarClaveOTPResponseBody" type="java.lang.String" />
+										<setProperty propertyName="solicitarOTPStatusCode"
+											id="solicitarOTPStatusCode">
+											<xpath resultType="String">//serviceStatus/status</xpath>
+										</setProperty>
+
+										<choice id="solicitarOTPLdapValida">
+											<when id="solicitarOTPFailure">
+												<simple>${exchangeProperty.solicitarOTPStatusCode} != '200'</simple>
+												<to id="solicitarOTPValidaRutExists"
+													uri="xslt://etc/xsl/error/invalidRutsolicitarClaveOTPUsuarioResponse.xsl?saxon=true" />
+											</when>
+											<otherwise id="solicitarOTPLdapOk">
+												<setProperty propertyName="generatedOTP"
+													id="generatedOTP">
+													<xpath resultType="String">//otp</xpath>
+												</setProperty>
+												<setProperty propertyName="expiredyDate"
+													id="expiredyDate">
+													<xpath resultType="String">//expiryDate</xpath>
+												</setProperty>
+												<setProperty propertyName="createDate" id="createDate">
+													<xpath resultType="String">//createDate</xpath>
+												</setProperty>
+												<setProperty propertyName="inputMessageSMS" id="smsInputMessageSMS">
+													<simple>{{message.send.sms}}</simple>
+												</setProperty>	
+
+												<choice id="solicitarOTPMoviloEmail">
+													<when id="solicitarOTPMoviloEmailSMS">
+														<simple>${exchangeProperty.inputPhoneMovil} != null and ${exchangeProperty.inputPhoneMovil} != ''</simple>														
+														<to id="sendOTPSMSRequestXsl" uri="xslt://etc/xsl/request/sendOTPSMSRequest.xsl" />
+														<convertBodyTo id="sendOTPEmailRequestRequestBodySms" type="java.lang.String" />														
+														<removeHeaders id="removeSoapActionHeaderSms" pattern="SOAPAction*" />
+														<to id="cxfsendOTPEmailRequestRequestEmail" uri="cxf:{{endpoint.sms.service}}?dataFormat=MESSAGE" />
+														<convertBodyTo id="sendOTPEmailRequestEmailResponseBodySms" type="java.lang.String" />														
+
+														<setProperty propertyName="smsError" id="smsGeneratedOTP">
+															<xpath resultType="String">//codigoError</xpath>
+														</setProperty>
+														<setProperty propertyName="smsDescripcionError" id="smsErrorDescription">
+															<xpath resultType="String">//descripcionError</xpath>
+														</setProperty>														
+														<setProperty propertyName="inputMessageOK" id="smsInputMessageOK">
+															<simple>{{message.response.smsOk}}</simple>
+														</setProperty>
+														<setProperty propertyName="inputSendType" id="smsInputSendType">
+															<simple>{{message.type.sms}}</simple>
+														</setProperty>															
+														<choice id="sendSmsStatueChoice">
+															<when id="smsFailure">
+																<simple>${exchangeProperty.smsError} != ''</simple>
+																<to id="solicitarOTPValidaRutExistsSMS"
+																		uri="xslt://etc/xsl/error/smsErrorSolicitarClaveOTPUsuarioResponse.xsl?saxon=true" />
+															</when>
+															<otherwise>
+																<to id="solicitarClaveOTPUsuarioResponseXmlSms"
+																uri="xslt://etc/xsl/response/solicitarClaveOTPUsuarioResponse.xsl" />
+															</otherwise>
+														</choice>
+
+													</when>
+													<otherwise id="solicitarOTPMoviloEmailEmail">
+														<to id="sendOTPEmailRequestXsl" uri="xslt://etc/xsl/request/sendOTPEmailRequest.xsl" />
+														<convertBodyTo id="sendOTPEmailRequestRequestBodyEmail" type="java.lang.String" />
+														<removeHeaders id="removeSoapActionHeaderEmail" pattern="SOAPAction*" />
+														<to id="cxfsendOTPEmailRequestRequestEmail" uri="cxf:{{endpoint.notifications.service}}?dataFormat=MESSAGE" />
+														<convertBodyTo id="sendOTPEmailRequestEmailResponseBodyEmail" type="java.lang.String" />
+
+														<setProperty propertyName="emailError" id="generatedOTP">
+															<xpath resultType="String">//error</xpath>
+														</setProperty>
+														<setProperty propertyName="emailErrorDescription" id="emailErrorDescription">
+															<xpath resultType="String">//descripcion</xpath>
+														</setProperty>														
+														<setProperty propertyName="inputMessageOK" id="emailInputMessageOK">
+															<simple>{{message.response.emailOk}}</simple>
+														</setProperty>
+														<setProperty propertyName="inputSendType" id="emailInputSendType">
+															<simple>{{message.type.email}}</simple>
+														</setProperty>
+														<choice id="sendEmailStatueChoice">
+															<when id="emailFailure">
+																<simple>${exchangeProperty.emailError} != ''</simple>
+																<to id="solicitarOTPValidaRutExists"
+																		uri="xslt://etc/xsl/error/emailErrorSolicitarClaveOTPUsuarioResponse.xsl?saxon=true" />
+															</when>
+															<otherwise>
+																<to id="solicitarClaveOTPUsuarioResponseXml1"
+																uri="xslt://etc/xsl/response/solicitarClaveOTPUsuarioResponse.xsl" />
+															</otherwise>
+														</choice>
+													</otherwise>
+												</choice>
+
+											</otherwise>
+										</choice>
+									</when>
+									<otherwise>
+										<to id="solicitarClaveOTPUsuarioResponseXml2"
+											uri="xslt://etc/xsl/error/inValidEmailForUserSolicitarClaveOTP.xsl" />
+									</otherwise>
+								</choice>
+							</when>
+							<otherwise>
+								<to id="userBlockedSolicitarClaveOTP"
+									uri="xslt://etc/xsl/error/userBlockedSolicitarClaveOTP.xsl?saxon=true" />
+							</otherwise>
+						</choice>
+					</when>
+					<otherwise id="solicitarClaveOTPRutError">
+						<to id="solicitarClaveOTPValidaRutInvalid"
+							uri="xslt://etc/xsl/error/invalidRutsolicitarClaveOTPUsuarioResponse.xsl?saxon=true" />
+					</otherwise>
+				</choice>
+				<doCatch id="solicitarClaveOTPCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="solicitarClaveOTPPropertyCodigo"
+						propertyName="codigoError">
+						<simple>800</simple>
+					</setProperty>
+					<to id="solicitarClaveOTPExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="actualizarClave">
+			<from id="modificarClaveUsuarioFrom"
+				uri="direct:actualizarClave" />
+			<doTry id="modificarClaveUsuarioTry">
+				<setProperty propertyName="rut"
+					id="modificarClaveUsuarioRutReq">
+					<xpath resultType="String">//rut</xpath>
+				</setProperty>
+				<setProperty propertyName="validaRut"
+					id="modificarClaveUsuarioValidaRut">
+					<!-- Invoking method for RUT validation. -->
+					<method
+						beanType="cl.coopeuch.integracion.serviciopermisosusuario.util.RouteFacade"
+						id="modificarClaveUsuarioValidaRutMethod"
+						method="validaRut(${exchangeProperty.rut})" />
+				</setProperty>
+				<setProperty propertyName="password"
+					id="modificarClaveUsuarioHeaderPassword">
+					<xpath resultType="String">//password</xpath>
+				</setProperty>
+				<setProperty propertyName="confirmPassword"
+					id="modificarClaveUsuarioHeaderConfirmPassword">
+					<xpath resultType="String">//confirmPassword</xpath>
+				</setProperty>
+				<setProperty propertyName="OTP"
+					id="modificarClaveUsuarioHeaderOTP">
+					<xpath resultType="String">//OTP</xpath>
+				</setProperty>
+				<setProperty propertyName="validateOTP"
+					id="modificarClaveUsuarioHeaderValidateOTP">
+					<xpath resultType="String">//validateOTP</xpath>
+				</setProperty>
+				<setProperty propertyName="groupId"
+					id="validateOTPHeaderGroupId">
+					<simple>{{user.default.group}}</simple>
+				</setProperty>
+				<choice id="modificarClaveUsuarioRutValidation">
+					<when id="modificarClaveUsuarioRutOk">
+						<simple>${exchangeProperty.password} != '' and ${exchangeProperty.confirmPassword} != '' and ${exchangeProperty.validaRut} == 'Correcto' </simple>
+						<choice id="bothPasswordValidation">
+							<when id="bothPasswordChk">
+								<simple>${exchangeProperty.password} == ${exchangeProperty.confirmPassword}</simple>
+
+								<choice id="validateOTPChoice">
+									<when id="validateOTPChk">
+										<simple>${exchangeProperty.validateOTP} == 'true'</simple>
+										<to id="validaorOTPXsl"
+											uri="xslt://etc/xsl/request/validateOTPRequest.xsl" />
+										<convertBodyTo id="validaorOTPRequestStr"
+											type="java.lang.String" />
+										<to id="cxfPasswordOTPRequest"
+											uri="cxf:{{endpoint.challengeotp.service}}?dataFormat=MESSAGE" />
+										<convertBodyTo id="validorOTPFromContainer"
+											type="java.lang.String" />
+										<setProperty propertyName="validarOTPStatusCode"
+											id="validarOTPStatusCode">
+											<xpath resultType="String">//serviceStatus/status</xpath>
+										</setProperty>
+										<log id="test1" message="${body}"/>
+										<log id="test2" message="${exchangeProperty.validarOTPStatusCode}"/>
+
+										<choice id="validateOTPstatusChoice">
+											<when id="validateOTPstatusOk">
+												<simple>${exchangeProperty.validarOTPStatusCode} == '200'</simple>
+												<setProperty propertyName="validarOTPStatus"
+													id="validarOTPStatus1">
+													<simple>VALID_OTP</simple>
+												</setProperty>
+											</when>
+											<when id="validateOTPstatusOk">
+												<simple>${exchangeProperty.validarOTPStatusCode} == '300'</simple>
+												<setProperty propertyName="validarOTPStatus"
+													id="validarOTPStatus1">
+													<simple>USER_NOT_EXIST</simple>
+												</setProperty>
+											</when>
+											<otherwise>
+												<setProperty propertyName="validarOTPStatus"
+													id="validarOTPStatus2">
+													<simple>INVALID_OTP</simple>
+												</setProperty>
+											</otherwise>
+										</choice>
+
+									</when>
+									<otherwise>
+										<setProperty propertyName="validarOTPStatus"
+											id="validarOTPStatus1">
+											<simple>VALID_OTP</simple>
+										</setProperty>
+									</otherwise>
+								</choice>
+								<log id="test3" message="${exchangeProperty.validarOTPStatus}"/>
+								<choice id="validarOTPLdapValida">
+									<when id="validarOTPFailure">
+										<simple>${exchangeProperty.validarOTPStatus} == 'INVALID_OTP'</simple>
+										<to id="validarOTPValidaRutExists"
+											uri="xslt://etc/xsl/error/inValidOTP.xsl?saxon=true" />
+									</when>
+									<when id="validarOTPFailure">
+										<simple>${exchangeProperty.validarOTPStatus} == 'USER_NOT_EXIST'</simple>
+										<to id="validarOTPValidaRutExists"
+											uri="xslt://etc/xsl/error/modifyPasswordUserNotExists.xsl?saxon=true" />
+									</when>
+									<when id="validarOTPMatch">
+										<simple>${exchangeProperty.validarOTPStatus} == 'VALID_OTP'</simple>
+										<to id="updatePasswordXsl"
+											uri="xslt://etc/xsl/request/updatePasswordRequest.xsl" />
+										<convertBodyTo id="updatePasswordRequestStr"
+											type="java.lang.String" />
+										<to id="updatePasswordRequest"
+											uri="cxf:{{endpoint.idgcontainer.service}}?dataFormat=MESSAGE" />
+										<convertBodyTo
+											id="validorUpdatePasswordFromContainer"
+											type="java.lang.String" />
+
+
+										<setProperty propertyName="updatePasswordStatusCode"
+											id="updatePasswordStatusCode">
+											<xpath resultType="String">//serviceStatus/status</xpath>
+										</setProperty>
+
+										<choice id="chkUpdatePasswordStatus">
+											<when id="updatePasswordMatch">
+												<simple>${exchangeProperty.updatePasswordStatusCode} == '200'</simple>
+												<to id="getUpdatePwdUserDetailsRequestXsl"
+													uri="xslt://etc/xsl/request/getUserDetails.xsl" />
+												<to id="cxfPwdSuccessUserDetailsRequest"
+													uri="cxf:{{endpoint.UsuarioConvenio.service}}?dataFormat=MESSAGE" />
+												<convertBodyTo
+													id="getPwdSuccessUserDetailResponseBody"
+													type="java.lang.String" />
+												<setProperty propertyName="rut"
+													id="PwdSuccessRutResponse">
+													<xpath resultType="String">//rut</xpath>
+												</setProperty>
+												<setProperty propertyName="rawFirstName"
+													id="rawPwdSuccessFirstNameResp">
+													<xpath resultType="String">//firstName</xpath>
+												</setProperty>
+												<setProperty propertyName="rawSecondName"
+													id="rawPwdSuccessSecondNameResp">
+													<xpath resultType="String">//secondName</xpath>
+												</setProperty>
+												<setProperty propertyName="rawLastName"
+													id="rawPwdSuccessLastNameResp">
+													<xpath resultType="String">//lastName</xpath>
+												</setProperty>
+												<setProperty propertyName="rawSecondLastName"
+													id="rawPwdSuccessSecondLastNameResp">
+													<xpath resultType="String">//secondLastName</xpath>
+												</setProperty>
+												<setProperty propertyName="userType"
+													id="userTypeResp2">
+													<xpath resultType="String">//userType</xpath>
+												</setProperty>
+
+												<setProperty propertyName="firstName"
+													id="PwdSuccessFirstNameResp">
+													<method
+														beanType="cl.coopeuch.integracion.serviciopermisosusuario.util.RouteFacade"
+														id="pwdChangeEncoding1"
+														method="changeEncoding(${exchangeProperty.rawFirstName})" />
+												</setProperty>
+												<setProperty propertyName="secondName"
+													id="PwdSuccessSecondNameResp">
+													<method
+														beanType="cl.coopeuch.integracion.serviciopermisosusuario.util.RouteFacade"
+														id="pwdChangeEncoding2"
+														method="changeEncoding(${exchangeProperty.rawSecondName})" />
+												</setProperty>
+												<setProperty propertyName="lastName"
+													id="PwdSuccessLasteNameResp">
+													<method
+														beanType="cl.coopeuch.integracion.serviciopermisosusuario.util.RouteFacade"
+														id="pwdChangeEncoding3"
+														method="changeEncoding(${exchangeProperty.rawLastName})" />
+												</setProperty>
+												<setProperty propertyName="secondLastName"
+													id="PwdSuccessSecondLastNameResp">
+													<method
+														beanType="cl.coopeuch.integracion.serviciopermisosusuario.util.RouteFacade"
+														id="pwdChangeEncoding4"
+														method="changeEncoding(${exchangeProperty.rawSecondLastName})" />
+												</setProperty>
+												<setProperty propertyName="lastLogin"
+													id="PwdSuccessLastLoginResponse">
+													<xpath resultType="String">//lastLogin</xpath>
+												</setProperty>
+												<setProperty propertyName="defaultRegion"
+													id="defaultRegionResp2">
+													<xpath resultType="String">//defaultRegion</xpath>
+												</setProperty>
+												<to id="getUserPermissionDetailsXsl1"
+													uri="xslt://etc/xsl/request/getUserPermissionDetails.xsl" />
+
+												<convertBodyTo
+													id="getUserPermissionDetailsRequestString"
+													type="java.lang.String" />
+												<to id="cxuserPermissionRequest1"
+													uri="cxf:{{endpoint.solicitud.service}}?dataFormat=MESSAGE" />
+												<convertBodyTo
+													id="solicitudContainerResponse1" type="java.lang.String" />
+												<setProperty propertyName="userPermissionsDTO"
+													id="userPermissionsDTO1">
+													<method
+														beanType="cl.coopeuch.integracion.serviciopermisosusuario.util.RouteFacade"
+														id="userPermissionsResponseProcessor1"
+														method="checkUserPermissionDetailsResponse(${body})" />
+												</setProperty>
+
+												<setProperty propertyName="userPermissions"
+													id="userPermissions1">
+													<simple>${exchangeProperty.userPermissionsDTO.userPermissions}</simple>
+												</setProperty>
+												
+												<!-- desbloquear usuario -->
+												<to id="unblockUserRequestXsl" uri="xslt://etc/xsl/request/unBlockUser.xsl" />
+												<convertBodyTo id="unBlockUserDetailRequestBody" type="java.lang.String" />
+												<to id="cxfUnblockUserDetailsRequest" uri="cxf:{{endpoint.usuarioportalconvenio.service}}?dataFormat=MESSAGE" />
+												<convertBodyTo id="unBlockUserResponseBody" type="java.lang.String" />
+												<log id="logDesbloquear01" loggingLevel="INFO" message="actualizarClave -> desbloquear : ${body}" />
+												<!-- desbloquear usuario -->
+												
+												<to id="OTPPasswordSuccessXml"
+													uri="xslt://etc/xsl/response/modificarClaveUsuarioResponse.xsl" />
+											</when>
+											<when id="updatePasswordHistoryError">
+												<simple>${exchangeProperty.updatePasswordStatusCode} == '300'</simple>
+												<to id="OTPPasswordHistoryError" uri="xslt://etc/xsl/error/inValidPasswordHistory.xsl?saxon=true" />
+											</when>	
+											<otherwise id="updatePasswordFailure">
+												<to id="OTPPasswordFailureXml"
+													uri="xslt://etc/xsl/error/errorUpdatePassword.xsl" />
+											</otherwise>
+										</choice>
+									</when>
+								</choice>
+							</when>
+							<otherwise id="_otherwisePwd">
+								<to id="passwordMisMatch"
+									uri="xslt://etc/xsl/error/bothPasswordsMisMatch.xsl?saxon=true" />
+							</otherwise>
+						</choice>
+					</when>
+					<otherwise id="_otherwiseRUT">
+						<to id="modificarClaveUsuarioRutInvalid"
+							uri="xslt://etc/xsl/error/inValidRUTAndPassword.xsl?saxon=true" />
+					</otherwise>
+				</choice>
+				<doCatch id="modificarClaveUsuarioCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="modificarClaveUsuarioPropertyCodigo"
+						propertyName="codigoError">
+						<simple>800</simple>
+					</setProperty>
+					<to id="modificarClaveUsuarioExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="excepcion">
+			<from id="excepcionfrom" uri="direct:excepcion" />
+			<doTry id="excepcionTry">
+				<log id="logAutenticar14" loggingLevel="ERROR" message="WSServicioPermisosUsuario -> autenticar - inicio excepcion : ${exception.message}" />
+				<bean id="beanExceptionAmq" method="excepcionAmq"
+					ref="beanRouteFacade" />
+				<marshal id="excepcionMarshalJson">
+					<json library="Jackson" />
+				</marshal>
+				<convertBodyTo id="excepcionConvertTo"
+					type="java.lang.String" />
+
+				<log loggingLevel="ERROR" message="WSServicioPermisosUsuario -> autenticar - inicio beanAMQ : {{amq.queue.fault}}" />
+				<to id="excepcionToAmqFault"
+					uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly" />
+				<bean id="excepcionBeanExcepcion" method="excepcionCrear"
+					ref="beanRouteFacade" />
+				<setBody id="exceptionBodyError">
+					<simple>${body}</simple>
+				</setBody>
+				<log loggingLevel="ERROR" message="WSServicioPermisosUsuario -> autenticar - fin beanAMQ : ${body}" />
+
+				<doCatch id="excepcionDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setBody id="exceptionFinalSetBodyError">
+						<simple>${exception}, Body -&gt; ${body}</simple>
+					</setBody>
+					<log id="excepcionLog" loggingLevel="ERROR"
+						message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}" />
+				</doCatch>
+			</doTry>
+		</route>
+	</camelContext>
+</blueprint>

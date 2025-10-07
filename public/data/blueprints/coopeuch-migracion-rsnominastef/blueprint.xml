@@ -1,0 +1,424 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal" persistent-id="wsnominastef"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+        
+        
+    <bean id="noErrorHandler" class="org.apache.camel.builder.NoErrorHandlerBuilder"/>    
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+
+    
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{coopeuch.sqlserver.url}]"/>
+        <property name="username" value="[{coopeuch.sqlserver.username}]"/>
+        <property name="password" value="[{coopeuch.sqlserver.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{coopeuch.sqlserver.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{coopeuch.sqlserver.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{coopeuch.sqlserver.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{coopeuch.sqlserver.maxActive}]"/>
+    </bean>
+	
+    
+    
+    <bean class="org.slf4j.LoggerFactory" factory-method="getLogger" id="rh1">
+        <argument index="0" value="rh1"/>
+    </bean>
+     <bean class="cl.coopeuch.integracion.nominastef.util.RouteExcepcion" id="respuestaErrorProcessor"/>
+     <bean class="cl.coopeuch.integracion.nominastef.util.RouteFacade" id="beanRouteFacade"/>
+     <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <bean
+        class="cl.coopeuch.integracion.nominastef.exceptions.ErrorExcepcionInterceptor" id="ErrorExcepcionInterceptor"/>
+    <camelcxf:rsServer address="/RSNominasTEF" id="restApiEnpointNomina" serviceClass="cl.coopeuch.integracion.nominastef.service.Operaciones">
+        <camelcxf:extensionMappings>
+            <entry key="json" value="application/json"/>
+        </camelcxf:extensionMappings>
+        <camelcxf:providers>
+            <bean class="com.fasterxml.jackson.jaxrs.json.JacksonJsonProvider"/>
+            <bean class="cl.coopeuch.integracion.nominastef.util.Filter"/>
+        </camelcxf:providers>
+        <camelcxf:outInterceptors>
+            <ref component-id="ErrorExcepcionInterceptor"/>
+        </camelcxf:outInterceptors>
+    </camelcxf:rsServer>
+
+   
+    <camelContext id="SERVICIO-WSNOMINASTEF" streamCache="false"
+        xmlns="http://camel.apache.org/schema/blueprint">
+        <threadPoolProfile defaultProfile="true" id="changedProfile"
+            maxQueueSize="100" poolSize="1"/>
+        <dataFormats>
+            <json id="serializer" library="Jackson" prettyPrint="true"/>
+        </dataFormats>
+        <redeliveryPolicyProfile id="redeliveryPolicy"
+        maximumRedeliveries="2"
+        redeliveryDelay="1000" allowRedeliveryWhileStopping="false"
+        retryAttemptedLogLevel="INFO" />
+       <onException id="CustomExceptionHandlingHTTP"
+             useOriginalMessage="true">
+            <exception>cl.coopeuch.integracion.nominastef.exceptions.ProcedureExcepcion</exception>
+            <handled>
+                <constant>true</constant>
+            </handled>
+            <log loggerRef="rh1" loggingLevel="ERROR" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.message}"/>
+            <log loggerRef="rh1" loggingLevel="DEBUG" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.stacktrace}"/>
+            <setProperty propertyName="codigohttp">
+                <simple>{{coopeuch.wsnominastef.codigoError.permanentSystemFailure}}</simple>
+            </setProperty>
+            <setProperty propertyName="codigo">
+                <simple>{{coopeuch.wsnominastef.codigoError.permanentSystemFailure}}</simple>
+            </setProperty>
+            <setProperty propertyName="descripcion">
+                <simple>{{coopeuch.wsnominastef.descripcionError.cod500}}: ${exception.message}</simple>
+            </setProperty>
+            <wireTap id="respuestaError" uri="direct:excepcion"/>
+            <bean method="process" ref="respuestaErrorProcessor"/>
+            <stop/>
+        </onException>
+       
+        <onException id="CustomExceptionHandling" 
+            redeliveryPolicyRef="redeliveryPolicy" useOriginalMessage="true">
+            <exception>java.net.ConnectException</exception>
+            <handled>
+                <constant>true</constant>
+            </handled>
+            <log loggerRef="rh1" loggingLevel="ERROR" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.message}"/>
+            <log loggerRef="rh1" loggingLevel="DEBUG" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.stacktrace}"/>
+            <setProperty propertyName="codigohttp">
+                <simple>{{coopeuch.wsnominastef.codigoError.transactionTimeOut}}</simple>
+            </setProperty>
+            <setProperty propertyName="codigo">
+                <simple>{{coopeuch.wsnominastef.codigoError.transactionTimeOut}}</simple>
+            </setProperty>
+            <setProperty propertyName="descripcion">
+                <simple>{{coopeuch.wsnominastef.descripcionError.cod505}}: ${exception.message}</simple>
+            </setProperty>
+<!--             Time Out DB2 -->
+            <setProperty propertyName="codigoTimeout">
+                <simple>{{coopeuch.wsnominastef.codigoError.transactionTimeOut}}</simple>
+            </setProperty>
+            <setProperty propertyName="descripcionTimeout">
+                <simple>{{coopeuch.wsnominastef.descripcionError.cod505}}: ${exception.message}</simple>
+            </setProperty>
+            <!--             TimeOut AMQ -->
+            <setProperty propertyName="codigohttpAMQ">
+                <simple>{{coopeuch.wsnominastef.codigoError.systemConnectionFailure}}</simple>
+            </setProperty>
+            <setProperty propertyName="codigoTimeoutAMQ">
+                <simple>{{coopeuch.wsnominastef.descripcionError.cod501}}</simple>
+            </setProperty>
+            <setProperty propertyName="descripcionTimeoutAMQ">
+                <simple>{{coopeuch.wsnominastef.descripcionError.cod501}}: ${exception.message}</simple>
+            </setProperty>
+            <bean method="process" ref="respuestaErrorProcessor"/>	 
+            <stop/>
+        </onException>
+        
+        <onException id="CustomExceptionHandling" redeliveryPolicyRef="redeliveryPolicy" useOriginalMessage="true">
+            <exception>java.sql.SQLException</exception>
+            <handled>
+                <constant>true</constant>
+            </handled>
+            <log loggerRef="rh1" loggingLevel="ERROR" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.message}"/>
+            <log loggerRef="rh1" loggingLevel="DEBUG" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.stacktrace}"/>            
+            <setProperty propertyName="codigohttp">
+                <simple>{{coopeuch.wsnominastef.codigoError.permanentSystemFailure}}</simple>
+            </setProperty>
+            <setProperty propertyName="codigo">
+                <simple>{{coopeuch.wsnominastef.codigoError.permanentSystemFailure}}</simple>
+            </setProperty>
+            <setProperty propertyName="descripcion">
+                <simple>{{coopeuch.wsnominastef.descripcionError.cod500}}: ${exception.message}</simple>
+            </setProperty>
+            <setProperty propertyName="codigoTimeout">
+                <simple>{{coopeuch.wsnominastef.codigoError.transactionTimeOut}}</simple>
+            </setProperty>
+            <setProperty propertyName="descripcionTimeout">
+                <simple>{{coopeuch.wsnominastef.descripcionError.cod505}}: ${exception.message.split(';')[2]}</simple>
+            </setProperty>
+             <wireTap id="respuestaError" uri="direct:excepcion"/>
+            <bean method="process" ref="respuestaErrorProcessor"/>
+            <stop/>
+        </onException> 
+           
+        <onException id="CustomExceptionHandling" redeliveryPolicyRef="redeliveryPolicy" useOriginalMessage="true">
+            <exception>java.lang.Exception</exception>
+            <handled>
+                <constant>true</constant>
+            </handled>
+            <log message="BDDD"/>
+            <log loggerRef="rh1" loggingLevel="ERROR" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.message}"/>
+            <log loggerRef="rh1" loggingLevel="DEBUG" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.stacktrace}"/>            
+            <setProperty propertyName="codigohttp">
+                <simple>{{coopeuch.wsnominastef.codigoError.permanentSystemFailure}}</simple>
+            </setProperty>
+            <setProperty propertyName="codigo">
+                <simple>{{coopeuch.wsnominastef.codigoError.permanentSystemFailure}}</simple>
+            </setProperty>
+            <setProperty propertyName="descripcion">
+                <simple>{{coopeuch.wsnominastef.descripcionError.cod500}}: ${exception.message}</simple>
+            </setProperty>
+            <setProperty propertyName="codigoTimeout">
+                <simple>{{coopeuch.wsnominastef.codigoError.transactionTimeOut}}</simple>
+            </setProperty>
+            <setProperty propertyName="descripcionTimeout">
+                <simple>{{coopeuch.wsnominastef.descripcionError.cod505}}: ${exception.message}</simple>
+            </setProperty>
+             <wireTap id="respuestaError" uri="direct:excepcion"/>
+            <bean method="process" ref="respuestaErrorProcessor"/>
+            <stop/>
+        </onException>   
+        
+        <route id="ROUTE-PRINCIPAL-WSNOMINASTEF">
+            <from id="restInicioo" uri="cxfrs:bean:restApiEnpointNomina?bindingStyle=SimpleConsumer"/>
+            <setProperty propertyName="operacion">
+                <simple resultType="String">${header.operationName}</simple>
+            </setProperty>
+            <setProperty propertyName="bodyRequest">
+                <simple>${body}</simple>
+            </setProperty>
+            <toD uri="direct:${header.operationName}"/>
+        </route>
+        
+        <route id="WsActualizarEstadoDetalle">
+            <from uri="direct:actualizarEstadoDetalle"/>
+            <setProperty propertyName="idNomina"><simple>${body.getActualizarEstadoDetalleRequest().getIdNomina()}</simple></setProperty>
+            <setProperty propertyName="numeroRegistro"><simple>${body.getActualizarEstadoDetalleRequest().getNumeroRegistro()}</simple></setProperty>   
+            <setProperty propertyName="estadoTransferencia"><simple>${body.getActualizarEstadoDetalleRequest().getEstadoTransferencia()}</simple></setProperty>
+            <setProperty propertyName="observacionTransferencia"><simple>${body.getActualizarEstadoDetalleRequest().getObservacion()}</simple></setProperty>
+            
+            <choice>
+            	<when>
+            		<simple>${property.observacionTransferencia} == "" or ${property.observacionTransferencia} == null</simple>            	
+            		<setProperty propertyName="observacionTransferencia"><constant></constant></setProperty>
+            	</when>
+            </choice>
+            
+            <to uri="sql-stored:classpath:sql/pa_updateEstadoDetalle.sql?dataSource=#dataSourceSqlServer&amp;outputHeader=responseUpdateEstado" />
+            <choice>
+       			<when>
+       				<simple>${header.responseUpdateEstado.keySet()} contains '#result-set-1'</simple>
+       				<setProperty propertyName="PA_Response"><simple resultType="String">${header.responseUpdateEstado.get('#result-set-1').get(0).get('ErrorMessage')}</simple></setProperty>
+       				<bean id="splitErrorSql1" method="splitErrorSql" ref="beanRouteFacade"/>
+       				<throwException exceptionType="cl.coopeuch.integracion.nominastef.exceptions.ProcedureExcepcion" message="${property.mensajeErrorResponse}"/>
+       				<stop/>
+       			</when>
+       		</choice>
+            <setProperty propertyName="descripcion"><simple>${header.responseUpdateEstado.get('estadoNominaR')}</simple></setProperty>
+            <bean id="cambioEstadoDetalleResponse" method="cambioEstadoDetalleResponse" ref="beanRouteFacade"/>
+            <removeHeaders pattern="responseUpdateEstado"/>
+            <stop/>  
+        </route>
+        
+        <route id="WsCambioEstado">
+            <from uri="direct:actualizarEstado"/>
+            <setProperty propertyName="idNomina"><simple>${body.getActualizarEstadoRequest().getIdNomina()}</simple></setProperty>   
+            <setProperty propertyName="estado"><simple>${body.getActualizarEstadoRequest().getEstado()}</simple></setProperty>
+            <setProperty propertyName="observacionNomina"><simple>${body.getActualizarEstadoRequest().getObservacionNomina()}</simple></setProperty>
+            <to uri="sql-stored:classpath:sql/pa_updateEstado.sql?dataSource=#dataSourceSqlServer&amp;outputHeader=responseUpdateEstado" />
+            <choice>
+       			<when>
+       				<simple>${header.responseUpdateEstado.keySet()} contains '#result-set-1'</simple>
+       				<setProperty propertyName="PA_Response"><simple resultType="String">${header.responseUpdateEstado.get('#result-set-1').get(0).get('ErrorMessage')}</simple></setProperty>
+       				<bean id="splitErrorSql2" method="splitErrorSql" ref="beanRouteFacade"/>
+       				<throwException exceptionType="cl.coopeuch.integracion.nominastef.exceptions.ProcedureExcepcion" message="${property.mensajeErrorResponse}"/>
+       				<stop/>
+       			</when>
+       		</choice>
+            <setProperty propertyName="descripcion"><simple>${header.responseUpdateEstado.get('estadoNominaR')}</simple></setProperty>
+            <bean id="cambioEstadoResponse" method="cambioEstadoResponse" ref="beanRouteFacade"/>
+            <removeHeaders pattern="responseUpdateEstado"/>
+            <stop/>  
+        </route>
+        
+        <route id="WsRegistrarNominas" streamCache="true" errorHandlerRef="noErrorHandler">
+            <from  uri="direct:registrarNominas"/>  
+            <setProperty propertyName="numeroRegistros"><simple>${body.getCargaNomina().getRegistrosNomina().size()}</simple></setProperty>   
+             <marshal>
+            	<json library="Jackson"/>
+            </marshal> 
+             <setProperty propertyName="errores"><jsonpath resultType="String">$.registarNominasRequest.erroresNomina</jsonpath></setProperty>
+             <setProperty propertyName="registrosNomina"><jsonpath>$..registrosNomina</jsonpath></setProperty>
+             <choice>
+             	<when>
+             		<simple>${property.errores} contains 'linea'</simple>
+             		<setProperty propertyName="fecha"><simple>${date:now:yyyy}</simple></setProperty>
+               		<to uri="sql-stored:classpath:sql/pa_consultaCorrelativo.sql?dataSource=#dataSourceSqlServer&amp;outputHeader=responseConsultaNominaAll" />					
+					<choice>
+		       			<when>
+		       				<simple>${header.responseConsultaNominaAll.keySet()} contains '#result-set-1'</simple>
+		       				<setProperty propertyName="PA_Response"><simple resultType="String">${header.responseConsultaNominaAll.get('#result-set-1').get(0).get('ErrorMessage')}</simple></setProperty>
+		       				<bean id="splitErrorSql3" method="splitErrorSql" ref="beanRouteFacade"/>
+		       				<throwException exceptionType="cl.coopeuch.integracion.nominastef.exceptions.ProcedureExcepcion" message="${property.mensajeErrorResponse}"/>
+		       				<stop/>
+		       			</when>
+		       		</choice>
+					<setProperty propertyName="idNomina"><simple>${header.responseConsultaNominaAll.get('CorrelativoId')}</simple></setProperty>
+					
+					<log message="(Correlativo: ${property.idNomina})"/>
+					<setProperty propertyName="estadoNominaI"><constant>E07</constant></setProperty>
+					
+<!-- 					<marshal> -->
+<!-- 		            	<json library="Jackson"/> -->
+<!-- 		            </marshal> -->
+		            <convertBodyTo type="java.lang.String"/>
+					<setProperty propertyName="usuario"><jsonpath resultType="String">$.registarNominasRequest.datosSolicitante.nombre</jsonpath></setProperty>
+					<setProperty propertyName="area"><jsonpath resultType="String">$.registarNominasRequest.datosSolicitante.area</jsonpath></setProperty>
+					<setProperty propertyName="email"><jsonpath resultType="String">$.registarNominasRequest.datosSolicitante.correo</jsonpath></setProperty>
+					<setProperty propertyName="montoI"><jsonpath>$..registrosNomina..monto</jsonpath></setProperty>
+					<bean id="sumMount" method="sumMount" ref="beanRouteFacade"/>
+					<to uri="sql-stored:classpath:sql/pa_insNomina.sql?dataSource=#dataSourceSqlServer&amp;outputHeader=estadoNomina" />
+					<choice>
+		       			<when>
+		       				<simple>${header.estadoNomina.keySet()} contains '#result-set-1'</simple>
+		       				<setProperty propertyName="PA_Response"><simple resultType="String">${header.estadoNomina.get('#result-set-1').get(0).get('ErrorMessage')}</simple></setProperty>
+		       				<bean id="splitErrorSql4" method="splitErrorSql" ref="beanRouteFacade"/>
+		       				<throwException exceptionType="cl.coopeuch.integracion.nominastef.exceptions.ProcedureExcepcion" message="${property.mensajeErrorResponse}"/>
+		       				<stop/>
+		       			</when>
+		       		</choice>
+					<split>
+             			<jsonpath>$.registarNominasRequest.erroresNomina.</jsonpath>
+             			             			
+             			<marshal>
+			            	<json library="Jackson"/>
+			            </marshal> 
+			            <setProperty propertyName="NumeroRegistro"><jsonpath resultType="String">$.linea</jsonpath></setProperty>
+			            <setProperty propertyName="DescripcionError"><jsonpath resultType="String">$.mensaje</jsonpath></setProperty>
+			            <bean id="setErrores" method="setErrores" ref="beanRouteFacade"/> 
+						<to uri="sql-stored:classpath:sql/pa_insDetalleNominaError.sql?dataSource=#dataSourceSqlServer&amp;outputHeader=responsePaErrorNomina" />
+						<choice>
+			       			<when>
+			       				<simple>${header.responsePaErrorNomina.keySet()} contains '#result-set-1'</simple>
+			       				<setProperty propertyName="PA_Response"><simple resultType="String">${header.responsePaErrorNomina.get('#result-set-1').get(0).get('ErrorMessage')}</simple></setProperty>
+			       				<bean id="splitErrorSql5" method="splitErrorSql" ref="beanRouteFacade"/>
+			       				<throwException exceptionType="cl.coopeuch.integracion.nominastef.exceptions.ProcedureExcepcion" message="${property.mensajeErrorResponse}"/>
+			       				<stop/>
+			       			</when>
+			       		</choice>
+					</split>
+					<to uri="sql-stored:classpath:sql/pa_insLogNomina.sql?dataSource=#dataSourceSqlServer&amp;outputHeader=registroLogNomina" />
+					<choice>
+		       			<when>
+		       				<simple>${header.registroLogNomina.keySet()} contains '#result-set-1'</simple>
+		       				<setProperty propertyName="PA_Response"><simple resultType="String">${header.registroLogNomina.get('#result-set-1').get(0).get('ErrorMessage')}</simple></setProperty>
+		       				<bean id="splitErrorSql6" method="splitErrorSql" ref="beanRouteFacade"/>
+		       				<throwException exceptionType="cl.coopeuch.integracion.nominastef.exceptions.ProcedureExcepcion" message="${property.mensajeErrorResponse}"/>
+		       				<stop/>
+		       			</when>
+		       		</choice>
+					<bean id="responderErrores" method="responderErrores" ref="beanRouteFacade"/> 
+					<removeHeaders pattern="responsePaErrorNomina|responseConsultaNominaAll|registroLogNomina"/>
+             	</when>
+             	<otherwise>
+             		<setProperty propertyName="fecha"><simple>${date:now:yyyy}</simple></setProperty>
+               		<to uri="sql-stored:classpath:sql/pa_consultaCorrelativo.sql?dataSource=#dataSourceSqlServer&amp;outputHeader=responseConsultaNominaAll" />					
+					<choice>
+		       			<when>
+		       				<simple>${header.responseConsultaNominaAll.keySet()} contains '#result-set-1'</simple>
+		       				<setProperty propertyName="PA_Response"><simple resultType="String">${header.responseConsultaNominaAll.get('#result-set-1').get(0).get('ErrorMessage')}</simple></setProperty>
+		       				<bean id="splitErrorSql7" method="splitErrorSql" ref="beanRouteFacade"/>
+		       				<throwException exceptionType="cl.coopeuch.integracion.nominastef.exceptions.ProcedureExcepcion" message="${property.mensajeErrorResponse}"/>
+		       				<stop/>
+		       			</when>
+		       		</choice>
+					<setProperty propertyName="idNomina"><simple>${header.responseConsultaNominaAll.get('CorrelativoId')}</simple></setProperty>					
+					<log message="(idNomina: ${property.idNomina})"/>
+					<setProperty propertyName="estadoNominaI"><constant>E01</constant></setProperty>
+					<convertBodyTo type="java.lang.String"/>
+					
+					<setProperty propertyName="usuario"><jsonpath resultType="String">$.registarNominasRequest.datosSolicitante.nombre</jsonpath></setProperty>
+					<setProperty propertyName="area"><jsonpath resultType="String">$.registarNominasRequest.datosSolicitante.area</jsonpath></setProperty>
+					<setProperty propertyName="email"><jsonpath resultType="String">$.registarNominasRequest.datosSolicitante.correo</jsonpath></setProperty>
+					<setProperty propertyName="montoI"><jsonpath>$..registrosNomina..monto</jsonpath></setProperty>
+					<bean id="sumMount" method="sumMount" ref="beanRouteFacade"/>
+             		<to uri="sql-stored:classpath:sql/pa_insNomina.sql?dataSource=#dataSourceSqlServer&amp;outputHeader=estadoNomina" />
+             		<choice>
+             			<when>
+             				<simple>${header.estadoNomina.keySet()} contains '#result-set-1'</simple>
+             				<setProperty propertyName="PA_Response"><simple resultType="String">${header.estadoNomina.get('#result-set-1').get(0).get('ErrorMessage')}</simple></setProperty>
+             				<bean id="splitErrorSql10" method="splitErrorSql" ref="beanRouteFacade"/>
+             				<throwException exceptionType="cl.coopeuch.integracion.nominastef.exceptions.ProcedureExcepcion" message="${property.mensajeErrorResponse}"/>
+             				<stop/>
+             			</when>
+             		</choice>
+             		<setProperty propertyName="estadoNomina"><simple>${header.estadoNomina.get('estadoNomina')}</simple></setProperty>
+             		<setProperty propertyName="mensajeNomina"><simple>${header.estadoNomina.get('mensajeNomina')}</simple></setProperty>
+             		
+             		<split>
+             			<jsonpath>$.registarNominasRequest.registrosNomina.</jsonpath>
+             			
+						<marshal>
+			            	<json library="Jackson"/>
+			            </marshal> 
+	             		<setProperty propertyName="nombreSocio"><jsonpath>$.nombreSocio</jsonpath></setProperty>
+			       		<setProperty propertyName="cuentaDestino"><jsonpath resultType="String">$.cuentaDestino</jsonpath></setProperty>
+			       		<setProperty propertyName="tipoCuenta"><jsonpath resultType="String">$.tipoCuenta</jsonpath></setProperty>
+			       		<setProperty propertyName="institucionDestino"><jsonpath resultType="String">$.institucionDestino</jsonpath></setProperty>
+			       		<setProperty propertyName="rut"><jsonpath resultType="String">$.rutDestino</jsonpath></setProperty>
+			       		<setProperty propertyName="monto"><jsonpath resultType="String">$.monto</jsonpath></setProperty>
+			       		<setProperty propertyName="mailDestino"><jsonpath resultType="String">$.mailDestino</jsonpath></setProperty>
+			       		<setProperty propertyName="cuentaOrigen"><jsonpath resultType="String">$.cuentaOrigen</jsonpath></setProperty>
+			       		<setProperty propertyName="motivoTransferencia"><jsonpath resultType="String">$.codigoMotivo</jsonpath></setProperty>
+			       		<setProperty propertyName="id"><jsonpath resultType="String">$.id</jsonpath></setProperty>
+<!-- 			       		<setProperty propertyName="digitoVerificador"><simple>0</simple></setProperty> -->
+			       		<setProperty propertyName="codigoEstado"><simple>0</simple></setProperty>
+			       		
+			       		<bean id="digitoVerificador" method="digitoVerificador" ref="beanRouteFacade"/>
+						<to uri="sql-stored:classpath:sql/pa_insDetalleNomina.sql?dataSource=#dataSourceSqlServer&amp;outputHeader=responsePADetalleNomina" />
+						<choice>
+	             			<when>
+	             				<simple>${header.responsePADetalleNomina.keySet()} contains '#result-set-1'</simple>
+	             				<setProperty propertyName="PA_Response"><simple resultType="String">${header.responsePADetalleNomina.get('#result-set-1').get(0).get('ErrorMessage')}</simple></setProperty>
+	             				<bean id="splitErrorSql11" method="splitErrorSql" ref="beanRouteFacade"/>
+	             				<throwException exceptionType="cl.coopeuch.integracion.nominastef.exceptions.ProcedureExcepcion" message="${property.mensajeErrorResponse}"/>
+	             				<stop/>
+	             			</when>
+	             		</choice>
+             		</split>
+             		<to uri="sql-stored:classpath:sql/pa_insLogNomina.sql?dataSource=#dataSourceSqlServer&amp;outputHeader=registroLogNomina" />
+             		<choice>
+             			<when>
+             				<simple>${header.registroLogNomina.keySet()} contains '#result-set-1'</simple>
+             				<setProperty propertyName="PA_Response"><simple resultType="String">${header.registroLogNomina.get('#result-set-1').get(0).get('ErrorMessage')}</simple></setProperty>
+             				<bean id="splitErrorSql12" method="splitErrorSql" ref="beanRouteFacade"/>
+             				<throwException exceptionType="cl.coopeuch.integracion.nominastef.exceptions.ProcedureExcepcion" message="${property.mensajeErrorResponse}"/>
+             				<stop/>
+             			</when>
+             		</choice>
+             		<setProperty propertyName="fechaActual"><simple>${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS}</simple></setProperty>
+             		<bean id="responseExito" method="responseExito" ref="beanRouteFacade"/> 
+             		<removeHeaders pattern="responseConsultaNominaAll|estadoNomina|responsePADetalleNomina|registroLogNomina"/>
+             	</otherwise>
+             </choice>
+			<stop/>
+        </route>
+        
+
+		<route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>            
+             <bean id="beanRouteFacade" method="excepcionAmq" ref="beanRouteFacade"/>
+             <setProperty propertyName="Connection">
+            	<constant>0</constant>
+             </setProperty>
+             <marshal id="excepcionMarshalJson">
+                 <json library="Jackson"/>
+             </marshal>
+             <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>             
+             <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>  
+        </route>
+        
+    </camelContext>
+</blueprint>

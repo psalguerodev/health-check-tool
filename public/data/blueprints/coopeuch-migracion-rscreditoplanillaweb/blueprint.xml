@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd  http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wscreditoplanillaweb" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Conexion Base de datos -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource" id="postgresql">
+        <property name="driverClassName" value="org.postgresql.Driver"/>
+        <property name="url" value="[{wscreditoplanillaweb.ds.url}]/[{wscreditoplanillaweb.ds.database}]"/>
+        <property name="username" value="[{wscreditoplanillaweb.ds.username}]"/>
+        <property name="password" value="[{wscreditoplanillaweb.ds.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{wscreditoplanillaweb.ds.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{wscreditoplanillaweb.ds.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{wscreditoplanillaweb.ds.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{wscreditoplanillaweb.ds.maxActive}]"/>
+    </bean>
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="postgresql"/>
+    </bean>
+    <cxf:rsServer address="/RSCreditoPlanillaWeb"
+        id="creditoPlanillaWebREST" loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.creditoplanillaweb.rest.CreditoPlanillaWebRest"/>
+    <cxf:cxfEndpoint address="/WSCreditoPlanillaWeb"
+        id="serviciocreditoplanillawebEndpoint"
+        serviceClass="cl.coopeuch.integracion.creditoplanillaweb.wsdl.WSCreditoPlanillaWebSOAPPortType" wsdlURL="etc/wsdl/WSCreditoPlanillaWeb.wsdl"/>
+    <cxf:rsClient address="[{consultar.listanegra.endpoint}]"
+        id="endpointRSListaNegra" loggingFeatureEnabled="false">
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <bean
+        class="cl.coopeuch.integracion.creditoplanillaweb.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <camelContext id="WSValidacionSocioPlanilla" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="jackListaNegraRequest" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.listasnegras.wsdl.DatosCliente"/>
+            <json id="jackListaNegraResponse" include="NON_NULL"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.listasnegras.wsdl.DetalleAntecedentes"/>
+            <json id="jackConsultarRequest" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.creditoplanillaweb.wsdl.ConsultarCampanniaRequest"/>
+            <json id="jackConsultarResponse" include="NON_NULL"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.creditoplanillaweb.wsdl.ConsultarCampanniaResponse"/>
+            <json id="jackConsultarDatosContactoResponse"
+                include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.creditoplanillaweb.wsdl.ConsultarDatosContactoResponse"/>
+        </dataFormats>
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:creditoPlanillaWebREST?bindingStyle=SimpleConsumer&amp;provider=jsonProvider"/>
+            <choice id="_choice2">
+                <when id="_whenConsultar">
+                    <simple>${header.operationName} == 'consultar'</simple>
+                    <unmarshal id="unmarshall_entrada" ref="jackConsultarRequest"/>
+                    <setProperty id="_setProperty10" propertyName="cuerpo">
+                        <simple>${body}</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty11" propertyName="userId">
+                        <simple>${body.userId}</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty12" propertyName="canalLlamada">
+                        <simple>${body.canalLlamada}</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty13" propertyName="rut">
+                        <simple>${body.rut}</simple>
+                    </setProperty>
+                    <toD id="restToConsultar" uri="direct:${header.operationName}"/>
+                    <marshal id="unmarshall_salida" ref="jackConsultarResponse"/>
+                </when>
+                <when id="_whenConsultarDatosContacto">
+                    <simple>${header.operationName} == 'consultarDatosContacto'</simple>
+                    <unmarshal id="unmarshall_entrada" ref="jackConsultarRequest"/>
+                    <to id="restToConsultarDatosContacto" uri="direct:consultarDatosContacto"/>
+                    <marshal id="unmarshall_salida" ref="jackConsultarDatosContactoResponse"/>
+                </when>
+                <otherwise id="inicioOtherwise">
+                    <throwException exceptionType="java.lang.Exception"
+                        id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:serviciocreditoplanillawebEndpoint"/>
+            <setProperty id="_setProperty1" propertyName="cuerpo">
+                <simple>${body.get(0)}</simple>
+            </setProperty>
+            <setProperty id="_setProperty2" propertyName="userId">
+                <simple>${body.get(0).userId}</simple>
+            </setProperty>
+            <setProperty id="_setProperty3" propertyName="canalLlamada">
+                <simple>${body.get(0).canalLlamada}</simple>
+            </setProperty>
+            <setProperty id="_setProperty4" propertyName="rut">
+                <simple>${body.get(0).rut}</simple>
+            </setProperty>
+            <to id="soapToInicioWs" uri="direct:inicio"/>
+        </route>
+        <route id="inicio">
+            <from id="fromInicio" uri="direct:inicio"/>
+            <choice id="_choice23">
+                <when id="_whenConsultar23">
+                    <simple>${header.operationName} == 'consultar'</simple>
+                    <toD id="restToConsultar23" uri="direct:${header.operationName}"/>
+                    <marshal id="unmarshall_salida23" ref="jackConsultarResponse"/>
+                </when>
+                <when id="_whenConsultarDatosContacto23">
+                    <simple>${header.operationName} == 'consultarDatosContacto'</simple>
+                    <unmarshal id="unmarshall_entrada23" ref="jackConsultarRequest"/>
+                    <to id="restToConsultarDatosContacto23" uri="direct:consultarDatosContacto"/>
+                    <marshal id="unmarshall_salida23" ref="jackConsultarDatosContactoResponse"/>
+                </when>
+                <otherwise id="inicioOtherwise23">
+                    <throwException exceptionType="java.lang.Exception"
+                        id="throwExceptionOperacionInvalida23" message="La operacion solicitada es invalida"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="_routeConsultarCampannia">
+            <from id="_fromConsultarCampannia" uri="direct:consultar"/>
+            <doTry id="_doTry1">
+                <to id="toIOC0035" uri="direct:IOC0035"/>
+                <choice id="_choice1">
+                    <when id="_when1">
+                        <simple>${body.getS01FLGSER()} == 'N'</simple>
+                        <bean id="_bean2" method="IOC0035toXml" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <to id="toConsultarListaNegra" uri="direct:consultarListaNegra"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty14" propertyName="error">
+                        <constant>Error no identificado al tratar de interpretar los datos.</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty15" propertyName="codigoError">
+                        <constant>513</constant>
+                    </setProperty>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeConsultarDatosContacto">
+            <from id="_fromConsultarDatosContactoCampannia" uri="direct:consultarDatosContacto"/>
+            <doTry id="consultarDatosContactoParametrosTry">
+                <setProperty id="_setProperty23" propertyName="rut">
+                    <simple>${body.rut}</simple>
+                </setProperty>
+                <to id="paSelParametros" uri="sql-stored:classpath:etc/sql/pa_selConsultarDatosCliente.sql?outputHeader=selConsultaDatosContactoResponse&amp;dataSource=postgresql"/>
+                <bean id="beanSetParametros"
+                    method="beanConsultarDatosContactoSalida" ref="beanRouteFacade"/>
+                <doCatch id="consultarParametrosDoCatchSQL">
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty id="consultarParametrosErrorSQL" propertyName="codigoError">
+                        <simple>509</simple>
+                    </setProperty>
+                    <to id="consultarParametrosToExcepcionSQL" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultarParametrosDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="consultarParametrosToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeConsultarListaNegra">
+            <from id="formConsultarListaNegra" uri="direct:consultarListaNegra"/>
+            <to id="idTraerDatosBasicosDG" uri="direct:traerDatosBasicosDG"/>
+            <doTry id="_doTry2">
+                <removeHeaders id="_removeHeaders1" pattern="*"/>
+                <bean id="beanConsultarRequest"
+                    method="consultarRequest" ref="beanRouteFacade"/>
+                <marshal id="_marshal2" ref="jackListaNegraRequest"/>
+                <convertBodyTo id="_convertBodyTo1" type="java.lang.String"/>
+                <to id="toEndpointRSListaNegra" uri="cxfrs:bean:endpointRSListaNegra?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <unmarshal id="_unmarshal2" ref="jackListaNegraResponse"/>
+                <bean id="_bean3" method="jackListaNegraResponse" ref="beanRouteFacade"/>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty16" propertyName="error">
+                        <constant>Error en la comunicación con el servicio interno WSListaNegra</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty17" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <to id="_to1" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeTraerDatosBasicosDG">
+            <from id="fromTraerDatosBasicosDG" uri="direct:traerDatosBasicosDG"/>
+            <setBody id="_setBody1">
+                <simple>${property.cuerpo}</simple>
+            </setBody>
+            <doTry id="_doTry3">
+                <removeHeaders id="_removeHeaders2" pattern="*"/>
+                <bean id="_toCreateCorrelationPersona"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="traerDatosBasicosDGRequest" uri="xslt://etc/xslt/in/DatosBasicosDG.xsl?saxon=true"/>
+                <to id="_toTraerDatosBasicosDGRequest" uri="AMQ:{{colas.servicio.persona.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <setProperty id="_setProperty5" propertyName="primerNombre">
+                    <xpath resultType="String">//primerNombre</xpath>
+                </setProperty>
+                <setProperty id="_setProperty6" propertyName="segundoNombre">
+                    <xpath resultType="String">//segundoNombre</xpath>
+                </setProperty>
+                <setProperty id="_setProperty7" propertyName="apellidoPaterno">
+                    <xpath resultType="String">//apellidoPaterno</xpath>
+                </setProperty>
+                <setProperty id="_setProperty8" propertyName="apellidoMaterno">
+                    <xpath resultType="String">//apellidoMaterno</xpath>
+                </setProperty>
+                <setProperty id="_setProperty9" propertyName="descPais">
+                    <xpath resultType="String">//descPais</xpath>
+                </setProperty>
+                <doCatch id="_doCatch3">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty18" propertyName="error">
+                        <constant>Error en la comunicación con el servicio interno WSPersona</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty19" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <to id="_to2" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeIoc0035">
+            <from id="fromIoc0035" uri="direct:IOC0035"/>
+            <doTry id="_doTry4">
+                <bean id="_bean1" method="xmltoIOC0035" ref="beanRouteFacade"/>
+                <bean id="createJMSCorrelationIdSimuladorDG"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <marshal id="_marshal1">
+                    <bindy
+                        classType="cl.coopeuch.integracion.creditoplanillaweb.ibs.modelo.IOC003501I" type="Fixed"/>
+                </marshal>
+                <to id="activemq-ConsultarCampannia" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <choice id="_choice3">
+                    <when id="_when3">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_unmarshal1">
+                            <bindy
+                                classType="cl.coopeuch.integracion.creditoplanillaweb.ibs.modelo.IOCERROR" type="Fixed"/>
+                        </unmarshal>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException1" message="Error en conversion de archivo"/>
+                    </when>
+                </choice>
+                <unmarshal id="_unmarshal3">
+                    <bindy
+                        classType="cl.coopeuch.integracion.creditoplanillaweb.ibs.modelo.IOC003501O" type="Fixed"/>
+                </unmarshal>
+                <doCatch id="_doCatch4">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty20" propertyName="error">
+                        <constant>Error de conversion de datos IOC0035</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty21" propertyName="codigoError">
+                        <constant>518</constant>
+                    </setProperty>
+                    <to id="_to3" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <log id="_log1" loggingLevel="ERROR" message="${property.CamelExceptionCaught}"/>
+            <log id="_log2" message="Se cayo ${body}"/>
+            <bean id="excepcionBeanExcepcion" method="excepcionCrear" ref="beanRouteFacade"/>
+        </route>
+    </camelContext>
+</blueprint>

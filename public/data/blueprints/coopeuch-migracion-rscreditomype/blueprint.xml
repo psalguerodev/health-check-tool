@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal" persistent-id="wscreditosmype"
+    	placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Conexion AMQ -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+	<bean class="cl.coopeuch.integracion.entidad.serviciocreditomype.util.AggregatorBody" id="agregadorBody"/>
+	<bean class="cl.coopeuch.integracion.entidad.serviciocreditomype.util.AggregatorHeader" id="agregadorHeader"/>
+	<bean class="cl.coopeuch.integracion.entidad.serviciocreditomype.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSCreditoMype"
+        id="endpointWSCreditoMype"
+        serviceClass="cl.coopeuch.integracion.entidad.serviciocreditomype.wsdl.WSCreditoMypeSOAPPortType" wsdlURL="etc/wsdl/WSCreditoMype.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+	<camelcxf:rsServer address="/RSCreditoMype"
+        id="endpointRSCreditoMype" serviceClass="cl.coopeuch.integracion.entidad.serviciocreditomype.wsdl.WSCreditoMypeSOAPPortType"/>
+    <camelcxf:rsClient address="[{wsLogPlataformas.endpoint}]" 
+		id="endpointLogPlataformas"	
+		loggingFeatureEnabled="true" />
+    <camelContext id="servicio-credito-mype" xmlns="http://camel.apache.org/schema/blueprint">
+		<route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSCreditoMype"/>
+            <setBody id="inicio-soapSetBody">
+                <simple>$simple{body.get(0)}</simple>
+            </setBody>
+            <to id="soapToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="inicio-amq">
+            <from id="amqinicio" uri="AMQ:queue:{{colas.servicio.creditomype.in.temp}}?preserveMessageQos=true"/>
+            <to id="limpiaNSRequest" uri="xslt://etc/xsl/others/removenamespace.xsl?saxon=true"/>
+			<setHeader headerName="operationName">
+    			<xpath resultType="java.lang.String">name(/*)</xpath>
+			</setHeader>
+			<setHeader headerName="operationName">
+    			<simple>header.operationName.replaceAll("Request", "")</simple>
+			</setHeader>
+            <to id="amqToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSCreditoMype"/>
+                <setBody id="inicio-restSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>           
+            <to id="restToInicioWs" uri="direct:iniciows"/>
+        </route>
+        
+        <route id="iniciows">
+			<from id="inicioFromServicio" uri="direct:iniciows"/>
+            <doTry id="inicioTry">
+				<setProperty propertyName="rut_log">
+		           	<simple>00000000</simple>
+		        </setProperty>
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+	            <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+	            	<simple>$simple{body.class.getSimpleName()}</simple>
+	           	</setProperty>
+                <bean id="obtenerDatosOperacionBean"
+                    method="obtenerDatosOperacion" ref="beanRouteFacade"/>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionCrear">
+                        <simple>${header.operationName} == 'consultarDatosPago'</simple>
+                        <to id="toCrear" uri="direct:consultarDatosPago"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                	<exception>org.apache.camel.processor.validation.SchemaValidationException</exception>
+                	<exception>org.apache.camel.ValidationException</exception>
+                	<exception>org.apache.camel.TypeConversionException</exception>
+                	<exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="consultarDatosPago">
+			<from id="consultarDatosPagoFrom" uri="direct:consultarDatosPago"/>
+            <doTry id="consultarDatosPagoTry">
+                <multicast id="consultarDatosPagoMulticast"
+                    parallelProcessing="true" strategyRef="agregadorBody">
+                    <to id="multicastTraerDatosCreditosConsumoTo" uri="direct:traerDatosCreditosConsumo"/>
+                    <to id="multicastTraerPlanPagoCreditosConsumoTo" uri="direct:traerPlanPagoCreditosConsumo"/>
+                </multicast>
+                <to id="agregacion2xml_traerDatosPagoCreditos" uri="xslt://etc/xsl/others/agregacion2xml_consultarDatosPago.xsl?saxon=true"/>
+                <unmarshal id="unmarshalRespPC">
+                    <jaxb contextPath="cl.coopeuch.integracion.entidad.serviciocreditomype.wsdl"/>
+                </unmarshal>
+				<doCatch id="consultarDatosPagoDoCatch">
+	            	<exception>java.lang.Exception</exception>
+	            	<exception>java.io.IOException</exception>
+						<setProperty id="consultarDatosPagoCodigoError" propertyName="codigoError">
+	                    	<constant>500</constant>
+	                    </setProperty>  
+	                <to id="consultarPagoToExcepcion" uri="direct:excepcion"/>
+	            </doCatch>
+            </doTry>
+        </route>
+ 
+		<route id="traerDatosCreditosConsumo">
+            <from id="traerDatosCreditosConsumoFrom" uri="direct:traerDatosCreditosConsumo"/>
+            <doTry id="traerDatosCreditosConsumoTry">
+                <bean id="crearUUIDDatosCreditoConsumo" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="traerDatosCreditosConsumoXml2trama" uri="xslt://etc/xsl/request/xml2tramaIOC098001I_traerDatosCreditosConsumo.xsl"/>
+                <log message="Trama Generada traerDatosCreditosConsumo: ${body}"/>
+                <to id="activemq-traerDatosCreditosConsumo" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log message="Trama Salida traerDatosCreditosConsumo: ${body}"/>
+                <transform id="traerDatosCreditosConsumoTransform">
+                    <simple>&lt;trama&gt;&lt;![CDATA[${body}]]&gt;&lt;/trama&gt;</simple>
+                </transform>
+                <to id="traerDatosCreditosConsumoTrama2xml" uri="xslt://etc/xsl/response/trama2xmlIOC098001O_traerDatosCreditosConsumo.xsl?saxon=true"/>
+				<doCatch id="traerDatosCreditosConsumoDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="traerDatosCreditosConsumoCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="toTraerDatosCreditosConsumoExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+				<doCatch id="traerDatosCreditosConsumoDoCatch">
+	            	<exception>java.lang.Exception</exception>
+						<setProperty id="traerDatosCreditosConsumoCodigoError" propertyName="codigoError">
+	                    	<constant>500</constant>
+	                    </setProperty>
+	                <to id="traerDatosCreditosConsumoExcepcion" uri="direct:excepcion"/>
+	            </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="traerPlanPagoCreditosConsumo">
+            <from id="traerPlanPagoCreditosConsumoFrom" uri="direct:traerPlanPagoCreditosConsumo"/>
+            <doTry id="traerPlanPagoCreditosConsumoTry">
+                <setHeader headerName="estadoCuota" id="_setHeader1">
+                    <xpath>//estadoCuota/text()</xpath>
+                </setHeader>
+                <to id="traerPlanPagoCreditosConsumoXml2trama" uri="xslt://etc/xsl/request/xml2tramaIOC006502I_traerPlanPagoCreditosConsumo.xsl"/>               
+                <log message="Trama Generada traerPlanPagoCreditosConsumo: ${body}"/>
+                <bean id="createJMSCorrelationId3" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <enrich id="traerPlanPagoCreditosConsumoEnrich" strategyRef="agregadorHeader">
+                    <constant>AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"</constant>
+                </enrich>
+   				<log message="Trama Salida traerPlanPagoCreditosConsumo: ${body}"/>                                 
+                <transform id="traerPlanPagoCreditosConsumoTransform">
+                    <simple>&lt;trama&gt;&lt;![CDATA[${body}]]&gt;&lt;/trama&gt;</simple>
+                </transform>
+                <to id="traerPlanPagoCreditosConsumoTrama2xml" uri="xslt://etc/xsl/response/trama2xmlIOC006502O_traerPlanPagoCreditosConsumo.xsl?saxon=true"/>
+   				<doCatch id="traerPlanPagoCreditosConsumoDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="traerPlanPagoCreditosConsumoCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="toTraerPlanPagoCreditosConsumoExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+				<doCatch id="traerPlanPagoCreditosConsumoDoCatch">
+	            	<exception>java.lang.Exception</exception>
+						<setProperty id="traerPlanPagoCreditosConsumoCodigoError" propertyName="codigoError">
+	                    	<constant>500</constant>
+	                    </setProperty>
+	                <to id="traerPlanPagoCreditosConsumoExcepcion" uri="direct:excepcion"/>
+	            </doCatch>
+            </doTry>
+        </route>
+
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <log id="excepcionLogAMQ" loggingLevel="ERROR" message="Excepcion: ${body}"/>
+                <wireTap id="wireTap-exceptionToLogPlataformas" uri="direct:wsLogPlataformasGuardar"/>
+                <!-- <to id="excepcionToAmqFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/> -->
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <log message="Response exception ${body}"></log>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="wsLogPlataformasGuardar">
+        	<from id="wsLogPlataformasGuardar-From" uri="direct:wsLogPlataformasGuardar"/>
+        	<doTry id="wsLogPlataformasGuardar-doTry">
+        		<setProperty propertyName="nivelLog">
+        			<simple>ERRO</simple>
+        		</setProperty>
+        		<bean id="wsLogPlataformasGuardar-Bean" ref="beanRouteFacade" method="guardarLogRequest"/>
+        		<to id="wsLogPlataformasGuardar-To" uri="cxfrs:bean:endpointLogPlataformas"/>
+        		<doCatch id="wsLogPlataformasGuardar-doCatch">
+        			<exception>java.lang.Exception</exception>
+        			<setBody>
+        				<simple>ERROR-logPlataformas: ${exception}-${body}</simple>
+        			</setBody>
+        			<log message="${body}"/>
+        		</doCatch>
+        	</doTry>
+        </route>   
+        
+    </camelContext>
+</blueprint>

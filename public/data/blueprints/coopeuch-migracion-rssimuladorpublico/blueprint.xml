@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Configures the Camel Context -->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wssimuladorpublico" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/WSSimuladorPublico"
+        id="serviciosimuladorpublicoEndpoint"
+        serviceClass="cl.coopeuch.integracion.simuladorpublico.wsdl.WSSimuladorPublicoSoapPortType" wsdlURL="wsdl/WSSimuladorPublico.wsdl"/>
+    <cxf:rsServer address="/RSSimuladorPublico"
+        id="endpointRSSimuladorPublico" serviceClass="cl.coopeuch.integracion.simuladorpublico.wsdl.WSSimuladorPublicoSoapPortType"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.simuladorpublico.util.AggregatorSimulacion" id="agregadorSimulacion"/>
+    <bean
+        class="cl.coopeuch.integracion.simuladorpublico.util.RouteFacade" id="beanRouteFacade"/>
+    <camelContext id="servicio-simuladorpublico-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:serviciosimuladorpublicoEndpoint"/>
+            <to id="soapToInicioWs" uri="direct:inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSSimuladorPublico"/>
+            <to id="restToInicioWs" uri="direct:inicio"/>
+        </route>
+        <route id="cx-RuteoOperaciones">
+            <from id="inicioFromServicio" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <setProperty id="ruteoOperacionesSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="ruteoOperacionesSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="ruteoOperacionesSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaSimularPublico">
+                        <simple>${header.operationName} == 'simular'</simple>
+                        <to id="simularPublicoEcommerceTo" uri="direct:simular"/>
+                    </when>
+                    <when id="rutaCrearLog">
+                        <simple>${header.operationName} == 'crearLog'</simple>
+                        <to id="crearLogTo" uri="direct:crearLog"/>
+                    </when>
+                    <when id="rutaActualizarEstadoLog">
+                        <simple>${header.operationName} == 'actualizarEstadoLog'</simple>
+                        <to id="actualizarEstadoLogTo" uri="direct:actualizarEstadoLog"/>
+                    </when>
+                    <when id="rutaSimularWhatsapp">
+                        <simple>${header.operationName} == 'simularWhatsapp'</simple>
+                        <to id="simularPublicoEcommerceTo" uri="direct:simularWhatsapp"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="simularPublicoEcommerce" streamCache="true">
+            <from id="simularPublicoEcommerceFrom" uri="direct:simular"/>
+            <doTry id="simularPublicoEcommerceTry">
+                <marshal id="simularPublicoEcommerceMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.simuladorpublico.wsdl"/>
+                </marshal>
+                <setProperty id="setBodyRequestSimulador" propertyName="bodyRequestSimulador">
+                    <simple>${body}</simple>
+                </setProperty>
+                <split id="splitPlazos" parallelProcessing="true" strategyRef="agregadorSimulacion">
+                    <tokenize token="plazoSimulacion" xml="true"/>
+                    <setProperty id="setPropertyPl" propertyName="propPlazo">
+                        <xpath resultType="String">//plazoSimulacion</xpath>
+                    </setProperty>
+                    <bean id="simularPublicoEcommerceValidaBodySeguro"
+                        method="generarTramaSimuladorPublicoEcommerce" ref="beanRouteFacade"/>
+                    <bean
+                        id="createJMSCorrelationIdSimularPublicoEcommerce"
+                        method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                    <to id="activemq-simularPublicoEcommerce" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                    <transform id="simularPublicoEcommerceTransform">
+                        <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                    </transform>
+                    <setHeader headerName="plazoSimulacion" id="plazoSimulacionSetHeader">
+                        <simple>${exchangeProperty.propPlazo}</simple>
+                    </setHeader>
+                    <to id="simularPublicoEcommerceTrama2xml" uri="xslt://transformations/out/IOC020101O_simularPublicoEcommerce.xsl?saxon=true"/>
+                    <unmarshal id="simularPublicoEcommerceToResponseSeguro">
+                        <jaxb contextPath="cl.coopeuch.integracion.simuladorpublico.wsdl"/>
+                    </unmarshal>
+                    <setProperty id="setBodyResponseSimulador" propertyName="respaldoBodySimulacion">
+                        <simple>${body}</simple>
+                    </setProperty>
+                </split>
+                <choice id="simularChoice">
+                    <when id="simularErrorWhen">
+                        <simple>${exchangeProperty.huboError} == 'true'</simple>
+                        <setBody id="setBodyError">
+                            <simple>${exchangeProperty.respaldoBodySimulacion}</simple>
+                        </setBody>
+                    </when>
+                    <otherwise id="otherwiseSinError">
+                        <bean id="simularPublicoEcommerceResponseBean"
+                            method="simularPublicoEcommerceResponse" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="simularPublicoEcommerceCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="simularPublicoEcommerceExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="simularWhatsapp" streamCache="true">
+            <from id="simularWhatsappFrom" uri="direct:simularWhatsapp"/>
+            <doTry id="simularWhatsappTry">
+                <marshal id="simularWhatsappMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.simuladorpublico.wsdl"/>
+                </marshal>
+                <setProperty id="setBodyRequestSimuladorWhatsapp" propertyName="bodyRequestSimuladorWhatsapp">
+                    <simple>${body}</simple>
+                </setProperty>
+                <bean id="simularWhatsappValidaBodyIn"
+                      method="generarTramaInSimuladoWhatsapp" ref="beanRouteFacade"/>
+                <bean id="createJMSCorrelationIdSimularWhatsapp"
+                      method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="simularWhatsappTrama2xml" uri="xslt://transformations/in/xml2tramaIOC020401I_simularWhatsapp.xsl?saxon=true"/>
+                <log id="logTramaIn" message="Trama IN ::: ${body}" />
+                <to id="activemq-simularWhatsapp" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="logTramaOut" message="Trama OUT ::: ${body}" />
+                <bean id="simularWhatsappValidaBodyOut"
+                      method="generarResponseSimuladorWhatsapp" ref="beanRouteFacade"/>
+                <unmarshal id="simularWhatsappToResponse">
+                    <jaxb contextPath="cl.coopeuch.integracion.simuladorpublico.wsdl"/>
+                </unmarshal>
+                <doCatch id="simularWhatsappCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="simularWhatsappExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="crearLog">
+            <from id="crearLogFrom" uri="direct:crearLog"/>
+            <doTry id="crearLogTry">
+                <marshal id="crearMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.simuladorpublico.wsdl"/>
+                </marshal>
+                <convertBodyTo id="crearLogConvertBodyToString" type="java.lang.String"/>
+                <setProperty id="crearLogRequestToProperty" propertyName="requestCrearLog">
+                    <simple>${body}</simple>
+                </setProperty>
+                <bean id="crearUUID" method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="crearLogXml2Trama" uri="xslt://transformations/in/xml2tramaIOC020201I_crearLog.xsl"/>
+                <to id="activemq-crearLog" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="crearLogTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="crearLogTrama2xml" uri="xslt://transformations/out/IOC020201O_crearLog.xsl?saxon=true"/>
+                <unmarshal id="crearConvertBodyToResponse">
+                    <jaxb contextPath="cl.coopeuch.integracion.simuladorpublico.wsdl"/>
+                </unmarshal>
+                <doCatch id="crearLogCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="crearLogExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="actualizarEstadoLog">
+            <from id="actualizarEstadoLogFrom" uri="direct:actualizarEstadoLog"/>
+            <doTry id="actualizarEstadoLogTry">
+                <setProperty id="inicioPropertyEstado" propertyName="estado">
+                    <simple>${body.entrada.estado}</simple>
+                </setProperty>
+                <choice id="actualizarEstadoLogChoice">
+                    <when id="actualizarEstadoLogWhen">
+                        <simple>${exchangeProperty.estado} != '1'</simple>
+                        <marshal id="actualizarEstadoMarshal">
+                            <jaxb contextPath="cl.coopeuch.integracion.simuladorpublico.wsdl"/>
+                        </marshal>
+                        <convertBodyTo
+                            id="actualizarEstadoConvertBodyToString" type="java.lang.String"/>
+                        <bean id="crearUUIDActualizarLog"
+                            method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                        <to id="actualizarEstadoLogXml2Trama" uri="xslt://transformations/in/xml2tramaIOC020201I_actualizarEstadoLog.xsl"/>
+                        <to id="activemq-actualizarEstadoLog" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <transform id="actualizarEstadoLogTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="actualizarEstadoLogTrama2xml" uri="xslt://transformations/out/IOC020201O_actualizarEstadoLog.xsl?saxon=true"/>
+                        <unmarshal id="actualizarEstadoConvertBodyToResponse">
+                            <jaxb contextPath="cl.coopeuch.integracion.simuladorpublico.wsdl"/>
+                        </unmarshal>
+                    </when>
+                    <otherwise id="otherwiseActualizarEstadoLog">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionActualizacion" message="No es posible realizar la operacion con Estado Actual"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="actualizarEstadoLogCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="actualizarEstadoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

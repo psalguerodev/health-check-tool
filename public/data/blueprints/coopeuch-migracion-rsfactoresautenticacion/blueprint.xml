@@ -1,0 +1,324 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsfactoresautenticacion" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <camelcxf:cxfEndpoint address="[{endpoint.safesigner.url.auth}]"
+        id="endpointServicioAuth" loggingFeatureEnabled="false"
+        serviceClass="cl.coopeuch.integracion.factoresautenticacion.wsdl.authws.AuthenticationWs" wsdlURL="etc/wsdl/AuthWs.wsdl">
+        <camelcxf:inInterceptors>
+            <bean class="cl.coopeuch.integracion.factoresautenticacion.interceptor.CustomLoggingInInterceptor" />
+        </camelcxf:inInterceptors>
+        <camelcxf:outInterceptors>
+            <bean class="cl.coopeuch.integracion.factoresautenticacion.interceptor.CustomLoggingOutInterceptor" />
+        </camelcxf:outInterceptors>     
+    </camelcxf:cxfEndpoint>
+    <camelcxf:cxfEndpoint address="[{endpoint.safesigner.url.card}]"
+        id="endpointServicioCard" loggingFeatureEnabled="false"
+        serviceClass="cl.coopeuch.integracion.factoresautenticacion.wsdl.cardws.CardWs" wsdlURL="etc/wsdl/CardWs.wsdl">
+        <camelcxf:inInterceptors>
+            <bean class="cl.coopeuch.integracion.factoresautenticacion.interceptor.CustomLoggingInInterceptor" />
+        </camelcxf:inInterceptors>
+        <camelcxf:outInterceptors>
+            <bean class="cl.coopeuch.integracion.factoresautenticacion.interceptor.CustomLoggingOutInterceptor" />
+        </camelcxf:outInterceptors>     
+    </camelcxf:cxfEndpoint>
+    <camelcxf:cxfEndpoint address="[{endpoint.safesigner.url.safesigner}]"
+        id="endpointServicioSafesigner" loggingFeatureEnabled="false"
+        serviceClass="cl.coopeuch.integracion.factoresautenticacion.wsdl.safesignerws.SafeSignerWs" wsdlURL="etc/wsdl/SafeSignerWs.wsdl">
+        <camelcxf:inInterceptors>
+            <bean class="cl.coopeuch.integracion.factoresautenticacion.interceptor.CustomLoggingInInterceptor" />
+        </camelcxf:inInterceptors>
+        <camelcxf:outInterceptors>
+            <bean class="cl.coopeuch.integracion.factoresautenticacion.interceptor.CustomLoggingOutInterceptor" />
+        </camelcxf:outInterceptors>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:cxfEndpoint address="[{endpoint.safesigner.url.sms}]"
+        id="endpointServicioSMS" loggingFeatureEnabled="false"
+        serviceClass="cl.coopeuch.integracion.factoresautenticacion.wsdl.smsws.SmsWs" wsdlURL="etc/wsdl/SmsWs.wsdl">
+        <camelcxf:inInterceptors>
+            <bean class="cl.coopeuch.integracion.factoresautenticacion.interceptor.CustomLoggingInInterceptor" />
+        </camelcxf:inInterceptors>
+        <camelcxf:outInterceptors>
+            <bean class="cl.coopeuch.integracion.factoresautenticacion.interceptor.CustomLoggingOutInterceptor" />
+        </camelcxf:outInterceptors>     
+    </camelcxf:cxfEndpoint>
+
+    <camelcxf:cxfEndpoint address="/WSFactoresAutenticacion"
+		id="endpointWSFactoresAutenticacion" loggingFeatureEnabled="true"
+		serviceClass="cl.coopeuch.integracion.factoresautenticacion.wsdl.WSFactoresAutenticacionSOAPPortType"
+		wsdlURL="etc/wsdl/WSFactoresAutenticacion.wsdl">
+		<camelcxf:properties>
+			<entry key="schema-validation-enabled" value="true" />
+		</camelcxf:properties>
+	</camelcxf:cxfEndpoint>
+    
+    <bean class="cl.coopeuch.integracion.factoresautenticacion.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="cl.coopeuch.integracion.factoresautenticacion.util.RouteFacadeAggregation" id="aggregator"/>
+    <bean class="cl.coopeuch.integracion.factoresautenticacion.util.LogIncidencias" id="beanLogIncidencias"/>
+	<bean id="logTraceIncidencias" class="org.slf4j.LoggerFactory" factory-method="getLogger">
+		<argument index="0" value="logFactoresAutenticacion" />
+	</bean>
+
+    <camelcxf:rsServer address="/RSFactoresAutenticacion"
+        id="endpointRSFactoresAutenticacion" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.factoresautenticacion.wsdl.WSFactoresAutenticacionSOAPPortType"/>
+       
+    <camelContext id="servicio-factores-autenticacion" xmlns="http://camel.apache.org/schema/blueprint">
+               
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSFactoresAutenticacion"/>
+            <to id="soapToInicio" uri="direct:inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSFactoresAutenticacion"/>
+            <to id="restToInicio" uri="direct:inicio"/>
+        </route>
+        <route id="iniciows">
+            <from id="iniciows" uri="direct:inicio"/>
+
+            <onCompletion>
+                <log id="logBodyFinal" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: FactoresAutenticacion(mismo) || Type: Outbound || Body: ${body}" />
+            </onCompletion>
+
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+
+                <bean id="generarIdflujoLog" method="generarIdFlujoLog" ref="beanLogIncidencias"/>
+                <log id="logBodyInicio" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: FactoresAutenticacion(mismo)|| Type: Inbound || Body: ${body}" />
+          
+                <choice id="inicioChoiceOperacion">                    
+                    <when id="inicioWhenOperacion-consultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="inicioTogenerarAuditoria" uri="direct:consultar"/>
+                    </when>
+                    <when id="inicioWhenOperacion-activarOTP">
+                        <simple>${header.operationName} == 'activarOTP'</simple>
+                        <to id="inicioTo-activarOTP" uri="direct:activarOTP"/>
+                    </when>                                
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatchOperacion">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="inicioOperacionErrorCod" propertyName="codigoError">
+                        <constant>517</constant>
+                    </setProperty>
+                    <to id="inicioToExceptionOp" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultar">
+            <from id="consultar-From" uri="direct:consultar"/>
+            <doTry id="consultar-DoTry">
+                <bean id="consultar-ValidarBean" method="validarRequest" ref="beanRouteFacade"/>
+                <choice>
+                	<when>
+                		<simple>${exchangeProperty.validarDatos}</simple>
+                		<multicast id="autenticacionFactores" parallelProcessing="true" strategyRef="aggregator">
+	                        <to id="estadoAutenticacionUsuario-To" uri="direct:estadoAutenticacionUsuario"/>
+	                        <to id="estadoTarjetaCoordenada-To" uri="direct:estadoTarjetaCoordenada"/>
+	                        <to id="estadoOTP-To" uri="direct:estadoOTP"/>
+	                        <to id="estadoPassCoopeuch-To" uri="direct:estadoPassCoopeuch"/>
+	                    </multicast>
+                	</when>
+                </choice>  
+                              
+                <doCatch id="indicadorCurseDGIllegalDoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="indicadorCurseDGToExcepcionSinCV" uri="direct:excepcion"/>
+                    <stop id="stopIndicadorCurseDG"/>
+                </doCatch>
+                <doCatch id="indicadorCurseDGDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="indicadorCurseDGCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="indicadorCurseDGToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+                
+        <route id="activarOTP">
+            <from id="activarOTP-From" uri="direct:activarOTP"/>
+            <doTry id="activarOTP-DoTry">
+                <bean id="activarOTP-ValidarBean" method="validarRequest" ref="beanRouteFacade"/>      
+                <bean id="requestObtenerDatosActivacionSMS-beans" method="requestObtenerDatosActivacionSMS" ref="beanRouteFacade"/>
+       			<to id="to-ActivacionSMS" uri="cxf:bean:endpointServicioSMS?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>
+                <bean id="responseActivacionSMS-beans" method="responseActivacionSMS" ref="beanRouteFacade"/>
+                <doCatch id="activarOTP-IllegalDoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="activarOTP-ToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stop-activarOTP"/>
+                </doCatch>
+                <doCatch id="activarOTP-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="activarOTP-CodigoError" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to id="activarOTP-ToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>    
+        
+        <route>
+        	<from id="estadoAutenticacionUsuario-from" uri="direct:estadoAutenticacionUsuario"/>
+	        	<bean id="requestObtenerStatusAutenticacion-beans" method="requestObtenerStatusAutenticacion" ref="beanRouteFacade"/>
+	       		<doTry>
+		       		<to id="to-ObtenerStatusAutenticacion" uri="cxf:bean:endpointServicioAuth?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>
+		   			<setProperty id="StatusAutenticacion-setProperty" propertyName="bodyStatusAutenticacion">
+		                <simple>${body}</simple>
+		            </setProperty>
+		            <doCatch id="estadoAutenticacionUsuario-IllegalDoCatch">
+		                    <exception>java.lang.IllegalArgumentException</exception>
+		                    <to id="estadoAutenticacionUsuario-ToExcepcion" uri="direct:excepcion"/>
+		                    <stop id="stop-estadoAutenticacionUsuario"/>
+	                </doCatch>
+	                <doCatch id="estadoAutenticacionUsuario-DoCatch">
+	                    <exception>java.lang.Exception</exception>
+	                    <setProperty id="estadoAutenticacionUsuario-CodigoError" propertyName="codigoError">
+	                        <constant>504</constant>
+	                    </setProperty>
+	                    <to id="estadoAutenticacionUsuario-ToExcepcion" uri="direct:excepcion"/>
+	                    <setProperty id="estadoAutenticacionUsuario-setProperty-Excepcion" propertyName="bodyStatusAutenticacion">
+			                <simple>${body}</simple>
+			            </setProperty>
+	                </doCatch>
+	            </doTry>
+        </route>
+        
+        <route>
+        	<from id="estadoTarjetaCoordenada-from" uri="direct:estadoTarjetaCoordenada"/>
+        	<doTry>
+	        	<bean id="requestObtenerStatusCard-beans" method="requestObtenerStatusCard" ref="beanRouteFacade"/>
+	       		<to id="to-ObtenerStatusCard" uri="cxf:bean:endpointServicioCard?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>
+				<setProperty id="StatusCard-setProperty" propertyName="bodyStatusCard">
+	                <simple>${body}</simple>
+	            </setProperty>
+	        	<doCatch id="estadoTarjetaCoordenada-IllegalDoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="estadoTarjetaCoordenada-ToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stop-estadoTarjetaCoordenada"/>
+                </doCatch>
+                <doCatch id="estadoTarjetaCoordenada-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="estadoTarjetaCoordenada-CodigoError" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to id="estadoTarjetaCoordenada-ToExcepcion" uri="direct:excepcion"/>
+                    <setProperty id="estadoTarjetaCoordenada-setProperty-Excepcion" propertyName="bodyStatusCard">
+		                <simple>${body}</simple>
+		            </setProperty>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route>
+        	<from id="estadoOTP-from" uri="direct:estadoOTP"/>
+        	<doTry id="estadoOTP-DoTry">
+	        	<bean id="requestObtenerStatusOTP-beans" method="requestObtenerStatusOTP" ref="beanRouteFacade"/>
+	       		<to id="to-ObtenerStatusOTP" uri="cxf:bean:endpointServicioSMS?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>
+	   			<setProperty id="StatusOTP-setProperty" propertyName="bodyStatusOTP">
+	                <simple>${body}</simple>
+	            </setProperty>
+	        	<doCatch id="estadoOTP-IllegalDoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="estadoOTP-ToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stop-estadoOTP"/>
+                </doCatch>
+                <doCatch id="estadoOTP-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="estadoOTP-CodigoError" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to id="estadoOTP-ToExcepcion" uri="direct:excepcion"/>
+                    <setProperty id="estadoOTP-setProperty-Excepcion" propertyName="bodyStatusOTP">
+		                <simple>${body}</simple>
+		            </setProperty>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route>
+        	<from id="estadoPassCoopeuch-from" uri="direct:estadoPassCoopeuch"/>
+        	<doTry>
+	        	<bean id="requestPassCoopeuch-beans" method="requestObtenerStatusPassCoopeuch" ref="beanRouteFacade"/>
+	       		<to id="to-ObtenerStatusPassCoopeuch" uri="cxf:bean:endpointServicioSafesigner?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>
+	   			<setProperty id="StatusPassCoopeuch-setProperty" propertyName="bodyPassCoopeuch">
+	                <simple>${body}</simple>
+	            </setProperty>
+	            <doCatch id="estadoPassCoopeuch-IllegalDoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="estadoPassCoopeuch-ToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stop-estadoPassCoopeuch"/>
+                </doCatch>
+                <doCatch id="estadoPassCoopeuch-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="estadoPassCoopeuch-CodigoError" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to id="estadoPassCoopeuch-ToExcepcion" uri="direct:excepcion"/>
+                    <setProperty id="estadoPassCoopeuch-setProperty-Excepcion" propertyName="bodyPassCoopeuch">
+		                <simple>${body}</simple>
+		            </setProperty>
+                </doCatch>
+            </doTry>
+        </route>
+
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <log id="logExcepcionInfo" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: Excepcion || Type: Info || Body: Clase: ${exception.class} , Mensaje: ${exception.message}" />
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault"
+					uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly" />
+	               
+                
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+    </camelContext>
+</blueprint>

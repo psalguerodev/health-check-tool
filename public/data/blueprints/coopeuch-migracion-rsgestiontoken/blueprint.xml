@@ -1,0 +1,541 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsserviciogestiontoken" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Endpoint wsdl gestion token -->
+    <cxf:cxfEndpoint address="/ServicioGestionToken"
+        id="servicioGestionTokenEndpoint"
+        serviceClass="cl.coopeuch.core.gestiontoken.gestiontoken.GestionTokenPortType" wsdlURL="wsdl/ServicioGestionToken.wsdl"/>
+    <cxf:rsServer address="/RSGestionToken" id="GestionTokenRest" serviceClass="cl.coopeuch.integracion.gestiontoken.rest.GestionTokenRest"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Conexion SqlServer -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{gestiontoken.jdbc.sqlserver.url}];charset=iso_1"/>
+        <property name="username" value="[{gestiontoken.jdbc.sqlserver.username}]"/>
+        <property name="password" value="[{gestiontoken.jdbc.sqlserver.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{gestiontoken.jdbc.sqlserver.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{gestiontoken.jdbc.sqlserver.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{gestiontoken.jdbc.sqlserver.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{gestiontoken.jdbc.sqlserver.maxActive}]"/>
+    </bean>
+    <!-- Llamada Procedimiento Almacenado -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.PA_consultarToken">
+        <argument ref="dataSourceSqlServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.PA_consultarToken"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="tokenID"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="PA_eliminarToken">
+        <argument ref="dataSourceSqlServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="PA_eliminarToken"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="tokenID"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="PA_registrarInstalacionApps">
+        <argument ref="dataSourceSqlServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="PA_registrarInstalacionApps"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="InstalacionID"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="Token"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="SO"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="VersionSO"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="PA_validarInstalacionApps">
+        <argument ref="dataSourceSqlServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="PA_validarInstalacionApps"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="InstalacionID"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="PA_registrarToken">
+        <argument ref="dataSourceSqlServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="PA_registrarToken"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="TokenID"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="expiration"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="expirationFinal"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="authorities"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.integracion.util.RouteFacade" id="routeFacade"/>
+    <camelContext id="servicio-gestion-token-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml disableFeatures="WRITE_DATES_AS_TIMESTAMPS"
+                id="jack" prettyPrint="true"/>
+        </dataFormats>
+        <route id="cxf-InicioREST">
+            <from id="inicioFrom-REST" uri="cxfrs:bean:GestionTokenRest"/>
+            <log id="_log3" message="operationName:${header.operationName}"/>
+            <choice id="inicioChoiceOperacion-REST">
+                <when id="inicioWhenOperacion-ConsultarToken-REST">
+                    <simple>${header.operationName} == 'ConsultarToken'</simple>
+                    <unmarshal id="ConsultarToken_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.gestiontoken.soap.ConsultarToken"/>
+                    </unmarshal>
+                    <bean id="consultarToken_bean6"
+                        method="ConsultarTokenRest" ref="routeFacade"/>
+                    <marshal id="consultarTokenF_marshal5">
+                        <jaxb contextPath="cl.coopeuch.core.gestiontoken.soap"/>
+                    </marshal>
+                    <to id="consultarToken_to7" uri="direct:inicio"/>
+                    <unmarshal id="consultarToken_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.core.gestiontoken.soap"/>
+                    </unmarshal>
+                    <bean id="consultarToken_bean7"
+                        method="ConsultarTokenResponseRest" ref="routeFacade"/>
+                    <marshal id="consultarToken_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.gestiontoken.soap.ConsultarTokenResponse"/>
+                    </marshal>
+                </when>
+                <when id="inicioWhenOperacion-eliminarToken-REST">
+                    <simple>${header.operationName} == 'EliminarToken'</simple>
+                    <unmarshal id="eliminarToken_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.gestiontoken.soap.EliminarToken"/>
+                    </unmarshal>
+                    <bean id="eliminarToken_bean6"
+                        method="EliminarTokenRest" ref="routeFacade"/>
+                    <marshal id="eliminarToken_marshal5">
+                        <jaxb contextPath="cl.coopeuch.core.gestiontoken.soap"/>
+                    </marshal>
+                    <to id="eliminarToken_to7" uri="direct:inicio"/>
+                    <unmarshal id="eliminarToken_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.core.gestiontoken.soap"/>
+                    </unmarshal>
+                    <bean id="eliminarToken_bean7"
+                        method="EliminarTokenResponseRest" ref="routeFacade"/>
+                    <marshal id="eliminarToken_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.gestiontoken.soap.EliminarTokenResponse"/>
+                    </marshal>
+                </when>
+                <when id="inicioWhenOperacion-registrarInstalacionApps-REST">
+                    <simple>${header.operationName} == 'RegistrarInstalacionApps'</simple>
+                    <unmarshal id="registrarInstalacionApps_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.gestiontoken.soap.RegistrarInstalacionApps"/>
+                    </unmarshal>
+                    <bean id="registrarInstalacionApps_bean6"
+                        method="RegistrarInstalacionAppsRest" ref="routeFacade"/>
+                    <marshal id="registrarInstalacionApps_marshal5">
+                        <jaxb contextPath="cl.coopeuch.core.gestiontoken.soap"/>
+                    </marshal>
+                    <to id="registrarInstalacionApps_to7" uri="direct:inicio"/>
+                    <unmarshal id="registrarInstalacionApps_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.core.gestiontoken.soap"/>
+                    </unmarshal>
+                    <bean id="registrarInstalacionApps_bean7"
+                        method="RegistrarInstalacionAppsResponseRest" ref="routeFacade"/>
+                    <marshal id="registrarInstalacionApps_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.gestiontoken.soap.RegistrarInstalacionAppsResponse"/>
+                    </marshal>
+                </when>
+                <when id="inicioWhenOperacion-validarInstalacionApps-REST">
+                    <simple>${header.operationName} == 'ValidarInstalacionApp'</simple>
+                    <unmarshal id="validarInstalacionApps_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.gestiontoken.soap.ValidarInstalacionApps"/>
+                    </unmarshal>
+                    <bean id="validarInstalacionApps_bean6"
+                        method="ValidarInstalacionAppsRest" ref="routeFacade"/>
+                    <marshal id="validarInstalacionApps_marshal5">
+                        <jaxb contextPath="cl.coopeuch.core.gestiontoken.soap"/>
+                    </marshal>
+                    <to id="validarInstalacionApps_to7" uri="direct:inicio"/>
+                    <unmarshal id="validarInstalacionApps_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.core.gestiontoken.soap"/>
+                    </unmarshal>
+                    <bean id="validarInstalacionApps_bean7"
+                        method="ValidarInstalacionAppsResponseRest" ref="routeFacade"/>
+                    <marshal id="validarInstalacionApps_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.gestiontoken.soap.ValidarInstalacionAppsResponse"/>
+                    </marshal>
+                </when>
+                <when id="inicioWhenOperacion-registrarToken-REST">
+                    <simple>${header.operationName} == 'RegistrarToken'</simple>
+                    <unmarshal id="registrarToken_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.gestiontoken.soap.RegistrarToken"/>
+                    </unmarshal>
+                    <bean id="registrarToken_bean6"
+                        method="RegistrarTokenRest" ref="routeFacade"/>
+                    <marshal id="registrarToken_marshal5">
+                        <jaxb contextPath="cl.coopeuch.core.gestiontoken.soap"/>
+                    </marshal>
+                    <to id="registrarToken_to7" uri="direct:inicio"/>
+                    <unmarshal id="registrarToken_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.core.gestiontoken.soap"/>
+                    </unmarshal>
+                    <bean id="registrarToken_bean7"
+                        method="RegistrarTokenResponseRest" ref="routeFacade"/>
+                    <marshal id="registrarToken_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.gestiontoken.soap.RegistrarTokenResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <route id="cx-RuteoOperaciones">
+            <from id="inicioFrom" uri="cxf:bean:servicioGestionTokenEndpoint?DataFormat=MESSAGE"/>
+            <to id="_toInicioWSDL" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-RuteoOperaciones-jms">
+            <from id="servicioGestionTokenEndpointListenerJms" uri="AMQ:queue:{{gestiontoken.amq.in.temp}}?preserveMessageQos=true"/>
+            <to id="_toInicioJMS" uri="direct:inicio"/>
+        </route>
+        <route id="cx-Soap-RuteoOperaciones">
+            <from id="servicioGestionTokenEndpointListener" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean
+                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                    id="guardaBody" method="guardaBody"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaconsultarToken">
+                        <simple>${body} contains 'ConsultarToken'</simple>
+                        <to id="consultarTokenValidator" uri="validator:xsd/soapGestionToken.xsd"/>
+                        <to id="consultarTokenTo" uri="direct:consultarToken"/>
+                    </when>
+                    <when id="rutaeliminarToken">
+                        <simple>${body} contains 'EliminarToken'</simple>
+                        <to id="eliminarTokenValidator" uri="validator:xsd/soapGestionToken.xsd"/>
+                        <to id="eliminarTokenTo" uri="direct:eliminarToken"/>
+                    </when>
+                    <when id="rutaregistrarInstalacionApps">
+                        <simple>${body} contains 'RegistrarInstalacionApps'</simple>
+                        <to id="registrarInstalacionAppsValidator" uri="validator:xsd/soapGestionToken.xsd"/>
+                        <to id="registrarInstalacionAppsTo" uri="direct:registrarInstalacionApps"/>
+                    </when>
+                    <when id="rutavalidarInstalacionApps">
+                        <simple>${body} contains 'ValidarInstalacionApp'</simple>
+                        <to id="validarInstalacionValidator" uri="validator:xsd/soapGestionToken.xsd"/>
+                        <to id="validarInstalacionAppsTo" uri="direct:validarInstalacionApps"/>
+                    </when>
+                    <when id="rutaregistrarToken">
+                        <simple>${body} contains 'RegistrarToken'</simple>
+                        <to id="registrarTokenValidator" uri="validator:xsd/soapGestionToken.xsd"/>
+                        <to id="registrarTokenTo" uri="direct:registrarToken"/>
+                    </when>
+                    <otherwise id="_otherwise1"/>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="ruteoOperacionesrestauraBody" method="restauraBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <!-- ruta de servicio Web que consulta Token del cliente-->
+        <route id="consultarToken">
+            <from id="consultarTokenFrom" uri="direct:consultarToken"/>
+            <doTry id="consultarTokenTry">
+                <setHeader headerName="tokenID" id="consultarTokenHeadertokenID">
+                    <xpath resultType="java.lang.String">//tokenID/text()</xpath>
+                </setHeader>
+                <to id="PA_consultarToken" uri="bean:dbo.PA_consultarToken"/>
+                <marshal id="consultarTokenResultset2xml" ref="jack"/>
+                <to id="consultarTokenXml2xml" uri="xslt://transformations/out/resultset2xml_consultarToken.xsl?saxon=true"/>
+                <doCatch id="consultarTokenCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="consultarTokenrestauraBody" method="restauraBody"/>
+                    <setBody id="consultarTokenSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarTokenFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="consultarTokenSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultarTokenFinally"/>
+            </doTry>
+        </route>
+        <!-- ruta de servicio Web que elimina Token del cliente-->
+        <route id="eliminarToken">
+            <from id="eliminarTokenFrom" uri="direct:eliminarToken"/>
+            <doTry id="eliminarTokenTry">
+                <setHeader headerName="tokenID" id="eliminarTokenHeadertokenID">
+                    <xpath resultType="java.lang.String">//tokenID/text()</xpath>
+                </setHeader>
+                <to id="PA_eliminarToken" uri="bean:PA_eliminarToken"/>
+                <marshal id="eliminarTokenResultset2xml" ref="jack"/>
+                <convertBodyTo id="eliminarTokenConvertBodyTo" type="java.lang.String"/>
+                <transform id="eliminarTokenTransform">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <to id="eliminarTokenXml2xml" uri="xslt://transformations/out/resultset2xml_eliminarToken.xsl?saxon=true"/>
+                <doCatch id="eliminarTokenCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="eliminarTokenrestauraBody" method="restauraBody"/>
+                    <setBody id="eliminarTokenSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="eliminarTokenFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="eliminarTokenSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="eliminarTokenFinally"/>
+            </doTry>
+        </route>
+        <!-- ruta de servicio Web que registra dispositivo del cliente-->
+        <route id="registrarInstalacionApps">
+            <from id="registrarInstalacionAppsFrom" uri="direct:registrarInstalacionApps"/>
+            <doTry id="registrarInstalacionAppsTry">
+                <setHeader headerName="Rut" id="registrarInstalacionAppsHeaderRut">
+                    <xpath resultType="java.lang.String">//rut/text()</xpath>
+                </setHeader>
+                <setHeader headerName="InstalacionID" id="registrarInstalacionAppsHeaderInstalacionID">
+                    <xpath resultType="java.lang.String">//idInstalacion/text()</xpath>
+                </setHeader>
+                <setHeader headerName="Token" id="registrarInstalacionAppsHeaderToken">
+                    <xpath resultType="java.lang.String">//token/text()</xpath>
+                </setHeader>
+                <setHeader headerName="SO" id="registrarInstalacionAppsHeaderSO">
+                    <xpath resultType="java.lang.String">//sistemaOperativo/text()</xpath>
+                </setHeader>
+                <setHeader headerName="VersionSO" id="registrarInstalacionAppsHeaderVersionSO">
+                    <xpath resultType="java.lang.String">//versionSO/text()</xpath>
+                </setHeader>
+                <log id="_log1" message="header: ${headers}"/>
+                <to id="PA_registrarInstalacionApps" uri="bean:PA_registrarInstalacionApps"/>
+                <log id="_log2" message="body: ${body}"/>
+                <marshal id="registrarInstalacionAppsResultset2xml" ref="jack"/>
+                <convertBodyTo
+                    id="registrarInstalacionAppsConvertBodyTo" type="java.lang.String"/>
+                <transform id="registrarInstalacionAppsTransform1">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <transform id="registrarInstalacionAppsTransform2">
+                    <simple>${in.body.replaceAll('&lt;&gt;','&lt;SALIDA&gt;')}</simple>
+                </transform>
+                <transform id="registrarInstalacionAppsTransform3">
+                    <simple>${in.body.replaceAll('&lt;/&gt;','&lt;/SALIDA&gt;')}</simple>
+                </transform>
+                <to id="registrarInstalacionAppsXml2xml" uri="xslt://transformations/out/resultset2xml_registrarInstalacionApps.xsl?saxon=true"/>
+                <doCatch id="registrarInstalacionAppsCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="registrarInstalacionAppsrestauraBody" method="restauraBody"/>
+                    <setBody id="registrarInstalacionAppsSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="registrarInstalacionAppsFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="registrarInstalacionAppsSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="registrarInstalacionAppsFinally"/>
+            </doTry>
+        </route>
+        <!-- ruta de servicio Web que valida dispositivo del cliente-->
+        <route id="validarInstalacionApps">
+            <from id="validarInstalacionAppsFrom" uri="direct:validarInstalacionApps"/>
+            <doTry id="validarInstalacionAppsTry">
+                <setHeader headerName="Rut" id="validarInstalacionAppsHeaderRut">
+                    <xpath resultType="java.lang.String">//rut/text()</xpath>
+                </setHeader>
+                <setHeader headerName="InstalacionID" id="validarInstalacionAppsHeaderIP">
+                    <xpath resultType="java.lang.String">//idInstalacion/text()</xpath>
+                </setHeader>
+                <to id="PA_validarInstalacionApps" uri="bean:PA_validarInstalacionApps"/>
+                <marshal id="validarInstalacionAppsResultset2xml" ref="jack"/>
+                <convertBodyTo id="validarInstalacionAppsConvertBodyTo" type="java.lang.String"/>
+                <transform id="validarInstalacionAppsTransform1">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <to id="validarInstalacionAppsXml2xml" uri="xslt://transformations/out/resultset2xml_validarInstalacionApps.xsl?saxon=true"/>
+                <doCatch id="validarInstalacionAppsCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="validarInstalacionAppsrestauraBody" method="restauraBody"/>
+                    <setBody id="validarInstalacionAppsSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="validarInstalacionAppsFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="validarInstalacionAppsSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="validarInstalacionAppsFinally"/>
+            </doTry>
+        </route>
+        <!-- ruta de servicio Web que registra token del cliente-->
+        <route id="registrarToken">
+            <from id="registrarTokenFrom" uri="direct:registrarToken"/>
+            <doTry id="registrarTokenTry">
+                <setHeader headerName="Rut" id="registrarTokenHeaderRut">
+                    <xpath resultType="java.lang.String">//rut/text()</xpath>
+                </setHeader>
+                <setHeader headerName="TokenID" id="registrarTokenHeaderTokenID">
+                    <xpath resultType="java.lang.String">//tokenID/text()</xpath>
+                </setHeader>
+                <setHeader headerName="expiration" id="registrarTokenHeaderexpiration">
+                    <xpath resultType="java.lang.String">//expiration/text()</xpath>
+                </setHeader>
+                <setHeader headerName="expirationFinal" id="registrarTokenHeaderexpirationFinal">
+                    <xpath resultType="java.lang.String">//expirationFinal/text()</xpath>
+                </setHeader>
+                <setHeader headerName="authorities" id="registrarTokenHeaderauthorities">
+                    <xpath resultType="java.lang.String">//authorities/text()</xpath>
+                </setHeader>
+                <to id="PA_registrarToken" uri="bean:PA_registrarToken"/>
+                <marshal id="registrarTokenResultset2xml" ref="jack"/>
+                <convertBodyTo id="registrarTokenConvertBodyTo" type="java.lang.String"/>
+                <transform id="registrarTokenTransform1">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <transform id="registrarTokenTransform2">
+                    <simple>${in.body.replaceAll('&lt;&gt;','&lt;SALIDA&gt;')}</simple>
+                </transform>
+                <transform id="registrarTokenTransform3">
+                    <simple>${in.body.replaceAll('&lt;/&gt;','&lt;/SALIDA&gt;')}</simple>
+                </transform>
+                <to id="registrarTokenXml2xml" uri="xslt://transformations/out/resultset2xml_registrarToken.xsl?saxon=true"/>
+                <doCatch id="registrarTokenCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="registrarTokenrestauraBody" method="restauraBody"/>
+                    <setBody id="registrarTokenSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="registrarTokenFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="registrarTokenSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="registrarTokenFinally"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

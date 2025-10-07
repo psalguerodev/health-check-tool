@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder persistent-id="global" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsmarcadoresfuncionalidad"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.marcadoresfuncionalidad}];charset=iso_1;domain=coopeuch1;usentlmv2=true"/>
+        <property name="username" value="[{jdbc.sqlserver.username.marcadoresfuncionalidad}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.marcadoresfuncionalidad}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.marcadoresfuncionalidad}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.marcadoresfuncionalidad}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.marcadoresfuncionalidad}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.marcadoresfuncionalidad}]"/>
+    </bean>
+    <cxf:cxfEndpoint address="/WSMarcadoresFuncionalidad"
+        id="MarcadoresFuncionalidadSOAP" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.wsdl.WSMarcadoresFuncionalidad" wsdlURL="etc/wsdl/WSMarcadoresFuncionalidad.wsdl"/>
+    <cxf:rsServer address="/RSMarcadoresFuncionalidad"
+        id="endpointMarcadoresFuncionalidadRest"
+        loggingFeatureEnabled="false" serviceClass="cl.coopeuch.integracion.rest.RSMarcadoresFuncionalidad"/>
+    <camelContext id="MarcadoresFuncionalidad" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="soap-inicio">
+            <from id="fromSoapService" uri="cxf:bean:MarcadoresFuncionalidadSOAP"/>
+            <setBody id="_setBody1">
+                <simple>${body.get(0)}</simple>
+            </setBody>
+            <to id="inicioSoapTo" uri="direct:inicio"/>
+        </route>
+        <route id="rest-inicio">
+            <from id="fromRestService" uri="cxfrs:bean:endpointMarcadoresFuncionalidadRest"/>
+            <choice id="_choice13">
+                <when id="_when16">
+                    <simple>${header.operationName} == 'consultar'</simple>
+                    <unmarshal id="_unmarshal1">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsdl.ConsultarRequest"/>
+                    </unmarshal>
+                    <to id="inicioRestTo" uri="direct:inicio"/>
+                    <marshal id="_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsdl.ConsultarResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <route id="_routeInicio">
+            <from id="inicioFrom" uri="direct:inicio"/>
+            <toD id="_toD1" uri="direct:${header.operationName}"/>
+        </route>
+        <route id="buscarRoute">
+            <from id="toBuscar" uri="direct:consultar"/>
+            <doTry id="_doTry6">
+            	<bean beanType="cl.coopeuch.integracion.utils.RouteFacade" method="validarCamposEntrada"/>
+                <to id="spConsultarMarcadores" uri="sql-stored:classpath:etc/sql/PAL_SEL_ObtenerMarcadores_WS.sql?dataSource=dataSourceSqlServer"/>
+                <setBody id="_setBody2">
+                    <simple>${body[#result-set-1]}</simple>
+                </setBody>
+                <bean
+                    beanType="cl.coopeuch.integracion.utils.RouteFacade"
+                    id="_beanSalida" method="transformarXml"/>
+                <doCatch id="_doCatch12">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log7" loggingLevel="ERROR" message="${property.CamelExceptionCaught}"/>
+                    <to id="_to17" uri="direct:excepcion"/>
+                </doCatch>
+                <doFinally id="_doFinally1">
+                    <removeHeaders id="_removeHeaders6" pattern="*"/>
+                </doFinally>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <log id="_log41" loggingLevel="ERROR" message="${property.CamelExceptionCaught}"/>
+            <bean beanType="cl.coopeuch.integracion.utils.RouteFacade"
+                id="excepcionBeanExcepcion" method="excepcion"/>
+        </route>
+    </camelContext>
+</blueprint>

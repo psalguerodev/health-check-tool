@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.0.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:ext="http://aries.apache.org/blueprint/xmlns/blueprint-ext/v1.0.0"
+    xmlns:soap="http://cxf.apache.org/blueprint/bindings/soap"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder persistent-id="wscampanas"/>
+    <bean class="org.tempuri.util.RouteFacade" id="beanRouteFacade"/>
+    <cxf:cxfEndpoint address="/wscampanas12.asmx"
+        id="fromCampanasEndPoint12"
+        serviceClass="org.tempuri.WscampanasSoap" wsdlURL="wsdl/Campanas12.wsdl"/>
+    <cxf:cxfEndpoint address="/wscampanas.asmx"
+        id="fromCampanasEndPoint"
+        serviceClass="org.tempuri.WscampanasSoap" wsdlURL="wsdl/Campanas11.wsdl"/>
+    <cxf:cxfEndpoint address="{{http-proxy.wscampanas.url.to}}"
+        id="toCampanasEndPoint"
+        serviceClass="org.tempuri.WscampanasSoap" wsdlURL="{{http-proxy.wscampanas.url.to}}?wsdl"/>
+    <cxf:rsServer address="/rscampanas.asmx" id="fromRSCampanasEndPoint"
+        loggingFeatureEnabled="true" serviceClass="org.tempuri.rest.CampanasRest"/>
+    <cxf:rsClient address="{{aws.agtw.ecd.mscampanas.endpoint}}"
+        id="awsApigwMsCampanasPrivEndpoint" loggingFeatureEnabled="true"/>
+    <camelContext id="servicio-campanas-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="gsonMap2Json" library="Gson" prettyPrint="true"/>
+        </dataFormats>
+        <route id="campanas" streamCache="true">
+            <from id="campanasFrom" uri="cxf:bean:fromCampanasEndPoint?dataFormat=MESSAGE"/>
+            <removeHeaders id="removeHeadersCampanas" pattern="CamelHttp*"/>
+            <to id="campanasTo" uri="cxf:bean:toCampanasEndPoint?dataFormat=MESSAGE"/>
+        </route>
+        <route id="campanas12" streamCache="true">
+            <from id="campanasFrom12" uri="cxf:bean:fromCampanasEndPoint12?dataFormat=MESSAGE"/>
+            <removeHeaders id="removeHeadersCampanas12" pattern="CamelHttp*"/>
+            <to id="campanasTo12" uri="cxf:bean:toCampanasEndPoint?dataFormat=MESSAGE"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:fromRSCampanasEndPoint"/>
+            <choice id="fromOperation">
+                <when id="whencampagnasvigentes">
+                    <simple>${header.operationName} == 'campagnasvigentes'</simple>
+                    <unmarshal id="unmarshalcampagnasvigentes">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.tempuri.Campagnasvigentes"/>
+                    </unmarshal>
+                    <bean id="campagnasvigentesRequest"
+                        method="campagnasvigentesRest" ref="beanRouteFacade"/>
+                    <to id="campagnasvigentesTo" uri="cxf:bean:toCampanasEndPoint?loggingFeatureEnabled=true"/>
+                    <marshal id="marshalcampagnasvigentesResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.tempuri.CampagnasvigentesResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenmodificaestado">
+                    <simple>${header.operationName} == 'modificaEstado'</simple>
+                    <unmarshal id="unmarshalmodificaestado">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.tempuri.ModificaEstado"/>
+                    </unmarshal>
+                    <bean id="modificaestadoRequest"
+                        method="modificaEstadoRest" ref="beanRouteFacade"/>
+                    <to id="modificaestadoTo" uri="cxf:bean:toCampanasEndPoint?loggingFeatureEnabled=true"/>
+                    <marshal id="marshalmodificaestadoResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.tempuri.ModificaEstadoResponse"/>
+                    </marshal>
+                    <wireTap id="wiretapToAws" uri="direct:msCampanasAwsRoute"/>
+                </when>
+                <when id="whenobtieneCampaingSitio">
+                    <simple>${header.operationName} == 'obtieneCampaingSitio'</simple>
+                    <unmarshal id="unmarshalobtieneCampaingSitio">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.tempuri.ObtieneCampaingSitio"/>
+                    </unmarshal>
+                    <bean id="obtieneCampaingSitioRequest"
+                        method="obtieneCampaingSitioRest" ref="beanRouteFacade"/>
+                    <to id="obtieneCampaingSitioTo" uri="cxf:bean:toCampanasEndPoint?loggingFeatureEnabled=true"/>
+                    <marshal id="marshalobtieneCampaingSitioResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.tempuri.ObtieneCampaingSitioResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenobtieneDatosCampana">
+                    <simple>${header.operationName} == 'obtieneDatosCampana'</simple>
+                    <unmarshal id="unmarshalobtieneDatosCampana">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.tempuri.ObtieneDatosCampana"/>
+                    </unmarshal>
+                    <bean id="obtieneDatosCampanaRequest"
+                        method="obtieneDatosCampanaRest" ref="beanRouteFacade"/>
+                    <to id="obtieneDatosCampanaTo" uri="cxf:bean:toCampanasEndPoint?loggingFeatureEnabled=true"/>
+                    <marshal id="marshalobtieneDatosCampanaResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="org.tempuri.ObtieneDatosCampanaResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <route id="msCampanasAwsRoute">
+            <from id="msCampanasFrom" uri="direct:msCampanasAwsRoute"/>
+            <bean id="msCampanasPreparaRequest"
+                method="msCampanasPreparaRequest" ref="beanRouteFacade"/>
+            <marshal id="msCampanasMarshalGson" ref="gsonMap2Json"/>
+            <convertBodyTo id="bodyToString" type="java.lang.String"/>
+            <to id="msCampanasToAws" uri="cxfrs://bean://awsApigwMsCampanasPrivEndpoint?throwExceptionOnFailure=false"/>
+        </route>
+    </camelContext>
+</blueprint>

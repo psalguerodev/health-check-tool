@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyWSCatalogoSuma"
+        persistent-id="wscatalogosuma" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cxf:rsServer address="/RSCatalogoSuma" id="endpointCatalogoSuma" serviceClass="cl.coopeuch.integracion.servicio.CatalogoSumaRest"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.activemq.pool.PooledConnectionFactory"
+        destroy-method="stop" id="poolConnectionFactory" init-method="start">
+        <property name="maxConnections" value="[{amq.catalogosuma.poolConnectionFactory}]"/>
+        <property name="connectionFactory" ref="jmsConnectionFactory"/>
+    </bean>
+    <bean class="org.apache.activemq.ActiveMQConnectionFactory" id="jmsConnectionFactory">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+    </bean>
+    <bean
+        class="org.springframework.jms.connection.JmsTransactionManager" id="jmsTransactionManager">
+        <property name="connectionFactory" ref="poolConnectionFactory"/>
+    </bean>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="connectionFactory" ref="poolConnectionFactory"/>
+        <property name="transacted" value="true"/>
+        <property name="transactionManager" ref="jmsTransactionManager"/>
+    </bean>
+    <bean class="org.apache.camel.builder.DeadLetterChannelBuilder" id="myDeadLetterErrorHandler">
+        <property name="deadLetterUri" value="beanAMQ:[{amq.catalogosuma.faul}]?jmsMessageType=Text"/>
+        <property name="redeliveryPolicy" ref="myRedeliveryPolicyConfig"/>
+    </bean>
+    <bean class="org.apache.camel.processor.RedeliveryPolicy" id="myRedeliveryPolicyConfig">
+        <property name="maximumRedeliveries" value="3"/>
+        <property name="redeliveryDelay" value="7000"/>
+    </bean>
+    <camelContext errorHandlerRef="myDeadLetterErrorHandler"
+        id="WSCatalogoSuma" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-rest">
+            <from id="fromInicioRest" uri="cxfrs:bean:endpointCatalogoSuma"/>
+            <toD id="toOperationNameRest" uri="direct:${header.operationName}"/>
+        </route>
+        <route id="inicioCrearPreventaJms">
+            <from id="fromCrearPreventaJms" uri="AMQ:queue:{{colas.servicio.catalogosuma.crearpreventa.in.temp}}?preserveMessageQos=true&amp;concurrentConsumers={{amq.catalogosuma.concurrentConsumers}}"/>
+            <to id="toCrearPreventaJms" uri="direct:crearPreVenta"/>
+        </route>
+        <route id="inicioAprobarJms">
+            <from id="fromInicioAprobarJms" uri="beanAMQ:queue:{{colas.servicio.catalogosuma.aprobar.in.temp}}?preserveMessageQos=true&amp;concurrentConsumers={{amq.catalogosuma.concurrentConsumers}}"/>
+            <setProperty id="_setProperty2" propertyName="doc_id">
+                <simple resultType="String">${header.doc_id}</simple>
+            </setProperty>
+            <setProperty id="_setProperty4" propertyName="numeroSolicitud">
+                <simple resultType="String">${header.numeroSolicitud}</simple>
+            </setProperty>
+            <to id="toAprobarPreVentaInicioJms" uri="direct:aprobarPreVentaInicio"/>
+            <when id="_when1">
+                <simple>${header.CamelHttpResponseCode} != '200'</simple>
+                <throwException exceptionType="java.lang.Exception"
+                    id="_throwException2" message="error"/>
+            </when>
+        </route>
+        <route id="inicioCancelarJms">
+            <from id="fromInicioAprobarJms" uri="AMQ:queue:{{colas.servicio.catalogosuma.cancelar.in.temp}}?preserveMessageQos=true&amp;transacted=true&amp;concurrentConsumers={{amq.catalogosuma.concurrentConsumers}}"/>
+            <setHeader headerName="doc_id" id="_setHeader12">
+                <simple>${header.doc_id}</simple>
+            </setHeader>
+            <to id="toCancelarPreVentaInicioJms" uri="direct:cancelarPreVentaInicio"/>
+        </route>
+        <route id="inicioObtenerProductos">
+            <from id="_fromObtenerProducto" uri="AMQ:queue:{{colas.servicio.catalogosuma.obtenerproducto.in.temp}}?preserveMessageQos=true&amp;transacted=true&amp;concurrentConsumers={{amq.catalogosuma.concurrentConsumers}}"/>
+            <to id="toObtenerProducto" uri="direct:obtenerProducto"/>
+        </route>
+        <route id="_routeListarProductos">
+            <from id="fromListarProductos" uri="direct:listarProductos"/>
+            <doTry id="_doTry2">
+                <removeHeaders id="_removeHeaders1" pattern="*"/>
+                <toD id="_toDListarProductos" uri="{{endpoint.url}}/{{endpoint.customer}}/collections?offset=${body.get(0)}&amp;limit=${body.get(1)}&amp;bridgeEndpoint=true&amp;throwExceptionOnFailure=false"/>
+                <setBody id="salidaListarProductos">
+                    <simple>${body}</simple>
+                </setBody>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to1" uri="direct:error"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeListarPorProducto">
+            <from id="fromListarPorProducto" uri="direct:listarPorProducto"/>
+            <doTry id="_doTry3">
+                <removeHeaders id="_removeHeaders2" pattern="*"/>
+                <toD id="_toDListarPorProducto" uri="{{endpoint.url}}/{{endpoint.customer}}/collections/${body.get(0)}/products?offset=${body.get(1)}&amp;limit=${body.get(2)}&amp;bridgeEndpoint=true&amp;throwExceptionOnFailure=false"/>
+                <setBody id="salidaListarPorProducto">
+                    <simple>${body}</simple>
+                </setBody>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to2" uri="direct:error"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeCostoEnvio">
+            <from id="fromCostoEnvio" uri="direct:costoEnvio"/>
+            <doTry id="_doTry5">
+                <removeHeaders id="_removeHeaders4" pattern="*"/>
+                <setHeader headerName="CamelHttpMethod" id="_setHeader3">
+                    <constant>GET</constant>
+                </setHeader>
+                <setBody id="_setBody1">
+                    <constant>123</constant>
+                </setBody>
+                <toD id="_toDCostoEnvio" uri="{{endpoint.url}}/{{endpoint.customer}}/product/shipping_cost?bridgeEndpoint=true&amp;throwExceptionOnFailure=false"/>
+                <setBody id="_setBody2">
+                    <simple>${body}</simple>
+                </setBody>
+                <doCatch id="_doCatch4">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to4" uri="direct:error"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeObtenerProducto">
+            <from id="fromObtenerProducto" uri="direct:obtenerProducto"/>
+            <doTry id="_doTry7">
+                <removeHeaders id="_removeHeaders7" pattern="*"/>
+                <setHeader headerName="CamelHttpMethod" id="_setHeader10">
+                    <constant>GET</constant>
+                </setHeader>
+                <transform id="_transform1">
+                    <method
+                        beanType="cl.coopeuch.integracion.util.RouteFacade" method="encode"/>
+                </transform>
+                <toD id="_toDObtenerProducto" uri="{{endpoint.url}}/{{endpoint.customer}}/product/${body}?bridgeEndpoint=true&amp;throwExceptionOnFailure=false"/>
+                <doCatch id="_doCatch3">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to3" uri="direct:error"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeCrearPreVenta">
+            <from id="fromCrearPreVenta" uri="direct:crearPreVenta"/>
+            <doTry id="_doTry4">
+                <removeHeaders id="_removeHeaders3" pattern="*"/>
+                <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader1">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="CamelHttpMethod" id="_setHeader2">
+                    <constant>POST</constant>
+                </setHeader>
+                <toD id="_toDCrearPreVenta" uri="{{endpoint.url}}/{{endpoint.customer}}/doc/create?bridgeEndpoint=true&amp;throwExceptionOnFailure=false"/>
+                <setBody id="salidaCrearPreVenta">
+                    <simple>${body}</simple>
+                </setBody>
+                <doCatch id="_doCatch7">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to7" uri="direct:error"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeCancelarPreventa">
+            <from id="fromCancelarPreVenta" uri="direct:cancelarPreVenta"/>
+            <removeHeaders id="_removeHeaders5" pattern="*"/>
+            <setHeader headerName="doc_id" id="_setHeader11">
+                <simple>${body}</simple>
+            </setHeader>
+            <setBody id="_setBody3">
+                <simple>${body.get(1)}</simple>
+            </setBody>
+            <to id="toCancelarPreVentaInicio" uri="direct:cancelarPreVentaInicio"/>
+        </route>
+        <route id="routeCancelarPreVenta">
+            <from id="fromCancelarPreVentaInicio" uri="direct:cancelarPreVentaInicio"/>
+            <doTry id="_doTry6">
+                <setHeader headerName="CamelHttpMethod" id="_setHeader4">
+                    <constant>PUT</constant>
+                </setHeader>
+                <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader5">
+                    <constant>application/json</constant>
+                </setHeader>
+                <toD id="toDCancelarPreVenta" uri="{{endpoint.url}}/{{endpoint.customer}}/doc/cancel/${header.doc_id}?bridgeEndpoint=true&amp;throwExceptionOnFailure=false"/>
+                <setBody id="_setBody4">
+                    <simple>${body}</simple>
+                </setBody>
+                <doCatch id="_doCatch5">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to5" uri="direct:error"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeAprobarPreventaRest">
+            <from id="fromAprobarPreVenta" uri="direct:aprobarPreVenta"/>
+            <removeHeaders id="_removeHeaders6" pattern="*"/>
+            <setProperty id="_setProperty3" propertyName="doc_id">
+                <simple resultType="String">${body.get(0)}</simple>
+            </setProperty>
+            <setBody id="_setBody6">
+                <simple>{}</simple>
+            </setBody>
+            <to id="aprobarPreVentaInicioRest" uri="direct:aprobarPreVentaInicio"/>
+        </route>
+        <route id="routeAprobarPreVenta">
+            <from id="fromAprobarPreVenta" uri="direct:aprobarPreVentaInicio"/>
+            <doTry id="_doTry1">
+                <setHeader headerName="CamelHttpMethod" id="_setHeader7">
+                    <constant>PUT</constant>
+                </setHeader>
+                <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader8">
+                    <constant>application/json</constant>
+                </setHeader>
+                <toD id="toDAprobarPreVenta" uri="{{endpoint.url}}/{{endpoint.customer}}/doc/approve/${property.doc_id}?bridgeEndpoint=true&amp;throwExceptionOnFailure=false"/>
+                <setBody id="_setBody5">
+                    <simple>${body}</simple>
+                </setBody>
+                <setHeader headerName="numeroSolicitud" id="_setHeader6">
+                    <simple resultType="String">${property.numeroSolicitud}</simple>
+                </setHeader>
+                <setHeader headerName="doc_id" id="_setHeader9">
+                    <simple resultType="String">${property.doc_id}</simple>
+                </setHeader>
+                <doCatch id="_doCatch6">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to6" uri="direct:error"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeError">
+            <from id="fromError" uri="direct:error"/>
+            <log id="_log1" loggingLevel="ERROR" message="${property.CamelExceptionCaught}"/>
+            <bean beanType="cl.coopeuch.integracion.util.RouteFacade"
+                id="errorGeneral" method="errorConexion"/>
+            <to id="excepcionToAmqFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+            <stop id="_stop10"/>
+        </route>
+    </camelContext>
+</blueprint>

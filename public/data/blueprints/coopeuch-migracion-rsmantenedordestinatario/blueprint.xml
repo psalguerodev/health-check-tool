@@ -1,0 +1,384 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="variablesGlobales"
+        persistent-id="global" placeholder-prefix="{["
+        placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="variablesLocales"
+        persistent-id="serviciomantenedordestinatario"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioMantenedorDestinatario"
+        id="servicioMantenedorDestinatarioEndpoint"
+        serviceClass="cl.coopeuch.integracion.mantenedordestinatario.wsdl.MantenedorDestinatarioPortType" wsdlURL="wsdl/ServicioMantenedorDestinatario.wsdl"/>
+    <cxf:rsServer address="/RSServicioMantenedorDestinatario"
+        id="ServicioMantenedorDestinatarioRest" serviceClass="cl.coopeuch.integracion.mantenedordestinatario.rest.ServicioMantenedorDestinatarioRest"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.transferencias]]"/>
+        <property name="password" value="[[jdbc.db2.password.transferencias]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.mantenedordestinatario}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.mantenedordestinatario}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.mantenedordestinatario}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.mantenedordestinatario}]"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.mantenedordestinatario.util.RouteFacade" id="beanRouteFacade"/>
+    <camelContext id="servicio-mantenedor-destinatario-context" xmlns="http://camel.apache.org/schema/blueprint">
+
+
+        <route id="cxf-InicioREST">
+            <from id="inicioFrom-REST" uri="cxfrs:bean:ServicioMantenedorDestinatarioRest"/>
+            <!-- Properties para flujo Dale -->
+            <setProperty propertyName="userIdDale">
+                <simple>{{coopeuch.serviciomantenedordestinatario.userIdDale}}</simple>						
+            </setProperty>
+            <setProperty propertyName="canalDale">
+                <simple>{{coopeuch.serviciomantenedordestinatario.canalDale}}</simple>						
+            </setProperty>
+            <doTry id="_doTry1">
+                <convertBodyTo id="ruteoOperacionesRestBodyTo" type="java.lang.String"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.mantenedordestinatario.other.BodyBackup"
+                    id="backupBodyRest" method="backupBody"/>
+                <choice id="inicioChoiceOperacion-REST">
+                    <when id="inicioWhenOperacionConsultarDestinatario-REST">
+                        <simple>${header.operationName} == 'consultarDestinatarios'</simple>
+                        <unmarshal id="consultarDestinatariosRequest">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.mantenedordestinatario.wsdl.ConsultarDestinatarios"/>
+                        </unmarshal>
+                        <to id="toConsultarDestinatarios" uri="direct:inicio"/>
+                        <bean id="consultarDestinatariosResponseBean"
+                            method="consultarDestinatariosResponseRest" ref="beanRouteFacade"/>
+                        <marshal id="consultarDestinatariosResponse">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.mantenedordestinatario.wsdl.ConsultarDestinatariosResponse"/>
+                        </marshal>
+                    </when>
+                    <when id="inicioWhenOperacionModificaDestinatario-REST">
+                        <simple>${header.operationName} == 'modificarDestinatario'</simple>
+                        <unmarshal id="modificarDestinatarioRequest">
+                            <json include="NON_NULL" library="Gson" unmarshalTypeName="cl.coopeuch.integracion.mantenedordestinatario.wsdl.ModificarDestinatario"/>
+                        </unmarshal>
+                        <to id="toModificarDestinatario" uri="direct:inicio"/>
+                        <bean id="modificarDestinatarioResponseBean"
+                            method="modificarDestinatarioResponseRest" ref="beanRouteFacade"/>
+                    </when>
+                    <when id="inicioWhenOperacionRegistrarDestinatario-REST">
+                        <simple>${header.operationName} == 'registrarDestinatario'</simple>
+                        <unmarshal id="registrarDestinatarioRequest">
+                            <json include="NON_NULL" library="Gson" unmarshalTypeName="cl.coopeuch.integracion.mantenedordestinatario.wsdl.RegistrarDestinatario"/>
+                        </unmarshal>
+                        <to id="toRegistrarDestinatario" uri="direct:inicio"/>
+                        <bean id="registrarDestinatarioResponseBean"
+                            method="registrarDestinatarioResponseRest" ref="beanRouteFacade"/>
+                    </when>
+                    <when id="inicioWhenOperacionEliminarDestinatario-REST">
+                        <simple>${header.operationName} == 'eliminarDestinatario'</simple>
+                        <unmarshal id="eliminarDestinatarioRequest">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.mantenedordestinatario.wsdl.EliminarDestinatario"/>
+                        </unmarshal>
+                        <to id="toEliminarDestinatario" uri="direct:inicio"/>
+                        <bean id="eliminarDestinatarioResponseBean"
+                            method="eliminarDestinatarioResponseRest" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="inicioOtherwiseRest">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalidaRest" message="La operacion solicitada no se encuentra operativa"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoErrorRest" propertyName="codigoError">
+                        <constant>999</constant>
+                    </setProperty>
+                    <setProperty id="tipoRequestRest" propertyName="tipoRequest">
+                        <simple>${header.operationName}</simple>
+                    </setProperty>
+                    <setProperty id="mensajeErrorRest" propertyName="mensajeError">
+                        <simple>${exception.message}</simple>
+                    </setProperty>
+                    <bean
+                        beanType="cl.coopeuch.integracion.mantenedordestinatario.other.BodyBackup"
+                        id="registrarDestinatarioRestoreBodyRest" method="restoreBody"/>
+                    <setBody id="registrarDestinatarioSetBodyErrorRest">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <bean id="excepcionBeanRestExcepcion"
+                        method="excepcionCrear" ref="beanRouteFacade"/>
+                    <bean id="catchBeanRestResponse"
+                        method="beanErrorRest" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+             
+        </route>
+        <route id="cx-RuteoOperaciones-cxf">
+            <from id="servicioMantenedorDestinatarioEndpointListener" uri="cxf:bean:servicioMantenedorDestinatarioEndpoint?DataFormat=MESSAGE"/>
+            <to id="_toInicioCXF" uri="direct:inicio"/>
+        </route>
+        <route id="cx-RuteoOperaciones-inicio">
+            <from id="servicioTransferencia-inicio" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.mantenedordestinatario.other.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.mantenedordestinatario.jms.CreateCorrelationId"
+                    id="createJMSCorrelationId" method="createJMSCorrelationId24"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaconsultarDestinatarios">
+                        <simple>${body} contains 'consultarDestinatarios'</simple>
+                        <setProperty
+                            id="consultarDestinatariosTipoRequest" propertyName="tipoRequest">
+                            <simple>consultarDestinatarios</simple>
+                        </setProperty>
+                        <to id="consultarDestinatariosValidator" uri="validator:xsd/soapConsultarDestinatarios.xsd"/>
+                        <to id="consultarDestinatariosTo" uri="direct:consultarDestinatarios"/>
+                    </when>
+                    <when id="rutamodificarDestinatario">
+                        <simple>${body} contains 'modificarDestinatario'</simple>
+                        <setProperty
+                            id="modificarDestinatarioTipoRequest" propertyName="tipoRequest">
+                            <simple>modificarDestinatario</simple>
+                        </setProperty>
+                        <to id="modificarDestinatarioValidator" uri="validator:xsd/soapModificarDestinatario.xsd"/>
+                        <to id="modificarDestinatarioTo" uri="direct:modificarDestinatario"/>
+                    </when>
+                    <when id="rutaregistrarDestinatario">
+                        <simple>${body} contains 'registrarDestinatario'</simple>
+                        <setProperty
+                            id="registrarDestinatarioTipoRequest" propertyName="tipoRequest">
+                            <simple>registrarDestinatario</simple>
+                        </setProperty>
+                        <to id="registrarDestinatarioValidator" uri="validator:xsd/soapRegistrarDestinatario.xsd"/>
+                        <to id="registrarDestinatarioTo" uri="direct:registrarDestinatario"/>
+                    </when>
+                    <when id="rutaeliminarDestinatario">
+                        <simple>${body} contains 'eliminarDestinatario'</simple>
+                        <setProperty
+                            id="eliminarDestinatarioTipoRequest" propertyName="tipoRequest">
+                            <simple>eliminarDestinatario</simple>
+                        </setProperty>
+                        <to id="eliminarDestinatarioValidator" uri="validator:xsd/soapEliminarDestinatario.xsd"/>
+                        <to id="eliminarDestinatarioTo" uri="direct:eliminarDestinatario"/>
+                    </when>
+                    <otherwise id="_otherwise1"/>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.mantenedordestinatario.other.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.mantenedordestinatario.error.SetBodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+
+        <route id="consultarDestinatarios">
+            <from id="consultarDestinatariosFrom" uri="direct:consultarDestinatarios"/>
+            <doTry id="consultarDestinatariosTry">
+                <setProperty id="_setProperty3" propertyName="userId">
+                    <xpath resultType="String">//userId</xpath>                  
+                </setProperty>
+                <setProperty id="_setProperty4" propertyName="idCliente">
+                    <xpath resultType="Integer">//numeroCliente</xpath>
+                </setProperty>
+                <setProperty id="_setProperty5" propertyName="correlativo">
+                    <xpath resultType="Integer">//correlativo</xpath>
+                </setProperty>
+                <setProperty id="_setProperty6" propertyName="flag">
+                    <xpath resultType="String">//flag</xpath>
+                </setProperty>
+                <to id="consultarDestinatarios-To" uri="sql-stored:classpath:sql/PA_SEL_CONSULTADESTINATARIO_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseConsultaDestinatario"/>
+                <bean id="validarConsultaDestinatarioBean"
+                    method="validarConsultaDestinatario" ref="beanRouteFacade"/>
+                <log id="consultarDestinatariosTramaResponse"
+                    loggingLevel="INFO" message="trama generada: ${body}"/>
+                <to id="consultarDestinatariosTrama2xml" uri="xslt://transformations/out/xmlOut_consultarDestinatarios.xsl?saxon=true"/>
+                <doCatch id="consultarDestinatariosCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.mantenedordestinatario.other.BodyBackup"
+                        id="consultarDestinatariosRestoreBody" method="restoreBody"/>
+                    <setBody id="consultarDestinatariosSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarDestinatariosFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.mantenedordestinatario.error.SetBodyError"
+                        id="consultarDestinatariosSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultarDestinatariosFinally"/>
+            </doTry>
+        </route>
+
+        <route id="modificarDestinatario">
+            <from id="modificarDestinatarioFrom" uri="direct:modificarDestinatario"/>
+            <doTry id="modificarDestinatarioTry">
+                <setProperty id="setProperty_userId_modificar" propertyName="userId">
+                    <xpath resultType="String">//userId</xpath>                  
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="rutDestinatario">
+                    <xpath resultType="java.lang.String">//entrada/rutDestinatario/text()</xpath>
+                </setProperty>
+                <bean id="modificarDestinatario-ValidacionCampos-Bean"
+                    method="validarCamposEntrada" ref="beanRouteFacade"/>
+                <choice id="modificarDestinatario-Principal-Choice">
+                    <when id="modificarDestinatario-Principal-When">
+                        <simple>${exchangeProperty.ValidacionEntrada} == 'OK'</simple>
+                        <to id="modificarDestinatarioXml2trama" uri="xslt://transformations/in/xml2tramaIOC130001I_modificarDestinatario.xsl"/>
+                        <log id="_log2" message="\n\nENTRADA RPG ModificarDestinatario: \n\n|${body}|"/>
+                        <to id="activeMQ-modificarDestinatario" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Shared&amp;replyTo={{amq.queue.res}}&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                        <log id="_log3" message="\n\nSALIDA RPG ModificarDestinatario: \n\n|${body}|"/>
+                        <transform id="modificarDestinatarioTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="modificarDestinatarioTrama2xml" uri="xslt://transformations/out/trama2xmlIOC130002O_modificarDestinatario.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="modificarDestinatario-Principal-Otherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="modificarDestinatario-throwException-ValidacionEntrada" message="${exchangeProperty.ValidacionEntrada}"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="modificarDestinatarioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.mantenedordestinatario.other.BodyBackup"
+                        id="modificarDestinatarioRestoreBody" method="restoreBody"/>
+                    <setBody id="modificarDestinatarioSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="modificarDestinatarioFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.mantenedordestinatario.error.SetBodyError"
+                        id="modificarDestinatarioSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="modificarDestinatarioFinally"/>
+            </doTry>
+        </route>
+
+        <route id="registrarDestinatario">
+            <from id="registrarDestinatarioFrom" uri="direct:registrarDestinatario"/>
+            <doTry id="registrarDestinatarioTry">
+                <setProperty id="setProperty_userId_registrar" propertyName="userId">
+                    <xpath resultType="String">//userId</xpath>                  
+                </setProperty>
+                <setProperty id="_setProperty1" propertyName="rutDestinatario">
+                    <xpath resultType="java.lang.String">//entrada/rutDestinatario/text()</xpath>
+                </setProperty>
+                <bean id="registrarDestinatario-ValidacionCampos-Bean"
+                    method="validarCamposEntrada" ref="beanRouteFacade"/>  
+                <choice id="registrarDestinatario-Principal-Choice">
+                    <when id="registrarDestinatario-Principal-When">
+                        <simple>${exchangeProperty.ValidacionEntrada} == 'OK'</simple>
+                        <to id="registrarDestinatarioXml2trama" uri="xslt://transformations/in/xml2tramaIOC130001I_registrarDestinatario.xsl"/>
+                        <log id="_log4" message="\nEntrada IOC1300 RegistrarDestinatario: \n|${body}|"/>
+                        <to id="activeMQ-registrarDestinatario" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Shared&amp;replyTo={{amq.queue.res}}&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                        <log id="_log5" message="\nSalida IOC1300 RegistrarDestinatario: \n|${body}|"/>
+                        <transform id="registrarDestinatarioTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="registrarDestinatarioTrama2xml" uri="xslt://transformations/out/trama2xmlIOC130002O_registrarDestinatario.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="registrarDestinatario-Principal-Otherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="registrarDestinatario-throwException-ValidacionEntrada" message="${exchangeProperty.ValidacionEntrada}"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="registrarDestinatarioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.mantenedordestinatario.other.BodyBackup"
+                        id="registrarDestinatarioRestoreBody" method="restoreBody"/>
+                    <setBody id="registrarDestinatarioSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="registrarDestinatarioFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.mantenedordestinatario.error.SetBodyError"
+                        id="registrarDestinatarioSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="registrarDestinatarioFinally"/>
+            </doTry>
+        </route>
+
+        <route id="eliminarDestinatario">
+            <from id="eliminarDestinatarioFrom" uri="direct:eliminarDestinatario"/>
+            <doTry id="eliminarDestinatarioTry">
+                <setProperty id="setProperty_userId_eliminar" propertyName="userId">
+                    <xpath resultType="String">//userId</xpath>                  
+                </setProperty>
+                <to id="eliminarDestinatarioXml2trama" uri="xslt://transformations/in/xml2tramaIOC130001I_eliminarDestinatario.xsl"/>
+                <log id="_log7" message="\nEntrada IOC1300 EliminarDestinatario: \n|${body}|"/>
+                <to id="activeMQ-eliminarDestinatario" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Shared&amp;replyTo={{amq.queue.res}}&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="_log8" message="\nSalida IOC1300 EliminarDestinatario: \n|${body}|"/>
+                <transform id="eliminarDestinatarioTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="eliminarDestinatarioTrama2xml" uri="xslt://transformations/out/trama2xmlIOC130002O_eliminarDestinatario.xsl?saxon=true"/>
+                <doCatch id="eliminarDestinatarioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.mantenedordestinatario.other.BodyBackup"
+                        id="eliminarDestinatarioRestoreBody" method="restoreBody"/>
+                    <setBody id="eliminarDestinatarioSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="eliminarDestinatarioFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.mantenedordestinatario.error.SetBodyError"
+                        id="eliminarDestinatarioSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="eliminarDestinatarioFinally"/>
+            </doTry>
+        </route>
+        
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

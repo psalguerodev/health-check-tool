@@ -1,0 +1,246 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsgestionpagoexpress" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.wsgestionpagoexpress}]/PagoExpress;charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.wsgestionpagoexpress}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.wsgestionpagoexpress}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.wsgestionpagoexpress}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.wsgestionpagoexpress}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.wsgestionpagoexpress}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.wsgestionpagoexpress}]"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.gestionpagoexpress.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <http-conf:conduit name="*.http-conduit">
+        <http-conf:client ConnectionTimeout="25000" ReceiveTimeout="25000"/>
+    </http-conf:conduit>
+    <camelcxf:rsClient address="[{endpoint.wsnotificaciones.enviar}]"
+        id="endpointRSNotificaciones" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>    
+    <camelcxf:cxfEndpoint address="/WSGestionPagoExpress"
+        id="endpointWSGestionPagoExpress"
+        serviceClass="cl.coopeuch.integracion.gestionpagoexpress.wsdl.WSGestionPagoExpressSOAPPortType" wsdlURL="etc/wsdl/WSGestionPagoExpress.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSGestionPagoExpress"
+        id="endpointRSGestionPagoExpress" serviceClass="cl.coopeuch.integracion.gestionpagoexpress.wsdl.WSGestionPagoExpressSOAPPortType"/>
+    <camelContext id="servicio-gestion-pago-express" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSGestionPagoExpress"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSGestionPagoExpress"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionActualizarTokenWP">
+                        <simple>${header.operationName} == 'actualizarTokenWP'</simple>
+                        <to id="toActualizarTokenWP" uri="direct:actualizarTokenWP"/>
+                    </when>
+                    <when id="inicioWhenOperacionEnviarComprobantePago">
+                        <simple>${header.operationName} == 'enviarComprobantePago'</simple>
+                        <to id="toEnviarComprobantePago" uri="direct:enviarComprobantePago"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="actualizarTokenWP">
+            <from id="actualizarTokenWPFrom" uri="direct:actualizarTokenWP"/>
+            <doTry id="actualizarTokenWP-DoTry">
+                <bean
+                    id="ProcedimientoAlmacenado-actualizarTokenWP-Bean"
+                    method="actualizarTokenWP" ref="beanRouteFacade"/>
+                <to id="pa_updTokenWP-To" uri="sql-stored:classpath:etc/sql/pa_insTokenWP.sql?dataSource=dataSourceSqlServer&amp;outputHeader=response"/>
+                <doCatch id="actualizarTokenWP-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log_actTokenWP" loggingLevel="ERROR" message="Traza de error actualizarTokenWP: ${exception}"/>
+                    <setProperty id="actualizarTokenWPPACodErrorSQL" propertyName="codigoError">
+                        <simple>464</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty10" propertyName="codigoServicio">
+                        <simple>464</simple>
+                    </setProperty>
+                    <to id="cambiaMensajeError_464" uri="direct:cambiaMensajeError"/>
+                    <setBody id="actualizarTokenWP-SetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="actualizarTokenWP-excepcionLog"
+                        loggingLevel="ERROR" message="Ha ocurrido un error al ejecutar el Procedimiento Almacenado: ${body}"/>
+                    <to id="toActualizarTokenWPExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+
+        <route id="enviarComprobantePago">
+            <from id="enviarComprobantePagoFrom" uri="direct:enviarComprobantePago"/>
+            <doTry id="enviarComprobantePago-DoTry">
+                <bean id="datosOperacionEnviarComprobantePago-Bean"
+                    method="datosOperacionEnviarComprobantePago" ref="beanRouteFacade"/>
+                        <to id="datosOperacionEnviarComprobantePago-validarToken-To" uri="direct:validarToken"/>
+                        <choice id="datosOperacionEnviarComprobantePagoCVChoice">
+                            <when id="datosOperacionEnviarComprobantePagoCVWhen">
+                                <simple>${exchangeProperty.CODIGO} == '200'</simple>
+                                <to id="datosOperacionEnviarComprobantePago-obtenerDatosTransaccion-To" uri="direct:obtenerDatosTransaccion"/>
+                                <to id="datosOperacionEnviarComprobantePago-wsnotificaciones-To" uri="direct:WSNotificaciones"/>
+                                <bean id="enviarComprobantePago-BeanRespuesta"
+                                    method="enviarComprobantePagoResponse" ref="beanRouteFacade"/>
+                            </when>
+                            <otherwise id="error-autorizarPagoProductoCV-Otherwise">
+                                <setProperty
+                                    id="enviarComprobantePago-ResponseError-Origen" propertyName="origenError">
+                                    <constant>WSGestionPagoExpress_enviarComprobantePagoFrom</constant>
+                                </setProperty>
+                                 <bean id="enviarComprobantePago-ResponseError"
+                                    method="errorValidarToken" ref="beanRouteFacade"/>                               
+                                
+                            </otherwise>
+                        </choice>
+                <doCatch id="enviarComprobantePagoIADoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <log message="Error: ${exception.stacktrace}"/>
+                    <to id="enviarComprobantePagoToExcepcion1" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="enviarComprobantePagoDBDoCatch">
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty id="enviarComprobantePagoDBCodigoError" propertyName="codigoError">
+                        <constant>505</constant>
+                    </setProperty>
+                    <log message="Error: ${exception.stacktrace}"/>
+                    <to id="enviarComprobantePagoToExcepcion2" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="enviarComprobantePagoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="enviarComprobantePagoCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <log message="Error: ${exception.stacktrace}"/>
+                    <to id="enviarComprobantePagoToExcepcion3" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="enviarComprobantePagoDoCatch2">
+                    <exception>java.io.IOException</exception>
+                    <setProperty id="enviarComprobantePagoCodigoError2" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <log message="Error: ${exception.stacktrace}"/>
+                    <to id="enviarComprobantePagoToExcepcion4" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+
+        <route id="validarToken">
+            <from id="validarToken-from" uri="direct:validarToken"/>
+                <to id="pa_selValidarToken-To" uri="sql-stored:classpath:etc/sql/pa_selValidarToken.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseValidarToken"/>
+                <bean id="ProcedimientoAlmacenado-validarToken-Bean"
+                    method="validarToken" ref="beanRouteFacade"/>
+        </route>
+
+        <route id="obtenerDatosTransaccion">
+            <from id="obtenerDatosTransaccion-from" uri="direct:obtenerDatosTransaccion"/>
+                <to id="pa_selProductosTransaccion-To" uri="sql-stored:classpath:etc/sql/pa_selProductosTransaccion.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseProductosTransaccion"/>
+                <bean id="ProcedimientoAlmacenado-obtenerDatosTransaccion-Bean"
+                    method="obtenerDatosTransaccion" ref="beanRouteFacade"/>
+        </route>
+
+        <route id="WSNotificaciones">
+            <from id="WSNotificaciones-from" uri="direct:WSNotificaciones"/>
+                <bean id="Request-WSNotificaciones-Bean"
+                    method="wsnotificacionesEnviarRequest" ref="beanRouteFacade"/>
+                <log message="Resquest WSNotificaciones: ${body}"></log>
+                <doTry id="WSNotificaciones-DoTry">
+                	<to id="WSNotificaciones-To" uri="cxfrs:bean:endpointRSNotificaciones?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                	<convertBodyTo id="consultaLogConvertBodyToString" type="java.lang.String"/>
+                	<log message="Response WSNotificaciones: ${body}"></log>   
+	                <doCatch id="WSNotificacionesDoCatch">
+	                    <exception>java.net.SocketTimeoutException</exception>
+						<throwException
+                            exceptionType="java.io.IOException"
+                            id="enviarThrowException" message="El servicio fuse WSNotificaciones - Se ha demorado en contestar (Timeout)"/>
+	                </doCatch>
+                </doTry>
+                
+                <choice id="enviarChoice">
+                    <when id="enviarResponseSinError">
+                        <simple>${header.CamelHttpResponseCode} == '200'</simple>
+                        <bean id="Response-WSNotificaciones-Bean"
+                             method="wsnotificacionesEnviarResponse" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="enviarResponseConError">
+                        <throwException
+                            exceptionType="java.io.IOException"
+                            id="enviarThrowException" message="El servicio fuse WSNotificaciones - Enviar ha respondido con error"/>
+                    </otherwise>
+                </choice>
+        </route>
+
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

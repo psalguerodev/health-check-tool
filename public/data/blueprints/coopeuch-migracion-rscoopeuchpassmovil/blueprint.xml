@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wscoopeuchpassmovil" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <cxf:cxfEndpoint address="/WSCoopeuchPassMovil"
+        id="coopeuchPassSOAP" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.tarea.wscoopeuchpassmovil.wsdl.WSCoopeuchPassMovilSOAPPortType" wsdlURL="etc/wsdl/WSCoopeuchPassMovil.wsdl">
+        <cxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </cxf:properties>
+    </cxf:cxfEndpoint>
+    <cxf:cxfEndpoint
+        address="{{wscoopeuchpass.safesigner.safesignerws.endpoint}}"
+        id="endpointClientWSSafesigner" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.tarea.wscoopeuchpassmovil.client.wsdl.SafeSignerWs" wsdlURL="etc/wsdl/SafeSigner.wsdl"/>
+    <cxf:rsClient
+        address="[{wscoopeuchpass.safesigner.safesignerrest.mobile.endpoint}]"
+        id="endpointRestMovilSafeSigner" loggingFeatureEnabled="true"
+        password="[{wscoopeuchpass.safesigner.safesignerrest.mobile.endpoint.clave}]"
+        serviceClass="cl.coopeuch.integracion.wscoopeuchpassmovil.wsdl.client.safesigner.movil.MobileApi" username="[{wscoopeuchpass.safesigner.safesignerrest.mobile.endpoint.usuario}]">
+        <cxf:properties>
+            <entry key="supportUnwrapped" value="true"/>
+        </cxf:properties>
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="dropRootElement" value="true"/>
+    </bean>
+    <cxf:rsServer address="/RSCoopeuchPassMovil" 
+        id="endpointCoopeuchPassMovilRest" serviceClass="cl.coopeuch.integracion.tarea.wscoopeuchpassmovil.wsdl.WSCoopeuchPassMovilSOAPPortType"/>
+    <bean
+        class="cl.coopeuch.integracion.wscoopeuchpassmovil.util.RouteFacade" id="beanRouteFacade"/>
+    <bean
+        class="cl.coopeuch.integracion.wscoopeuchpassmovil.util.RouteExcepcionFacade" id="beanRouteExcepcionFacade"/>
+    <camelContext id="WSCoopeuchPassMovil" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="rest-inicio">
+            <from id="fromRestService" uri="cxfrs:bean:endpointCoopeuchPassMovilRest"/>
+            <setProperty id="inicioSetRequest1" propertyName="requestEntrada">
+                <simple>${body}</simple>
+            </setProperty>
+            <setProperty id="inicioSetTipoRequest1" propertyName="tipoRequest">
+                <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+            </setProperty>
+            <setProperty id="inicioSetCodigoErrorDefault1" propertyName="codigoError">
+                <constant>0</constant>
+            </setProperty>
+            <choice id="_choice1">
+                <when id="_when1">
+                    <simple>${header.operationName} == 'consultarVersion'</simple>
+                    <to id="consultarVersionRest" uri="direct:consultarVersion"/>
+<!--                     <bean id="_bean1" -->
+<!--                         method="salidaRestConsultarVersion" ref="beanRouteFacade"/> -->
+                </when>
+                <when id="_when2">
+                    <simple>${header.operationName} == 'registrarMovil'</simple>
+                    <setProperty id="_setProperty1" propertyName="requestEntrada">
+                        <simple>${body.get(0)}</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty2" propertyName="tipoRequest">
+                        <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty3" propertyName="codigoError">
+                        <constant>0</constant>
+                    </setProperty>
+                    <to id="registrarMovilRest" uri="direct:registrarMovil"/>
+                </when>
+            </choice>
+        </route>
+        <route id="soap-inicio">
+            <from id="inicioSoapFrom" uri="cxf:bean:coopeuchPassSOAP"/>
+            <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                <simple>${body}</simple>
+            </setProperty>
+            <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+            </setProperty>
+            <setProperty id="inicioSetCodigoErrorDefault" propertyName="codigoError">
+                <constant>0</constant>
+            </setProperty>
+            <toD id="soapToInicio" uri="direct:${header.operationName}"/>
+        </route>
+        <route id="consultarVersion">
+            <from id="consultarVersionFrom" uri="direct:consultarVersion"/>
+            <doTry id="_doTry1">
+                <removeHeaders id="_removeHeaders1" pattern="*"/>
+                <setHeader headerName="operationName" id="safeSignerSetHeaderOperationName">
+                    <constant>AppVersion</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="safeSignerSetHeaderoperationNamespace">
+                    <constant>http://orand.cl/safesigner</constant>
+                </setHeader>
+                <bean id="transformarConsultarRequestToAppVersionBean"
+                    method="transformarConsultarRequestToAppVersion" ref="beanRouteFacade"/>
+                <to id="soapEndpointSafeSigner" uri="cxf:bean:endpointClientWSSafesigner?continuationTimeout=5000&amp;password={{wscoopeuchpass.safesigner.safesignerws.clave}}&amp;username={{wscoopeuchpass.safesigner.safesignerws.usuario}}"/>
+                <bean id="transformarConsultarResponseToAppVersionBean"
+                    method="transformarConsultarResponseToAppVersion" ref="beanRouteFacade"/>
+                <doCatch id="consultarVersionDoCatchTimeOut">
+                    <exception>java.net.SocketTimeoutException</exception>
+                    <exception>java.net.ConnectException</exception>
+                    <setProperty id="consultarVersionPropertyCodigo" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to id="consultarVersionToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="_stop1"/>
+                </doCatch>
+                <doCatch id="consultarVersionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarVersionPropertyCodigo" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="consultarVersionResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="_stop2"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="registrarMovil">
+            <from id="registrarMovilFrom" uri="direct:registrarMovil"/>
+            <doTry id="registrarMovilTry">
+                <bean id="wsSafeSignerRegistrarRequestBean"
+                    method="transformRegistrarMovilRequestToRegisterRequest" ref="beanRouteFacade"/>
+                <setProperty id="restPathConfirmar" propertyName="restHttpPath">
+                    <constant>registrar</constant>
+                </setProperty>
+                <log message="4444444444444 ${body}"></log>
+                <to id="toWSSafeSignerRegistrar" uri="direct:conectarSafeSignerMovil"/>
+                <bean id="wsSafeSignerRegistrarResponseBean"
+                    method="transformRegisterResponseToRegistrarMovilResponse" ref="beanRouteFacade"/>
+                <doCatch id="registrarMovilDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="registrarMovilCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toregistrarMovilExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="conectarSafeSignerMovil">
+            <from id="conectarSafeSignerMovilFrom" uri="direct:conectarSafeSignerMovil"/>
+            <doTry id="conectarSafeSignerMovilTry">
+                <removeHeaders id="wsRemoveHeadersMovil" pattern="*"/>
+                <setHeader headerName="CamelHttpPath" id="safeSignerMovilSetPath">
+                    <simple>${exchangeProperty.restHttpPath}</simple>
+                </setHeader>
+                <setHeader headerName="Content-Type" id="safeSignerMovilSetContentType">
+                    <constant>application/json</constant>
+                </setHeader>
+                <to id="restEndpointSafeSignerMovil" uri="cxfrs://bean://endpointRestMovilSafeSigner"/>
+                <convertBodyTo id="registrarResponseConvertTo" type="java.lang.String"/>
+                <doCatch id="conectarSafeSignerMovilDoCatchTimeOut">
+                    <exception>java.net.SocketTimeoutException</exception>
+                    <setProperty
+                        id="conectarSafeSignerMovilPropertyCodigo" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to id="conectarSafeSignerMovilToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarSafeSignerMovilErrorStop"/>
+                </doCatch>
+                <doCatch id="conectarSafeSignerMovilDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="conectarSafeSignerMovilPropertyCodigo" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="conectarSafeSignerMovilToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarSafeSignerMovilErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <wireTap id="excepcionSendColaError" uri="direct:envioColaError"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="procesaExcepcion" ref="beanRouteExcepcionFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="envioColaError">
+            <from id="envioColaErrorFrom" uri="direct:envioColaError"/>
+            <doTry id="envioColaErrorTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteExcepcionFacade"/>
+                <marshal id="envioColaErrorMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="envioColaErrorConvertTo" type="java.lang.String"/>
+                <to id="envioColaErrorToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <doCatch id="envioColaErrorDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="envioColaErrorLog" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del servicio: Request: ${body} Error: ${exception}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

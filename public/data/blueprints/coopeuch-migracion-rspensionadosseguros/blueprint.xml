@@ -1,0 +1,758 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wspensionadosseguros" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.pensionadosSeguros.util.RouteFacade" id="beanRouteFacade"/>
+    <bean
+        class="cl.coopeuch.integracion.pensionadosSeguros.util.ConcatenarDocumentos" id="agregarDocumentos"/>
+    <camelcxf:cxfEndpoint address="/WSPensionadosSeguros"
+        id="endpointWSPensionadosSeguros" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.pensionadosSeguros.wsdl.WSPensionadosSegurosSOAPPortType" wsdlURL="etc/wsdl/WSPensionadosSeguros.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:cxfEndpoint
+        address="[{wspensionadosseguros.servicio.wsdocumento.endpoint}]"
+        id="endpointWsdocumento" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.pensionadosSeguros.wsdl.wsdocumento.WSDocumentoSOAPPortType" wsdlURL="etc/wsdl/WSDocumento.wsdl"/>
+    <camelcxf:cxfEndpoint
+        address="[{wspensionadosseguros.servicio.wsfirmatoc.endpoint}]"
+        id="endpointwsfirmatoc" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.pensionadosSeguros.wsdl.wsfirmatoc.WSFirmaTocSOAPPortType" wsdlURL="etc/wsdl/FirmaToc.wsdl"/>
+    <camelcxf:cxfEndpoint
+        address="[{wspensionadosseguros.servicio.persona.endpoint}]"
+        id="endpointPersona" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.pensionadosSeguros.wsdl.persona.PersonaPortType" wsdlURL="etc/wsdl/ServicioPersona.wsdl"/>
+    <camelcxf:rsServer address="/RSPensionadosSeguros"
+        id="endpointWSPensionadosSegurosRest"
+        loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.pensionadosSeguros.wsdl.WSPensionadosSegurosSOAPPortType"/>
+    <camelcxf:rsClient
+        address="[{wspensionadosseguros.servicio.consulta.endpoint}]"
+        id="endpointConsulta" loggingFeatureEnabled="true"/>
+    <camelcxf:rsClient
+        address="[{wspensionadosseguros.servicio.mandato.endpoint}]"
+        id="endpointMandato" loggingFeatureEnabled="true"/>
+    <camelContext id="servicio-pensionadosSeguros" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:endpointWSPensionadosSegurosRest"/>
+            <to id="restToConsultar" uri="direct:inicio"/>
+        </route>
+        <route id="soap-inicio">
+            <from id="inicioSoapServicio" uri="cxf:bean:endpointWSPensionadosSeguros"/>
+            <to id="SoapToConsultar" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setProperty id="inicioSetCodigoErrorDefault" propertyName="codigoError">
+                    <constant>0</constant>
+                </setProperty>
+                <setProperty id="inicioSetCodigoConvenio" propertyName="CodigoConvenio">
+                    <constant>2</constant>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionGenerarMandato">
+                        <simple>${header.operationName} == 'generarMandato'</simple>
+                        <to id="toGenerar" uri="direct:generar"/>
+                    </when>
+                    <when id="inicioWhenOperacionEnviar">
+                        <simple>${header.operationName} == 'enviarMandato'</simple>
+                        <to id="toGenerar" uri="direct:enviar"/>
+                    </when>
+                    <when id="inicioWhenOperacionCrearCont">
+                        <simple>${header.operationName} == 'enviarMandatoContingencia'</simple>
+                        <to id="toEnviarContingencia" uri="direct:enviarContingencia"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarDocumentoCont">
+                        <simple>${header.operationName} == 'consultarDocumento'</simple>
+                        <to id="toEnviarContingencia" uri="direct:consultarDocumento"/>
+                    </when>
+                    <when id="inicioWhenOperacionValidarArchivos">
+                        <simple>${header.operationName} == 'validarArchivos'</simple>
+                        <to id="toValidarArchivos" uri="direct:validarArchivos"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeenviarContingencia">
+            <from id="_fromenviarContingencia" uri="direct:enviarContingencia"/>
+            <doTry id="_doTry2">
+                <setBody id="enviarContSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <setProperty id="_setProperty1" propertyName="archivoMandato">
+                    <simple>$simple{body.archivoMandato}</simple>
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="archivoPoder">
+                    <simple>$simple{body.archivoPoder}</simple>
+                </setProperty>
+                <setProperty id="_setProperty20" propertyName="numeroMandato">
+                    <simple>${body.numeroMandato}</simple>
+                </setProperty>
+                <setProperty id="_setProperty20" propertyName="codConvenio">
+                    <simple>${body.codConvenio}</simple>
+                </setProperty>
+                <setProperty id="_setProperty4" propertyName="idTransaccion">
+                    <simple>${body.idTransaccion}</simple>
+                </setProperty>
+                <marshal id="enviarContMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.pensionadosSeguros.wsdl"/>
+                </marshal>
+                <convertBodyTo id="enviarContConvertBodyToString" type="java.lang.String"/>
+                <bean id="validacionTran" method="ValidacionTransaccion" ref="beanRouteFacade"/>
+                <bean id="enviarContUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="enviarContToXSLTrama" uri="xslt://etc/xsl/request/IOC740002I_enviar.xsl"/>
+                <log id="enviarContTramaRequest" loggingLevel="INFO" message="Trama generada = |${body}|"/>
+                <to id="enviarContToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="enviarContTramaResponse" loggingLevel="INFO" message="Trama recibida = |${body}|"/>
+                <transform id="enviarContTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <choice id="enviarContChoice">
+                    <when id="ejecucionCorrecta1">
+                        <simple>${body} contains 'IOC740002O'</simple>
+                        <setProperty id="enviarContPropertyPrevired" propertyName="bodyRequestMandato">
+                            <simple>${body}</simple>
+                        </setProperty>
+                        <to id="enviarContToXSLSOAPRut" uri="xslt://etc/xsl/response/IOC740002O_enviar_rut.xsl?saxon=true"/>
+                        <setProperty id="enviarContPropertyRut" propertyName="rutSocioPrevired">
+                            <xpath resultType="java.lang.String">//rut</xpath>
+                        </setProperty>
+                        <setProperty id="enviarContPropertyDv" propertyName="dvSocioPrevired">
+                            <xpath resultType="java.lang.String">//dv</xpath>
+                        </setProperty>
+                        <setProperty id="enviarContPropertyNumCred" propertyName="numCredPrevired">
+                            <xpath resultType="java.lang.String">//credito</xpath>
+                        </setProperty>
+                        <doTry id="_doTry5">
+                            <to id="_to6" uri="direct:buscarMandato"/>
+                            <to id="_to7" uri="direct:buscarPoder"/>
+                            <to id="enviarToEnviarContPrevired" uri="direct:enviarDatosContingencia"/>
+                            <doCatch id="_doCatch5">
+                                <exception>java.lang.Exception</exception>
+                                <setProperty id="_setProperty9" propertyName="codigoError">
+                                    <constant>500</constant>
+                                </setProperty>
+                                <to id="_to9" uri="direct:excepcion"/>
+                                <stop id="_stop2"/>
+                            </doCatch>
+                        </doTry>
+                    </when>
+                    <otherwise id="ejecucionConError1">
+                        <to id="enviarContToXSLSOAPError" uri="xslt://etc/xsl/response/IOC740002O_enviarContingencia_error.xsl?saxon=true"/>
+                        <unmarshal id="enviarContMarshalError">
+                            <jaxb contextPath="cl.coopeuch.integracion.pensionadosSeguros.wsdl"/>
+                        </unmarshal>
+                    </otherwise>
+                </choice>
+                <doCatch id="enviarContingenciaDoCatchEspecifico">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty
+                        id="enviarContingenciaCodigoErrorEspecifico" propertyName="codigoError">
+                        <constant>423</constant>
+                    </setProperty>
+                    <to id="enviarContingenciaToExcepcionEspecifica" uri="direct:excepcion"/>
+                    <stop id="enviarContingenciaStopEspecifica"/>
+                </doCatch>
+                <doCatch id="_doCatch3">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty6" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="_to8" uri="direct:excepcion"/>
+                    <stop id="_stop1"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generarMandato">
+            <from id="generarMandato" uri="direct:generar"/>
+            <doTry id="generarMandatoTry">
+                <to id="toWSPersona" uri="direct:wsPersona"/>
+                <removeHeaders id="generarMandatoRemoveHeaders" pattern="*"/>
+                <bean id="generarMandatoRequest"
+                    method="requestDocumento" ref="beanRouteFacade"/>
+                <setHeader headerName="operationName" id="generarMandatoSetHeaderOperationName">
+                    <constant>crear</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="generarMandatoSetHeaderSoapAction">
+                    <constant>http://integracion.coopeuch.cl/WSDocumento/crear</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="generarMandatoSetHeaderOpNamespace">
+                    <constant>http://integracion.coopeuch.cl/WSDocumento/</constant>
+                </setHeader>
+                <to id="generarMandatoToDocumento" uri="cxf:bean:endpointWsdocumento"/>
+                <bean id="generarMandatoResponse"
+                    method="responseDocumento" ref="beanRouteFacade"/>
+                <to id="toGuardarDocumentoAws" uri="direct:guardarDocumento"/>
+                <doCatch id="generarMandatoDoCatchEspecificoNull">
+                    <exception>java.lang.NullPointerException</exception>
+                    <setProperty id="ErrorGenerarMandatoEspecificoNull" propertyName="codigoError">
+                        <constant>417</constant>
+                    </setProperty>
+                    <to id="toGenerarMandatoExcepcionEspecificaNull" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="generarMandatoDoCatchEspecificoIllegal">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty
+                        id="generarMandatoCodigoErrorEspecifico" propertyName="codigoError">
+                        <constant>418</constant>
+                    </setProperty>
+                    <to id="generarMandatoToExcepcionEspecifica" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="generarMandatoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="generarMandatoCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toGenerarMandatoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="enviar">
+            <from id="enviarFrom" uri="direct:enviar"/>
+            <doTry id="enviarDoTry">
+                <setBody id="enviarSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <setProperty id="_setProperty21" propertyName="numeroMandato">
+                    <simple>${body.numeroMandato}</simple>
+                </setProperty>
+                <setProperty id="_setProperty12" propertyName="idTransaccion">
+                    <simple>${body.idTransaccion}</simple>
+                </setProperty>
+                <marshal id="enviarMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.pensionadosSeguros.wsdl"/>
+                </marshal>
+                <convertBodyTo id="enviarConvertBodyToString" type="java.lang.String"/>
+                <bean id="validacionTranenviar"
+                    method="ValidacionTransaccion" ref="beanRouteFacade"/>
+                <bean id="enviarUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="enviarToXSLTrama" uri="xslt://etc/xsl/request/IOC740002I_enviar.xsl"/>
+                <log id="enviarTramaRequest" loggingLevel="INFO" message="Trama generada = |${body}|"/>
+                <to id="enviarToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="enviarTramaResponse" loggingLevel="INFO" message="Trama recibida = |${body}|"/>
+                <transform id="enviarTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <choice id="enviarChoice">
+                    <when id="ejecucionCorrecta">
+                        <simple>${body} contains 'IOC740002O'</simple>
+                        <setProperty id="enviarPropertyPrevired" propertyName="bodyRequestMandato">
+                            <simple>${body}</simple>
+                        </setProperty>
+                        <to id="enviarToXSLSOAPRut" uri="xslt://etc/xsl/response/IOC740002O_enviar_rut.xsl?saxon=true"/>
+                        <setProperty id="enviarPropertyRut" propertyName="rutSocioPrevired">
+                            <xpath resultType="java.lang.String">//rut</xpath>
+                        </setProperty>
+                        <setProperty id="enviarPropertyDv" propertyName="dvSocioPrevired">
+                            <xpath resultType="java.lang.String">//dv</xpath>
+                        </setProperty>
+                        <setProperty id="enviarPropertyNumCred" propertyName="numCredPrevired">
+                            <xpath resultType="java.lang.String">//credito</xpath>
+                        </setProperty>
+                        <to id="enviarToFirmarDocumento" uri="direct:firmarDoc"/>
+                        <choice id="enviarChoiceValidarfirma">
+                            <when id="enviarEjecucionValidafrma">
+                                <simple>${exchangeProperty.codigoError} == 0</simple>
+                                <to id="enviarToEnviarPrevired" uri="direct:enviarDatos"/>
+                            </when>
+                        </choice>
+                    </when>
+                    <otherwise id="ejecucionConError">
+                        <to id="enviarToXSLSOAPError" uri="xslt://etc/xsl/response/IOC740002O_enviar_error.xsl?saxon=true"/>
+                        <unmarshal id="enviarMarshalError">
+                            <jaxb contextPath="cl.coopeuch.integracion.pensionadosSeguros.wsdl"/>
+                        </unmarshal>
+                    </otherwise>
+                </choice>
+                <doCatch id="enviarDoCatchEspecifico">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="enviarCodigoErrorEspecifico" propertyName="codigoError">
+                        <constant>423</constant>
+                    </setProperty>
+                    <to id="enviarToExcepcionEspecifica" uri="direct:excepcion"/>
+                    <stop id="enviarStopEspecifica"/>
+                </doCatch>
+                <doCatch id="enviarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="enviarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="enviarToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="firmarDocumento">
+            <from id="firmarDocumentoFrom" uri="direct:firmarDoc"/>
+            <removeHeaders id="firmarDocumentoRemoveHeader" pattern="*"/>
+            <doTry id="firmarDocumentoTry">
+                <bean id="firmarDocumentoBeanRequest"
+                    method="requestToken" ref="beanRouteFacade"/>
+                <setHeader headerName="operationName" id="generarTokenSetHeaderOperationName">
+                    <constant>generarToken</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="firmarDocumentoSetHeaderSoapAction">
+                    <constant>http://integracion.coopeuch.cl/WSFirmaToc/generarToken</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="firmarDocumentoSetHeaderOpNamespace">
+                    <constant>http://integracion.coopeuch.cl/WSFirmaToc/</constant>
+                </setHeader>
+                <to id="firmarDocumentoTo" uri="cxf:bean:endpointwsfirmatoc"/>
+                <bean id="generarTokenResponse" method="responseToken" ref="beanRouteFacade"/>
+                <pollEnrich id="_pollEnrichObtenerDocumentoAWS." timeout="5000">
+                    <simple>aws-s3://{{wspensionadosseguros.amazon.s3.default.bucket}}?accessKey={{wspensionadosseguros.amazon.aws.access.key.id}}&amp;region=us-west-2&amp;secretKey=RAW({{wspensionadosseguros.amazon.aws.access.key.secret}})&amp;deleteAfterRead=false&amp;maxMessagesPerPoll=100&amp;delay=5&amp;prefix={{wspensionadosseguros.amazon.s3.carpeta.pensionado}}/${exchangeProperty.requestEntrada.get(0).codConvenio}/${exchangeProperty.rutSocioPrevired}${exchangeProperty.dvSocioPrevired}/${exchangeProperty.requestEntrada.get(0).numeroMandato}/GENERADOS/${exchangeProperty.requestEntrada.get(0).firmaDocumento.nombreDoc}</simple>
+                </pollEnrich>
+                <bean id="firmarDocumentoBeanRequest"
+                    method="requestFirma" ref="beanRouteFacade"/>
+                <setHeader headerName="operationName" id="firmarDocumentoSetHeaderOperationName">
+                    <constant>firmar</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="firmarDocumentoSetHeaderSoapAction">
+                    <constant>http://integracion.coopeuch.cl/WSFirmaToc/firmar</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="firmarDocumentoSetHeaderOpNamespace">
+                    <constant>http://integracion.coopeuch.cl/WSFirmaToc/</constant>
+                </setHeader>
+                <to id="firmarDocumentoTo" uri="cxf:bean:endpointwsfirmatoc"/>
+                <bean id="firmarDocumentoResponse"
+                    method="responseFirma" ref="beanRouteFacade"/>
+                <doCatch id="firmarDocumentoDoCatchEspecifico">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty
+                        id="firmarDocumentoCodigoErrorEspecifico" propertyName="codigoError">
+                        <constant>418</constant>
+                    </setProperty>
+                    <to id="firmarDocumentoToExcepcionEspecifica" uri="direct:excepcion"/>
+                    <stop id="firmarDocumentoStopEspecifica"/>
+                </doCatch>
+                <doCatch id="firmarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="firmarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="firmarToExcepcion" uri="direct:excepcion"/>
+                    <stop id="firmarDocumentoStopException"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="enviarDatos">
+            <from id="enviarDatosFrom" uri="direct:enviarDatos"/>
+            <doTry id="enviarDatosTry">
+                <removeHeaders id="enviarDatosHeaderRemove" pattern="*"/>
+                <setBody id="enviarDatosSetBody">
+                    <simple>${exchangeProperty.bodyRequestMandato}</simple>
+                </setBody>
+                <setHeader headerName="idTransaccionVerificacion" id="idTransaccionSetHeader">
+                    <simple>${exchangeProperty.requestEntrada.get(0).idTransaccion}</simple>
+                </setHeader>
+                <to id="enviarToXSLSOAP" uri="xslt://etc/xsl/response/IOC740002O_enviar.xsl?saxon=true"/>
+                <setProperty id="enviarDatosPropertyCompleto" propertyName="bodyRequestMandato">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="_setProperty7" propertyName="contingencia">
+                    <constant>0</constant>
+                </setProperty>
+                <bean id="enviarDatosValoresLogMandato"
+                    method="valoresLogMandato" ref="beanRouteFacade"/>
+                <wireTap id="enviarDatosToWireTrapOk" uri="direct:logMandato"/>
+                <bean id="enviarDatosResponse" method="responseMandato" ref="beanRouteFacade"/>
+                <doCatch id="enviarDatosDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="enviarDatosCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="EnviarDatosToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route1">
+            <from id="_from1" uri="direct:enviarDatosContingencia"/>
+            <doTry id="_doTry1">
+                <removeHeaders id="_removeHeaders1" pattern="*"/>
+                <setBody id="_setBody1">
+                    <simple>${exchangeProperty.bodyRequestMandato}</simple>
+                </setBody>
+                <setHeader headerName="idTransaccionVerificacion" id="_setHeader4">
+                    <simple>${exchangeProperty.requestEntrada.get(0).idTransaccion}</simple>
+                </setHeader>
+                <to id="_to2" uri="xslt://etc/xsl/response/IOC740002O_enviarContingencia.xsl?saxon=true"/>
+                <setProperty id="_setProperty3" propertyName="bodyRequestMandato">
+                    <simple>${body}</simple>
+                </setProperty>
+
+                <setProperty id="_setProperty8" propertyName="contingencia">
+                    <constant>1</constant>
+                </setProperty>
+                <bean id="enviarDatosContValoresLogMandato"
+                    method="valoresLogMandato" ref="beanRouteFacade"/>
+                <wireTap id="enviarPreviredContwireTap" uri="direct:logMandato"/>
+                <bean id="_bean1" method="responseMandatoContingencia" ref="beanRouteFacade"/>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty5" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="_to5" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="ibs-log-mandato">
+            <from id="logMandatoFrom" uri="direct:logMandato"/>
+            <doTry id="logMandatoTry">
+                <setBody id="logMandatoSetBodyPrevired">
+                    <simple>${exchangeProperty.bodyRequestMandato}</simple>
+                </setBody>
+                <setHeader headerName="userid" id="logMandatoSetUserId">
+                    <simple>${exchangeProperty.requestEntrada.get(0).userId}</simple>
+                </setHeader>
+                <setHeader headerName="canalLlamada" id="logMandatoSetCanalLlamada">
+                    <simple>${exchangeProperty.requestEntrada.get(0).canalLlamada}</simple>
+                </setHeader>
+                <setHeader headerName="numOperacion" id="logMandatoSetNumOperacion">
+                    <simple>${exchangeProperty.requestEntrada.get(0).numOperacion}</simple>
+                </setHeader>
+                <setHeader headerName="fechaMandatoPrevired" id="logMandatofechaPrevired">
+                    <simple>${exchangeProperty.respPrevFecRecep}</simple>
+                </setHeader>
+                <setHeader headerName="codRechazoPrevired" id="logMandatoSetCodRechazoPrevired">
+                    <simple>${exchangeProperty.respPrevCodRechazo}</simple>
+                </setHeader>
+                <setHeader headerName="estadoPrevired" id="logMandatoSetEstadoPrevired">
+                    <simple>${exchangeProperty.respPrevEstMndo}</simple>
+                </setHeader>
+                <marshal id="logMandatoMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.pensionadosSeguros.wsdl.mandato"/>
+                </marshal>
+                <convertBodyTo id="logMandatoConvertBodyToString" type="java.lang.String"/>
+                <bean id="logMandatoIDCorrelation"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <choice id="_choice2">
+                    <when id="_when2">
+                        <simple>${property.contingencia} == 1</simple>
+                        <to id="logMandatoContToXSLTrama" uri="xslt://etc/xsl/request/IOC740001I_mandato_contingencia.xsl"/>
+                        <log id="logMandatoContResponse"
+                            loggingLevel="INFO" message="Trama generada Cont= ${body}"/>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <to id="logMandatoToXSLTrama" uri="xslt://etc/xsl/request/IOC740001I_mandato.xsl"/>
+                        <log id="logMandatoResponse" loggingLevel="INFO" message="Trama generada = ${body}"/>
+                    </otherwise>
+                </choice>
+                <to id="logMandatoToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="logMandatoResponse" loggingLevel="INFO" message="Trama recibida = ${body}"/>
+                <transform id="logMandatoTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="logMandatoToXML" uri="xslt://etc/xsl/response/IOC740001O_mandato.xsl?saxon=true"/>
+                <choice id="logMandatoLogErrorChoice">
+                    <when id="logMandatoErrorEjecucion">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <log id="logMandatoLogFinal"
+                            loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion WSPensionado-Mandato-log -> ${body}"/>
+                    </when>
+                </choice>
+                <doCatch id="logMandatoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="logMandatoExcepcionMensaje"
+                        loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del servicio WSPensionadosSeguros -> ${exception}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="wsPersona">
+            <from id="wsPersonafrom" uri="direct:wsPersona"/>
+            <doTry id="wsPersonaTry">
+                <removeHeaders id="wsPersonaRemoveHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="wsPersonaSetHeaderOpName">
+                    <constant>traerDatosBasicos</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="wsPersonaSetHeaderSoapAction">
+                    <constant>persona.core.coopeuch.cl/serviciopersona/traerDatosBasicos</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="wsPersonaSetHeaderOpNamespace">
+                    <constant>persona.core.coopeuch.cl/serviciopersona</constant>
+                </setHeader>
+                <bean id="wsPersonaRequestBean"
+                    method="requestServicioPersona" ref="beanRouteFacade"/>
+                <to id="wsPersonaTo" uri="cxf:bean:endpointPersona"/>
+                <bean id="wsPersonaResponseBean"
+                    method="responseServicioPersona" ref="beanRouteFacade"/>
+                <doCatch id="wsPersonaDoCatchEspecificoIllegal">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="wsPersonaCodigoErrorEspecifico" propertyName="codigoError">
+                        <constant>418</constant>
+                    </setProperty>
+                    <to id="wsPersonaToExcepcionEspecifica" uri="direct:excepcion"/>
+                    <stop id="wsPersonaErrorEspecifico"/>
+                </doCatch>
+                <doCatch id="wsPersonaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="wsPersonaPropertyCodigo" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="wsPersonaToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="wsPersonaErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="guardarDocumentoAws">
+            <from id="guardarDocumentoFrom" uri="direct:guardarDocumento"/>
+            <removeHeaders id="guardarDocumentoRemoveHeader" pattern="*"/>
+            <doTry id="guardarDocumentoTry">
+                <setProperty id="guardarDocumentoAwsNombre" propertyName="nombreDocumentoS3">
+                    <simple>${exchangeProperty.requestEntrada.get(0).nombreDoc}.pdf</simple>
+                </setProperty>
+                <setHeader headerName="CamelAwsS3Key" id="awsKeySetHeader">
+                    <simple>{{wspensionadosseguros.amazon.s3.carpeta.pensionado}}/${exchangeProperty.codConvenio}/${exchangeProperty.rutSocio}/${exchangeProperty.requestEntrada.get(0).numOperacion}/GENERADOS/${exchangeProperty.nombreDocumentoS3}</simple>
+                </setHeader>
+                <to id="guardarDocumentoToAmazon" uri="aws-s3://{{wspensionadosseguros.amazon.s3.default.bucket}}?accessKey={{wspensionadosseguros.amazon.aws.access.key.id}}&amp;region=us-east-1&amp;secretKey=RAW({{wspensionadosseguros.amazon.aws.access.key.secret}})"/>
+                <bean id="guardarDocumentoBean"
+                    method="responseServicioAws" ref="beanRouteFacade"/>
+                <doCatch id="guardarDocumentoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoErrorGuardarDocumento" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toGuardarDocumentoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validarArchivos">
+            <from id="fromValidarArchivos" uri="direct:validarArchivos"/>
+            <doTry id="doTryValidarArchivos">
+                <bean id="beanPropertiesValidarArchivos"
+                    method="propertiesValidarArchivos" ref="beanRouteFacade"/>
+                <choice id="choiceMandato">
+                    <when id="whenMandatoExiste">
+                        <simple>${exchangeProperty.existeMandato}</simple>
+                        <to id="toBuscarMandato" uri="direct:buscarMandato"/>
+                    </when>
+                </choice>
+                <choice id="choicePoder">
+                    <when id="whenPoderExiste">
+                        <simple>${exchangeProperty.existePoder}</simple>
+                        <to id="toBuscarPoder" uri="direct:buscarPoder"/>
+                    </when>
+                </choice>
+                <bean id="beanRespuestaValidarArchivos"
+                    method="respuestaValidarArchivos" ref="beanRouteFacade"/>
+                <doCatch id="doCatchValidarArchivos">
+                    <exception>java.lang.Exception</exception>
+                    <to id="validarArchivosToException" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeMandato">
+            <from id="_fromMandato" uri="direct:buscarMandato"/>
+            <doTry id="_doTry3">
+                <setHeader headerName="rutaArchivo" id="_setHeader7">
+                    <simple>{{wspensionadosseguros.servicio.directorio.contingencia}}</simple>
+                </setHeader>
+                <setHeader headerName="archivo" id="_setHeader8">
+                    <simple>${property.archivoMandato}</simple>
+                </setHeader>
+                <bean
+                    beanType="cl.coopeuch.integracion.pensionadosSeguros.util.LeerArchivo"
+                    id="_bean4" method="obtenerArchivo"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.pensionadosSeguros.util.RouteFacade"
+                    id="_bean2" method="obtenerMandato"/>
+                <doCatch id="_doCatch4">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty10" propertyName="codigoError">
+                        <constant>507</constant>
+                    </setProperty>
+                    <to id="_to11" uri="direct:excepcion"/>
+                    <stop id="_stop3"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routePoder">
+            <from id="_fromPoder" uri="direct:buscarPoder"/>
+            <doTry id="_doTry4">
+                <setHeader headerName="rutaArchivo" id="_setHeader9">
+                    <simple>{{wspensionadosseguros.servicio.directorio.contingencia}}</simple>
+                </setHeader>
+                <setHeader headerName="archivo" id="_setHeader10">
+                    <simple>${property.archivoPoder}</simple>
+                </setHeader>
+                <bean
+                    beanType="cl.coopeuch.integracion.pensionadosSeguros.util.LeerArchivo"
+                    id="_bean5" method="obtenerArchivo"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.pensionadosSeguros.util.RouteFacade"
+                    id="_bean3" method="obtenerPoder"/>
+                <doCatch id="_doCatch6">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty11" propertyName="codigoError">
+                        <constant>507</constant>
+                    </setProperty>
+                    <to id="_to1m" uri="direct:excepcion"/>
+                    <stop id="_stop4"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="RouteConsultarDocumento">
+            <from id="fromConsultarDocumento" uri="direct:consultarDocumento"/>
+            <doTry id="_doTry6">
+                <choice id="_choice3">
+                    <when id="_when3">
+                        <simple>${body.get(0).tipoDocumento.toUpperCase()} == 'M'</simple>
+                        <to id="_to12" uri="direct:documentoManual"/>
+                    </when>
+                    <when id="_when4">
+                        <simple>${body.get(0).tipoDocumento.toUpperCase()} == 'D'</simple>
+                        <to id="_to13" uri="direct:documentoDigital"/>
+                    </when>
+                    <otherwise id="_otherwise3">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException2" message="Tipo de documento invalido"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch7">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty14" propertyName="codigoError">
+                        <constant>417</constant>
+                    </setProperty>
+                    <to id="_to15" uri="direct:excepcion"/>
+                    <stop id="_stop5"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeDocumentoManual">
+            <from id="fromDocumentoManual" uri="direct:documentoManual"/>
+            <doTry id="_doTry7">
+                <setHeader headerName="rutaArchivo" id="_setHeader11">
+                    <simple>{{wspensionadosseguros.servicio.directorio.contingencia}}</simple>
+                </setHeader>
+                <split id="_split1" strategyRef="agregarDocumentos" streaming="true">
+                    <simple>${body.get(0).documentoManual.nombreDocumento}</simple>
+                    <setBody id="_setBody2">
+                        <simple>${body}.pdf</simple>
+                    </setBody>
+                    <to id="_to14" uri="direct:obtenerDocumentosManuales"/>
+                </split>
+                <bean id="_bean6" method="consultarDocumentoResponse" ref="beanRouteFacade"/>
+                <doCatch id="_doCatch8">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty15" propertyName="codigoError">
+                        <constant>507</constant>
+                    </setProperty>
+                    <to id="_to16" uri="direct:excepcion"/>
+                    <stop id="_stop6"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route2">
+            <from id="_from2" uri="direct:obtenerDocumentosManuales"/>
+            <bean
+                beanType="cl.coopeuch.integracion.pensionadosSeguros.util.LeerArchivo"
+                id="_bean8" method="serializarArchivo(${header.rutaArchivo},${body})"/>
+        </route>
+        <route id="routeDocumentoDigital">
+            <from id="fromDocumentoDigital" uri="direct:documentoDigital"/>
+            <doTry id="_doTry8">
+                <choice id="_choice4">
+                    <when id="_when5">
+                        <simple>${body.get(0).documentoDigital.firmado.toUpperCase()} == 'S'</simple>
+                        <setProperty id="_setProperty16" propertyName="firmado">
+                            <constant>_FEA</constant>
+                        </setProperty>
+                        <to id="_to17" uri="direct:obtenerDocumentoAWS"/>
+                    </when>
+                    <when id="_when6">
+                        <simple>${body.get(0).documentoDigital.firmado.toUpperCase()} == 'N'</simple>
+                        <setProperty id="_setProperty17" propertyName="firmado">
+                            <constant/>
+                        </setProperty>
+                        <to id="_to18" uri="direct:obtenerDocumentoAWS"/>
+                    </when>
+                    <otherwise id="_otherwise4">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException3" message="Tipo de firma invalida"/>
+                    </otherwise>
+                </choice>
+                <bean id="_bean7" method="responseConsultarDocumento" ref="beanRouteFacade"/>
+                <doCatch id="_doCatch9">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty18" propertyName="codigoError">
+                        <constant>512</constant>
+                    </setProperty>
+                    <to id="_to19" uri="direct:excepcion"/>
+                    <stop id="_stop7"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route3">
+            <from id="_from3" uri="direct:obtenerDocumentoAWS"/>
+            <doTry id="_doTry9">
+                <pollEnrich id="_pollEnrichObtenerDocumentoAWS" timeout="5000">
+                    <simple>aws-s3://{{wspensionadosseguros.amazon.s3.default.bucket}}?accessKey={{wspensionadosseguros.amazon.aws.access.key.id}}&amp;region=us-west-2&amp;secretKey=RAW({{wspensionadosseguros.amazon.aws.access.key.secret}})&amp;deleteAfterRead=false&amp;maxMessagesPerPoll=100&amp;delay=5&amp;prefix={{wspensionadosseguros.amazon.s3.carpeta.pensionado}}/${body.get(0).documentoDigital.codConvenio}/${body.get(0).documentoDigital.rutSocio}/${body.get(0).documentoDigital.numeroOperacion}/GENERADOS/${body.get(0).documentoDigital.nombreDocumento}${property.firmado}.pdf</simple>
+                </pollEnrich>
+                <doCatch id="_doCatch10">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty19" propertyName="codigoError">
+                        <constant>512</constant>
+                    </setProperty>
+                    <to id="_to20" uri="direct:excepcion"/>
+                    <stop id="_stop8"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd  http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsdestinatario" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Conexion Base de datos -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.destinatario}]/Notificacion;charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.destinatario}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.destinatario}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.destinatario}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.destinatario}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.destinatario}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.destinatario}]"/>
+    </bean>
+    <cxf:rsServer address="/RSDestinatario" id="creditoPlanillaWebREST"
+        loggingFeatureEnabled="false" serviceClass="cl.coopeuch.integracion.destinatario.rest.DestinatarioRest"/>
+    <cxf:cxfEndpoint address="/WSDestinatario"
+        id="serviciodestinatarioEndpoint"
+        serviceClass="cl.coopeuch.integracion.destinatario.wsdl.WSDestinatarioSOAPPortType" wsdlURL="etc/wsdl/WSDestinatario.wsdl"/>
+    <bean class="cl.coopeuch.integracion.destinatario.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProviderEx"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProviderIn"/>
+    <camelcxf:rsClient
+        address="[{wsdestinatario.servicio.wscreditoplanilla.endpoint}]"
+        id="wscreditoplanilla" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProviderIn"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <camelContext id="WSDestinatarioContext" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="jackConsultarRequest" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.destinatario.wsdl.ConsultarCampanniaRequest"/>
+            <json id="jackConsultarResponse" include="NON_NULL"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.destinatario.wsdl.ConsultarCampanniaResponse"/>
+            <json id="jackConsultarDatosContactoResponse"
+                include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.destinatario.wsdl.ConsultarResponse"/>
+        </dataFormats>
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:creditoPlanillaWebREST?bindingStyle=SimpleConsumer&amp;provider=jsonProvider"/>
+            <choice id="_choice2">
+                <when id="_whenConsultar">
+                    <simple>${header.operationName} == 'consultar'</simple>
+                    <unmarshal id="unmarshall_entrada" ref="jackConsultarRequest"/>
+                    <setProperty id="_setProperty25" propertyName="IdNotificacion">
+                        <simple>${body.idNotificacion}</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty26" propertyName="datos">
+                        <simple>${body.datos}</simple>
+                    </setProperty>
+                    <to id="restToConsultarDatosContacto" uri="direct:consultar"/>
+                    <marshal id="unmarshall_salida" ref="jackConsultarDatosContactoResponse"/>
+                </when>
+                <otherwise id="inicioOtherwise">
+                    <throwException exceptionType="java.lang.Exception"
+                        id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:serviciodestinatarioEndpoint"/>
+            <setProperty id="_setProperty1" propertyName="cuerpo">
+                <simple>${body.get(0)}</simple>
+            </setProperty>
+            <setProperty id="_setProperty2" propertyName="userId">
+                <simple>${body.get(0).userId}</simple>
+            </setProperty>
+            <setProperty id="_setProperty3" propertyName="canalLlamada">
+                <simple>${body.get(0).canalLlamada}</simple>
+            </setProperty>
+            <setProperty id="_setProperty4" propertyName="idNotificacion">
+                <simple>${body.get(0).idNotificacion}</simple>
+            </setProperty>
+            <to id="soapToInicioWs" uri="direct:inicio"/>
+        </route>
+        <route id="inicio">
+            <from id="fromInicio" uri="direct:inicio"/>
+            <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                <simple>${body}</simple>
+            </setProperty>
+            <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+            </setProperty>
+            <toD id="simulacionTo" uri="direct:${header.operationName}"/>
+        </route>
+        <route id="_routeConsultarDatosContacto">
+            <from id="_fromConsultarDatosContactoCampannia" uri="direct:consultar"/>
+            <doTry id="consultarDatosContactoParametrosTry">
+                <to id="validarCamposEntrada-To" uri="direct:validarCamposEntrada"/>
+                <to id="consultardatosCliente-To" uri="direct:consultardatosCliente"/>
+                <doCatch id="consultarParametrosDoCatchSQL">
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty id="consultarParametrosErrorSQL" propertyName="codigoError">
+                        <simple>509</simple>
+                    </setProperty>
+                    <to id="consultarParametrosToExcepcionSQL" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultarParametrosDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="consultarParametrosToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="ValidarCamposEntrada">
+            <from id="ValidarCamposEntrada-From" uri="direct:validarCamposEntrada"/>
+            <doTry id="ValidarCamposEntrada-DoTry">
+                <to id="ValidarCamposEntrada-SQL" uri="sql-stored:classpath:etc/sql/pa_obtenerCamposEntrada.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseCamposEntrada"/>
+                <bean id="ValidarCamposEntrada-Bean"
+                    method="validarCamposEntrada" ref="beanRouteFacade"/>
+                <choice id="ValidaCanal-Choice">
+                    <when id="ValidaCanal-When">
+                        <simple>${exchangeProperty.MensajeSalida} != 'OK'</simple>
+                        <removeHeaders id="ValidaCanal-RemoveHeaders" pattern="*"/>
+                        <setProperty id="ValidaCanal-CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                            <constant>text/xml;charset=utf-8</constant>
+                        </setProperty>
+                        <setProperty
+                            id="ValidaCanal-HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                            <constant>utf-8</constant>
+                        </setProperty>
+                        <setProperty id="ValidaCanal-CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                            <constant>utf-8</constant>
+                        </setProperty>
+                        <setProperty id="ValidaCanal-CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                            <constant>utf-8</constant>
+                        </setProperty>
+                        <stop id="ErrorValidacionCanal"/>
+                    </when>
+                </choice>
+                <doCatch id="OrigenDatosNotificacion-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="OrigenDatosNotificacion-SetProperty" propertyName="codigoError">
+                        <simple>{{error.base.datos.codigo.notificacion}}</simple>
+                    </setProperty>
+                    <setProperty
+                        id="OrigenDatosNotificacion-SetProperty-MensajeSalida" propertyName="MensajeSalida">
+                        <simple>{{error.base.datos.descripcion.notificacion}}</simple>
+                    </setProperty>
+                    <setProperty
+                        id="OrigenDatosNotificacion-SetProperty-BaseDatos" propertyName="BaseDatos">
+                        <simple>{{error.base.datos.notificacion}}</simple>
+                    </setProperty>
+                    <to id="OrigenDatosNotificacion-To-Excepcion" uri="direct:excepcion"/>
+                    <removeHeaders
+                        id="OrigenDatosNotificacion-RemoveHeaders" pattern="*"/>
+                    <setProperty
+                        id="OrigenDatosNotificacion-CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                        <constant>text/xml;charset=utf-8</constant>
+                    </setProperty>
+                    <setProperty
+                        id="OrigenDatosNotificacion-HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <setProperty
+                        id="OrigenDatosNotificacion-CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <setProperty
+                        id="OrigenDatosNotificacion-CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <stop id="OrigenDatosNotificacion-Stop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultardatosCliente">
+            <from id="consultardatosClienteFrom" uri="direct:consultardatosCliente"/>
+            <doTry id="consultardatosClienteDoTry">
+                <bean id="crearReq-Bean"
+                    method="setHeaderConsultarDatosCliente" ref="beanRouteFacade"/>
+                <to id="consultardatosClientetToInstanda" uri="cxfrs://bean://wscreditoplanilla"/>
+                <bean id="consultardatosClienteBean"
+                    method="consultardatosClienteResponse" ref="beanRouteFacade"/>
+                <doCatch id="consultardatosClienteCamelDoCatch">
+                    <exception>org.apache.camel.CamelException</exception>
+                    <setProperty id="consultardatosClienteCamelCodigo" propertyName="codigoError">
+                        <simple>419</simple>
+                    </setProperty>
+                    <setProperty
+                        id="consultardatosClienteCamelCodigoExt" propertyName="codigoErrorExt">
+                        <simple>${exception.statusCode}</simple>
+                    </setProperty>
+                    <to id="consultardatosClienteCamelToException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultardatosClienteDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultardatosClienteCodigo" propertyName="codigoError">
+                        <simple>504</simple>
+                    </setProperty>
+                    <to id="consultardatosClienteToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

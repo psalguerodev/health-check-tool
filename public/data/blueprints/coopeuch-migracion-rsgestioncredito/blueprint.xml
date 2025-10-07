@@ -1,0 +1,809 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsgestioncredito" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/WSGestionCredito"
+        continuationTimeout="30000" id="servicioGestionCreditoEndpoint"
+        serviceClass="cl.coopeuch.integracion.gestioncredito.wsdl.GestionCredito" wsdlURL="wsdl/ServicioGestionCredito.wsdl"/>
+    <cxf:rsServer address="/RSGestionCredito" id="GestionCreditoRest" serviceClass="cl.coopeuch.integracion.gestioncredito.rest.GestionCreditoRest"/>
+    <bean
+        class="cl.coopeuch.integracion.gestioncredito.wsdl.GestionCreditoImpl" id="servicioGestionCreditoImpl"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.creditos]]"/>
+        <property name="password" value="[[jdbc.db2.password.creditos]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.gestioncredito}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.gestioncredito}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.gestioncredito}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.gestioncredito}]"/>
+    </bean>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.gestioncredito.util.RouteFacade" id="routeFacade"/>
+    <camelContext id="ws-gestion-credito" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-InicioREST">
+            <from id="inicioFrom-REST" uri="cxfrs:bean:GestionCreditoRest"/>
+            <choice id="inicioChoiceOperacion-REST">
+                <when id="inicioWhenOperacionCursa-REST">
+                    <simple>${header.operationName} == 'cursaCredito'</simple>
+                    <unmarshal id="cursa_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.CursaCredito"/>
+                    </unmarshal>
+                    <bean id="cursa_bean6" method="cursaCreditoRest" ref="routeFacade"/>
+                    <marshal id="cursa_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </marshal>
+                    <to id="cursa_to" uri="direct:inicio"/>
+                    <unmarshal id="cursa_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </unmarshal>
+                    <bean id="cursa_bean7"
+                        method="cursaCreditoResponseRest" ref="routeFacade"/>
+                    <marshal id="cursa_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.CursaCreditoResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenConsultarDetalleSolicitud-REST">
+                    <simple>${header.operationName} == 'consultarDetalleSolicitud'
+					</simple>
+                    <unmarshal id="consultarDetalleSolicitud_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.ConsultarDetalleSolicitud"/>
+                    </unmarshal>
+                    <bean id="consultarDetalleSolicitud_bean6"
+                        method="consultarDetalleSolicitudRest" ref="routeFacade"/>
+                    <marshal id="consultarDetalleSolicitud_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </marshal>
+                    <to id="consultarDetalleSolicitud_to7" uri="direct:inicio"/>
+                    <unmarshal id="consultarDetalleSolicitud_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </unmarshal>
+                    <bean id="consultarDetalleSolicitud_bean7"
+                        method="consultarDetalleSolicitudResponseRest" ref="routeFacade"/>
+                    <marshal id="consultarDetalleSolicitud_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.ConsultarDetalleSolicitudResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenConsultarEstadoSolicitud-REST">
+                    <simple>${header.operationName} == 'consultarEstadoSolicitud'
+					</simple>
+                    <unmarshal id="consultarEstadoSolicitud_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.ConsultarEstadoSolicitud"/>
+                    </unmarshal>
+                    <bean id="consultarEstadoSolicitud_bean6"
+                        method="consultarEstadoSolicitudRest" ref="routeFacade"/>
+                    <marshal id="consultarEstadoSolicitud_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </marshal>
+                    <to id="consultarEstadoSolicitud_to7" uri="direct:inicio"/>
+                    <unmarshal id="consultarEstadoSolicitud_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </unmarshal>
+                    <bean id="consultarEstadoSolicitud_bean7"
+                        method="consultarEstadoSolicitudResponseRest" ref="routeFacade"/>
+                    <marshal id="consultarEstadoSolicitud_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.ConsultarEstadoSolicitudResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenFormalizaCredito-REST">
+                    <simple>${header.operationName} == 'formalizaCredito'</simple>
+                    <unmarshal id="formalizaCredito_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.FormalizaCredito"/>
+                    </unmarshal>
+                    <bean id="formalizaCredito_bean6"
+                        method="formalizaCredito" ref="routeFacade"/>
+                    <marshal id="verificar_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </marshal>
+                    <to id="formalizaCredito_to7" uri="direct:inicio"/>
+                    <unmarshal id="formalizaCredito_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </unmarshal>
+                    <bean id="formalizaCredito_bean7"
+                        method="formalizaCreditoResponseRest" ref="routeFacade"/>
+                    <marshal id="formalizaCredito_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.FormalizaCreditoResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenValidarUltimaCuota-REST">
+                    <simple>${header.operationName} == 'validarUltimaCuota'</simple>
+                    <unmarshal id="validarUltimaCuota_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.ValidarUltimaCuota"/>
+                    </unmarshal>
+                    <bean id="validarUltimaCuota_bean6"
+                        method="validarUltimaCuota" ref="routeFacade"/>
+                    <marshal id="validarUltimaCuota_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </marshal>
+                    <to id="validarUltimaCuota_to7" uri="direct:inicio"/>
+                    <unmarshal id="validarUltimaCuota_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </unmarshal>
+                    <bean id="validarUltimaCuota_bean7"
+                        method="validarUltimaCuotaResponseRest" ref="routeFacade"/>
+                    <marshal id="validarUltimaCuota_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.ValidarUltimaCuotaResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenCambiarEstadoSolicitud-REST">
+                    <simple>${header.operationName} == 'cambiarEstadoSolicitud'
+					</simple>
+                    <unmarshal id="cambiarEstadoSolicitud_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.CambiarEstadoSolicitud"/>
+                    </unmarshal>
+                    <bean id="cambiarEstadoSolicitud_bean6"
+                        method="cambiarEstadoSolicitudRest" ref="routeFacade"/>
+                    <marshal id="cambiarEstadoSolicitud_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </marshal>
+                    <to id="cambiarEstadoSolicitud_to7" uri="direct:inicio"/>
+                    <unmarshal id="cambiarEstadoSolicitud_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </unmarshal>
+                    <bean id="cambiarEstadoSolicitud_bean7"
+                        method="cambiarEstadoSolicitudResponseRest" ref="routeFacade"/>
+                    <marshal id="cambiarEstadoSolicitud_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.CambiarEstadoSolicitudResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenConsultarSolicitudSocio-REST">
+                    <simple>${header.operationName} == 'consultarSolicitudSocio'
+					</simple>
+                    <unmarshal id="consultarSolicitudSocio_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.ConsultarSolicitudSocio"/>
+                    </unmarshal>
+                    <bean id="consultarSolicitudSocio_Request"
+                        method="consultarSolicitudSocioRest" ref="routeFacade"/>
+                    <marshal id="consultarSolicitudSocioMarshal">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </marshal>
+                    <to id="cambiarEstadoSolicitud_to7" uri="direct:inicio"/>
+                    <unmarshal id="consultarSolicitudSocioUnmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </unmarshal>
+                    <bean id="consultarSolicitudSocioResponse"
+                        method="consultarSolicitudSocioResponseRest" ref="routeFacade"/>
+                    <marshal id="consultarSolicitudSocioMarshalResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.ConsultarSolicitudSocioResponse"/>
+                    </marshal>
+                </when>
+                <when id="when-ConsultarSolicitudEjecutivo-REST">
+                    <simple>${header.operationName} == 'consultarSolicitudEjecutivo'
+					</simple>
+                    <unmarshal id="ConsultarSolicitudEjecutivo_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.ConsultarSolicitudEjecutivo"/>
+                    </unmarshal>
+                    <bean id="ConsultarSolicitudEjecutivo_Request"
+                        method="consultarSolicitudEjecutivoRest" ref="routeFacade"/>
+                    <marshal id="ConsultarSolicitudEjecutivoMarshal">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </marshal>
+                    <to id="ConsultarSolicitudEjecutivo_to7" uri="direct:inicio"/>
+                    <unmarshal id="ConsultarSolicitudEjecutivo-Unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </unmarshal>
+                    <bean id="ConsultarSolicitudEjecutivo-Response"
+                        method="consultarSolicitudEjecutivoResponseRest" ref="routeFacade"/>
+                    <marshal id="ConsultarSolicitudEjecutivoMarshalResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.ConsultarSolicitudEjecutivoResponse"/>
+                    </marshal>
+                </when>
+                <when id="when-ConsultarSolicitudOficina-REST">
+                    <simple>${header.operationName} == 'consultarSolicitudOficina'
+					</simple>
+                    <unmarshal id="ConsultarSolicitudOficina_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.ConsultarSolicitudOficina"/>
+                    </unmarshal>
+                    <bean id="ConsultarSolicitudOficina_Request"
+                        method="consultarSolicitudOficinaRest" ref="routeFacade"/>
+                    <marshal id="ConsultarSolicitudOficinaMarshal">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </marshal>
+                    <to id="ConsultarSolicitudOficina_to7" uri="direct:inicio"/>
+                    <unmarshal id="ConsultarSolicitudOficina-Unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                    </unmarshal>
+                    <bean id="ConsultarSolicitudOficina-Response"
+                        method="consultarSolicitudOficinaResponseRest" ref="routeFacade"/>
+                    <marshal id="ConsultarSolicitudOficinaMarshalResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.gestioncredito.soap.ConsultarSolicitudOficinaResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <route id="cx-RuteoOperaciones">
+            <from id="inicioFrom" uri="cxf:bean:servicioGestionCreditoEndpoint?DataFormat=MESSAGE&amp;loggingFeatureEnabled=true"/>
+            <to id="_toInicioWSDL" uri="direct:inicio"/>
+        </route>
+        <route id="jms-RuteoOperaciones">
+            <from id="inicioFromJms" uri="beanAMQ:{{amq.gestioncredito.req}}?preserveMessageQos=true"/>
+            <to id="_toInicioJMS" uri="direct:inicio"/>
+        </route>
+        <!-- Ruta que invoca operaciones del servicio web -->
+        <route id="cxf-RuteoOperaciones">
+            <from id="servicioGestionCreditoEndpointListener" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.gestioncredito.util.RespaldoBody"
+                    id="backupBody" method="respaldaBodyOriginal"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.gestioncredito.util.IdCorrelativo"
+                    id="IdCorrelativo" method="creaJMSIdCorrelativo"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaFormalizaCredito">
+                        <simple>${body} contains 'formalizaCredito'</simple>
+                        <to id="formalizaCreditoTo" uri="direct:formalizaCredito"/>
+                    </when>
+                    <when id="rutaCursaCredito">
+                        <simple>${body} contains 'cursaCredito'</simple>
+                        <to id="cursaCreditoTo" uri="direct:cursaCredito"/>
+                    </when>
+                    <when id="rutaValidarUltimaCuota">
+                        <simple>${body} contains 'validarUltimaCuota'</simple>
+                        <to id="validarUltimaCuotaTo" uri="direct:validarUltimaCuota"/>
+                    </when>
+                    <when id="rutaConsultarEstadoSolicitud">
+                        <simple>${body} contains 'consultarEstadoSolicitud'</simple>
+                        <to id="consultarEstadoSolicitudTo" uri="direct:consultarEstadoSolicitud"/>
+                    </when>
+                    <when id="rutaConsultarDetalleSolicitud">
+                        <simple>${body} contains 'consultarDetalleSolicitud'</simple>
+                        <to id="validarConsultarDetalleSolicitudTo" uri="direct:consultarDetalleSolicitud"/>
+                    </when>
+                    <when id="rutaCambiarEstadoSolicitud">
+                        <simple>${body} contains 'cambiarEstadoSolicitud'</simple>
+                        <to id="cambiarEstadoSolicitudTo" uri="direct:cambiarEstadoSolicitud"/>
+                    </when>
+                    <when id="rutaConsultarSolicitudSocio">
+                        <simple>${body} contains 'consultarSolicitudSocio'</simple>
+                        <to id="consultarSolicitudSocioTo" uri="direct:consultarSolicitudSocio"/>
+                    </when>
+                    <when id="rutaConsultarSolicitudSocio">
+                        <simple>${body} contains 'consultarSolicitudEjecutivo'</simple>
+                        <to id="consultarSolicitudSocioTo" uri="direct:consultarSolicitudEjecutivo"/>
+                    </when>
+                    <when id="rutaConsultarSolicitudOficina">
+                        <simple>${body} contains 'consultarSolicitudOficina'</simple>
+                        <to id="consultarSolicitudSocioTo" uri="direct:consultarSolicitudOficina"/>
+                    </when>
+                    <otherwise id="_otherwise1"/>
+                </choice>
+                <doFinally id="ruteoOperacionesFinally"/>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.RespaldoBody"
+                        id="ruteoOperacionesRestoreBody" method="restauraBodyOriginal"/>
+                    <setBody id="_setBody1">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.BodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Rutas que consumen cola MQ IBS y y ejecutan operaciones de Formalizacion 
+			y Curse de un Credito -->
+        <route id="formalizaCredito">
+            <from id="formalizaCreditoFrom" uri="direct:formalizaCredito"/>
+            <doTry id="formalizaCreditoTry">
+                <!-- <wireTap id="wireCancelarReserva" uri="direct:cancelarPreventa"/> -->
+                <when id="_when6">
+                    <xpath>//indAccion = 'R'</xpath>
+                    <setProperty id="_setProperty2" propertyName="sw">
+                        <constant>1</constant>
+                    </setProperty>
+                </when>
+                <to id="formalizaCreditoXmlTrama" uri="xslt://transformations/in/xmlTramaIOC031201I_formalizaCredito.xsl"/>
+                <to id="activemq-formalizaCredito" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="formalizaCreditoTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="formalizaCreditoTramaXml" uri="xslt://transformations/out/tramaXmlIOC031201O_formalizaCredito.xsl?saxon=true"/>
+                <doCatch id="formalizaCreditoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.RespaldoBody"
+                        id="formalizaCreditoRestoreBody" method="restauraBodyOriginal"/>
+                    <setBody id="formalizaCreditoSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="formalizaCreditoFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.BodyError"
+                        id="formalizaCreditoSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="formalizaCreditoFinally"/>
+            </doTry>
+        </route>
+        <route id="routeValidarPension">
+            <from id="fromValidarPension" uri="direct:validarPension"/>
+            <removeHeaders id="_removeHeaders2" pattern="*"/>
+            <doTry id="_doTry1">
+                <bean
+                    beanType="cl.coopeuch.integracion.gestioncredito.util.IdCorrelativo"
+                    id="IdCorrelativo-aprobarSolicitudPension" method="creaJMSIdCorrelativo"/>
+                <to id="toConsultarPensionAlimentosRequest" uri="xslt://transformations/mid/consultarPensionAlimentosRequest.xsl?saxon=true"/>
+                <to id="_to2" uri="beanAMQ:{{amq.wspensionalimentos.req}}?preserveMessageQos=true&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;requestTimeout=30000"/>
+                <choice id="_choice6">
+                    <when id="_when11">
+                        <xpath>//codigo = '3' or //codigo = '7'</xpath>
+                        <setProperty id="_setProperty14" propertyName="mensajeApi">
+                            <constant>4031-Hubo un problema en el sistema, el cual no
+								permitió realizar el curse del crédito, favor reintentar.
+							</constant>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException2" message="Hubo un problema en el sistema, el cual no permitió realizar el curse del crédito, favor reintentar."/>
+                    </when>
+                    <when id="_when12">
+                        <xpath>//error != '' or//codigo = '2'</xpath>
+                        <setProperty id="_setProperty15" propertyName="mensajeApi">
+                            <xpath resultType="String">//descripcion</xpath>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException3" message="Error servicio Registro Civil"/>
+                    </when>
+                </choice>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <throwException exceptionType="java.lang.Exception"
+                        id="_throwException1" message="Hubo un problema en el sistema, el cual no permitió realizar el curse del crédito, favor reintentar."/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- <route id="routeCancelarPreventa"> -->
+        <!-- <from id="fromCancelarPreventa" uri="direct:cancelarPreventa"/> -->
+        <!-- <when id="_when7"> -->
+        <!-- <simple>${property.sw} == 1</simple> -->
+        <!-- <to id="formalizaCreditoTramaXmlconDocId" uri="xslt://transformations/out/tramaXmlIOC031201O_formalizaCreditoCon_DocId.xsl?saxon=true"/> -->
+        <!-- <setHeader headerName="doc_id" id="_setHeader2"> -->
+        <!-- <xpath resultType="String">//doc_id</xpath> -->
+        <!-- </setHeader> -->
+        <!-- <when id="_when8"> -->
+        <!-- <simple>${header.doc_id} != '0'</simple> -->
+        <!-- <bean id="requestCancelarPreventa" -->
+        <!-- method="requestCancelarPreventa" ref="routeFacade"/> -->
+        <!-- <bean -->
+        <!-- beanType="cl.coopeuch.integracion.gestioncredito.util.IdCorrelativo" -->
+        <!-- id="IdCorrelativo-cancelarSolicitud" method="creaJMSIdCorrelativo"/> -->
+        <!-- <to id="_toAMQCrearPreventa" uri="beanAMQ:{{colas.servicio.catalogosuma.cancelar.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/> -->
+        <!-- <log id="_log7" message="Salida proveedor${body}"/> -->
+        <!-- </when> -->
+        <!-- </when> -->
+        <!-- </route> -->
+        <route id="cursaCredito">
+            <from id="cursaCreditoFrom" uri="direct:cursaCredito"/>
+            <doTry id="cursaCreditoTry">
+                <setProperty id="_setProperty13" propertyName="cuerpo">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="_setProperty3" propertyName="userId">
+                    <xpath resultType="String">//userId</xpath>
+                </setProperty>
+                <setProperty id="_setProperty4" propertyName="canalLlamada">
+                    <xpath resultType="String">//canalLlamada</xpath>
+                </setProperty>
+                <setProperty id="_setProperty1" propertyName="numSolicitud">
+                    <xpath resultType="Integer">//numSolicitud</xpath>
+                </setProperty>
+                <wireTap id="_wireTap2" uri="direct:consultarAbonoMas"/>
+                <to id="_to3" uri="direct:validarPension"/>
+                <setProperty id="_setProperty12" propertyName="tienepension">
+                    <xpath resultType="String">//codigo</xpath>
+                </setProperty>                
+                <setBody id="_setBody3">
+                    <simple>${property.cuerpo}</simple>
+                </setBody>
+                <to id="cursaaCreditoXmlTrama" uri="xslt://transformations/in/xmlTramaIOC032001I_cursaCredito.xsl"/>
+                <to id="activemq-cursaCredito" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="cursaCreditoTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="cursaCreditoTramaXmlMonto" uri="xslt://transformations/out/tramaXmlIOC032001O_cursaCredito.xsl?saxon=true"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.gestioncredito.util.RespaldoBody"
+                    id="backupBodyCurse" method="respaldaBodyCurse"/>
+                <doCatch id="cursaCreditoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.RespaldoBody"
+                        id="cursaCreditoRestoreBody" method="restauraBodyOriginal"/>
+                    <setBody id="cursaCreditoSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="cursaCreditoFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <log id="_log1" message="ERROR:    ${body}"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.BodyError"
+                        id="cursaCreditoSetBodyError" method="setBodyErrorFormaliza"/>
+                </doCatch>
+                <choice id="llamadaWSCRM">
+                    <when id="_when1">
+                        <simple>${body} contains 'rutSocio'</simple>
+                        <to id="remoteCall_marcaCampanaCRMTo" uri="direct:remoteCall_marcaCampanaCRM"/>
+                    </when>
+                </choice>
+                <bean
+                    beanType="cl.coopeuch.integracion.gestioncredito.util.RespaldoBody"
+                    id="RestoreBodyCurse" method="restauraBodyCurse"/>
+                <doFinally id="cursaCreditoFinally"/>
+            </doTry>
+        </route>
+        <route id="consultarAbonoMas">
+            <from id="_from1" uri="direct:consultarAbonoMas"/>
+            <removeHeaders id="_removeHeaders1" pattern="*"/>
+            <to id="consultaPA" uri="sql-stored:classpath:sql/PA_SEL_GESTIONCREDITO_CURSACREDITO_WS.sql?dataSource=dataSourceSqlDb2"/>
+            <setBody id="_setBody2">
+                <simple>${body[#result-set-1]}</simple>
+            </setBody>
+            <bean id="_bean4" method="obtenerNumeroSolicitudAbonoMas" ref="routeFacade"/>
+            <to id="_to1" uri="direct:validarPension"/>
+        </route>
+        <!-- <route id="_routeAprobarDocumento"> -->
+        <!-- <from id="_from1" uri="direct:aprobarDocumento"/> -->
+        <!-- <removeHeaders id="_removeHeaders1" pattern="*"/> -->
+        <!-- <setProperty id="_setProperty1" propertyName="numeroOrdenCatalogo"> -->
+        <!-- <xpath resultType="String">//numeroOrden</xpath> -->
+        <!-- </setProperty> -->
+        <!-- <setProperty id="_setProperty5" propertyName="numSolicitud"> -->
+        <!-- <xpath resultType="String">//numSolicitud</xpath> -->
+        <!-- </setProperty> -->
+        <!-- <when id="_when10"> -->
+        <!-- <simple>${property.numeroOrdenCatalogo} != 0</simple> -->
+        <!-- <bean id="requestAprobarPreventa" -->
+        <!-- method="requestAprobarPreventa" ref="routeFacade"/> -->
+        <!-- <bean -->
+        <!-- beanType="cl.coopeuch.integracion.gestioncredito.util.IdCorrelativo" -->
+        <!-- id="IdCorrelativo-aprobarSolicitud" method="creaJMSIdCorrelativo"/> -->
+        <!-- <to id="_toAMQAprobarPreventa" uri="beanAMQ:{{colas.servicio.catalogosuma.aprobar.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/> -->
+        <!-- <log id="_log9" message="@@@@@@@@@@@@@@@@@@ ${body}"/> -->
+        <!-- </when> -->
+        <!-- </route> -->
+        <route id="validarUltimaCuota">
+            <from id="validarUltimaCuotaFrom" uri="direct:validarUltimaCuota"/>
+            <doTry id="validarUltimaCuotaTry">
+                <to id="validarUltimaCuotaXmlTrama" uri="xslt://transformations/in/xmlTramaIOC035001I_validarUltimaCuota.xsl"/>
+                <to id="activemq-validarUltimaCuota" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="validarUltimaCuotaTransform1">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="validarUltimaCuotaTramaXml" uri="xslt://transformations/out/tramaXmlIOC035001O_validarUltimaCuota.xsl?saxon=true"/>
+                <doCatch id="validarUltimaCuotaCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.RespaldoBody"
+                        id="validarUltimaCuotaRestoreBody" method="restauraBodyOriginal"/>
+                    <setBody id="validarUltimaCuotaSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="validarUltimaCuotaFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.BodyError"
+                        id="validarUltimaCuotaSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="validarUltimaCuotaFinally"/>
+            </doTry>
+        </route>
+        <!-- Rutas consume IOC7420 -->
+        <route id="consultarDetalleSolicitud">
+            <from id="consultarDetalleSolicitudFrom" uri="direct:consultarDetalleSolicitud"/>
+            <doTry id="consultarDetalleSolicitudTry">
+                <to id="consultarDetalleSolicitudXmlTrama" uri="xslt://transformations/in/xmlTramaIOC742001I_consultarDetalleSolicitud.xsl"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.gestioncredito.util.IdCorrelativo"
+                    id="IdCorrelativo-consultarDetalleSolicitud" method="creaJMSIdCorrelativo"/>
+                <to id="activemq-vonsultarDetalleSolicitud" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="consultarDetalleSolicitudTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <log id="_log3" message="salida: ${body}"/>
+                <to id="consultarDetalleSolicitudTramaXml" uri="xslt://transformations/out/tramaXmlIOC742001O_consultarDetalleSolicitud.xsl?saxon=true"/>
+                <doCatch id="consultarDetalleSolicitudCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.RespaldoBody"
+                        id="consultarDetalleSolicitudRestoreBody" method="restauraBodyOriginal"/>
+                    <setBody id="consultarDetalleSolicitudSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarDetalleSolicitudFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.BodyError"
+                        id="consultarDetalleSolicitudSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultarDetalleSolicitudFinally"/>
+            </doTry>
+        </route>
+        <route id="consultarEstadoSolicitud">
+            <from id="consultarEstadoSolicitudFrom" uri="direct:consultarEstadoSolicitud"/>
+            <setProperty id="_setProperty16" propertyName="userId">
+                <xpath resultType="String">//userId</xpath>
+            </setProperty>
+            <setProperty id="_setProperty17" propertyName="canalLlamada">
+                <xpath resultType="String">//canalLlamada</xpath>
+            </setProperty>
+            <setProperty id="_setProperty18" propertyName="nroSolicitude">
+                <xpath resultType="Integer">//nroSolicitud</xpath>
+            </setProperty>
+            <doTry id="_doTry2">
+                <choice id="_choice1">
+                    <when id="_when2">
+                        <simple>${exchangeProperty.nroSolicitude} regex '^[0-9]+$'</simple>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException4" message="El campo nroSolicitud debe ser numerico"/>
+                    </otherwise>
+                </choice>
+                <log id="_log8" loggingLevel="ERROR" message="@@@@@@@@@@@@@@@@@@@@@\n$  Antes de pa ${body} numero ${property.nroSolicitude} "/>
+                <to id="consultarEstadoSolicitud1" uri="sql-stored:classpath:sql/PA_SEL_WS_CONSULTARESTADOSOLICITUD.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=dataResponse"/>
+                <bean id="_bean3"
+                    method="consultarEstadoSolicitudResponse" ref="routeFacade"/>
+                <marshal id="consultarSolicitud11_unmarshal1">
+                    <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                </marshal>
+                <doCatch id="consultarEstadoSolicitudCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.RespaldoBody"
+                        id="consultarEstadoSolicitudRestoreBody" method="restauraBodyOriginal"/>
+                    <setBody id="consultarEstadoSolicitudSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarEstadoSolicitudFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.BodyError"
+                        id="consultarEstadoSolicitudSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultarEstadoSolicitudFinally"/>
+            </doTry>
+        </route>
+        <!-- Ruta Integracion con RPG IOC0315 -->
+        <route id="cambiarEstadoSolicitud">
+            <from id="cambiarEstadoSolicitudFrom" uri="direct:cambiarEstadoSolicitud"/>
+            <doTry id="cambiarEstadoSolicitudTry">
+                <setProperty id="_setProperty6" propertyName="canalLlamada">
+                    <xpath resultType="String">//canalLlamada</xpath>
+                </setProperty>
+                <setProperty id="_setProperty7" propertyName="nvoEstadoSolicitud">
+                    <xpath resultType="String">//nvoEstadoSolicitud</xpath>
+                </setProperty>
+                <setProperty id="_setProperty8" propertyName="nroSolicitud">
+                    <xpath resultType="Integer">//nroSolicitud</xpath>
+                </setProperty>
+                <to id="cambiarEstadoSolicitudXmlTrama" uri="xslt://transformations/in/xmlTramaIOC031501I_cambiarEstadoSolicitud.xsl"/>
+                <to id="activemq-cambiarEstadoSolicitud" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="cambiarEstadoSolicitudTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="cambiarEstadoSolicitudTramaXml" uri="xslt://transformations/out/tramaXmlIOC031501O_cambiarEstadoSolicitud.xsl?saxon=true"/>
+                <setProperty id="_setProperty9" propertyName="formato">
+                    <xpath resultType="String">//formato</xpath>
+                </setProperty>
+                <choice id="_choice5">
+                    <when id="_when9">
+                        <simple>${property.canalLlamada} == 'APLA' or
+							${property.canalLlamada} == 'CDIG' and
+							${property.nvoEstadoSolicitud} == 'W' and ${property.formato} !=
+							'ECNLERR'
+						</simple>
+                        <setProperty id="_setProperty10" propertyName="colaSQS">
+                            <simple>{{amazon.aws.access.key.cola}}</simple>
+                        </setProperty>
+                        <wireTap id="_wireTap1" uri="direct:enviarEstadoSolicitudCredito"/>
+                    </when>
+                </choice>
+                <doCatch id="cambiarEstadoSolicitudCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <setProperty id="_setProperty11" propertyName="colaSQS">
+                        <simple>{{amazon.aws.access.key.cola.error}}</simple>
+                    </setProperty>
+                    <wireTap id="_wireTap1" uri="direct:enviarEstadoSolicitudCredito"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.RespaldoBody"
+                        id="cambiarEstadoSolicitudRestoreBody" method="restauraBodyOriginal"/>
+                    <setBody id="cambiarEstadoSolicitudSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="cambiarEstadoSolicitudFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.BodyError"
+                        id="cambiarEstadoSolicitudSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="cambiarEstadoSolicitudFinally"/>
+            </doTry>
+        </route>
+        <route id="_routeEnviarEstadoSolicitudCredito">
+            <from id="_from2" uri="direct:enviarEstadoSolicitudCredito"/>
+            <bean id="_bean1" method="transformarJson" ref="routeFacade"/>
+            <log id="_log2" message="@@@@@@@@@@@@@@@@@@@@@\n${body}"/>
+            <bean id="_bean2" method="insertarSQS" ref="routeFacade"/>
+        </route>
+        <!-- Ruta que invoca un WS externo CRM y envia datos de campanas a registrar -->
+        <route id="remoteCall_marcaCampanaCRM">
+            <from id="remoteCall_marcaCampanaCRMFrom" uri="direct:remoteCall_marcaCampanaCRM"/>
+            <doTry id="remoteCall_marcaCampanaCRMTry">
+                <to id="remoteCall_actualizaCampanaXls" uri="xslt://transformations/mid/remoteCall_actualizaCampana.xsl?saxon=true"/>
+                <removeHeaders
+                    id="remoteCall_actualizaCampanaRemoveHeaders" pattern="JMS*"/>
+                <setHeader headerName="SOAPAction" id="_setHeader1">
+                    <constant>{{soapAction.servicioGestionCredito}}</constant>
+                </setHeader>
+                <to
+                    id="remoteCall_actualizaCampanaToServicioActualizaCampana" uri="cxf:{{endpoint.servicioGestionCredito.url}}?dataFormat=MESSAGE"/>
+                <doCatch id="remoteCallCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <setBody id="remoteCallSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="remoteCallFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </doCatch>
+                <doFinally id="remoteCall_actualizaCampanaFinally"/>
+            </doTry>
+        </route>
+        <route id="consultarSolicitudSocio">
+            <from id="consultarSolicitudSocioFrom" uri="direct:consultarSolicitudSocio"/>
+            <doTry id="consultarSolicitudSocioTry">
+                <bean
+                    beanType="cl.coopeuch.integracion.gestioncredito.util.RouteFacade"
+                    id="consultarSolicitudSocio-validarDatosEntrada" method="validarDatos"/>
+                <choice id="_choice2">
+                    <when id="_when3">
+                        <simple>${exchangeProperty.validacion}</simple>
+                        <to id="consultarSolicitudSocioXmlTrama" uri="xslt://transformations/in/xmlTramaIOC742501I_consultarSolicitudSocio.xsl"/>
+                        <log id="_log4" message="Entrada: ${body}"/>
+                        <to id="activemq-consultarSolicitudSocio" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <log id="_log5" message="Salida XSLT: ${body}"/>
+                        <transform id="consultarSolicitudSocioTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="consultarSolicitudSocioTramaXml" uri="xslt://transformations/out/tramaXmlIOC742501O_consultarSolicitudSocio.xsl?saxon=true"/>
+                        <log id="_log6" message="Salida ${body}"/>
+                        <choice id="_choice3">
+                            <when id="_when4">
+                                <simple>${body} contains 'error'</simple>
+                                <marshal id="consultarSolicitudSocio_unmarshal1">
+                                    <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                                </marshal>
+                            </when>
+                            <otherwise id="_otherwise3">
+                                <unmarshal id="consultarSolicitudSocio_unmarshal2">
+                                    <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                                </unmarshal>
+                                <bean id="consultarSolicitudSocio_bean"
+                                    method="revisarArregloVacio" ref="routeFacade"/>
+                                <marshal id="consultarSolicitudSocio_marshal2">
+                                    <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                                </marshal>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="_otherwise4">
+                        <marshal id="consultarSolicitudSocio_unmarshal-Error">
+                            <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                        </marshal>
+                    </otherwise>
+                </choice>
+                <doCatch id="consultarSolicitudSocioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.RespaldoBody"
+                        id="consultarSolicitudSocioRestoreBody" method="restauraBodyOriginal"/>
+                    <setBody id="consultarSolicitudSocioSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarSolicitudSocioFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.BodyError"
+                        id="consultarSolicitudSocioSetBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarSolicitudOficina">
+            <from id="consultarSolicitudOficina-From" uri="direct:consultarSolicitudOficina"/>
+            <doTry id="consultarSolicitudOficinaTry">
+                <bean
+                    beanType="cl.coopeuch.integracion.gestioncredito.util.RouteFacade"
+                    id="consultarSolicitudOficina-validarDatosEntrada" method="validarDatos"/>
+                <choice id="_choice4">
+                    <when id="_when5">
+                        <simple>${exchangeProperty.validacion}</simple>
+                        <to id="consultarSolicitudOficina-XmlTrama" uri="xslt://transformations/in/xmlTramaIOC744501I_consultarSolicitudOficina.xsl"/>
+                        <log id="_log1-ConsultarSolicitudOficina" message="AMQ: ${body}"/>
+                        <to id="activemq-consultarSolicitudOficina" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <transform id="consultarSolicitudOficinaTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <log id="_log-consultarSolicitudOficina" message="RESPUESTA AMQ: ${body}"/>
+                        <to id="consultarSolicitudOficina-TramaXml" uri="xslt://transformations/out/tramaXmlIOC744501O_consultarSolicitudOficina.xsl?saxon=true"/>
+                        <marshal id="consultarSolicitudOficina_unmarshal1">
+                            <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                        </marshal>
+                    </when>
+                    <otherwise id="_otherwise5">
+                        <marshal id="consultarSolicitudOficina_unmarshal-Error">
+                            <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                        </marshal>
+                    </otherwise>
+                </choice>
+                <doCatch id="consultarSolicitudOficina-Catch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.RespaldoBody"
+                        id="consultarSolicitudOficina-RestoreBody" method="restauraBodyOriginal"/>
+                    <setBody id="consultarSolicitudOficina-SetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarSolicitudOficina-Fault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.BodyError"
+                        id="consultarSolicitudOficina-SetBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarSolicitudEjecutivo">
+            <from id="consultarSolicitudEjecutivo-From" uri="direct:consultarSolicitudEjecutivo"/>
+            <doTry id="consultarSolicitudEjecutivoTry">
+                <to id="consultarSolicitudEjecutivo-XmlTrama" uri="xslt://transformations/in/xmlTramaIOC743501I_consultarSolicitudEjecutivo.xsl"/>
+                <bean id="entradaConsultarSolicitudEjecutivo"
+                    method="entradaConsultarSolicitudEjecutivo" ref="routeFacade"/>
+                <to id="consultarSolicitudEjecutivoTo" uri="sql-stored:classpath:sql/PA_SEL_CONSULTARSOLICITUDEJECUTIVO_WS.sql?dataSource=dataSourceSqlDb2"/>
+                <bean id="salidaConsultarSolicitudEjecutivo"
+                    method="salidaConsultarSolicitudEjecutivo" ref="routeFacade"/>
+                <marshal id="consultarSolicitudEjecutivo_unmarshal1">
+                    <jaxb contextPath="cl.coopeuch.integracion.gestioncredito.soap"/>
+                </marshal>
+                <doCatch id="consultarSolicitudEjecutivo-Catch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.RespaldoBody"
+                        id="consultarSolicitudEjecutivo-RestoreBody" method="restauraBodyOriginal"/>
+                    <setBody id="consultarSolicitudEjecutivo-SetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarSolicitudEjecutivo-Fault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.gestioncredito.util.BodyError"
+                        id="consultarSolicitudEjecutivo-SetBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

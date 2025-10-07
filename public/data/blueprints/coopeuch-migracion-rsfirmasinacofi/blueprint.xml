@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:https="http://cxf.apache.org/transports/http/configuration"
+    xmlns:sec="http://cxf.apache.org/configuration/security"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}"/>
+    <cm:property-placeholder persistent-id="wsfirmasinacofi"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <cxf:cxfEndpoint address="/WSFirmaSinacofi"
+        id="endpointWSFirmaSinacofi"
+        serviceClass="cl.coopeuch.integracion.firmasinacofi.wsdl.WSFirmaSinacofiPort" wsdlURL="etc/wsdl/WSFirmaSinacofi.wsdl"/>
+    <cxf:rsClient
+        address="[{firmasinacofi.servicio.sinacofi.firmar.endpoint}]"
+        id="endpointFDOC0102" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="false"/>
+        </cxf:properties>
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <https:conduit name="*.http-conduit">
+        <https:tlsClientParameters>
+            <sec:keyManagers keyPassword="[{servicio.sinacofi.certificado.pfx.clave}]">
+                <sec:keyStore
+                    file="[{servicio.sinacofi.certificado.pfx.path}]"
+                    password="[{servicio.sinacofi.certificado.pfx.clave}]" type="JKS"/>
+            </sec:keyManagers>
+        </https:tlsClientParameters>
+        <https:client AutoRedirect="true" Connection="Keep-Alive"/>
+    </https:conduit>
+    <bean class="cl.coopeuch.integracion.firmasinacofi.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <camelContext id="WSFirmaSinacofi" xmlns="http://camel.apache.org/schema/blueprint">
+    	<dataFormats>
+            <json id="autenticacionSinacofiJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.client.rest.autenticacion.sinacofi.AutenticarIn"/>
+            <json id="tokenSinacofiJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.client.rest.autenticacion.sinacofi.Tokens"/>
+            <json id="firmarDesafioRequestJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.client.rest.sinacofi.FirmaDocumento"/>
+            <json id="firmarDesafioResponseJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.client.rest.sinacofi.FirmaDocumentoResponse"/>
+        </dataFormats>
+        <route id="inicio">
+            <from id="inicioFrom" uri="cxf:bean:endpointWSFirmaSinacofi"/>
+            <doTry id="inicioDoTry">
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <toD id="inicioToD" uri="direct:${header.operationName}"/>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="firmar">
+            <from id="firmarFromInicio" uri="direct:firmar"/>
+            <doTry id="firmarDoTry">
+                <removeHeaders id="firmarRemoveHeaders" pattern="*"/>
+                <to id="_to3" uri="direct:authSinacofi"/>
+                <removeHeaders id="_removeHeaders2" pattern="*"/>
+                <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader4">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="CamelHttpMethod" id="_setHeader6">
+                    <constant>POST</constant>
+                </setHeader>
+                <setHeader headerName="Authorization" id="_setHeader5">
+                    <simple>${property.auth}</simple>
+                </setHeader>
+                <bean id="firmarRequest" method="firmaSinacofiRequest" ref="beanRouteFacade"/>
+                <marshal id="_marshal2" ref="firmarDesafioRequestJson"/>
+                <convertBodyTo id="_convertBodyTo1" type="String"/>
+                <to id="firmarToServiceSinacofi" uri="cxfrs:bean:endpointFDOC0102"/>
+                <unmarshal id="_unmarshal2" ref="firmarDesafioResponseJson"/>
+                <choice id="firmarChoiceValidacionSinacofi">
+                    <when id="respuestaConError">
+                        <simple>${body.success} == false</simple>
+                        <throwException
+                            exceptionType="java.lang.IllegalArgumentException"
+                            id="throwExceptionSinacofi" message="Error de validacion Sinacofi - ${body.errors[0].errorCode}"/>
+                    </when>
+                    <otherwise>
+                    	<bean id="firmarResponse" method="firmaSinacofiResponse" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="firmarDoCatchSinacofi">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="firmarCodigoErrorSinacofi" propertyName="codigoError">
+                        <constant>420</constant>
+                    </setProperty>
+                    <to id="firmarToExceptionSinacofi" uri="direct:excepcion"/>
+                    <stop id="firmarStopSinacofi"/>
+                </doCatch>
+                <doCatch id="firmarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="firmarCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="firmarToexception" uri="direct:excepcion"/>
+                    <stop id="firmarStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="autenticarSinacofi_route">
+            <from id="_from1" uri="direct:authSinacofi"/>
+            <setProperty id="_setProperty1" propertyName="cuerpo">
+                <simple>${body}</simple>
+            </setProperty>
+            <removeHeaders id="_removeHeaders1" pattern="*"/>
+            <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader1">
+                <constant>application/json</constant>
+            </setHeader>
+            <setHeader headerName="client_id" id="_setHeader2">
+                <simple>{{servicio.sinacofi.autenticar.clientid}}</simple>
+            </setHeader>
+            <setHeader headerName="client_secret" id="_setHeader3">
+                <simple>{{servicio.sinacofi.autenticar.clientsecret}}</simple>
+            </setHeader>
+            <bean id="_bean1" method="autenticarRequest" ref="beanRouteFacade"/>
+            <marshal id="_marshal1" ref="autenticacionSinacofiJson"/>
+            <to id="_to1" uri="{{servicio.sinacofi.autenticar.endpoint}}"/>
+            <unmarshal id="_unmarshal1" ref="tokenSinacofiJson"/>
+            <setProperty id="_setProperty2" propertyName="auth">
+                <simple>${body.token_type} ${body.access_token}</simple>
+            </setProperty>
+            <log id="_log1" message="${property.auth}"/>
+            <setBody id="_setBody1">
+                <simple>${property.cuerpo}</simple>
+            </setBody>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

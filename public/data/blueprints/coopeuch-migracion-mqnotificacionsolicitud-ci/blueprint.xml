@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="mqnotificacionsolicitud" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="com.ibm.mq.jms.MQConnectionFactory" id="websphereConnectionFactory">
+        <property name="transportType" value="1"/>
+        <property name="hostName" value="{[ibm.mq.host]}"/>
+        <property name="port" value="{[ibm.mq.port]}"/>
+        <property name="queueManager" value="{[ibm.qm.name]}"/>
+        <property name="useConnectionPooling" value="true"/>
+        <property name="channel" value="{[ibm.qm.channel]}"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="websphereConfig">
+        <property name="connectionFactory" ref="websphereConnectionFactory"/>
+        <property name="concurrentConsumers" value="[{ibm.mq.concurrentConsumers}]"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsComponent" id="websphere">
+        <property name="configuration" ref="websphereConfig"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.tresds.exceptions.ErrorExcepcionInterceptor" id="ErrorExcepcionInterceptor"/>
+    
+    <bean class="cl.coopeuch.solicitud.notificacion.utils.RouteFacade" id="beanRouteFacade"/>
+    
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+        
+    <camelContext id="MQNotificacionSolicitud" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="ingresoSolicitud">
+            <from id="colaingreso" uri="websphere:queue:{{ibm.queue.solicitud.in}}?disableReplyTo=true"/>
+            <doTry id="notificacionTry">
+                <unmarshal id="_unmarshal">
+                    <bindy
+                        classType="cl.coopeuch.solicitud.notificacion.modelo.NotificacionSolicitudTrama" type="Fixed"/>
+                </unmarshal>
+                <bean id="transformarObjeto" method="transformarJson" ref="beanRouteFacade"/>
+                <log id="_log2" message="2: JSON:(${body})"/>
+                <bean id="insertarSns" method="insertarSNS" ref="beanRouteFacade"/>
+                <log id="_log3" message="3: DEJA EN SNS"/>
+                <doCatch id="notificacionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="crearCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <log id="_log1" loggingLevel="ERROR" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.message} \n\n${exception.stacktrace}"/>
+                </doCatch>
+            </doTry>
+        </route>        
+    </camelContext>
+</blueprint>

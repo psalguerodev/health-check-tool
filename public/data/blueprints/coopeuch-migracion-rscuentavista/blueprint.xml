@@ -1,0 +1,375 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Servicio para crear cuenta vista -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wscuentavista" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2" persistent-id="globalDb2"
+                             placeholder-prefix="[[" placeholder-suffix="]]" update-strategy="reload"/>
+    <!-- Conexion AMQ -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.cuentas]]"/>
+        <property name="password" value="[[jdbc.db2.password.cuentas]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.cuentavista}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.cuentavista}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.cuentavista}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.cuentavista}]"/>
+    </bean>
+    <!-- Endpoint wsdl Servicio CuentaVista -->
+    <camelcxf:cxfEndpoint address="/WSCuentaVista"
+        id="endpointWsCuentaVista"
+        serviceClass="cl.coopeuch.integracion.cuentavista.wsdl.WSCuentaVistaSOAPPortType" wsdlURL="etc/wsdl/WSCuentaVista.wsdl"/>
+    <camelcxf:rsServer address="/RSCuentaVista" id="WSCuentaVistaREST"
+        loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.cuentavista.wsdl.WSCuentaVistaSOAPPortType"/>
+    <bean class="cl.coopeuch.integracion.cuentavista.util.RouteFacade" id="beanRouteFacade"/>
+    <camelContext id="servicio-cuenta-vista" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="jms-inicio">
+            <from id="inicioJMSFrom" uri="beanAMQ:queue:{{colas.servicio.cuentavista.in.temp}}?preserveMessageQos=true"/>
+            <to id="jmsToConsultar" uri="direct:inicio"/>
+        </route>
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:WSCuentaVistaREST"/>
+            <setBody id="_setBody1">
+                <simple>$simple{body.get(0)}</simple>
+            </setBody>
+            <choice id="rest-inicio_choice">
+                <when id="consultarDetalle_when">
+                    <simple>${header.operationName} == 'consultarDetalle'</simple>
+                    <to id="restToConsultarDetalle" uri="direct:inicio"/>
+                    <marshal id="consultarDetalleRequestToJSON">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.cuentavista.wsdl.ConsultarDetalleResponse"/>
+                    </marshal>
+                </when>
+                <when id="consultarMovimientos_when">
+                    <simple>${header.operationName} == 'consultarMovimientos'</simple>
+                    <to id="restToConsultarMovimientos" uri="direct:inicio"/>
+                    <marshal id="consultarMovimientosRequestToJSON">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.cuentavista.wsdl.ConsultarMovimientosResponse"/>
+                    </marshal>
+                </when>
+                <when id="consultarTarjetas_when">
+                    <simple>${header.operationName} == 'consultarTarjetas'</simple>
+                    <to id="restToConsultarTarjetas" uri="direct:inicio"/>
+                    <marshal id="consultarTarjetasRequestToJSON">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.cuentavista.wsdl.ConsultarTarjetasResponse"/>
+                    </marshal>
+                </when>
+                <otherwise id="_otherwise1">
+                    <to id="restToConsultar" uri="direct:inicio"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="soap-inicio">
+            <from id="inicioSoapServicio" uri="cxf:bean:endpointWsCuentaVista"/>
+            <setBody id="_setBody2">
+                <simple>$simple{body.get(0)}</simple>
+            </setBody>
+            <to id="SoapToConsultar" uri="direct:inicio"/>
+        </route>
+        <!-- Ruta que invoca operaciones del servicio web -->
+        <route id="cxf-Inicio">
+            <from id="inicioFrom" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionCrear">
+                        <simple>${header.operationName} == 'crear'</simple>
+                        <to id="toCuentaVistaCrear" uri="direct:CuentaVistaCrear"/>
+                    </when>
+                    <when id="inicioWhenOperacionValidar">
+                        <simple>${header.operationName} == 'validar'</simple>
+                        <to id="toCuentaVistaValidar" uri="direct:CuentaVistaValidar"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="toCuentaVistaConsultar" uri="direct:CuentaVistaConsultar"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarDetalle">
+                        <simple>${header.operationName} == 'consultarDetalle'</simple>
+                        <to id="toCuentaVistaConsultarDetalle" uri="direct:CuentaVistaConsultarDetalle"/>
+                    </when>
+                    <when id="inicioWhenOperacionActivar">
+                        <simple>${header.operationName} == 'activar'</simple>
+                        <to id="toCuentaVistaActivar" uri="direct:CuentaVistaActivar"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarTarjetas">
+                        <simple>${header.operationName} == 'consultarTarjetas'</simple>
+                        <to id="toCuentaVistaConsultarTarjetas" uri="direct:CuentaVistaConsultarTarjetas"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarMovimientos">
+                        <simple>${header.operationName} == 'consultarMovimientos'</simple>
+                        <to id="toCuentaVistaConsultarMovimientos" uri="direct:CuentaVistaConsultarMovimientos"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="inicioDoCatchAMQ" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=ERROR&amp;exchangePattern=InOnly"/>
+                    <bean id="beanExcepcionCuentaVista"
+                        method="iniciarExcepcion" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta que consume cola MQ IBS y crea una cuenta vista en IBS -->
+        <route id="crear">
+            <from id="crearFrom" uri="direct:CuentaVistaCrear"/>
+            <doTry id="crearTry">
+                <marshal id="_marshal1">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuentavista.wsdl"/>
+                </marshal>
+                <convertBodyTo id="crearConvert" type="java.lang.String"/>
+                <bean id="crearBeanRouteFacadeUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="crearToXSLTrama" uri="xslt://etc/xslt/request/IOC706001I_crearRequest.xsl"/>
+                <to id="crearToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="crearTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="crearToXSLSOAP" uri="xslt://etc/xslt/response/IOC706001O_crearResponse.xsl?saxon=true"/>
+                <unmarshal id="crear_unmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuentavista.wsdl"/>
+                </unmarshal>
+                <doCatch id="crearDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="crearDoCatchAMQ" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=ERROR&amp;exchangePattern=InOnly"/>
+                    <bean id="crearBeanExcepcion"
+                        method="crearExcepcion" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validar">
+            <from id="validarFrom" uri="direct:CuentaVistaValidar"/>
+            <doTry id="validarTry">
+                <marshal id="_marshal2">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuentavista.wsdl"/>
+                </marshal>
+                <convertBodyTo id="validarConvert" type="java.lang.String"/>
+                <bean id="validarBeanRouteFacadeUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="validarToXSLTrama" uri="xslt://etc/xslt/request/IOC706001I_validarRequest.xsl"/>
+                <to id="validarToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="validarTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <log id="logTraceTramaConsultarResponse2"
+                    loggingLevel="TRACE" message="trama recibida validar revision = ${body}"/>
+                <to id="validarToXSLSOAP" uri="xslt://etc/xslt/response/IOC706001O_validarResponse.xsl?saxon=true"/>
+                <unmarshal id="validar_unmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuentavista.wsdl"/>
+                </unmarshal>
+                <doCatch id="validarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="validarBeanExcepcion"
+                        method="validaExcepcion" ref="beanRouteFacade"/>
+                    <to id="validarDoCatchAMQ" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=ERROR&amp;exchangePattern=InOnly"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultar">
+            <from id="consultarFrom" uri="direct:CuentaVistaConsultar"/>
+            <doTry id="consultarTry">
+                <marshal id="consultarMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuentavista.wsdl"/>
+                </marshal>
+
+                <setProperty id="_setPropertyFormatoIOC" propertyName="formato">
+                    <simple>IOC724001I</simple>
+                </setProperty>
+                <when>
+                	<xpath>//userID != 'null'</xpath>
+	                <setProperty id="_setPropertyUserId" propertyName="userId">
+	                    <xpath resultType="String">substring(//userID, 0, 11)</xpath>
+	                </setProperty>
+                </when>
+
+                <setProperty id="_setPropertyBanco" propertyName="banco">
+                    <simple>01</simple>
+                </setProperty>
+                <setProperty id="_setPropertyTrx" propertyName="transaccion">
+                    <simple>1125</simple>
+                </setProperty>
+                <setProperty id="_setPropertyCanal1" propertyName="canal">
+                    <simple>0005</simple>
+                </setProperty>
+                <setProperty id="_setPropertyOpe" propertyName="operacion">
+                    <simple>0001</simple>
+                </setProperty>
+                <when>
+                	<xpath>//canalLLamada != 'null'</xpath>
+	                <setProperty id="_setPropertyCanalLlamada" propertyName="canalLLamada">
+	                    <xpath resultType="String">substring(//canalLLamada, 0, 11)</xpath>
+	                </setProperty>               
+                </when>
+                <when>
+                	<xpath>//rutSocio != 'null'</xpath>
+	                <setProperty id="_setPropertyRutSocio" propertyName="rutSocio">
+	                    <xpath resultType="String">substring(//rutSocio, 0, 11)</xpath>
+	                </setProperty>                 
+                </when>
+                <when>
+                	<xpath>//estadoCtaVista != 'null'</xpath>
+	                <setProperty id="_setPropertyEstadoCtaVista" propertyName="estadoCtaVista">
+	                    <xpath resultType="String">substring(//estadoCtaVista, 0, 2)</xpath>
+	                </setProperty>                 
+                </when>
+
+                <to id="consultar-To" uri="sql-stored:classpath:sql/PA_SEL_WSCUENTAVISTA_CONSULTAR.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseConsultar"/>
+
+                <bean id="validarConsultarBean"
+                    method="validarConsultar" ref="beanRouteFacade"/>
+ 
+                <removeHeaders id="removeHeaders__01" pattern="*"/>
+                <unmarshal id="consultar_unmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuentavista.wsdl"/>
+                </unmarshal>
+
+                <doCatch id="consultarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="consultarBeanExcepcion"
+                        method="consultarExcepcion" ref="beanRouteFacade"/>
+                    <to id="consultarDoCatchAMQ" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=ERROR&amp;exchangePattern=InOnly"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarDetalle">
+            <from id="consultarFrom" uri="direct:CuentaVistaConsultarDetalle"/>
+            <doTry id="consultarDetalleTry">
+                <marshal id="consultarDetalleMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuentavista.wsdl"/>
+                </marshal>
+                <convertBodyTo id="consultarDetalleConvert" type="java.lang.String"/>
+                <setProperty id="_setPropertyUserId1" propertyName="userId">
+                    <xpath resultType="String">//userID</xpath>
+                </setProperty>
+                <setProperty id="_setPropertycanal1" propertyName="canal">
+                    <xpath resultType="String">//canalLlamada</xpath>
+                </setProperty>
+                <setProperty id="_setPropertyestado1" propertyName="estado">
+                    <xpath resultType="String">//estado</xpath>
+                </setProperty>
+                <bean id="transformDataBean"
+                    method="transformConsultaDetalle" ref="beanRouteFacade"/>
+                <to id="consultarDetalle-To" uri="sql-stored:classpath:sql/PA_SEL_CONSULTADETALLECV_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseConsultarDetalle"/>
+                <bean id="consultarDetalleBeanExcepcion"
+                    method="procesarConsultarDetalle" ref="beanRouteFacade"/>
+                <removeHeaders id="removeHeaders_01" pattern="*"/>
+                <log id="consultarDetalle_log" message="${body}"/>
+                <unmarshal id="consultarDetalleUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuentavista.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultarDetalleDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="consultarDetalleBeanExcepcion"
+                        method="consultarDetalleExcepcion" ref="beanRouteFacade"/>
+                    <to id="consultarDetalleDoCatchAMQ" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=ERROR&amp;exchangePattern=InOnly"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="activar">
+            <from id="activarFrom" uri="direct:CuentaVistaActivar"/>
+            <doTry id="activarTry">
+                <marshal id="activar_marshal2">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuentavista.wsdl"/>
+                </marshal>
+                <convertBodyTo id="activarConvert" type="java.lang.String"/>
+                <bean id="activarBeanRouteFacadeUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="activarToXSLTrama" uri="xslt://etc/xslt/request/IOC706201I_activarRequest.xsl"/>
+                <to id="activarToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="activarTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="activarToXSLSOAP" uri="xslt://etc/xslt/response/IOC706201O_activarResponse.xsl?saxon=true"/>
+                <unmarshal id="activar_unmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuentavista.wsdl"/>
+                </unmarshal>
+                <doCatch id="activarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="activarBeanExcepcion"
+                        method="activarExcepcion" ref="beanRouteFacade"/>
+                    <to id="activarDoCatchAMQ" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=ERROR&amp;exchangePattern=InOnly"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cuentaVistaConsultarTarjetas">
+            <from id="consultarTarjetasFrom" uri="direct:CuentaVistaConsultarTarjetas"/>
+            <doTry id="consultarTarjetasTry">
+                <marshal id="consultarTarjetasMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuentavista.wsdl"/>
+                </marshal>
+                <setProperty id="_setProperty1" propertyName="userId">
+                    <xpath resultType="String">//userID</xpath>
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="canal">
+                    <xpath resultType="String">//canalLlamada</xpath>
+                </setProperty>
+                <setProperty id="_setProperty3" propertyName="rut">
+                    <xpath resultType="String">//rut</xpath>
+                </setProperty>
+                <convertBodyTo id="consultarTarjetasConvert" type="java.lang.String"/>
+                <bean id="transformConsultaTarjetasBean"
+                    method="transformConsultarTarjetas" ref="beanRouteFacade"/>
+                <to id="consultarTarjetas-To" uri="sql-stored:classpath:sql/PA_SEL_CONSULTATARJETASCV_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseConsultarTarjetas"/>
+                <bean id="consultarTarjetasBean"
+                    method="procesarConsultarTarjetas" ref="beanRouteFacade"/>
+                <removeHeaders id="removeHeaders_02" pattern="*"/>
+                <unmarshal id="consultarTarjetasUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuentavista.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultarTarjetasDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="consultarTarjetasBeanExcepcion"
+                        method="consultarTarjetasExcepcion" ref="beanRouteFacade"/>
+                    <to id="consultarTarjetasDoCatchAMQ" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=ERROR&amp;exchangePattern=InOnly"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarMovimientos">
+            <from id="consultarMovimientosFrom" uri="direct:CuentaVistaConsultarMovimientos"/>
+            <doTry id="consultarMovimientosTry">
+                <marshal id="consultarMovimientosMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuentavista.wsdl"/>
+                </marshal>
+                <convertBodyTo id="consultarMovimientosConvert" type="java.lang.String"/>
+                <setProperty id="_setPropertyUserId3" propertyName="userId">
+                    <xpath resultType="String">//userID</xpath>
+                </setProperty>
+                <setProperty id="_setPropertyCanal3" propertyName="canal">
+                    <xpath resultType="String">//canalLlamada</xpath>
+                </setProperty>
+                <bean id="transformConsultarMovimientosBean"
+                    method="transformConsultarMovimientos" ref="beanRouteFacade"/>
+                <to id="consultarMovimientos-To" uri="sql-stored:classpath:sql/PA_SEL_CONSULTAMOVIMIENTOSCV_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseConsultarMovimientos"/>
+                <bean id="consultarMovimientosBean"
+                    method="procesarConsultarMovimientos" ref="beanRouteFacade"/>
+                <removeHeaders id="removeHeaders_03" pattern="*"/>
+                <unmarshal id="consultarMovimientosUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuentavista.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultarMovimientosDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="consultarMovimientosBeanExcepcion"
+                        method="consultarMovimientosExcepcion" ref="beanRouteFacade"/>
+                    <to id="consultarMovimientosDoCatchAMQ" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=ERROR&amp;exchangePattern=InOnly"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

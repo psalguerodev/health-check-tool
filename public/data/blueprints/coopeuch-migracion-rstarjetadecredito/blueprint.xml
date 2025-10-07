@@ -1,0 +1,784 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wstarjetadecredito" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.cuentas]]"/>
+        <property name="password" value="[[jdbc.db2.password.cuentas]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.wstarjetadecredito}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.wstarjetadecredito}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.wstarjetadecredito}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.wstarjetadecredito}]"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.entidad.tarjetadecredito.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSTarjetaDeCredito"
+        id="endpointWSTarjetaDeCredito"
+        serviceClass="cl.coopeuch.integracion.entidad.wsdl.WSTarjetaDeCreditoSOAPPortType" wsdlURL="etc/wsdl/WSTarjetaDeCredito.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsClient
+        address="[{endpoint.parametrosgenerales.consultar}]"
+        id="endpointRSParametrosGenerales" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <camelcxf:rsClient
+        address="[{endpoint.parametrosgenerales.bloqueoDesbloqueoOnlineeIBS}]"
+        id="endpointRSBloqueoOnline" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsServer address="/RSTarjetaDeCredito"
+        id="endpointRSTarjetaDeCredito" serviceClass="cl.coopeuch.integracion.entidad.wsdl.WSTarjetaDeCreditoSOAPPortType">
+        <camelcxf:providers>
+            <bean
+                class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+                <property name="ignoreNamespaces" value="true"/>
+                <property name="serializeAsArray" value="true"/>
+                <property name="arrayKeys">
+                    <list>
+                        <value>detalleError</value>
+                    </list>
+                </property>
+                <property name="ignoreEmptyArrayValues" value="true"/>
+            </bean>
+        </camelcxf:providers>
+    </camelcxf:rsServer>
+    <camelContext id="wstarjetadecredito" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSTarjetaDeCredito"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSTarjetaDeCredito"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <bean id="validarDatosOperacionBean"
+                    method="validarDatosOperacion" ref="beanRouteFacade"/>
+                <choice id="validaErrorChoice">
+                    <when id="validaErrorWhen">
+                        <simple>${exchangeProperty.ERROR} == ''</simple>
+                        <choice id="inicioChoiceOperacion">
+                            <when id="validaRutWhen">
+                                <simple>${exchangeProperty.valida_rut} == 'Correcto'</simple>
+                                <choice id="validaRutChoice">
+                                    <when id="inicioWhenOperacionGenerarAvance">
+                                    <simple>${header.operationName} == 'generarAvance'</simple>
+                                    <to id="toPing" uri="direct:ping"/>
+                                    <to id="toGenerarAvance" uri="direct:generarAvance"/>
+                                    </when>
+                                    <otherwise id="inicioOtherwise">
+                                    <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <when id="inicioWhenOperacionConsultarCliente">
+                                <simple>${header.operationName} == 'consultarCliente'</simple>
+                                <to id="toConsultarCliente" uri="direct:consultarCliente"/>
+                            </when>
+                            <!-- Operación: consultarTarjeta (MolConsultarTarjeta) -->
+                            <when id="inicioWhenOperacionConsultarTarjeta">
+                                <simple>${header.operationName} == 'consultarTarjeta'</simple>
+                                <log id="logConsultarTarjeta" message="Operacion: MolConsultarTarjeta iniciada"/>
+                                <to id="toConsultarTarjeta" uri="direct:consultarTarjeta"/>
+                            </when>
+                            <!-- Operación: transaccionTarjeta (MolTransaccionTarjeta) -->
+                            <when id="inicioWhenTransaccionTarjeta">
+                                <simple>${header.operationName} == 'transaccionTarjeta'</simple>
+                                <log id="logTransaccionTarjetaWhen" message="Operacion: transaccionTarjeta (MolTransaccionTarjeta) iniciada"/>
+                                <to id="toTransaccionTarjeta" uri="direct:transaccionTarjeta"/>
+                            </when>
+                            <!-- Operación: bloquearDesbloquearTarjeta (bloquearDesbloquearTarjeta) -->
+                            <when id="inicioWhenOperacionBloquearDesbloquearTarjeta">
+                                <simple>${header.operationName} == 'bloquearDesbloquearTarjeta'</simple>
+                                <log
+                                    id="logBloquearDesbloquearTarjetaWhen" message="Operacion: bloquearDesbloquearTarjeta iniciada"/>
+                                <to
+                                    id="toBloquearDesbloquearTarjetaWhen" uri="direct:dBloquearTarjeta"/>
+                            </when>
+                            <!-- Operación: bloqueoDesbloqueoOnlineeIBS (bloqueoDesbloqueoOnlineeIBS) -->
+                            <when id="inicioWhenOperacionBloqueoDesbloqueoOnlineeIBS">
+                                <simple>${header.operationName} == 'bloqueoDesbloqueoOnlineeIBS'</simple>
+                                <log
+                                    id="logBloqueoDesbloqueoOnlineeIBSWhen" message="Operacion: BloqueoDesbloqueoOnlineeIBS iniciada"/>
+                                <to
+                                    id="toBloqueoDesbloqueoOnlineeIBSWhen" uri="direct:dBloqueoDesbloqueoOnlineeIBS"/>
+                            </when>
+                            <otherwise id="otherwiseError_400">
+                                <setProperty id="inicioCodigoError" propertyName="codigoError">
+                                    <constant>400</constant>
+                                </setProperty>
+                                <throwException
+                                    exceptionType="java.lang.UnsupportedOperationException"
+                                    id="throwExceptionOperacionInvalida_400" message="El RUT ingresado no es valido."/>
+                                <stop id="_stop"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="otherwiseError_300">
+                        <setProperty id="codigoErrorDatos" propertyName="codigoError">
+                            <constant>300</constant>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.UnsupportedOperationException"
+                            id="throwExceptionOperacionInvalida_300" message="Falta completar datos de entrada"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch-UnsupportedOperationException">
+                    <exception>java.lang.UnsupportedOperationException</exception>
+                    <to
+                        id="toInicioExcepcion-UnsupportedOperationException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoErrorDoCatch" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generarAvanceDummy">
+            <from id="generarAvanceDummyFrom" uri="direct:generarAvanceDummy"/>
+            <bean id="generarAvanceDummyBean" method="retornarDummy" ref="beanRouteFacade"/>
+        </route>
+        <route id="consultarTarjetaRoute">
+            <from id="consultarTarjetaFrom" uri="direct:consultarTarjeta"/>
+            <doTry id="salidaConsultaTarjetaTry">
+                <to id="toConsultarTarjetaRoute" uri="direct:consultarEstadoTarjeta"/>
+                <doCatch id="consultaTarjetaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultaTarjetaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="consultaTarjetaToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopConsultaTarjeta"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarEstadoTarjetaRoute">
+            <from id="consultarEstadoTajetaFrom" uri="direct:consultarEstadoTarjeta"/>
+            <doTry id="consultarTry">
+                <log id="_log16" loggingLevel="INFO" message="Iniciando route: consultarEstadoTarjeta"/>
+                <removeHeaders
+                    excludePattern="Content*|User*|Connection"
+                    id="consultarEstadoTarjetaRemoveHeadersLlamadaNexus" pattern="*"/>
+                <setHeader headerName="SOAPAction" id="consultarEstadoTarjetaSetHeader">
+                    <constant>http://tempuri.org/IWSST247/MolST247Consultas</constant>
+                </setHeader>
+                <setHeader headerName="Content-Encoding" id="consultaSetHeadersContentEncoding">
+                    <constant>identity</constant>
+                </setHeader>
+                <bean id="consultarEstadoTarjetaBean"
+                    method="datosOperacionConsultarTarjeta" ref="beanRouteFacade"/>
+                <log id="log beforeConsultarEstadoTarjeta" message="Enviando mensaje al backend: Body = ${body}"/>
+                <to id="operacionConsultarTarjetaXml2trama" uri="xslt://etc/xsl/request/MolConsultarTarjetaRequest.xsl?saxon=true"/>
+                <log id="logOperacionConsultarTCRequest"
+                    loggingLevel="INFO" message="Mensaje Entrada MOL Consulta ${body}"/>
+                <!-- Llamada al servicio mol -->
+                <to id="consultaTarjetaCxf" uri="cxf:{{operacion.mol.consulta.endpoint.nexus.url.mol}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="_convertBodyToConsultarTarjeta" type="java.lang.String"/>
+                <log id="log afterConsultarEstadoTarjeta" message="respuesta de backend: Body = ${body}"/>
+                <setProperty id="consultaRespuesta" propertyName="consultaRespuesta">
+                    <xpath>//*[local-name()='Body']</xpath>
+                </setProperty>
+                <setProperty id="_setPropertyConsultaTarjeta" propertyName="CamelCXFDataFormat">
+                    <constant>POJO</constant>
+                </setProperty>
+                <bean id="salidaConsultaTarjetaBean"
+                    method="procesarRespuestaConsultarTarjeta" ref="beanRouteFacade"/>
+                <doCatch id="consultaTarjetaNFTCDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="_setPropertyExceptionConsultaTarjeta" propertyName="CamelCXFDataFormat">
+                        <constant>POJO</constant>
+                    </setProperty>
+                    <setProperty id="consultaTarjetaDoCatchCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="consultaTarjetaNFTCToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopConsultaTarjetaNFTC"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="bloqueaTarjeta">
+            <from id="bloqueaTarjetaFrom" uri="direct:dBloquearTarjeta"/>
+            <doTry id="bloqueaTarjetaTry">
+                <to id="toBloquearTarjeta" uri="direct:bloquearTarjeta"/>
+                <doCatch id="bloqueaTarjetaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="bloqueaTarjetaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="bloqueaTarjetaToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopbloqueaTarjeta"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="bloquearTarjeta">
+            <from id="bloquearFrom" uri="direct:bloquearTarjeta"/>
+            <doTry id="bloquearTry">
+                <log id="_logBloquearTarjetaRoute" loggingLevel="INFO" message="Iniciando route: dBloquearTarjeta"/>
+                <removeHeaders
+                    excludePattern="Content*|User*|Connection"
+                    id="dBloquearTarjetaRemoveHeadersLlamadaNexus" pattern="*"/>
+                <setHeader headerName="SOAPAction" id="dBloquearTarjetaSetHeader">
+                    <constant>http://tempuri.org/IWSST247/MolST247Transacciones</constant>
+                </setHeader>
+                <setHeader headerName="Content-Encoding" id="dBloquearSetHeadersContentEncoding">
+                    <constant>identity</constant>
+                </setHeader>
+                <bean id="dBloquearTarjetaBean"
+                    method="datosOperacionBloquearDesbloquearTarjeta" ref="beanRouteFacade"/>
+                <log id="_logDBloquearTarjeta" message="Body formateado por datosOperacionBloquearDesbloquearTarjeta= ${body}"/>
+                <to id="operacionDBloquearTarjetaXml2trama" uri="xslt://etc/xsl/request/MolBloquearDesbloquearTarjetaRequest.xsl?saxon=true"/>
+                <log id="logDBloquearTCRequest" loggingLevel="INFO" message="Mensaje Entrada MOL dBloqueo ${body}"/>
+                <!-- Llamada al servicio mol -->
+                <to id="dBloquearTarjetaCxf" uri="cxf:{{operacion.mol.bloquear.tarjeta.endpoint.nexus.url.mol}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="_convertBodyToDBloquearTarjeta" type="java.lang.String"/>
+                <log id="log afterDBloquearTarjeta" message="respuesta del MOL: Body = ${body}"/>
+                <setProperty id="dBloqueoRespuesta" propertyName="dBloqueoRespuesta">
+                    <xpath>//*[local-name()='Body']</xpath>
+                </setProperty>
+                <setProperty id="_setPropertyDBloqueaTarjeta" propertyName="CamelCXFDataFormat">
+                    <constant>POJO</constant>
+                </setProperty>
+                <bean id="salidaDBloquearTarjetaBean"
+                    method="procesarRespuestaDBloquearTarjeta" ref="beanRouteFacade"/>
+                <log id="logAfterDBloquearTarjetaBean" message="OUTPUT bloquearDesbloquearTarjeta: Body = ${body}"/>
+                <!-- Validación antes de llamada IOC -->
+                <choice id="_choiceValidacionIOC">
+                    <when id="_whenValidacionIOC">
+                        <simple>
+							${exchangeProperty.molST247TransaccionesResultMol} == true &amp;&amp; 
+							${exchangeProperty.coderrorMol} == 0 &amp;&amp; 
+							"${exchangeProperty.msgerrorMol}" == ""</simple>
+                        <wireTap id="notificarIOC" uri="direct:notificacionIOC"/>
+                    </when>
+                    <otherwise id="_otherwiseValidacionIOC">
+                        <log id="_logValidacionIOC_NoValido"
+                            loggingLevel="INFO" message="No se realizo la notificación IOC0403 por algunas de los siguientes motivos: "/>
+                        <log
+                            id="_logValidacionIOC_MolST247TransaccionesResultMol"
+                            loggingLevel="INFO" message="molST247TransaccionesResultMol=${exchangeProperty.molST247TransaccionesResultMol}"/>
+                        <log id="_logValidacionIOC_CoderrorMol"
+                            loggingLevel="INFO" message="coderrorMol=${exchangeProperty.coderrorMol}"/>
+                        <log id="_logValidacionIOC_MsgerrorMol"
+                            loggingLevel="INFO" message="msgerrorMol=${exchangeProperty.msgerrorMol}"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="doCatchDBloquearTarjetaNFTC">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="_setPropertyExceptionDBloquearTarjeta" propertyName="CamelCXFDataFormat">
+                        <constant>POJO</constant>
+                    </setProperty>
+                    <setProperty id="doCatchDBloquearCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toDBloquearTarjetaExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopDBloquearTarjetaNFTC"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="notificacionIOC0403">
+            <from id="notificacionIOC0403From" uri="direct:notificacionIOC"/>
+            <log id="_logDBloquerTarjetaLog_respOk" loggingLevel="INFO" message="Respuesta exitosa. Devolviendo resultado... Llamar IOC."/>
+            <log id="_logIOC_MolST247TransaccionesResultMol"
+                loggingLevel="INFO" message="molST247TransaccionesResultMol=${exchangeProperty.molST247TransaccionesResultMol}"/>
+            <log id="_logIOC_CoderrorMol" loggingLevel="INFO" message="coderrorMol=${exchangeProperty.coderrorMol}"/>
+            <log id="_logIOC_MsgerrorMol" loggingLevel="INFO" message="msgerrorMol=${exchangeProperty.msgerrorMol}"/>
+            <bean id="notificacionIOC0403uuid"
+                method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+            <log id="notificacionIOC0403JMSCorrelationId24" message="Correlation ID usado = ${header.JMSCorrelationID}"/>
+            <to id="generarNotificacionIOC0403ToXSLTrama" uri="xslt://etc/xsl/request/IOC040301I_generar.xsl"/>
+            <log id="notificacionIOC0403Trama" message="Trama generada IOC0403= ${body}"/>
+            <to id="notificacionIOC0403ToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+            <log id="notificacionIOC0403TramaResponse" message="Trama recibida IOC0403= ${body}"/>
+            <transform id="notificacionIOC0403TransformBody">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <to id="notificacionIOC0403ToXSLSOAP" uri="xslt://etc/xsl/response/IOC040501O_generar.xsl?saxon=true"/>
+            <log id="lognotificacionIOC0403ToXSLSOAP" message="Trama IOC040301O = ${body}"/>
+        </route>
+        <route id="dBloqueoDesbloqueoOnlineeIBS">
+            <from id="dBloqueoDesbloqueoOnlineeIBSFrom" uri="direct:dBloqueoDesbloqueoOnlineeIBS"/>
+            <doTry id="dBloqueoDesbloqueoOnlineeIBSTry">
+                <to id="todBloqueoDesbloqueoOnlineeIBS" uri="direct:bloqueoDesbloqueoOnlineeIBS"/>
+                <doCatch id="dBloqueoDesbloqueoOnlineeIBSDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="dBloqueoDesbloqueoOnlineeIBSCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="dBloqueoDesbloqueoOnlineeIBSToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopdBloqueoDesbloqueoOnlineeIBS"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="bloqueoDesbloqueoOnlineeIBS">
+            <from id="bloqueoDesbloqueoOnlineeIBSFrom" uri="direct:bloqueoDesbloqueoOnlineeIBS"/>
+            <doTry id="bloqueoDesbloqueoOnlineeIBSTry">
+                <log id="_logBloqueoDesbloqueoOnlineeIBSRoute"
+                    loggingLevel="INFO" message="Iniciando route: bloqueoDesbloqueoOnlineeIBS"/>
+                <removeHeaders
+                    excludePattern="Content*|User*|Connection"
+                    id="bloqueoDesbloqueoOnlineeIBSremoveHeader" pattern="*"/>
+                <bean id="bloqueoDesbloqueoOnlineeIBSBean"
+                    method="datosOperacionBloqueoDesbloqueoOnlineeIBS" ref="beanRouteFacade"/>
+                <!-- Transformaciones en xsl -->
+                <to id="operacionBloqueoDesbloqueoOnlineeIBSXml2trama" uri="xslt://etc/xsl/request/BloqueoDesbloqueoOnlineeIBSRequest.xsl?saxon=true"/>
+                <!-- Llamada al microservicio -->
+                <setHeader headerName="Http-Method" id="bloqueoDesbloqueoOnlineeIBSsetHeaderMethod">
+                    <constant>POST</constant>
+                </setHeader>
+                <setHeader headerName="Content-Type" id="bloqueoDesbloqueoOnlineeIBSsetHeaderContent">
+                    <constant>application/json</constant>
+                </setHeader>
+                <log id="_logBloqueoDesbloqueoOnlineeIBSLlamadaMS"
+                    loggingLevel="INFO" message="Llamada al MS mediante REST: bloqueoDesbloqueoOnlineeIBS= ${body}"/>
+                <to id="bloqueoDesbloqueoOnlineeIBSToCxfrs" uri="cxfrs:bean:endpointRSBloqueoOnline?exchangePattern=InOut&amp;throwExceptionOnFailure=true&amp;httpClientAPI=true"/>
+                <convertBodyTo
+                    id="convertBodyToBloqueoDesbloqueoOnlineeIBS" type="java.lang.String"/>
+                <log id="log_afterBloqueoDesbloqueoOnlineeIBS" message="Respuesta del MS = ${body}"/>
+                <setProperty id="respuestaMS" propertyName="consultaRespuestaMS">
+                    <simple>${body}</simple>
+                </setProperty>
+                <bean id="resposeBloqueoDesbloqueoOnlineeIBSBean"
+                    method="procesarRespuestaBloqueoDesbloqueoOnlineeIBS" ref="beanRouteFacade"/>
+                <log id="_logBloqueoDesbloqueoOnlineeIBS_respOk"
+                    loggingLevel="INFO" message="Respuesta exitosa del microservicio."/>
+                <log
+                    id="log_afterProcesarRespuestaBloqueoDesbloqueoOnlineeIBS" message="OUTPUT BloqueoDesbloqueoOnlineeIBS= ${body}"/>
+                <doCatch id="doCatchBloqueoDesBloqueoOnlineeIBS">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="_setPropertyExceptionBloqueoDesbloqueoOnlineeIBS" propertyName="CamelCXFDataFormat">
+                        <constant>POJO</constant>
+                    </setProperty>
+                    <setProperty
+                        id="doCatchBloqueoDesbloqueoOnlineeIBSError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toBloqueoDesbloqueoOnlineeIBSExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopBloqueoDesbloqueoOnlineeIBS"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cambiarEstadoTarjeta">
+            <from id="cambiarEstadoTarjetaFrom" uri="direct:transaccionTarjeta"/>
+            <doTry id="cambiarEstadoTarjetaTry">
+                <to id="toOnOffTarjeta" uri="direct:onOffTarjeta"/>
+                <doCatch id="cambiarEstadoTarjetaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="cambiarEstadoTarjetaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="cambiarEstadoTarjetaToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopCambiarEstadoTarjeta"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="onOffTarjeta">
+            <from id="_fromOnOffTarjeta" uri="direct:onOffTarjeta"/>
+            <doTry id="_doTryOnOffTarjeta">
+                <log id="_logOnOffTarjetaRoute" loggingLevel="INFO" message="Iniciando route: onOffTarjeta"/>
+                <removeHeaders
+                    excludePattern="Content*|User*|Connection"
+                    id="onOffTarjetaRemoveHeadersLlamadaNexus" pattern="*"/>
+                <setHeader headerName="SOAPAction" id="onOffTarjetaSetHeader">
+                    <constant>http://tempuri.org/IWSST247/MolST247Transacciones</constant>
+                </setHeader>
+                <setHeader headerName="Content-Encoding" id="onOffTarjetaSetHeadersContentEncoding">
+                    <constant>identity</constant>
+                </setHeader>
+                <bean id="onOffTarjetaBean"
+                    method="datosOperacionTransaccionTarjeta" ref="beanRouteFacade"/>
+                <log id="_logOnOffTarjeta" message="Enviando mensaje al backend: Body = ${body}"/>
+                <!-- modificar xls -->
+                <to id="operacionOnOffTarjetaXml2trama" uri="xslt://etc/xsl/request/MolTransaccionTarjetaRequest.xsl?saxon=true"/>
+                <log id="logOnOffTCRequest" loggingLevel="INFO" message="Mensaje Entrada MOL OnOffTarjeta ${body}"/>
+                <!-- Llamada al servicio mol -->
+                <to id="toOnOffTarjetaCxf" uri="cxf:{{operacion.mol.consulta.endpoint.nexus.url.mol}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="_convertBodyToOnOffTarjeta" type="java.lang.String"/>
+                <log id="log afterOnOffTarjeta" message="respuesta de backend: Body = ${body}"/>
+                <setProperty id="transaccionRespuesta" propertyName="transaccionRespuesta">
+                    <xpath>//*[local-name()='Body']</xpath>
+                </setProperty>
+                <setProperty id="_setPropertyTransaccionTarjeta" propertyName="CamelCXFDataFormat">
+                    <constant>POJO</constant>
+                </setProperty>
+                <bean id="salidaOnOffTarjetaBean"
+                    method="procesarRespuestaTransaccionTarjeta" ref="beanRouteFacade"/>
+                <doCatch id="doCatchOnOffTarjetaNFTC">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="_setPropertyExceptionOnOffTarjetaBean" propertyName="CamelCXFDataFormat">
+                        <constant>POJO</constant>
+                    </setProperty>
+                    <setProperty id="doCatchOnOffCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toOnOffTarjetaExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopOnOffTarjetaNFTC"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generarAvance">
+            <from id="generarAvanceFrom" uri="direct:generarAvance"/>
+            <doTry id="salidaMotorTCTry">
+                <to id="toMOLMonetario" uri="direct:monetario"/>
+                <doCatch id="generarAvanceDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="generarAvanceCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="generarAvanceToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopGenerarAvance"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="monetario">
+            <from id="monetarioFrom" uri="direct:monetario"/>
+            <doTry id="monetarioTry">
+                <!--<stop id="stopFechaContable"/>-->
+                <removeHeaders
+                    excludePattern="Content*|User*|Connection"
+                    id="monetarioRemoveHeadersLlamadaNexus" pattern="*"/>
+                <setHeader headerName="SOAPAction" id="monetarioSetHeader">
+                    <constant>http://tempuri.org/IWSST247/MolST247Transacciones</constant>
+                </setHeader>
+                <setHeader headerName="Content-Encoding" id="monetarioSetHeadersContentEncoding">
+                    <constant>identity</constant>
+                </setHeader>
+                <bean id="monetarioSetPropiedades"
+                    method="datosOperacionMOL" ref="beanRouteFacade"/>
+                <to id="monetarioXml2trama" uri="xslt://etc/xsl/request/xml2xmlout_MolST247Transacciones.xsl?saxon=true"/>
+                <log id="logGenerarAvanceTCRequest" loggingLevel="INFO" message="Mensaje Entrada MOL Monetario: ${body}"/>
+                <to id="monetarioCxf" uri="cxf:{{endpoint.nexus.url.mol}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="monetarioBodyTo" type="java.lang.String"/>
+                <log id="logGenerarAvanceTCResponse" loggingLevel="INFO" message="Mensaje Salida MOL Monetario: ${body}"/>
+                <setProperty id="monetarioCodigoError" propertyName="monetarioCodigoError">
+                    <xpath resultType="String">//*[local-name()='coderror']</xpath>
+                </setProperty>
+                <setProperty id="monetarioDescripcionError" propertyName="monetarioDescripcionError">
+                    <xpath resultType="String">//*[local-name()='msgerror']</xpath>
+                </setProperty>
+                <choice id="choiceGenerarAvance">
+                    <when id="whenGenerarAvance">
+                        <simple>${exchangeProperty.monetarioCodigoError} == 0</simple>
+                        <setProperty id="monetarioRespuesta" propertyName="monetarioRespuesta">
+                            <xpath>//*[local-name()='XmlOutMol']</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty4" propertyName="canalLlamadaBRNC">
+                            <simple>{{coopeuch.wstarjetadecredito.canalLlamada.branch}}</simple>
+                        </setProperty>
+                        <when id="whenSitioPrivadoGenerarAvanceIBS">
+                            <simple>${exchangeProperty.canalLlamada} != ${exchangeProperty.canalLlamadaBRNC}</simple>
+                            <to id="toGenerarAvanceIBS" uri="direct:generarAvanceIBS"/>
+                        </when>
+                        <setProperty id="_setProperty1" propertyName="CamelCXFDataFormat">
+                            <constant>POJO</constant>
+                        </setProperty>
+                        <bean id="salidaGenerarAvanceBean"
+                            method="salidaGenerarAvance" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="otherwiseGenerarAvance">
+                        <setProperty id="monetarioCodigoErrorTrxCatch" propertyName="codigoError">
+                            <simple>${exchangeProperty.monetarioCodigoError}</simple>
+                        </setProperty>
+                        <setProperty
+                            id="monetarioDescripcionWSExternoTrxCatch" propertyName="descripcionWSExterno">
+                            <simple>${exchangeProperty.monetarioDescripcionError}</simple>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.UnsupportedOperationException"
+                            id="throwExceptionMonetario" message="Transaccion con respuesta erronea"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="monetarioCatch-UnsupportedOperationException">
+                    <exception>java.lang.UnsupportedOperationException</exception>
+                    <setProperty id="_setProperty2" propertyName="CamelCXFDataFormat">
+                        <constant>POJO</constant>
+                    </setProperty>
+                    <to id="toInicioExcepcion-ExceptionMonetario" uri="direct:excepcion"/>
+                    <stop id="stopMonetarioUnsupportedOperation"/>
+                </doCatch>
+                <doCatch id="monetarioCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.net.SocketException</exception>
+                    <exception>java.net.UnknownHostException</exception>
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty3" propertyName="CamelCXFDataFormat">
+                        <constant>POJO</constant>
+                    </setProperty>
+                    <setProperty id="monetarioCodigoErrorCatch" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <setProperty id="monetarioDescripcionWSExternoCatch" propertyName="descripcionWSExterno">
+                        <constant>webservice.nexussa.cl/WST247</constant>
+                    </setProperty>
+                    <to id="monetarioToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopMonetario"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generarAvanceIBS">
+            <from id="generarAvanceIBSFrom" uri="direct:generarAvanceIBS"/>
+            <doTry id="generarAvanceIBSTry">
+                <bean id="idGenerarIntentos" method="generarIntentos" ref="beanRouteFacade"/>
+                <log id="logIntentosGenerarAvance" message="Intentos Generar Avance = ${exchangeProperty.intentos}"/>
+                <convertBodyTo id="generarAvanceIBSConvertBodyToString" type="java.lang.String"/>
+                <removeHeaders id="removeHeadersGenerarAvanceIBS" pattern="*"/>
+                <bean id="generarAvanceIBSUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="generarAvanceIBSToXSLTrama" uri="xslt://etc/xsl/request/IOC040501I_generar.xsl"/>
+                <log id="generarAvanceIBSTrama" message="Trama generada = ${body}"/>
+                <to id="generarAvanceIBSToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="generarAvanceIBSTramaResponse" message="Trama recibida = ${body}"/>
+                <transform id="generarAvanceIBSTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="generarAvanceIBSToXSLSOAP" uri="xslt://etc/xsl/response/IOC040501O_generar.xsl?saxon=true"/>
+                <choice id="validaRespuestaGenerarAvanceIBSChoice">
+                    <when id="validaRespuestaGenerarAvanceIBSWhen">
+                        <xpath>//idTransaccion/text() != ''</xpath>
+                        <setProperty id="setIdTransaccion" propertyName="idTransaccion">
+                            <xpath>//idTransaccion/text()</xpath>
+                        </setProperty>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <unmarshal id="generarAvanceIBSUnmarshal">
+                            <jaxb contextPath="cl.coopeuch.integracion.entidad.wsdl"/>
+                        </unmarshal>
+                        <stop id="stopGenerarAvanceIBSOtherwise"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="generarAvanceIBSDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <choice id="intentosChoiceAMQ">
+                        <when id="inicioWhenIntentosAMQ">
+                            <simple>${exchangeProperty.intentos} &lt; 1</simple>
+                            <delay id="_delay1">
+                                <constant>1000</constant>
+                            </delay>
+                            <to id="toGenerarAvanceIntentosAMQ" uri="direct:generarAvanceIBS"/>
+                        </when>
+                        <otherwise id="inicioOtherwiseIntentosAMQ">
+                            <setProperty
+                                id="generarAvanceIBSCodigoErrorAMQ" propertyName="codigoError">
+                                <constant>502</constant>
+                            </setProperty>
+                            <to id="generarAvanceIBSToExcepcionAMQ" uri="direct:excepcion"/>
+                            <log id="logFinOtherwiseIntentosAMQ" message="Fin Intentos ExchangeTimedOutException = ${exchangeProperty.intentos}"/>
+                            <stop id="stopGenerarAvanceIBSAMQ"/>
+                        </otherwise>
+                    </choice>
+                </doCatch>
+                <doCatch id="generarAvanceIBSDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <choice id="intentosChoice">
+                        <when id="inicioWhenIntentos">
+                            <simple>${exchangeProperty.intentos} &lt; 3</simple>
+                            <delay id="_delay2">
+                                <constant>1000</constant>
+                            </delay>
+                            <to id="toGenerarAvanceIntentos" uri="direct:generarAvanceIBS"/>
+                        </when>
+                        <otherwise id="inicioOtherwiseIntentos">
+                            <setProperty
+                                id="generarAvanceIBSCodigoError" propertyName="codigoError">
+                                <constant>500</constant>
+                            </setProperty>
+                            <to id="generarAvanceIBSToExcepcion" uri="direct:excepcion"/>
+                            <log id="logFinOtherwiseIntentos" message="Fin Intentos Exception = ${exchangeProperty.intentos}"/>
+                            <stop id="stopGenerarAvanceIBS"/>
+                        </otherwise>
+                    </choice>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="obtenerDiasInhabiles">
+            <from id="obtenerDiasInhabilesFrom" uri="direct:obtenerDiasInhabiles"/>
+            <doTry id="obtenerDiasInhabilesTry">
+                <setHeader headerName="Http-Method" id="_setHeaderMethod">
+                    <constant>POST</constant>
+                </setHeader>
+                <setHeader headerName="Content-Type" id="_setHeaderContent">
+                    <constant>application/json</constant>
+                </setHeader>
+                <log id="logObtenerDiasInhabilesBody"
+                    loggingLevel="INFO" message="Ruta obtenerDiasInhabiles: ${body}"/>
+                <marshal id="marshalObtenerDiasInhabilesRequest">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="convertObtenerDiasInhabilesRequest" type="java.lang.String"/>
+                <log id="logObtenerDiasInhabilesRequest"
+                    loggingLevel="INFO" message="Mensaje Entrada: ${body}"/>
+                <to id="obtenerDiasInhabiles-To" uri="cxfrs:bean:endpointRSParametrosGenerales?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <unmarshal id="unmarshalObtenerDiasInhabilesResponse">
+                    <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.entidad.wsdl.parametrosgenerales.RootConsultarCalendarioResponse"/>
+                </unmarshal>
+                <log id="logObtenerDiasInhabiles_2" loggingLevel="INFO" message="Salida Mensaje: ${body}"/>
+                <doCatch id="obtenerDiasInhabilesDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="obtenerDiasInhabilesCodigoError" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty
+                        id="obtenerDiasInhabilesDescripcionWSInterno" propertyName="descripcionWSExterno">
+                        <constant>RSParametrosGenerales/consultarCalendario</constant>
+                    </setProperty>
+                    <to id="obtenerDiasInhabilesToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopObtenerDiasInhabiles"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="ping">
+            <from id="pingFrom" uri="direct:ping"/>
+            <doTry id="pingTry">
+                <convertBodyTo id="pingConvertBodyToString" type="java.lang.String"/>
+                <removeHeaders id="removeHeadersPing" pattern="*"/>
+                <bean id="pingUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="pingToXSLTrama" uri="xslt://etc/xsl/request/IOC040502I_ping.xsl"/>
+                <log id="pingTrama" message="Trama generada = ${body}"/>
+                <to id="pingToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="pingTramaResponse" message="Trama recibida = ${body}"/>
+                <transform id="pingTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="pingToXSLSOAP" uri="xslt://etc/xsl/response/IOC040502O_ping.xsl?saxon=true"/>
+                <log id="logPingToXSLSOAP" message="IOC040502O_ping.xsl = ${body}"/>
+                <choice id="validaRespuestaPingChoice">
+                    <when id="validaRespuestaPingWhen">
+                        <xpath resultType="String">//estadoIOC = 'OK'</xpath>
+                        <log id="pingEstadoResponse" message="Ping estado IOC0405 = OK"/>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionPing" message="Servicio IOC0405 no disponible"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="pingDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="pingCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <setProperty id="pingDescripcionWSInternoCatchAMQ" propertyName="descripcionWSInterno">
+                        <constant>- IOC0405 no disponible</constant>
+                    </setProperty>
+                    <log id="logPingDoCatchAMQ" message="Ping Exception = org.apache.camel.ExchangeTimedOutException"/>
+                    <to id="toPingExcepcionAMQ" uri="direct:excepcion"/>
+                    <stop id="stopPingAMQ"/>
+                </doCatch>
+                <doCatch id="pingDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="pingCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="pingDescripcionWSInternoCatch" propertyName="descripcionWSInterno">
+                        <constant>- IOC0405 no disponible</constant>
+                    </setProperty>
+                    <log id="logPingDoCatch" message="Ping Exception = java.lang.Exception"/>
+                    <to id="pingToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopPing"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarCliente">
+            <from id="consultarClienteFrom" uri="direct:consultarCliente"/>
+            <doTry id="consultarClienteTry">
+                <bean id="consultarClienteEntrada"
+                    method="consultarClienteEntrada" ref="beanRouteFacade"/>
+                <to id="consultarClienteToPa" uri="sql-stored:classpath:etc/sql/PA_SEL_WSTARJETADECREDITO_CONSULTARCLIENTE_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseConsultarCliente"/>
+                <bean id="respuestaPaConsultarCliente"
+                    method="respuestaPaConsultarCliente" ref="beanRouteFacade"/>
+                <doCatch id="consultarClienteErrorDoCatch">
+                    <exception>java.lang.RuntimeException</exception>
+                    <log id="consultarClienteErrorPa"
+                        loggingLevel="ERROR" message="${exception}"/>
+                    <setProperty id="consultarClienteErrorCodigoError" propertyName="codigoError">
+                        <constant>509</constant>
+                    </setProperty>
+                    <setProperty id="consultarClienteErrorMensajeError" propertyName="descripcionError">
+                        <simple>Error al ejecutar procedimiento almacenado.</simple>
+                    </setProperty>
+                    <to id="toConsultarDetalleExcepcion1" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultarClienteDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarClienteCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="consultarClienteMensajeError" propertyName="mensajeError">
+                        <simple>Error interno del servidor.</simple>
+                    </setProperty>
+                    <to id="toConsultarDetalleExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

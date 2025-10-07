@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Servicio para listar bancos -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="local" persistent-id="banco"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <camelcxf:cxfEndpoint address="/WSBanco" id="endpointWsBanco"
+        serviceClass="cl.coopeuch.integracion.banco.wsdl.WSBancoSOAPPortType" wsdlURL="etc/wsdl/WSBanco.wsdl"/>
+	<camelcxf:rsClient address="[{wsLogPlataformas.endpoint}]" 
+		id="endpointLogPlataformas"	loggingFeatureEnabled="true" />          
+    <bean class="cl.coopeuch.integracion.banco.util.RouteFacade" id="beanRouteFacade"/>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <camelContext id="servicio-banco" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-Inicio">
+            <from id="inicioFrom" uri="cxf:bean:endpointWsBanco"/>
+            <setBody id="_setBody1">
+                <simple>$simple{body.get(0)}</simple>
+            </setBody>
+            <to id="_to1" uri="direct:inicio"/>
+        </route>
+        <route id="_routeJMS">
+            <from id="_fromJMS" uri="beanAMQ:queue:{{colas.servicio.banco.in.temp}}?preserveMessageQos=true"/>
+            <to id="_toJMS" uri="direct:inicio"/>
+        </route>
+        <route id="_routeInicio">
+            <from id="_fromInicio" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+				<setProperty propertyName="rut_log">
+		           	<simple>00000000</simple>
+		        </setProperty>     
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>${header.operationName}</simple>
+                </setProperty>
+                <setProperty id="inicioSetPropertyRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionListar">
+                        <simple>${header.operationName} == 'listar'</simple>
+                        <to id="toBancoListar" uri="direct:BancoListar"/>
+                    </when>
+                    <when id="inicioWhenOperacionListarEmision">
+                        <simple>${header.operationName} == 'listarEmision'</simple>
+                        <to id="toBancoListar" uri="direct:BancolistarEmision"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="ruteoOperacioneShemaValidationException">
+                	<exception>org.apache.camel.processor.validation.SchemaValidationException</exception>
+                	<exception>org.apache.camel.ValidationException</exception>
+                	<exception>org.apache.camel.TypeConversionException</exception>
+                	<transform>
+               			<simple>${property.CamelExceptionCaught}</simple>
+            		</transform>
+		            <transform>
+		               <simple>${bodyAs(String)}</simple>
+		            </transform>    
+		            <setProperty propertyName="exceptionBody">
+		            	<simple>${body}</simple>
+		            </setProperty>        		
+                    <bean id="inicioBeanExceptionAmq"
+                        method="excepcionAmq" ref="beanRouteFacade"/>
+                    <marshal id="inicioMarshalJson">
+                        <json library="Jackson"/>
+                    </marshal>
+                    <setBody id="ruteoOperacioneShemaValidationExceptionSetBodyError">
+                        <simple>ERROR ServicioCuentas-Inicio-soap: -Excepcion: ${property.exceptionBody}\n-BodyOrigen: ${body}</simple>
+                    </setBody>
+                    <to id="inicioToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>                    
+                    <bean id="beanOtherExcepcionBanco"
+                        method="iniciarExcepcion" ref="beanRouteFacade"/>
+                </doCatch>                 
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="inicioBeanExceptionAmq"
+                        method="excepcionAmq" ref="beanRouteFacade"/>
+                    <marshal id="inicioMarshalJson">
+                        <json library="Jackson"/>
+                    </marshal>
+                    <convertBodyTo id="inicioConvertTo" type="java.lang.String"/>
+                    <wireTap id="wireTap-excepcionToLogPlataformas-Inicio" uri="direct:wsLogPlataformasGuardar"/>
+                    <bean id="beanExcepcionBanco" method="iniciarExcepcion" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="listar">
+            <from id="listarFrom" uri="direct:BancoListar"/>
+            <doTry id="listarTry">
+                <marshal id="listarMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.banco.wsdl"/>
+                </marshal>
+                <setProperty id="_setProperty1" propertyName="usuario">
+                    <xpath resultType="String">//usuario</xpath>
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="canalLlamada">
+                    <xpath resultType="String">//canalLlamada</xpath>
+                </setProperty>
+                <convertBodyTo id="listarConvert" type="java.lang.String"/>
+                <to id="listarToXSLTrama" uri="xslt://etc/xslt/request/IOC702001I_listar.xsl"/>
+                <to id="irIOC7020" uri="direct:IOC7020"/>
+                <loop doWhile="true" id="_loop1">
+                    <simple>${body.bancos.flag} != 'F'</simple>
+                    <setProperty id="_setProperty3" propertyName="cuerpo">
+                        <simple>${body}</simple>
+                    </setProperty>
+                    <to id="_to2" uri="direct:concatenarBancos"/>
+                    <bean id="_bean1" method="concatenar" ref="beanRouteFacade"/>
+                </loop>
+                <bean id="_bean3" method="formatearSalida" ref="beanRouteFacade"/>
+                <doCatch id="listarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="listarBeanExceptionAmq"
+                        method="excepcionAmq" ref="beanRouteFacade"/>
+                    <marshal id="listarMarshalJson">
+                        <json library="Jackson"/>
+                    </marshal>
+                    <convertBodyTo id="listarConvertTo" type="java.lang.String"/>
+                    <wireTap id="wireTap-excepcionToLogPlataformas-Listar" uri="direct:wsLogPlataformasGuardar"/>
+                    <bean id="listarBeanExcepcion"
+                        method="listarExcepcion" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route1">
+            <from id="concatenarBancos" uri="direct:concatenarBancos"/>
+            <removeHeaders id="_removeHeaders1" pattern="*"/>
+            <bean id="_bean2" method="obtenerMasRegistros" ref="beanRouteFacade"/>
+            <marshal id="_marshal1">
+                <bindy
+                    classType="cl.coopeuch.integracion.banco.modelo.IOC702001I" type="Fixed"/>
+            </marshal>
+            <to id="_toIOC7020" uri="direct:IOC7020"/>
+        </route>
+        <route id="_routeIOC7020">
+            <from id="_fromIOC7020" uri="direct:IOC7020"/>
+            <bean id="listarBeanRouteFacadeUUID"
+                method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+            <to id="listarToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+            <choice id="_choice1">
+                <when id="_when1">
+                    <simple>${body} contains 'ECNLERR'</simple>
+                    <unmarshal id="_unmarshal1">
+                        <bindy
+                            classType="cl.coopeuch.integracion.banco.modelo.IOCERROR" type="Fixed"/>
+                    </unmarshal>
+                    <throwException exceptionType="java.lang.Exception"
+                        id="_throwException1" message="Error en conversion de archivo"/>
+                </when>
+            </choice>
+            <unmarshal id="_unmarshalIOC702001O">
+                <bindy
+                    classType="cl.coopeuch.integracion.banco.modelo.IOC702001O" type="Fixed"/>
+            </unmarshal>
+            <bean id="_beanListarResponse" method="listarResponse" ref="beanRouteFacade"/>
+        </route>
+        <route id="listarEmision">
+            <from id="listarEmisionFrom" uri="direct:BancolistarEmision"/>
+            <doTry id="listarEmisionTry">
+                <marshal id="listarEmisionMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.banco.wsdl"/>
+                </marshal>
+                <convertBodyTo id="listarEmisionConvertBodyToString" type="java.lang.String"/>
+                <bean id="listarEmisionBeanRouteFacadeUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="listarEmisionToXSLTrama" uri="xslt://etc/xslt/request/IOC704001I_listarEmision.xsl"/>
+                <to id="listarEmisionToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="listarEmisionTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="listarEmisionToXSLSOAP" uri="xslt://etc/xslt/response/IOC704001O_listarEmision.xsl?saxon=true"/>
+                <convertBodyTo id="listarEmisionConvertBodyToResponse" type="cl.coopeuch.integracion.banco.wsdl.ListarEmisionResponse"/>
+                <doCatch id="listarEmisionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="listarEmisionBeanExceptionAmq"
+                        method="excepcionAmq" ref="beanRouteFacade"/>
+                    <marshal id="listarEmisionMarshalJson">
+                        <json library="Jackson"/>
+                    </marshal>
+                    <convertBodyTo id="listarEmisionConvertTo" type="java.lang.String"/>
+                    <wireTap id="wireTap-excepcionToLogPlataformas-listarEmision" uri="direct:wsLogPlataformasGuardar"/>
+                    <bean id="listarEmisionBeanExcepcion"
+                        method="listarEmisionExcepcion" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="wsLogPlataformasGuardar">
+        	<from id="wsLogPlataformasGuardar-From" uri="direct:wsLogPlataformasGuardar"/>        	
+        	<doTry id="wsLogPlataformasGuardar-doTry">
+        		<setProperty propertyName="nivelLog">
+        			<simple>ERRO</simple>
+        		</setProperty>
+        		<bean id="wsLogPlataformasGuardar-Bean" ref="beanRouteFacade" method="guardarLogRequest"/>
+        		<to id="wsLogPlataformasGuardar-To" uri="cxfrs:bean:endpointLogPlataformas"/>
+        		<doCatch id="wsLogPlataformasGuardar-doCatch">
+        			<exception>java.lang.Exception</exception>
+        			<setBody>
+        				<simple>ERROR-logPlataformas: ${exception}-${body}</simple>
+        			</setBody>
+        			<log message="${body}"/>
+        		</doCatch>
+        	</doTry>
+        </route>        
+    </camelContext>
+</blueprint>

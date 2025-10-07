@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsindicadoresfinancieros" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.cuentas]]"/>
+        <property name="password" value="[[jdbc.db2.password.cuentas]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive}]"/>
+    </bean>
+    <cxf:cxfEndpoint address="/WSIndicadoresFinancieros"
+        id="endpointWSIndicadoresFinancieros"
+        serviceClass="cl.coopeuch.integracion.utilidad.indicadores.financieros.wsdl.IndicadoresFinancieros" wsdlURL="etc/wsdl/WSIndicadoresFinancieros.wsdl">
+        <cxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </cxf:properties>
+    </cxf:cxfEndpoint>
+    <cxf:rsServer address="/RSIndicadoresFinancieros"
+        id="endpointRSIndicadoresFinancieros" serviceClass="cl.coopeuch.integracion.utilidad.indicadores.financieros.rest.IndicadoresFinancieros"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <camelContext id="wsindicadoresfinancieros" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-RuteoOperaciones-jms">
+            <from id="servicioEndpointListenerJms" uri="beanAMQ:queue:{{colas.servicio.indicadores.financieros.in.temp}}?preserveMessageQos=true"/>
+            <to id="_to2_Inicio" uri="direct:inicio"/>
+        </route>
+        <route id="soap-inicio">
+            <from id="fromSoapService" uri="cxf:bean:endpointWSIndicadoresFinancieros"/>
+            <setBody id="_setBody1">
+                <simple>${body.get(0)}</simple>
+            </setBody>
+            <to id="inicioSoapTo" uri="direct:inicio"/>
+        </route>
+        <route id="rest-inicio">
+            <from id="fromRestService" uri="cxfrs:bean:endpointRSIndicadoresFinancieros"/>
+            <unmarshal id="_unmarshal3">
+                <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.utilidad.indicadores.financieros.wsdl.ConsultarRequest"/>
+            </unmarshal>
+            <to id="inicioRestTo" uri="direct:inicio"/>
+            <marshal id="_marshal2">
+                <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.utilidad.indicadores.financieros.wsdl.ConsultarResponse"/>
+            </marshal>
+        </route>
+        <route id="routeInicio">
+            <from id="inicioFrom" uri="direct:inicio"/>
+            <toD id="_toDInicio" uri="direct:${header.operationName}"/>
+        </route>
+        <route id="routeConsultar">
+            <from id="fromConsultar" uri="direct:consultar"/>
+            <doTry id="_doTry1">
+                <to id="consultaPA" uri="sql-stored:classpath:etc/sql/PA_SEL_INDICADORESFINANCIEROS_CONSULTAR_WS.sql?dataSource=dataSourceSqlDb2"/>
+                <setBody id="_setBody2">
+                    <simple>${body[#result-set-1]}</simple>
+                </setBody>
+                <bean
+                    beanType="cl.coopeuch.integracion.utilidad.indicadores.financieros.util.RouteFacade"
+                    id="_beanSalida" method="transformarXml"/>
+                <doCatch id="inicioDoCatchSQL">
+                    <exception>java.sql.SQLException</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <log id="_log34" loggingLevel="ERROR" message="${property.CamelExceptionCaught}"/>
+            <bean
+                beanType="cl.coopeuch.integracion.utilidad.indicadores.financieros.util.RouteFacade"
+                id="excepcionBeanExcepcion" method="excepcion"/>
+        </route>
+    </camelContext>
+</blueprint>

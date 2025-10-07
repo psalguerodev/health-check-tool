@@ -1,0 +1,1514 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsserviciotransferencia" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioTransferencia"
+        id="servicioTransferenciaEndpoint"
+        serviceClass="cl.coopeuch.core.transferencia.serviciotransferencia.ServicioTransferencia" wsdlURL="wsdl/ServicioTransferencia.wsdl"/>
+    <cxf:rsServer address="/RSServicioTransferencia"
+        id="ServicioTransferenciaRest" serviceClass="cl.coopeuch.core.transferencia.rest.ServicioTransferenciaRest"/>
+    <cxf:rsClient address="[{rsnotificaciones.enviar.endpoint}]"
+        id="endpointRsNotificaciones" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="true"/>
+        </cxf:properties>
+    </cxf:rsClient>
+    <cxf:rsClient address="[{endpoint.xcash.url}]"
+        id="az7webServiceEndpoint" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="true"/>
+        </cxf:properties>
+    </cxf:rsClient>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.transferencias]]"/>
+        <property name="password" value="[[jdbc.db2.password.transferencias]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.transferencia}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.transferencia}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.transferencia}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.transferencia}]"/>
+    </bean>
+	<bean id="logTraceIncidencias" class="org.slf4j.LoggerFactory" factory-method="getLogger">
+		<argument index="0" value="logTransferencia" />
+	</bean>
+
+    <keyStoreParameters id="keystore" password="{{keystore.password}}"
+        resource="{{keystore.file.path}}" xmlns="http://camel.apache.org/schema/blueprint"/>
+    <http-conf:conduit name="*.http-conduit">
+        <http-conf:client ConnectionTimeout="15000"
+                          ReceiveTimeout="15000"/>
+    </http-conf:conduit>
+    <bean class="cl.coopeuch.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="cl.coopeuch.util.LogIncidencias" id="beanLogIncidencias"/>
+    <camelContext id="servicio-transferencia" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-InicioREST">
+            <from id="inicioFrom-REST" uri="cxfrs:bean:ServicioTransferenciaRest"/>
+            <doTry id="_doTry1">
+                <setProperty id="_setProperty93" propertyName="isRest">
+                    <simple>OK</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion-REST">
+                    <when id="inicioWhenOperacionTefExterna-REST">
+                        <simple>${header.operationName} == 'transferenciaExterna'</simple>
+                        <setProperty id="tExternaSetTipoRequestRest" propertyName="tipoRequest">
+                            <simple>transferenciaExterna</simple>
+                        </setProperty>
+                        <unmarshal id="transferenciaExternaRequest">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.transferencia.TransferenciaExterna"/>
+                        </unmarshal>
+                        <to id="toTransferenciaExterna" uri="direct:inicio"/>
+                        <bean id="transferenciaExternaResponseBean"
+                            method="transferenciaExternaResponseRest" ref="beanRouteFacade"/>
+                    </when>
+                    <when id="inicioWhenOperacionTefInternas-REST">
+                        <simple>${header.operationName} == 'transferenciaInternas'</simple>
+                        <setProperty id="tInternasSetTipoRequestRest" propertyName="tipoRequest">
+                            <simple>transferenciaInternas</simple>
+                        </setProperty>
+                        <unmarshal id="transferenciaInternasRequest">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.transferencia.TransferenciaInternas"/>
+                        </unmarshal>
+                        <to id="toTransferenciasInterna" uri="direct:inicio"/>
+                        <bean id="transferenciaInternasResponseBean"
+                            method="transferenciaInternasResponseRest" ref="beanRouteFacade"/>
+                    </when>
+                    <when id="inicioWhenOperacionCartolaMov-REST">
+                        <simple>${header.operationName} == 'CartolaMovimientosTransferencias'</simple>
+                        <setProperty id="cartolaMovSetTipoRequestRest" propertyName="tipoRequest">
+                            <simple>CartolaMovimientosTransferencias</simple>
+                        </setProperty>
+                        <unmarshal id="cartolaMovimientosRequest">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.transferencia.CartolaMovimientosTransferencias"/>
+                        </unmarshal>
+                        <to id="toCartolaMovimientos" uri="direct:inicio"/>
+                        <bean id="cartolaMovimientosResponseBean"
+                            method="cartolaMovimientosResponseRest" ref="beanRouteFacade"/>
+                        <choice id="_choice2">
+                            <when id="_when2">
+                                <simple>${property.ErrorMov} == 'NOK'</simple>
+                                <marshal id="cartolaMovimientosResponse">
+                                    <json include="NON_NULL"
+                                    library="Jackson" unmarshalTypeName="cl.coopeuch.core.transferencia.CartolaMovimientosTransferenciasResponse"/>
+                                </marshal>
+                            </when>
+                        </choice>
+                    </when>
+                    <otherwise id="inicioOtherwiseRest">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalidaRest" message="La operacion solicitada no se encuentra operativa"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="restError" propertyName="codigoError">
+                        <constant>999</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty94" propertyName="mensajeError">
+                        <simple>Error inesperado</simple>
+                    </setProperty>
+                    <to id="restToExcepcion" uri="direct:excepcion"/>
+                    <bean id="transferenciaExcepcionResponseBean"
+                        method="transferenciaExcepcionResponseRest" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Entrada principal del servicio transferencia -->
+        <route id="cx-RuteoOperaciones-cxf">
+            <from id="servicioTransferenciaEndpointListener" uri="cxf:bean:servicioTransferenciaEndpoint?DataFormat=MESSAGE"/>
+            <to id="_toInicioCXF" uri="direct:inicio"/>
+        </route>
+        <route id="cx-RuteoOperaciones-jms">
+            <from id="servicioCuentasEndpointListenerJMS" uri="AMQ:queue:{{colas.servicio.transferencia.in.temp}}?preserveMessageQos=true"/>
+            <to id="_toInicioJMS" uri="direct:inicio"/>
+        </route>
+        <route id="cx-RuteoOperaciones-Inicio">
+            <from id="servicioTransferenciaEndpointListener" uri="direct:inicio"/>
+
+            <onCompletion>
+                <log id="logBodyFinal" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: Transferencia(mismo) || Type: Outbound || Body: ${body}" />
+            </onCompletion>
+
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean id="generarIdflujoLog" 
+                    method="generarIdFlujoLog" ref="beanLogIncidencias"/>
+                <log id="logBodyInicio" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: Transferencia(mismo)|| Type: Inbound || Body: ${body}" />
+                <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                    id="backupBody" method="respaldarCuerpo"/>
+                <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                    id="createJMSCorrelationId2" method="createJMSCorrelationId24"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaCartolaMovimientosTransferencias">
+                        <simple>${body} contains 'CartolaMovimientosTransferencias'</simple>
+                        <setProperty id="cartolaMovSetTipoRequest" propertyName="tipoRequest">
+                            <simple>CartolaMovimientosTransferencias</simple>
+                        </setProperty>
+                        <to id="CartolaMovimientosTransferenciasValidator" uri="validator:xsd/soapTransferencia.xsd"/>
+                        <to id="cartolaMovimientosTransferenciasTo" uri="direct:cartolaMovimientosTransferencias"/>
+                    </when>
+                    <when id="rutaTransferenciaEntreCuentas">
+                        <simple>${body} contains 'transferenciaEntreCuentas'</simple>
+                        <setProperty id="tentreCuentasSetTipoRequest" propertyName="tipoRequest">
+                            <simple>transferenciaEntreCuentas</simple>
+                        </setProperty>
+                        <to id="transferenciaEntreCuentasValidator" uri="validator:xsd/soapTransferencia.xsd"/>
+                        <to id="transferenciaEntreCuentasTo" uri="direct:transferenciaEntreCuentas"/>
+                    </when>
+                    <when id="rutaTransferenciaExterna">
+                        <simple>${body} contains 'transferenciaExterna'</simple>
+                        <setProperty id="tExternaSetTipoRequest" propertyName="tipoRequest">
+                            <simple>transferenciaExterna</simple>
+                        </setProperty>
+                        <to id="transferenciaExternaValidator" uri="validator:xsd/soapTransferencia.xsd"/>
+                        <to id="transferenciaExternaTo" uri="direct:transferenciaExterna"/>
+                    </when>
+                    <when id="rutaTransferenciaInternas">
+                        <simple>${body} contains 'transferenciaInternas'</simple>
+                        <setProperty id="tInternaSetTipoRequest" propertyName="tipoRequest">
+                            <simple>transferenciaInternas</simple>
+                        </setProperty>
+                        <to id="transferenciaInternasValidator" uri="validator:xsd/soapTransferencia.xsd"/>
+                        <to id="transferenciaInternasTo" uri="direct:transferenciaInternas"/>
+                    </when>
+                </choice>
+                <removeHeaders id="_removeHeaders8" pattern="*"/>
+                <setProperty id="_setProperty44" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty47" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty74" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty75" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <setProperty id="soapError" propertyName="codigoError">
+                        <constant>999</constant>
+                    </setProperty>
+                    <to id="soapToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doFinally/>
+            </doTry>
+        </route>
+        <!-- -->
+        <!-- Metodo encargado de mostrar los movimientos realizados -->
+        <route id="cartolaMovimientosTransferencias">
+            <from id="cartolaMovimientosTransferenciasFrom" uri="direct:cartolaMovimientosTransferencias"/>
+            <doTry id="cartolaMovimientosDoTry">
+                <bean id="beanEntradaPaCartolaMovimientos"
+                    method="beanEntradaPaCartolaMovimientos" ref="beanRouteFacade"/>
+                <to id="cartolaMovimientosToPa" uri="sql-stored:classpath:sql/PA_SEL_SERVICIOTRANSFERENCIA_CARTOLAMOVIMIENTO_WS.sql?dataSource=dataSourceSqlDb2"/>
+                <bean id="beanSalidaPaCartolaMovimientos"
+                    method="beanSalidaPaCartolaMovimientos" ref="beanRouteFacade"/>
+                <marshal id="cartolaMovimientosMarshal">
+                    <jaxb contextPath="cl.coopeuch.core.transferencia"/>
+                </marshal>
+                <to id="cartolaMovimientos2xml" uri="xslt://transformations/out/trama2xmlIOC530003O_cartolaMovimientosTransferencias2.xsl?saxon=true"/>
+                <doCatch id="_doCatch5">
+                    <exception>java.util.concurrent.TimeoutException</exception>
+                    <setProperty id="_setProperty151" propertyName="codigoError">
+                        <simple>502</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty152" propertyName="mensajeError">
+                        <simple>Tiempo de respuesta excedido PA</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty153" propertyName="colaAMQ">
+                        <simple>cartolaMovimientos</simple>
+                    </setProperty>
+                    <to id="cartolaMovimientos_timeOutExp" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="_doCatch6">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty154" propertyName="codigoError">
+                        <simple>501</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty155" propertyName="mensajeError">
+                        <simple>Error en la conexion PA</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty156" propertyName="colaAMQ">
+                        <simple>cartolaMovimientos</simple>
+                    </setProperty>
+                    <to id="cartolaMovimientos_excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- -->
+        <!-- Metodo encargado de realizar transferencias dentro de la misma cuenta -->
+        <route id="transferenciaEntreCuentas">
+            <from id="transferenciaEntreCuentasFrom" uri="direct:transferenciaEntreCuentas"/>
+            <to id="transferenciaEntreCuentasXml2trama" uri="xslt://transformations/in/xml2tramaIOC500001I_transferenciaEntreCuentas.xsl"/>
+            <log id="_log1" message="Transferencia entre cuentas\n${body}"/>
+            <to id="activeMQ-transferenciaEntreCuentas" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+            <log id="_log2" message="Transferencia entre cuentas Salida\n${body}"/>
+            <transform id="transferenciaEntreCuentasTransform">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <removeHeaders id="_removeHeaders3" pattern="JMS*"/>
+            <to id="transferenciaEntreCuentasTrama2xml" uri="xslt://transformations/out/trama2xmlIOC500001O_transferenciaEntreCuentas.xsl?saxon=true"/>
+        </route>
+        <!-- -->
+        <!-- Metodo encargado de realizar transferencias hacia otros bancos -->
+        <route id="transferenciaExterna">
+            <from id="transferenciaExternaFrom" uri="direct:transferenciaExterna"/>
+            <doTry id="transferenciaExterna_try">
+                <bean beanType="cl.coopeuch.util.LLavePublica"
+                    id="LLavePublica" method="getLlavePublica( {{keystore.file.path}}, {{keystore.alias}}, {{keystore.password}} )"/>
+                <setProperty id="transferenciaExternaHeaderUserId" propertyName="userID">
+                    <xpath resultType="String">//userID</xpath>
+                </setProperty>      
+                <!-- Bifurcacion para Dale (userDale) -->
+                <choice>
+                	<when>
+                		<simple>${property.userID} == "userDale"</simple>                		              		
+                		<setProperty id="transferenciaExternaBypassDaleprop" propertyName="dale.bypass">
+                    		<simple>true</simple>
+                		</setProperty>                		           		
+                		<setProperty id="transferenciaExternaHeaderUserIdBypassDale" propertyName="userID">
+                    		<simple>SRVMBK</simple>
+                		</setProperty>                		
+                	</when> 
+                	<otherwise>
+                		<setProperty id="transferenciaExternaBypassDaleprop" propertyName="dale.bypass">
+                    		<simple>false</simple>
+                		</setProperty>
+                	</otherwise>               	                               
+                </choice>
+   				 <!-- ***************************** -->              
+                <setProperty id="transferenciaExternaHeaderRutOrigen" propertyName="rutOrigen">
+                    <xpath resultType="String">//rutOrigen</xpath>
+                </setProperty>
+                <setProperty id="transferenciaExternaHeaderIP" propertyName="IP">
+                    <xpath resultType="String">//IP</xpath>
+                </setProperty>
+                <setProperty id="transferenciaExternaHeaderFactorSeguridad" propertyName="factorSeguridad">
+                    <xpath resultType="String">//factorSeguridad</xpath>
+                </setProperty>
+                <setProperty id="transferenciaExternaHeaderFecha" propertyName="fecha">
+                    <xpath resultType="String">//fecha</xpath>
+                </setProperty>
+                <setProperty id="transferenciaExternaHeaderHora" propertyName="hora">
+                    <xpath resultType="String">//hora</xpath>
+                </setProperty>
+                <setProperty id="transferenciaExxternasHeaderrutDestinatario" propertyName="rutDestinatario">
+                    <xpath resultType="String">//rutDestinatario</xpath>
+                </setProperty>
+                <setProperty id="_setProperty12" propertyName="AliasOrigen">
+                    <xpath resultType="String">//AliasOrigen</xpath>
+                </setProperty>
+                <setProperty id="_setProperty13" propertyName="cuentaOrigen">
+                    <xpath resultType="String">//cuentaOrigen</xpath>
+                </setProperty>
+                <setProperty id="_setProperty14" propertyName="cuentaDestino">
+                    <xpath resultType="String">//cuentaDestino</xpath>
+                </setProperty>
+                <setProperty id="_setProperty15" propertyName="TipoCuentaOrigen">
+                    <xpath resultType="String">//TipoCuentaOrigen</xpath>
+                </setProperty>
+                <setProperty id="_setProperty16" propertyName="TipoCuentaDestino">
+                    <xpath resultType="String">//TipoCuentaDestino</xpath>
+                </setProperty>
+                <setProperty id="_setProperty20" propertyName="mailOrigen">
+                    <xpath resultType="String">//mailOrigen</xpath>
+                </setProperty>
+                <setProperty id="_setProperty77" propertyName="InstFinancieraDestino">
+                    <xpath resultType="String">//InstFinancieraDestino</xpath>
+                </setProperty>
+                <setProperty id="_setProperty78" propertyName="InstFinancieraOrigen">
+                    <xpath resultType="String">//InstFinancieraOrigen</xpath>
+                </setProperty>
+                <setProperty id="_setProperty25" propertyName="correoElectronico">
+                    <xpath resultType="String">//mailOrigen</xpath>
+                </setProperty>
+                <setProperty id="_setProperty26" propertyName="AliasDestino">
+                    <xpath resultType="String">//AliasDestino</xpath>
+                </setProperty>
+                <setProperty id="_setProperty28" propertyName="mailDestinatario">
+                    <xpath resultType="String">//mailDestinatario</xpath>
+                </setProperty>
+                <setProperty id="_setProperty29" propertyName="montoTransferencia">
+                    <xpath resultType="String">//montoTransferencia</xpath>
+                </setProperty>
+                <setProperty id="_setProperty30" propertyName="descripcion">
+                    <xpath resultType="String">//descripcion</xpath>
+                </setProperty>
+                <setProperty id="_setPropertyAsunto" propertyName="asunto">
+                    <xpath resultType="String">//asunto</xpath>
+                </setProperty>
+                <setProperty id="_setProperty100" propertyName="transferencia.externa.credencial.usuario">
+                    <simple>{{transferencia.externa.credencial.usuario}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty101" propertyName="transferencia.externa.credencial.comercio">
+                    <simple>{{transferencia.externa.credencial.comercio}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty102" propertyName="transferencia.externa.credencial.sucursal">
+                    <simple>{{transferencia.externa.credencial.sucursal}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty103" propertyName="transferencia.externa.credencial.caja">
+                    <simple>{{transferencia.externa.credencial.caja}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty104" propertyName="transferencia.externa.codigoServicio">
+                    <simple>{{transferencia.externa.codigoServicio}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty105" propertyName="transferencia.externa.instrumento.TEF.atributo1.CADQUIR.valor">
+                    <simple>{{transferencia.externa.instrumento.TEF.atributo1.CADQUIR.valor}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty106" propertyName="transferencia.externa.instrumento.TEF.atributo2.SUCUR.valor">
+                    <simple>{{transferencia.externa.instrumento.TEF.atributo2.SUCUR.valor}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty107" propertyName="transferencia.externa.instrumento.TEF.atributo3.CAJA.valor">
+                    <simple>{{transferencia.externa.instrumento.TEF.atributo3.CAJA.valor}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty108" propertyName="transferencia.externa.instrumento.TEF.atributo7.NROSEC.valor">
+                    <simple>{{transferencia.externa.instrumento.TEF.atributo7.NROSEC.valor}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty109" propertyName="transferencia.externa.instrumento.TEF.atributo8.BOLETA.valor">
+                    <simple>{{transferencia.externa.instrumento.TEF.atributo8.BOLETA.valor}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty110" propertyName="transferencia.externa.instrumento.TEF.atributo9.CSERVI.valor">
+                    <simple>{{transferencia.externa.instrumento.TEF.atributo9.CSERVI.valor}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty111" propertyName="transferencia.externa.instrumento.TEF.atributo10.FAMTRX.valor">
+                    <simple>{{transferencia.externa.instrumento.TEF.atributo10.FAMTRX.valor}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty112" propertyName="transferencia.externa.instrumento.TEF.atributo11.CINSTR.valor">
+                    <simple>{{transferencia.externa.instrumento.TEF.atributo11.CINSTR.valor}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty113" propertyName="transferencia.externa.instrumento.TEF.atributo12.ADSRNEMO.valor">
+                    <simple>{{transferencia.externa.instrumento.TEF.atributo12.ADSRNEMO.valor}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty114" propertyName="transferencia.externa.instrumento.TEF.atributo.ISO_CODIGO_MONED.valor">
+                    <simple>{{transferencia.externa.instrumento.TEF.atributo.ISO_CODIGO_MONED.valor}}</simple>
+                </setProperty>
+                <setProperty id="_setPropertyEstadoModificarDatosFraudeCCA1" propertyName="modificarDatosFraudeCCA.estado">
+                    <simple>{{modificarDatosFraudeCCA.estado}}</simple>
+                </setProperty>
+                
+                <bean beanType="cl.coopeuch.util.RespaldarCuerpoTemporal"
+                    id="backupBody2Ext" method="respaldarCuerpo"/>
+                <bean beanType="cl.coopeuch.util.PropagarCabeceras"
+                    id="_bean1" method="insertarOrigen"/>
+                <choice id="transferenciaExternaValidaEntrada">
+                    <when id="validacionEntradaNula">
+                        <xpath>normalize-space(//IP) = '' or normalize-space(//factorSeguridad) = '' or normalize-space(//fecha) = '' or normalize-space(//hora) = '' or //factorSeguridad/text() = '0' or //montoTransferencia = 0</xpath>
+                        <to id="errorValidacionEntrada" uri="xslt://transformations/error/errorDatosTransferenciaExterna.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="validacionEntradaOk">
+                        <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                            id="createJMSCorrelationId3" method="createJMSCorrelationId24"/>
+                        <to id="transferenciaExternaConsultarDatosFraudeCCAto" uri="direct:remoteCall_consultarDatosFraudeCCA"/>
+                        <convertBodyTo id="ConsultarDatosFraudeBodyTo1xz" type="java.lang.String"/>
+                        <choice id="resultadoConsultarDatosFraude">
+                            <when id="resultadoConsultarDatosFraudeOk">
+                                <xpath resultType="String">//formato='IOC170002O'</xpath>
+                                <!-- Construye la llamada a XCash -->
+                                <setProperty
+                                    id="transferenciaExternaHeaderIdTransaccion" propertyName="idTransaccion">
+                                    <xpath resultType="String">//idTransaccion</xpath>
+                                </setProperty>
+                                <setProperty
+                                    id="transferenciaExternaHeaderIdTransaccionCCA" propertyName="idTransaccionCCA">
+                                    <xpath resultType="String">//idTransaccionCCA</xpath>
+                                </setProperty>
+                                <bean beanType="cl.coopeuch.util.PropagarCabeceras"
+                                    id="_bean2" method="insertarRespuestaFraude"/>
+                                <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                                    id="_bean5" method="restaurarCuerpo"/>
+                                <removeHeaders id="_removeHeaders2" pattern="JMS_IBM*"/>
+                                <to id="inxCash1" uri="xslt://transformations/in/xml2trama_xcash.xsl?saxon=true"/>
+                                <log id="log_insign" message="trama: ${body}"/>
+                                <to id="rsa-sha1" uri="direct:sign"/>
+                                <log id="log_outsign" message="trama-camelDigitalSignature: ${header.CamelDigitalSignature}"/>
+                                <to id="llaveCDATA" uri="xslt://transformations/mid/remoteCall_llaveCDATA.xsl?saxon=true"/>
+                                <setProperty id="xxz" propertyName="llaveCDATA">
+                                    <xpath resultType="String">llave</xpath>
+                                </setProperty>
+                                <to id="transferenciaXCash_to" uri="direct:transferenciaXCash"/>
+                                <setProperty id="_setProperty76" propertyName="codigoAutorizacion">
+                                    <xpath resultType="String">//atributo[codigo="ISO_CODIGO_AUT"]/valor</xpath>
+                                </setProperty>
+                                <setProperty id="_setProperty27" propertyName="InstFinancieraDestinoXcash">
+                                    <xpath resultType="String">//atributo[codigo="ISO_TEF_DES_BCO"]/valor</xpath>
+                                </setProperty>
+                                <setProperty id="_setProperty17" propertyName="InstFinancieraOrigenXcash">
+                                    <xpath resultType="String">//atributo[codigo="ISO_TEF_ORI_BCO"]/valor</xpath>
+                                </setProperty>
+                                <choice id="xcash_respuesta">
+                                    <when id="OK">
+                                        <xpath resultType="String">//respuesta/codigo = '00' and //atributo[codigo="TXCRET"]/valor = '00' and //atributo[codigo="AUTRET"]/valor = '000'</xpath>
+                                        <bean beanType="cl.coopeuch.util.RespaldarCuerpoTemporal"
+                                        id="R3Body" method="restaurarCuerpo"/>
+                                        <to id="transferenciaExternaXml2xml" uri="xslt://transformations/out/xml2xml_transferenciaExterna.xsl?saxon=true"/>                                                      
+                                        <!-- Bifurcacion para Dale (userDale) envio email-->
+                                        <choice>
+                                            <when>
+                                                <simple>${property.dale.bypass} == "false"</simple>
+                                                <log id="logdale1" loggingLevel="INFO" message="ENVIO EMAIL FLUJO NORMAL TEF EXTERNAS"/>
+                                                <log id="_log16" message="datosEnvioMail-paso1: rutOrigen: ${property.rutOrigen} -- mailOrigen: ${headers.mailOrigen}"/>
+                                                <wireTap id="remote_envioEmailTransferenciasExterna-wireTap" uri="direct:remote_envioEmailTransferenciasExterna"/>
+                                            </when>
+                                            <otherwise>
+                                                <log id="logdale2" loggingLevel="INFO" message="ENVIO EMAIL TEF EXTERNAS CANCELADO - ES CLIENTE DALE"/>  
+                                                <setProperty id="setPropertyOpCod1IOC1440Dale" propertyName="opcod1440">
+                                                    <constant>1</constant>
+                                                </setProperty>    
+                                                <wireTap id="remote_Call_IOC1440_consultaParametrosDale" uri="direct:remoteCall_IOC1440_consultaParametros"/>                              
+                                            </otherwise>                               	
+                                        </choice>								
+                                        <!-- ******************************************* -->									
+                                    </when>
+                                    <!-- Si la respuesta no es exitosa -->
+                                    <otherwise id="RespuestaNoOk">
+                                        <choice id="choiceValidarCampoCodigo">
+                                            <when id="whenCodigoIsNullOrEmpty">
+                                                <xpath>boolean(not(//respuesta/codigo[normalize-space()]))</xpath>
+                                                <setProperty propertyName="codigoRegla">
+                                                    <constant>519</constant>
+                                                </setProperty>
+                                                <setProperty propertyName="descErrorXCASH">
+                                                    <constant>Respuesta del Switch no esperada</constant>
+                                                </setProperty>
+                                            </when>
+                                            <when id="whenCodigoNotOK">
+                                                <xpath>//respuesta/codigo != '00'</xpath>
+                                                <setProperty propertyName="codigoRegla">
+                                                    <xpath resultType="String">//respuesta/codigo</xpath>
+                                                </setProperty>
+                                                <setProperty propertyName="descErrorXCASH">
+                                                    <xpath resultType="String">//descripcion</xpath>
+                                                </setProperty>
+                                            </when>
+                                            <otherwise id="otherwiseCodigoIsOk">
+                                                <choice id="choiceValidarOtrosCampos">
+                                                    <when id="whenTXCRETisNoOk">
+                                                        <xpath>//atributo[codigo="TXCRET"]/valor != '00'</xpath>
+                                                        <setProperty propertyName="codigoRegla">
+                                                            <xpath resultType="String">//atributo[codigo="TXCRET"]/valor</xpath>
+                                                        </setProperty>
+                                                        <setProperty propertyName="descErrorXCASH">
+                                                            <xpath resultType="String">//atributo[codigo="TXCGLO"]/valor</xpath>
+                                                        </setProperty>
+                                                    </when>
+                                                    <when id="otherwiseAUTRETisNoOk">
+                                                        <xpath>//atributo[codigo="AUTRET"]/valor != '000'</xpath>
+                                                        <setProperty propertyName="codigoRegla">
+                                                            <xpath resultType="String">//atributo[codigo="AUTRET"]/valor</xpath>
+                                                        </setProperty>
+                                                        <setProperty propertyName="descErrorXCASH">
+                                                            <xpath resultType="String">//atributo[codigo="AUTGLO"]/valor</xpath>
+                                                        </setProperty>                             
+                                                    </when>
+                                                </choice>
+                                            </otherwise>
+                                        </choice>
+
+                                        <setProperty id="setPropertyOpCod2IOC1440" propertyName="opcod1440">
+                                            <constant>2</constant>
+                                        </setProperty>
+                                        <wireTap id="xCashNoOkToIOC1440" uri="direct:remoteCall_IOC1440_consultaParametros"/>
+                                        <to id="transferenciaInternaserrorx" uri="xslt://transformations/error/errorxcashTransferenciaExterna.xsl?saxon=true"/>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="resultadoConsultarDatosFraudeError">
+                                <setProperty id="_setPropert107" propertyName="respFraude">
+                                    <simple>${body}</simple>
+                                </setProperty>
+                                <wireTap id="registroColaAMQ_wiretap" uri="direct:registroColaAMQ"/>
+                                <to id="errorConsultaDatosFraude1" uri="xslt://transformations/error/transferenciaExternaErrorConsultaDatosFraude.xsl"/>
+                            </otherwise>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="transferenciaExterna_catch">
+                    <exception>java.lang.Exception</exception>
+                        <setProperty id="_setProperty191" propertyName="codigoError">
+                            <constant>500</constant>
+                        </setProperty>                    
+                    <to id="transferenciaExterna_excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="transferenciaXCash">
+            <from id="transferenciaXCashFrom" uri="direct:transferenciaXCash"/>
+            <doTry id="transferenciaXCash_try">
+                <to id="inxCash2" uri="xslt://transformations/mid/remoteCall_xcash.xsl?saxon=true"/>
+                <log id="logAZ7Request" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: AZ7 || Type: Request || Body: ${body}" />
+				<removeHeaders pattern="Camel*"/>
+				<setHeader headerName="Content-Type">
+					<constant>text/xml</constant>
+				</setHeader>
+				<setHeader headerName="CamelHttpMethod">
+					<constant>POST</constant>
+				</setHeader>
+                <to id="xcashCXFrs" uri="cxfrs://bean://az7webServiceEndpoint"/>
+                <convertBodyTo id="afterXcash1yTo" type="java.lang.String"/>
+                <log id="logAZ7Response" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: AZ7 || Type: Response || Body: ${body}" />
+                <setProperty id="_setPropert106" propertyName="respXCash">
+                    <simple>${body}</simple>
+                </setProperty>
+                <doCatch id="transferenciaXCash_catch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty99" propertyName="codigoError">
+                        <simple>504</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty115" propertyName="mensajeError">
+                        <simple>Error en la comunicacion con el servicio externo [XCash].</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty116" propertyName="colaAMQ">
+                        <simple>XCash</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty117" propertyName="excStop">
+                        <simple>OK</simple>
+                    </setProperty>
+                    <!--Antes de llamar a "excepcion", se verifica si realmente se hizo la transferencia-->
+                    <to id="verificaTranEnIBS" uri="direct:consultaTransaccionIBS"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!--  -->
+        <!--  -->
+        <route id="envioEmailTransferenciasExterna">
+            <from id="envioEmailTransferenciasExternaFrom" uri="direct:remote_envioEmailTransferenciasExterna"/>
+            <log id="_log17" message="datosEnvioMail-paso2: rutOrigen: ${property.rutOrigen} -- mailOrigen: ${header.mailOrigen}"/>
+            <setProperty id="setPropertyOpCod1IOC1440" propertyName="opcod1440">
+                <constant>1</constant>
+            </setProperty>
+            <log id="_log18" message="datosEnvioMail-paso3: rutOrigen: ${property.rutOrigen} -- mailOrigen: ${header.mailOrigen}"/>
+            <to id="envioEmailTransferenciasExternaToIOC1440" uri="direct:remoteCall_IOC1440_consultaParametros"/>
+            <log id="_log20" message="datosEnvioMail-paso4: rutOrigen: ${property.rutOrigen} -- mailOrigen: ${header.mailOrigen}"/>
+            <wireTap id="_wireTap1" uri="direct:envioCorreoCuentaOrigen"/>
+            <log id="_log21" message="datosEnvioMail-paso7: rutOrigen: ${property.rutOrigen} -- mailOrigen: ${header.mailOrigen}"/>
+            <wireTap id="_wireTap2" uri="direct:envioCorreoCuentaDestinatario"/>
+        </route>
+        <route id="remoteCall_IOC1440_consultaParametros">
+            <from id="remoteCall_IOC1440_consultaParametrosFrom" uri="direct:remoteCall_IOC1440_consultaParametros"/>
+            <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                id="llamadaIOC1440CorrelationId" method="createJMSCorrelationId24"/>
+            <log id="logCodigoReglaAntes" message="codigoRegla antes de la validacion: ${property.codigoRegla}"/>
+            <bean id="beanValidaCodigoRegla"
+                method="beanValidaCodigoRegla" ref="beanRouteFacade"/>
+            <log id="logCodigoReglaDespues" message="codigoRegla despues de la validacion: ${property.codigoRegla}"/>
+            <to id="llamadaIOC1440ToXsltEntrada" uri="xslt://transformations/mid/remoteCall_IOC1440_consultaParametrosEntrada.xsl"/>
+            <log id="logEntradaIOC1440" message="Entrada IOC1440: \n|${body}|"/>
+            <log id="logIOC1440Request" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: consultaParametros(IOC1440) || Type: Request || Body: ${body}" />
+            <to id="activeMQToIOC1440" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+            <log id="logIOC1440Response" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: consultaParametros(IOC1440) || Type: Response || Body: ${body}" />
+            <log id="logSalidaIOC1440" message="Salida IOC1440: \n|${body}|"/>
+            <transform id="ioc1440Transform">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <to id="llamadaIOC1440ToXsltSalida" uri="xslt://transformations/mid/remoteCall_IOC1440_consultaParametrosSalida.xsl?saxon=true"/>
+            <log id="logSalidaIOC1440Xml" message="Salida IOC1440 en Xml: \n${body}"/>
+            <setProperty id="_setPropertyInstFinancieraOrigen" propertyName="Parametro_InstFinancieraOrigen">
+                <xpath resultType="String">//institucionFinancieraOrigen/text()</xpath>
+            </setProperty>
+            <setProperty id="_setPropertyInstFinancieraDestino" propertyName="Parametro_InstFinancieraDestino">
+                <xpath resultType="String">//institucionFinancieraDestino/text()</xpath>
+            </setProperty>
+            <setProperty id="_setPropertyTipoCuentaOrigen" propertyName="Parametro_TipoCuentaOrigen">
+                <xpath resultType="String">//tipoCuentaOrigen/text()</xpath>
+            </setProperty>
+            <setProperty id="_setPropertyTipoCuentaDestino" propertyName="Parametro_TipoCuentaDestino">
+                <xpath resultType="String">//tipoCuentaDestino/text()</xpath>
+            </setProperty>
+            <choice id="_choiceEmailOrigenVacio">
+                <when id="_whenEmailOrigenVacio">
+                    <simple>${header.mailOrigen} == ''</simple>
+                    <setProperty id="_setPropertyNombreIOC1440" propertyName="nombre">
+                        <xpath resultType="String">normalize-space(concat(//nombres,' ',//apellidoPaterno))</xpath>
+                    </setProperty>
+                    <setProperty
+                        id="_setPropertyCorreoElectronicoIOC1440" propertyName="correoElectronico">
+                        <xpath resultType="String">normalize-space(//correo)</xpath>
+                    </setProperty>
+                </when>
+            </choice>
+            <choice id="choiceErrorIOC1700">
+                <when id="_whenErrorIOC1700">
+                    <xpath>//codigoError/text() = '9999'</xpath>
+                    <wireTap id="registroColaAMQErrorIOC1700_wiretap" uri="direct:registroColaAMQ"/>
+                </when>
+            </choice>
+        </route>
+
+        <route id="consultaTransaccionIBS">
+            <from id="consultaTranIBSFrom" uri="direct:consultaTransaccionIBS"/>
+            <doTry id="consultaTranIBSFromDoTry">
+                <bean id="generarBodyRequestPAExternaAZ7" 
+                    method="generarBodyRequestPAExternaAZ7" ref="beanLogIncidencias"/>
+                <log id="logExternaAZ7PARequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: DB2_PA || Type: Request || Body: ${exchangeProperty.bodyincidencia}" />
+                <to id="consultaTransaccionIBSToPa" uri="sql-stored:classpath:sql/PA_SEL_SERVICIOTRANSFERENCIA_EXTERNA_AZ7_WS.sql?dataSource=dataSourceSqlDb2"/>
+                <bean id="beanSalidaPaConsultaTrxEnIBS"
+                    method="beanSalidaPaConsultaTrxEnIBS" ref="beanRouteFacade"/>
+                <bean id="generarBodyResponsePAExternaAZ7"
+                    method="generarBodyResponsePAExternaAZ7" ref="beanLogIncidencias"/>
+                <log id="logExternaAZ7PAResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: DB2_PA || Type: Response || Body: ${exchangeProperty.bodyincidencia}" />
+                <choice id="choiceRespuestaConsultaTransIBS">
+                    <when id="whenRespuestaConsultaTransIBS">
+                        <simple>${exchangeProperty.CODIGOERROR} == '9994'</simple>
+                        <bean id="beanSimularRespuestaExitosaXcash"
+                            method="simularRespuestaExitosaXcash" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="otherwiseRespuestaConsultaTransIBS">
+                        <to id="excepcionXCash" uri="direct:excepcion"/>
+                        <stop id="_stop1"/>
+                    </otherwise>
+                </choice>
+                <!--Se llama 2 veces a excepcion para registrar errores en la cola AMQ y el
+                endpint tiene que devolver el error de xchash. -->
+                <doCatch id="consultaTranIBSTimeOutExcepCatch">
+                    <exception>java.util.concurrent.TimeoutException</exception>
+                    <setProperty id="consultaTranIBSTimeOutCodError" propertyName="codigoError">
+                        <simple>502</simple>
+                    </setProperty>
+                    <setProperty id="consultaTranIBSTimeOutMessageError" propertyName="mensajeError">
+                        <simple>Tiempo de respuesta excedido llamado a PA</simple>
+                    </setProperty>
+                    <to id="consultaTranIBSTimeOut_toException" uri="direct:excepcion"/>
+                    <setProperty id="consultaTranIBSTimeOutCodErrorXcash" propertyName="codigoError">
+                        <simple>504</simple>
+                    </setProperty>
+                    <setProperty id="consultaTranIBSTimeOutMessageErrorXcash" propertyName="mensajeError">
+                        <simple>Error en la comunicacion con el servicio externo [XCash].</simple>
+                    </setProperty>
+                    <to id="consultaTranIBSTimeOutXcash_toException" uri="direct:excepcion"/>
+                    <stop id="consultaTranIBSTimeOut_stop"/>
+                </doCatch>
+                <doCatch id="consultaTranIBSExcepCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultaTranIBSExcepCodError" propertyName="codigoError">
+                        <simple>501</simple>
+                    </setProperty>
+                    <setProperty id="consultaTranIBSExcepMessageError" propertyName="mensajeError">
+                        <simple>Error en la conexion PA DB2</simple>
+                    </setProperty>
+                    <to id="consultaTranIBSException_toException" uri="direct:excepcion"/>
+                    <setProperty id="consultaTranIBSExcepCodErrorXcash" propertyName="codigoError">
+                        <simple>504</simple>
+                    </setProperty>
+                    <setProperty id="consultaTranIBSExcepMessageErrorXcash" propertyName="mensajeError">
+                        <simple>Error en la comunicacion con el servicio externo [XCash].</simple>
+                    </setProperty>
+                    <to id="consultaTranIBSExceptionXcash_toException" uri="direct:excepcion"/>
+                    <stop id="consultaTranIBSException_stop"/>
+                </doCatch>
+            </doTry>
+        </route>
+
+        <!-- -->
+        <!-- Metodo encargado de realizar transferencias dentro de cuentas coopeuch -->
+        <route id="transferenciaInternas">
+            <from id="transferenciaInternasFrom" uri="direct:transferenciaInternas"/>
+            <convertBodyTo id="_convertBodyTo1" type="String"/>
+            <log id="_log3" message="Transferencia:\n${body}"/>
+            <setProperty id="transferenciaInternasHeaderUserId" propertyName="userID">
+                <xpath resultType="String">//userID</xpath>
+            </setProperty>
+            <setProperty id="transferenciaInternasHeaderCanalLlamada" propertyName="canalLlamada">
+                <xpath resultType="String">//canalLlamada</xpath>
+            </setProperty>
+			<!-- Bifurcacion para Dale (TPPG) -->
+                <choice>
+                	<when>
+                		<simple>${property.canalLlamada} == "TPPG"</simple>                		              		
+                		<setProperty id="transferenciaExternaBypassDalepropinterna" propertyName="dale.bypassinterna">
+                    		<simple>true</simple>
+                		</setProperty>                		           		        		
+                	</when> 
+                	<otherwise>
+                		<setProperty id="transferenciaExternaBypassDalepropinterna" propertyName="dale.bypassinterna">
+                    		<simple>false</simple>
+                		</setProperty>
+                	</otherwise>               	                               
+                </choice>       
+			<!-- ********************************* -->                       
+            <setProperty
+                id="transferenciaInternasHeaderCodigoTransaccion" propertyName="codigoTransaccion">
+                <xpath resultType="String">//codigoTransaccion</xpath>
+            </setProperty>
+            <setProperty id="transferenciaInternasHeaderrutCliente" propertyName="rutOrigen">
+                <xpath resultType="String">//rutOrigen</xpath>
+            </setProperty>
+            <setProperty id="transferenciaInternasHeaderrutDestinatario" propertyName="rutDestinatario">
+                <xpath resultType="String">//rutDestinatario</xpath>
+            </setProperty>
+            <setProperty id="transferenciaInternasHeaderIP" propertyName="IP">
+                <xpath resultType="String">//IP</xpath>
+            </setProperty>
+            <setProperty id="transferenciaInternasHeaderFactorSeguridad" propertyName="factorSeguridad">
+                <xpath resultType="String">//factorSeguridad</xpath>
+            </setProperty>
+            <setProperty id="transferenciaInternasHeaderFecha" propertyName="fecha">
+                <xpath resultType="String">//fecha</xpath>
+            </setProperty>
+            <setProperty id="transferenciaInternasHeaderHora" propertyName="hora">
+                <xpath resultType="String">//hora</xpath>
+            </setProperty>
+            <setProperty id="_setProperty5" propertyName="AliasOrigen">
+                <xpath resultType="String">//AliasOrigen</xpath>
+            </setProperty>
+            <setProperty id="_setProperty31" propertyName="cuentaOrigen">
+                <xpath resultType="String">//cuentaOrigen</xpath>
+            </setProperty>
+            <setProperty id="_setProperty32" propertyName="cuentaDestino">
+                <xpath resultType="String">//cuentaDestino</xpath>
+            </setProperty>
+            <setProperty id="_setProperty6" propertyName="TipoCuentaOrigen">
+                <xpath resultType="String">//TipoCuentaOrigen</xpath>
+            </setProperty>
+            <setProperty id="_setProperty33" propertyName="TipoCuentaDestino">
+                <xpath resultType="String">//TipoCuentaDestino</xpath>
+            </setProperty>
+            <setProperty id="_setProperty7" propertyName="InstFinancieraOrigen">
+                <xpath resultType="String">//InstFinancieraOrigen</xpath>
+            </setProperty>
+            <setProperty id="_setProperty8" propertyName="mailOrigen">
+                <xpath resultType="String">//mailOrigen</xpath>
+            </setProperty>
+            <setProperty id="_setProperty34" propertyName="correoElectronico">
+                <xpath resultType="String">//mailOrigen</xpath>
+            </setProperty>
+            <setProperty id="_setProperty9" propertyName="AliasDestino">
+                <xpath resultType="String">//AliasDestino</xpath>
+            </setProperty>
+            <setProperty id="_setProperty10" propertyName="InstFinancieraDestino">
+                <xpath resultType="String">//InstFinancieraDestino</xpath>
+            </setProperty>
+            <setProperty id="_setProperty11" propertyName="mailDestinatario">
+                <xpath resultType="String">//mailDestinatario</xpath>
+            </setProperty>
+            <setProperty id="_setProperty35" propertyName="montoTransferencia">
+                <xpath resultType="String">//montoTransferencia</xpath>
+            </setProperty>
+            <setProperty id="_setProperty36" propertyName="descripcion">
+                <xpath resultType="String">//descripcion</xpath>
+            </setProperty>
+            <bean beanType="cl.coopeuch.util.PropagarCabeceras"
+                id="_bean6" method="insertarOrigen"/>
+            <choice id="transferenciaInternasValidaEntrada">
+                <when id="transferenciaInternasvalidacionEntradaNula">
+                    <xpath>normalize-space(//IP) = '' or normalize-space(//factorSeguridad) = '' or normalize-space(//fecha) = '' or normalize-space(//hora) = '' or //factorSeguridad/text() = '0' or //hora/text() = '000000'</xpath>
+                    <to id="transferenciaInternaserrorValidacionEntrada" uri="xslt://transformations/error/errorDatosTransferenciaInternas.xsl?saxon=true"/>
+                </when>
+                <otherwise id="transferenciaInternasvalidacionEntradaOk">
+                    <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                        id="createJMSCorrelationId4" method="createJMSCorrelationId24"/>
+                    <to id="transferenciaInternasConsultarDatosFraudeCCAxsl" uri="xslt://transformations/mid/consultarDatosFraudeCCA.xsl?saxon=true"/>
+                    <log id="_log4" message="consultarDatosFraudeCCA\n${body}"/>
+                    <to id="transferenciaInternasConsultarDatosFraudeCCAto" uri="direct:remoteCall_consultarDatosFraudeCCA"/>
+                    <convertBodyTo id="ruteoOperacionesBodyTo2" type="java.lang.String"/>
+                    <log id="_log5" message="Salida consultarDatosFraudeCCA\n${body}"/>
+                    <choice id="transferenciaInternasConsultarDatosFraude">
+                        <when id="transferenciaInternasConsultarDatosFraudeOk">
+                            <xpath resultType="String">//formato='IOC170002O'</xpath>
+                            <setProperty
+                                id="transferenciaInternasHeaderIdTransaccion" propertyName="idTransaccion">
+                                <xpath resultType="String">//idTransaccion</xpath>
+                            </setProperty>
+                            <setProperty
+                                id="transferenciaInternasHeaderIdTransaccionCCA" propertyName="idTransaccionCCA">
+                                <xpath resultType="String">//idTransaccionCCA</xpath>
+                            </setProperty>
+                            <bean beanType="cl.coopeuch.util.PropagarCabeceras"
+                                id="_bean7" method="insertarRespuestaFraude"/>
+                            <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                                id="_bean8" method="restaurarCuerpo"/>
+                            <removeHeaders id="_removeHeaders1" pattern="JMS_IBM*"/>
+                            <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                                id="createJMSCorrelationId13" method="createJMSCorrelationId24"/>
+                            <to id="transferenciaInternasXml2trama" uri="xslt://transformations/in/xml2tramaIOC510001I_transferenciaInternas.xsl"/>
+                            <log id="_log6" message="Entrada Transferencia INterna\n${body}"/>
+                            <log id="logIOC5100Request" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: transferenciaInterna(IOC5100) || Type: Request || Body: ${body}" />
+                            <to id="activeMQ-transferenciaInternas" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                            <log id="logIOC5100Response" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: transferenciaInterna(IOC5100) || Type: Response || Body: ${body}" />
+                            <log id="_log7" message="Salida Transferencia INterna\n${body}"/>
+                            <transform id="transferenciaInternasTransform">
+                                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                            </transform>
+                            <to id="transferenciaInternasTrama2xml" uri="xslt://transformations/out/trama2xmlIOC510001O_transferenciaInternas.xsl?saxon=true"/>
+                            <bean beanType="cl.coopeuch.util.RespaldarCuerpoTemporal"
+                                id="backupBody2" method="respaldarCuerpo"/>
+                            <choice id="transferenciaInternasConsultarDatosFraude">
+                                <when id="transferenciaInternasConsultarDatosFraudeOk">
+                                    <xpath resultType="String">//formato='ECNLERR' or //formato='ECNLERROR'</xpath>
+                                    <bean beanType="cl.coopeuch.util.PropagarCabeceras"
+                                        id="RHeaders" method="obtenerOrigen"/>
+                                    <bean beanType="cl.coopeuch.util.PropagarCabeceras"
+                                        id="_bean3" method="obtenerRespuestaFraude"/>
+                                    <setProperty id="_setProperty1" propertyName="codigoRegla">
+                                        <xpath resultType="String">//codigoError</xpath>
+                                    </setProperty>
+                                    <wireTap id="WireTapTo2" uri="direct:wiretap_mantenedorDatosFraude"/>
+                                    <bean beanType="cl.coopeuch.util.RespaldarCuerpoTemporal"
+                                        id="_bean4" method="restaurarCuerpo"/>
+                                </when>
+                                <otherwise id="_otherwise3">
+                                    <to id="transferenciaInternasTrama2xml" uri="xslt://transformations/out/trama2xmlIOC510001O_transferenciaInternas_complemento.xsl?saxon=true"/>
+                                    <!-- Bifurcacion para Dale (TPPG) envio email-->                                    
+                                     <choice>
+					                	<when>
+					                		<simple>${property.dale.bypassinterna} == "false"</simple>
+					                		<log id="logdale3" loggingLevel="INFO" message="ENVIO EMAIL FLUJO NORMAL TEF INTERNAS"/>
+					                		<log id="_log166" message="datosEnvioMail-paso1: rutOrigen: ${property.rutOrigen} -- mailOrigen: ${headers.mailOrigen}"/>                                                                   
+                                    		<wireTap id="remote_envioEmailTransferenciasInternas-wireTap" uri="direct:remote_envioEmailTransferenciasInternas"/>
+                                    	</when>
+					                	<otherwise>
+					                		<log id="logdale4" loggingLevel="INFO" message="ENVIO EMAIL TEF INTERNA CANCELADO - ES CLIENTE DALE"/>                                    
+                                    	</otherwise>                               	
+                                    </choice>
+                                    <!-- **************************************** -->                                                              
+                                    <setProperty id="TefInternaSetPropertyOpCod1IOC1440" propertyName="opcod1440">
+                                        <constant>1</constant>
+                                    </setProperty>
+                                    <wireTap id="transferenciasInternasToIOC1440" uri="direct:remoteCall_IOC1440_consultaParametros"/>
+                                </otherwise>
+                            </choice>
+                        </when>
+                        <otherwise id="transferenciaInternasConsultarDatosFraudeError">
+                            <to id="transferenciaInternasConsultarDatosFraudeErrorTo" uri="xslt://transformations/error/transferenciaInternaErrorConsultaDatosFraude.xsl"/>
+                        </otherwise>
+                    </choice>
+                </otherwise>
+            </choice>
+            <removeHeaders id="_removeHeaders7" pattern="*"/>
+        </route>
+        <route id="_route1">
+            <from id="remote_envioEmailTransferenciasInternas" uri="direct:remote_envioEmailTransferenciasInternas"/>
+            <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                id="_bean11" method="restaurarCuerpo"/>
+            <setProperty id="_setProperty37" propertyName="userID">
+                <xpath resultType="String">//userID</xpath>
+            </setProperty>
+            <setProperty id="_setProperty38" propertyName="rutOrigen">
+                <xpath resultType="String">//rutOrigen</xpath>
+            </setProperty>
+            <setProperty id="_setProperty39" propertyName="rutDestinatario">
+                <xpath resultType="String">//rutDestinatario</xpath>
+            </setProperty>
+            <setProperty id="_setProperty40" propertyName="IP">
+                <xpath resultType="String">//IP</xpath>
+            </setProperty>
+            <setProperty id="_setProperty41" propertyName="factorSeguridad">
+                <xpath resultType="String">//factorSeguridad</xpath>
+            </setProperty>
+            <setProperty id="_setProperty42" propertyName="fecha">
+                <xpath resultType="String">//fecha</xpath>
+            </setProperty>
+            <setProperty id="_setProperty43" propertyName="hora">
+                <xpath resultType="String">//hora</xpath>
+            </setProperty>
+            <setProperty id="_setProperty79" propertyName="AliasOrigen">
+                <xpath resultType="String">//AliasOrigen</xpath>
+            </setProperty>
+            <setProperty id="_setProperty80" propertyName="cuentaOrigen">
+                <xpath resultType="String">//cuentaOrigen</xpath>
+            </setProperty>
+            <setProperty id="_setProperty81" propertyName="cuentaDestino">
+                <xpath resultType="String">//cuentaDestino</xpath>
+            </setProperty>
+            <setProperty id="_setProperty82" propertyName="TipoCuentaOrigen">
+                <xpath resultType="String">//TipoCuentaOrigen</xpath>
+            </setProperty>
+            <setProperty id="_setProperty83" propertyName="TipoCuentaDestino">
+                <xpath resultType="String">//TipoCuentaDestino</xpath>
+            </setProperty>
+            <setProperty id="_setProperty84" propertyName="InstFinancieraOrigen">
+                <xpath resultType="String">//InstFinancieraOrigen</xpath>
+            </setProperty>
+            <setProperty id="_setProperty85" propertyName="mailOrigen">
+                <xpath resultType="String">//mailOrigen</xpath>
+            </setProperty>
+            <setProperty id="_setProperty86" propertyName="correoElectronico">
+                <xpath resultType="String">//mailOrigen</xpath>
+            </setProperty>
+            <setProperty id="_setProperty87" propertyName="AliasDestino">
+                <xpath resultType="String">//AliasDestino</xpath>
+            </setProperty>
+            <setProperty id="_setProperty88" propertyName="InstFinancieraDestino">
+                <xpath resultType="String">//InstFinancieraDestino</xpath>
+            </setProperty>
+            <setProperty id="_setProperty89" propertyName="mailDestinatario">
+                <xpath resultType="String">//mailDestinatario</xpath>
+            </setProperty>
+            <setProperty id="_setProperty90" propertyName="montoTransferencia">
+                <xpath resultType="String">//montoTransferencia</xpath>
+            </setProperty>
+            <setProperty id="_setProperty91" propertyName="descripcion">
+                <xpath resultType="String">//descripcion</xpath>
+            </setProperty>
+            <setProperty id="_setProperty92" propertyName="asunto">
+                <xpath resultType="String">//asunto</xpath>
+            </setProperty>
+            <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                id="createJMSCorrelationId5" method="createJMSCorrelationId24"/>
+            <log id="_log8" message="Parametros E\n${body}"/>
+            <to id="remoteCall_consultaParametrosTo" uri="direct:remoteCall_consultaParametros"/>
+            <log id="_log9" message="Parametros S\n${body}"/>
+            <log id="_log14" message="header.mailOrigen :${header.mailOrigen}"/>
+            <choice id="_choice1">
+                <when id="_when1">
+                    <simple>${header.mailOrigen} == ''</simple>
+                    <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                        id="createJMSCorrelationId6" method="createJMSCorrelationId24"/>
+                    <log id="_log10" message="Persona\n${body}"/>
+                    <to id="remoteCall_traerDatosPersonaTo" uri="direct:remoteCall_traerDatosPersona"/>
+                    <log id="_log11" message="Persona\n${body}"/>
+                </when>
+            </choice>
+            <wireTap id="_wireTap3" uri="direct:envioCorreoCuentaDestinatario"/>
+            <wireTap id="_wireTap4" uri="direct:envioCorreoCuentaDestinatarioInterno"/>
+        </route>
+        <!-- LLama a Servicio ValidaTEF/validadorTEF -->
+        <route id="direct:remoteCall_validadorTEF">
+            <from id="direct:remoteCall_validadorTEFFrom" uri="direct:remoteCall_validadorTEF"/>
+            <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                id="createJMSCorrelationId7" method="createJMSCorrelationId24"/>
+            <to id="remoteCall_validadorTEFXls" uri="xslt://transformations/mid/remoteCall_validadorTEF.xsl?saxon=true"/>
+            <to id="_to15scf" uri="AMQ:{{colas.servicio.valida.tef.in.temp}}??preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+            <convertBodyTo id="_convertBodyTx10fth7" type="java.lang.String"/>
+            <removeHeaders id="_removeHeaders1xfg22" pattern="JMS*"/>
+        </route>
+        <route id="wiretap_mantenedorDatosFraude">
+            <from id="wiretap_mantenedorDatosFraudeFrom" uri="direct:wiretap_mantenedorDatosFraude"/>
+            <doTry id="_doTry2">
+                <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                    id="createJMSCorrelationId8" method="createJMSCorrelationId24"/>
+                <to id="remoteCall_modificarDatosFraudeCCATo2" uri="direct:remoteCall_modificarDatosFraudeCCA"/>
+                <choice id="resultadoModificarDatosFraude">
+                    <when id="resultadoModificarDatosFraudeOk2">
+                        <xpath resultType="String">//formato='IOC170001O'</xpath>
+                        <to id="remoteCall_validadorReglasTo2" uri="direct:remoteCall_validadorReglas"/>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionFraudeCCA" message="${body}"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty118" propertyName="codigoError">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty119" propertyName="mensajeError">
+                        <simple>Error en la comunicacion con el servicio interno [ServicioDatosFraudeCCA -
+                            ModificaDatosFraudeCCA].
+                        </simple>
+                    </setProperty>
+                    <setProperty id="_setProperty120" propertyName="colaAMQ">
+                        <simple>modificaFraude</simple>
+                    </setProperty>
+                    <to id="modificaDatosFraudeCCA_excepcion_to" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- LLama a Servicio Mantenedor Datos Fraude/Consultar Datos Fraude CCA -->
+        <route id="remoteCall_consultarDatosFraudeCCA">
+            <from id="remoteCall_consultarDatosFraudeCCAFrom" uri="direct:remoteCall_consultarDatosFraudeCCA"/>
+            <doTry id="remoteCall_consultarDatosFraudeCCA_try">
+                <setProperty id="_setProperty2" propertyName="consultarDatosFraudeCCA.idTransaccion">
+                    <simple>{{consultarDatosFraudeCCA.idTransaccion}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty3" propertyName="consultarDatosFraudeCCA.idTransaccionCCA">
+                    <simple>{{consultarDatosFraudeCCA.idTransaccionCCA}}</simple>
+                </setProperty>
+                <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                    id="createJMSCorrelationId10" method="createJMSCorrelationId24"/>
+                <to id="remoteCall_consultarDatosFraudeCCAXls" uri="xslt://transformations/mid/consultarDatosFraudeCCA.xsl?saxon=true"/>
+                <log id="logCCARequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioDatosFraudeCCA(consultarDatos) || Type: Request || Body: ${body}" />
+                <to id="remoteCall_consultarDatosFraudeCCAToServicioDatosFraudeCCA" uri="AMQ:{{colas.servicio.fraudecca.in.temp}}??preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <convertBodyTo id="_convertBodyTox17" type="java.lang.String"/>
+                <log id="logCCAResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioDatosFraudeCCA(consultarDatos) || Type: Response || Body: ${body}" />
+                <doCatch id="remoteCall_consultarDatosFraudeCCA_catch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty121" propertyName="codigoError">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty122" propertyName="mensajeError">
+                        <simple>Error en la comunicacion con el servicio interno [ServicioDatosFraudeCCA - ConsultaDatosFraudeCCA].</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty123" propertyName="colaAMQ">
+                        <simple>consultaFraude</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty124" propertyName="excStop">
+                        <simple>OK</simple>
+                    </setProperty>
+                    <to id="excepcionFraudeCCA" uri="direct:excepcion"/>
+                    <stop id="_stop2"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- LLama a Servicio Fraude/validadorReglas -->
+        <route id="route_remoteCall_validadorReglas">
+            <from id="remoteCall_validadorReglasFrom122" uri="direct:remoteCall_validadorReglas"/>
+            <doTry id="_doTry3">
+                <setProperty id="_setProperty4" propertyName="validadorReglas.cuentaOrigen">
+                    <simple>{{validadorReglas.cuentaOrigen}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty46" propertyName="validadorReglas.InstFinancieraOrigen">
+                    <simple>{{validadorReglas.InstFinancieraOrigen}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty48" propertyName="validadorReglas.TipoCuentaOrigen">
+                    <simple>{{validadorReglas.TipoCuentaOrigen}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty49" propertyName="validadorReglas.aliasDestino">
+                    <simple>{{validadorReglas.aliasDestino}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty50" propertyName="validadorReglas.cuentaDestino">
+                    <simple>{{validadorReglas.cuentaDestino}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty51" propertyName="validadorReglas.InstFinancieraDestino">
+                    <simple>{{validadorReglas.InstFinancieraDestino}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty52" propertyName="validadorReglas.rutDestinatario">
+                    <simple>{{validadorReglas.rutDestinatario}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty53" propertyName="validadorReglas.TipoCuentaDestino">
+                    <simple>{{validadorReglas.TipoCuentaDestino}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty54" propertyName="validadorReglas.montoTransferencia">
+                    <simple>{{validadorReglas.montoTransferencia}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty55" propertyName="validadorReglas.IP">
+                    <simple>{{validadorReglas.IP}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty56" propertyName="validadorReglas.Asunto">
+                    <simple>{{validadorReglas.Asunto}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty57" propertyName="validadorReglas.Fecha">
+                    <simple>{{validadorReglas.Fecha}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty58" propertyName="validadorReglas.hora">
+                    <simple>{{validadorReglas.hora}}</simple>
+                </setProperty>
+                <to id="remoteCall_validadorReglasXls" uri="xslt://transformations/mid/remoteCall_validadorReglas.xsl?saxon=true"/>
+                <log id="logFraudeValidadorReglasRequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioFraude(ValidadorReglas) || Type: Request || Body: ${body}" />
+                <to id="_to15" uri="AMQ:{{colas.servicio.fraude.in.temp}}??preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <convertBodyTo id="_convertBodyTx107" type="java.lang.String"/>
+                <log id="logFraudeValidadorReglasResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioFraude(ValidadorReglas) || Type: Response || Body: ${body}" />
+                <removeHeaders id="_removeHeaders4" pattern="JMS*"/>
+                <doCatch id="_doCatch3">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty125" propertyName="codigoError">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty126" propertyName="mensajeError">
+                        <simple>Error en la comunicacion con el servicio interno [ServicioFraude - ValidadorReglas].</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty127" propertyName="colaAMQ">
+                        <simple>validadorReglas</simple>
+                    </setProperty>
+                    <to id="validadorReglas_excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- -->
+        <!-- -->
+        <!-- LLama a Servicio Mantenedor Datos Fraude/Modificar Datos Fraude CCA -->
+        <route id="remoteCall_modificarDatosFraudeCCA22">
+            <from id="remoteCall_modificarDatosFraudeCCAFrom" uri="direct:remoteCall_modificarDatosFraudeCCA"/>
+            <doTry id="_doTry4">
+                <setProperty id="_setProperty59" propertyName="modificarDatosFraudeCCA.estado">
+                    <simple>{{modificarDatosFraudeCCA.estado}}</simple>
+                </setProperty>
+                <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                    id="createJMSCorrelationId9" method="createJMSCorrelationId24"/>
+                <to id="remoteCall_modificarDatosFraudeCCA" uri="xslt://transformations/mid/remoteCall_modificarDatosFraudeCCA.xsl?saxon=true"/>
+                <log id="logModificarDatosCCARequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioDatosFraudeCCA(ModificarDatos) || Type: Request || Body: ${body}" />
+                <to id="_to3" uri="AMQ:{{colas.servicio.fraudecca.in.temp}}??preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <convertBodyTo id="_convertBodyTo107" type="java.lang.String"/>
+                <log id="logModificarDatosCCAResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioDatosFraudeCCA(ModificarDatos) || Type: Response || Body: ${body}" />
+                <removeHeaders id="_removeHeaders5" pattern="JMS*"/>
+                <doCatch id="_doCatch4">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty128" propertyName="codigoError">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty129" propertyName="mensajeError">
+                        <simple>Error en la comunicacion con el servicio interno [ServicioDatosFraudeCCA - ModificaDatosFraudeCCA].</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty130" propertyName="colaAMQ">
+                        <simple>modificaFraude</simple>
+                    </setProperty>
+                    <to id="modificaDatosFraudeCCA_excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- -->
+        <!-- -->
+        <!-- LLama a Servicio de Parametros/consultaParametros para Obtener Metodo 
+			de Envio del OTP -->
+        <route id="remoteCall_consultaParametros">
+            <!-- Parametros al Header -->
+            <from id="remoteCall_consultaParametrosFrom" uri="direct:remoteCall_consultaParametros"/>
+            <doTry id="consultaParametros_try">
+                <setProperty id="_setProperty60" propertyName="consultaParametros.userID">
+                    <simple>{{consultaParametros.userID}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty61" propertyName="consultaParametros.codigo">
+                    <simple>{{consultaParametros.codigo}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty62" propertyName="consultaParametros.elemento">
+                    <simple>{{consultaParametros.elemento}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty63" propertyName="consultaParametros.CNOCFL">
+                    <simple>{{consultaParametros.CNOCFL}}</simple>
+                </setProperty>
+                <to id="remoteCall_consultaParametros2" uri="xslt://transformations/mid/remoteCall_consultaParametros.xsl?saxon=true"/>
+                <log id="_log13" message="Parametros: ${body}"/>
+                <to id="_to10" uri="AMQ:{{colas.servicio.parametros.in.temp}}??preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <convertBodyTo id="_convertBodyTo17" type="java.lang.String"/>
+                <setProperty id="_setProperty160" propertyName="Parametro_InstFinancieraOrigen">
+                    <xpath resultType="String">//ListaParametro[codigo=function:simple('${property.InstFinancieraOrigen}')]/descripcion/text()</xpath>
+                </setProperty>
+                <setProperty id="_setProperty170" propertyName="Parametro_InstFinancieraDestino">
+                    <xpath resultType="String">//ListaParametro[codigo=function:simple('${property.InstFinancieraDestino}')]/descripcion/text()</xpath>
+                </setProperty>
+                <setProperty id="_setProperty180" propertyName="Parametro_TipoCuentaOrigen">
+                    <xpath resultType="String">//ListaParametro[codigo=function:simple('${property.TipoCuentaOrigen}')]/descripcion/text()</xpath>
+                </setProperty>
+                <setProperty id="_setProperty190" propertyName="Parametro_TipoCuentaDestino">
+                    <xpath resultType="String">//ListaParametro[codigo=function:simple('${property.TipoCuentaDestino}')]/descripcion/text()</xpath>
+                </setProperty>
+                <removeHeaders id="_removeHeaders6" pattern="JMS*"/>
+                <doCatch id="consultaParametros_catch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty131" propertyName="codigoError">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty132" propertyName="mensajeError">
+                        <simple>Error en la comunicacion con el servicio interno [ServicioParametro - ConsultaParametros].</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty133" propertyName="colaAMQ">
+                        <simple>consultaParametro</simple>
+                    </setProperty>
+                    <to id="consultaParametros_excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- -->
+        <!-- -->
+        <!-- -->
+        <!-- -->
+        <!-- LLama a Servicio de Persona/traerDatosPersona para Obtener Nombres 
+			e correo Electronico -->
+        <route id="remoteCall_traerDatosPersona11">
+            <!-- Parametros al Header -->
+            <from id="remoteCall_traerDatosPersonaFrom" uri="direct:remoteCall_traerDatosPersona"/>
+            <doTry id="traerDatosPersona_try">
+                <setProperty id="_setProperty67" propertyName="traerDatosBasicos.codigoCliente">
+                    <simple>{{traerDatosBasicos.codigoCliente}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty68" propertyName="traerDatosBasicos.userId">
+                    <simple>{{traerDatosBasicos.userId}}</simple>
+                </setProperty>
+                <to id="remoteCall_traerDatosPersona" uri="xslt://transformations/mid/remoteCall_traerDatosPersona.xsl?saxon=true"/>
+                <to id="_to20" uri="AMQ:{{colas.servicio.persona.in.temp}}??preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <convertBodyTo id="_convertBodyTo2" type="java.lang.String"/>
+                <setProperty id="_setProperty18" propertyName="primerNombre">
+                    <xpath resultType="String">normalize-space(//primerNombre)</xpath>
+                </setProperty>
+                <setProperty id="_setProperty19" propertyName="apellidoPaterno">
+                    <xpath resultType="String">normalize-space(//apellidoPaterno)</xpath>
+                </setProperty>
+                <setProperty id="_setProperty21" propertyName="apellidoMaterno">
+                    <xpath resultType="String">normalize-space(//apellidoMaterno)</xpath>
+                </setProperty>
+                <setProperty id="_setProperty22" propertyName="nombre">
+                    <simple>${header.primerNombre} ${header.apellidoPaterno}</simple>
+                </setProperty>
+                <setProperty id="_setProperty23" propertyName="correoElectronico">
+                    <xpath resultType="String">normalize-space(//correoElectronico)</xpath>
+                </setProperty>
+                <setProperty id="_setProperty24" propertyName="telefono">
+                    <xpath resultType="String">normalize-space(//telefono)</xpath>
+                </setProperty>
+                <doCatch id="traerDatosPersona_catch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty134" propertyName="codigoError">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty135" propertyName="mensajeError">
+                        <simple>Error en la comunicacion con el servicio interno [ServicioPersona - TraerDatosPersona].</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty136" propertyName="colaAMQ">
+                        <simple>datosPersona</simple>
+                    </setProperty>
+                    <to id="traerDatosPersona_excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- -->
+        <!-- -->
+        <!-- LLama a Rutina para firma electronica y Base64 -->
+        <route id="signature">
+            <from id="_from1" uri="direct:sign"/>
+            <doTry id="signature_try">
+                <to id="_to1" uri="crypto:sign://keystore?keyStoreParameters=#keystore&amp;algorithm=SHA1withRSA&amp;alias={{keystore.alias}}&amp;password={{keystore.password}}"/>
+                <setProperty id="_setHexx" propertyName="DigitalSignature">
+                    <simple resultType="java.lang.String">${header.CamelDigitalSignature}</simple>
+                </setProperty>
+                <setBody id="_setBody1">
+                    <simple>${header.CamelDigitalSignature}</simple>
+                </setBody>
+                <marshal id="_marshal1">
+                    <base64/>
+                </marshal>
+                <bean beanType="cl.coopeuch.util.ReemplazarString"
+                    id="replace" method="reemplazarCuerpo"/>
+                <setProperty id="_setProperty45" propertyName="firmaBase64">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setBody id="_setBody2">
+                    <constant>&lt;body&gt;&lt;/body&gt;</constant>
+                </setBody>
+                <doCatch id="signature_catch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty137" propertyName="codigoError">
+                        <simple>4016</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty138" propertyName="mensajeError">
+                        <simple>Error en la firma electronica keystore.</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty139" propertyName="colaAMQ">
+                        <simple>firma</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty140" propertyName="excStop">
+                        <simple>OK</simple>
+                    </setProperty>
+                    <to id="signature_excepcion" uri="direct:excepcion"/>
+                    <stop id="_stop3"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!--         Envia correo un detalle de transaccion al usuario origen -->
+        <route id="_routeEnvioCorreoCuentaOrigen">
+            <from id="_from2" uri="direct:envioCorreoCuentaOrigen"/>
+            <doTry id="envioCorreoCuentaOrigen_try">
+                <setProperty id="origenNombrePlantilla" propertyName="nomPlantilla">
+                    <constant>{{enviaEmailTransferencia.nomPlantillaOrigen}}</constant>
+                </setProperty>
+                <setProperty id="idNotificacionOrigen" propertyName="idNotificacion">
+                    <constant>{{rsnotificaciones.idnotificacion.origen}}</constant>
+                </setProperty>
+                <setProperty id="_setProperty69" propertyName="mail">
+                    <simple>${header.correoElectronico}</simple>
+                </setProperty>
+                <log id="_log22" message="datosEnvioMail-paso5: rutOrigen: ${property.rutOrigen} \n-mailOrigen: ${headers.mailOrigen}\n-correoElectronico: ${header.correoElectronico}"/>
+                <to id="toEnviarRsNotificacionesOrigen" uri="direct:enviarRsNotificaciones"/>
+                <log id="_log23" message="datosEnvioMail-paso6: rutOrigen: ${property.rutOrigen} \n-mailOrigen: ${headers.mailOrigen}\n-correoElectronico: ${header.correoElectronico}"/>
+                <doCatch id="envioCorreoCuentaOrigen_catch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty141" propertyName="codigoError">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty142" propertyName="mensajeError">
+                        <simple>Error en la comunicacion con el servicio interno [RSNotificaciones - enviar].</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty143" propertyName="colaAMQ">
+                        <simple>correoOrigen</simple>
+                    </setProperty>
+                    <to id="envioCorreoCuentaOrigen_excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!--         Envia correo un detalle de transaccion al usuario destino -->
+        <route id="_routeEnvioCorreoCuentaDestinatario">
+            <from id="_from3" uri="direct:envioCorreoCuentaDestinatario"/>
+            <doTry id="envioCorreoCuentaDestinatario_try">
+                <setProperty id="destNombrePlantilla" propertyName="nomPlantilla">
+                    <constant>{{enviaEmailTransferencia.nomPlantillaDest}}</constant>
+                </setProperty>
+                <setProperty id="idNotificacionDestinatario" propertyName="idNotificacion">
+                    <constant>{{rsnotificaciones.idnotificacion.destinatario}}</constant>
+                </setProperty>
+                <setProperty id="_setProperty70" propertyName="mail">
+                    <simple>${header.mailDestinatario}</simple>
+                </setProperty>
+                <to id="toEnviarRsNotificacionesDestinatario" uri="direct:enviarRsNotificaciones"/>
+                <doCatch id="envioCorreoCuentaDestinatario_catch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty144" propertyName="codigoError">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty145" propertyName="mensajeError">
+                        <simple>Error en la comunicacion con el servicio interno [RSNotificaciones - enviar].</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty146" propertyName="colaAMQ">
+                        <simple>correoDestino</simple>
+                    </setProperty>
+                    <to id="envioCorreoCuentaDestinatario_excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!--         Envia correo un detalle de transaccion al usuario destino cuando es una trasferencia interna -->
+        <route id="_routeEnvioCorreoCuentaDestinatarioInterna">
+            <from id="_from4" uri="direct:envioCorreoCuentaDestinatarioInterno"/>
+            <setProperty id="internoNombrePlantilla" propertyName="nomPlantilla">
+                <constant>{{enviaEmailTransferencia.nomPlantillaOrigenInterna}}</constant>
+            </setProperty>
+            <setProperty id="idNotificacionInterna" propertyName="idNotificacion">
+                <constant>{{rsnotificaciones.idnotificacion.interna}}</constant>
+            </setProperty>
+            <setProperty id="_setProperty73" propertyName="mail">
+                <simple>${property.mailOrigen}</simple>
+            </setProperty>
+            <to id="toEnviarRsNotificacionesInterna" uri="direct:enviarRsNotificaciones"/>
+        </route>
+        <route id="enviarRsNotificacionesRoute">
+            <from id="enviarRsNotificacionesFrom" uri="direct:enviarRsNotificaciones"/>
+            <log id="enviarRsNotificacionesLogEntrada" message="Entrada a enviarRsNotificacionesRoute"/>
+            <to id="envioEmailToXSLT" uri="xslt://transformations/mid/remoteCall_envioEmailTransferencia.xsl?saxon=true"/>
+            <convertBodyTo id="envioEmailConvertToString" type="java.lang.String"/>
+            <setBody id="envioEmailSetBodyEntradaXSLT">
+                <xpath>//entrada</xpath>
+            </setBody>
+            <log id="envioEmailXSLTLog" message="\nbody salida XSLT:\n${body}"/>
+            <bean id="requestNotificacion" method="requestNotificacion" ref="beanRouteFacade"/>
+            <log id="envioEmailEntradaRSNoticificaciones" message="Llamada al RSNotificaciones"/>
+            <to id="envioNotificacion" uri="cxfrs://bean://endpointRsNotificaciones"/>
+            <log id="enviarRsNotificacionesLogSalida" message="Salida enviarRsNotificacionesRoute"/>
+        </route>
+        <route id="registroColaAMQ">
+            <from id="registroColaAMQ_from" uri="direct:registroColaAMQ"/>
+            <doTry id="registroColaAMQ_try">
+                <choice id="registroColaAMQ_choice">
+                    <when id="_when6">
+                        <simple>${property.respFraude} contains 'consultarDatosFraude'</simple>
+                        <setProperty id="_setProperty95" propertyName="codigoError">
+                            <constant>503</constant>
+                        </setProperty>
+                        <setProperty id="_setProperty147" propertyName="colaAMQ">
+                            <simple>consultaFraude</simple>
+                        </setProperty>
+                        <setProperty id="_setProperty148" propertyName="mensajeError">
+                            <simple>Error en la comunicacion con el servicio interno [ServicioConsultaDatosFraudeCCA - ConsultaDatosFraudeCCA].</simple>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="${property.respFraude}"/>
+                    </when>
+                    <otherwise id="_otherwise5">
+                        <setProperty id="_setProperty96" propertyName="codigoError">
+                            <constant>504</constant>
+                        </setProperty>
+                        <setProperty id="_setProperty149" propertyName="colaAMQ">
+                            <simple>IOC1700</simple>
+                        </setProperty>
+                        <setProperty id="_setProperty150" propertyName="mensajeError">
+                            <simple>Error en la llamada al IOC1700.</simple>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwErrorIOC1700AMQ" message="${property.mensajeError}"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="registroColaAMQ_catch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="registroColaAMQ_excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <log id="logExcepcionInfo" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: Excepcion || Type: INFO || Body: Clase: ${exception.class} , Mensaje: ${exception.message}" />
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <choice id="_choice4">
+                    <when id="_when8">
+                        <simple>${property.colaAMQ} == 'llavePublica' </simple>
+                        <to id="excepcionToAmqFault" uri="AMQ:{{amq.fault.tef.ejecucion.1_keystore}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly&amp;timeToLive={{cola.error.tiempo}}&amp;deliveryMode=1"/>
+                    </when>
+                    <when id="_when9">
+                        <simple>${property.colaAMQ} == 'consultaFraude' </simple>
+                        <to id="excepcionToAmqFault" uri="AMQ:{{amq.fault.tef.ejecucion.2_consultaFraude}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly&amp;timeToLive={{cola.error.tiempo}}&amp;deliveryMode=1"/>
+                    </when>
+                    <when id="_when10">
+                        <simple>${property.colaAMQ} == 'firma' </simple>
+                        <to id="excepcionToAmqFault" uri="AMQ:{{amq.fault.tef.ejecucion.3_firma}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly&amp;timeToLive={{cola.error.tiempo}}&amp;deliveryMode=1"/>
+                    </when>
+                    <when id="_when11">
+                        <simple>${property.colaAMQ} == 'XCash' </simple>
+                        <to id="excepcionToAmqFault" uri="AMQ:{{amq.fault.tef.ejecucion.4_xcash}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly&amp;timeToLive={{cola.error.tiempo}}&amp;deliveryMode=1"/>
+                    </when>
+                    <when id="_when12">
+                        <simple>${property.colaAMQ} == 'consultaParametro' or ${property.colaAMQ} == 'datosPersona' or ${property.colaAMQ} == 'correoOrigen' or ${property.colaAMQ} == 'correoDestino'</simple>
+                        <to id="excepcionToAmqFault" uri="AMQ:{{amq.fault.tef.ejecucion.5.1_ok}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly&amp;timeToLive={{cola.error.tiempo}}&amp;deliveryMode=1"/>
+                    </when>
+                    <when id="_when13">
+                        <simple>${property.colaAMQ} == 'modificaFraude' or ${property.colaAMQ} == 'validadorReglas'</simple>
+                        <to id="excepcionToAmqFault" uri="AMQ:{{amq.fault.tef.ejecucion.5.2_nok}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly&amp;timeToLive={{cola.error.tiempo}}&amp;deliveryMode=1"/>
+                    </when>
+                    <when id="_when13ColaAMQIOC1700">
+                        <simple>${property.colaAMQ} == 'IOC1700'</simple>
+                        <to id="excepcionToAmqFault" uri="AMQ:AMQ.FAULT.TEF.EJECUCION.6.IOC1700?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    </when>
+                    <when id="_when14">
+                        <simple>${property.colaAMQ} == 'cartolaMovimientos'</simple>
+                        <to id="excepcionToAmqFault" uri="AMQ:{{amq.fault.tef.cartola.movimientos}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    </when>
+                    <otherwise id="_otherwise4">
+                        <to id="excepcionToAmqFault" uri="AMQ:{{amq.fault.tef.ejecucion.general}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly&amp;timeToLive={{cola.error.tiempo}}&amp;deliveryMode=1"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+
+            <doTry id="excepcionTry2">
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <choice id="_choice5">
+                    <when id="_when14">
+                        <simple>${property.isRest} == 'OK' and ${property.excStop} == 'OK'</simple>
+                        <bean id="excepcionBean"
+                            method="transferenciaExcepcionResponseRest" ref="beanRouteFacade"/>
+                    </when>
+                </choice>
+                <doCatch id="excepcionDoCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError2">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog2" loggingLevel="ERROR" message="Ha ocurrido un error al intentar generar la respuesta de la excepcion: ${body}"/>
+                </doCatch>
+            </doTry>
+
+
+        </route>
+    </camelContext>
+</blueprint>

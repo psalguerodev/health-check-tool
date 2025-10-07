@@ -1,0 +1,346 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- JBoss, Home of Professional Open Source Copyright 2014, Red Hat, Inc.
+    and/or its affiliates, and individual contributors by the @authors tag. See
+    the copyright.txt in the distribution for a full listing of individual contributors.
+    Licensed under the Apache License, Version 2.0 (the "License"); you may not
+    use this file except in compliance with the License. You may obtain a copy
+    of the License at http://www.apache.org/licenses/LICENSE-2.0 Unless required
+    by applicable law or agreed to in writing, software distributed under the
+    License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS
+    OF ANY KIND, either express or implied. See the License for the specific
+    language governing permissions and limitations under the License. -->
+<!-- Configures the Camel Context -->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="property-placeholder"
+        persistent-id="serviceProperties" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/AhorroKTF/services/AhorroKTFMinVU"
+        id="servicioMinvuEndpoint"
+        serviceClass="com.ktf.coopeuch.ws.AhorroKTFMinVUPortType" wsdlURL="wsdl/ServicioMinvu.wsdl"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.util.other.aggregatorHeader" id="agregadorHeader"/>
+    <camelContext id="servicio-minvu-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cx-RuteoOperaciones">
+            <from id="servicioMinvuEndpointListener" uri="cxf:bean:servicioMinvuEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ruteoOperacionesTry">
+                <!-- Parámetros de Cabecera al Header -->
+                <!-- Parámetros de Entrada al Header-->
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <bean beanType="cl.coopeuch.util.jms.CorrelationId"
+                    id="createJMSCorrelationId" method="createJMSCorrelationId24"/>
+                <to id="getCDATA" uri="xslt://transformations/in/getCDATA.xsl?saxon=true"/>
+                <choice id="servicioMinvuEvaluaEntrada">
+                    <when id="servicioMinvuError">
+                        <simple>${body} == ''</simple>
+                        <transform id="servicioMinvuTransform">
+                            <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="servicioMinvuRespondeError" uri="xslt://transformations/error/error.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="servicioMinvuOk">
+                        <setHeader headerName="Id_servicio" id="setHeaderIdServicio">
+                            <xpath resultType="String">//Id_servicio</xpath>
+                        </setHeader>
+                        <setHeader headerName="Id_msg" id="setHeaderIdMsg">
+                            <xpath resultType="String">//Id_msg</xpath>
+                        </setHeader>
+                        <setHeader headerName="IP" id="setHeaderIP">
+                            <xpath resultType="String">//IP</xpath>
+                        </setHeader>
+                        <setHeader headerName="Fecha" id="setHeaderFecha">
+                            <xpath resultType="String">//Fecha</xpath>
+                        </setHeader>
+                        <setHeader headerName="Hora" id="setHeaderHora">
+                            <xpath resultType="String">//Hora</xpath>
+                        </setHeader>
+                        <setHeader headerName="URL" id="setHeaderUrl">
+                            <xpath resultType="String">//URL</xpath>
+                        </setHeader>
+                        <setHeader headerName="Num_cta" id="setHeaderNumCta">
+                            <xpath resultType="String">//Num_cta</xpath>
+                        </setHeader>
+                        <setHeader headerName="Rut" id="setHeaderRut">
+                            <xpath resultType="String">//Rut</xpath>
+                        </setHeader>
+                        <setHeader headerName="Dv_Rut" id="setHeaderDvRut">
+                            <xpath resultType="String">//Dv_Rut</xpath>
+                        </setHeader>
+                        <setHeader headerName="Mes" id="setHeaderMes">
+                            <xpath resultType="String">//Mes</xpath>
+                        </setHeader>
+                        <setHeader headerName="Sol_correl" id="setHeaderSolCorrel">
+                            <xpath resultType="String">//Sol_correl</xpath>
+                        </setHeader>
+                        <setHeader headerName="LA" id="setHeaderLA">
+                            <xpath resultType="String">//LA</xpath>
+                        </setHeader>
+                        <setHeader headerName="Numero_de_llamado" id="setHeaderNumeroDeLlamado">
+                            <xpath resultType="String">//Numero_de_llamado</xpath>
+                        </setHeader>
+                        <choice id="ruteoOperaciones">
+                            <when id="rutaConsultaSaldo">
+                                <xpath>//Id_servicio='Saldo'</xpath>
+                                <to id="consultaSaldoTo" uri="direct:ConsultaSaldo"/>
+                            </when>
+                            <when id="rutaBloqueoDesbloqueo">
+                                <xpath>//Id_servicio='Bloqueo'</xpath>
+                                <to id="bloqueoDesbloqueoTo" uri="direct:BloqueoDesbloqueo"/>
+                            </when>
+                            <when id="rutaDesBloqueoDesbloqueo">
+                                <xpath>//Id_servicio='Desbloqueo'</xpath>
+                                <to id="bloqueoDesbloqueoTo" uri="direct:BloqueoDesbloqueo"/>
+                            </when>
+                            <otherwise id="rutaError">
+                                <to id="_to1" uri="xslt://transformations/error/error.xsl"/>
+                            </otherwise>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <route id="consultaSaldo">
+            <from id="consultaSaldoFrom" uri="direct:ConsultaSaldo"/>
+            <doTry id="consultaSaldoTry">
+                <choice id="consultaSaldoValida">
+                    <when id="consultaSaldoError1">
+                        <simple>${headers.Mes} regex '\\d{1,}'</simple>
+                        <choice id="_choice1">
+                            <when id="_when1">
+                                <simple>${headers.Mes} &gt; 12</simple>
+                                <transform id="consultaSaldoTransformError1">
+                                    <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                                </transform>
+                                <setHeader headerName="glosaError" id="consultaSaldoHeader1">
+                                    <constant>1</constant>
+                                </setHeader>
+                            </when>
+                        </choice>
+                    </when>
+                    <when id="consultaSaldoError2">
+                        <simple>${headers.Mes} contains '-'</simple>
+                        <transform id="consultaSaldoTransformError4">
+                            <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                        </transform>
+                        <setHeader headerName="glosaError" id="consultaSaldoHeader2">
+                            <constant>4</constant>
+                        </setHeader>
+                    </when>
+                    <when id="consultaSaldoError3">
+                        <simple>${headers.Mes} == ' ' or ${headers.Mes} == ''</simple>
+                        <transform id="consultaSaldoTransformError2">
+                            <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                        </transform>
+                        <setHeader headerName="glosaError" id="consultaSaldoHeader3">
+                            <constant>3</constant>
+                        </setHeader>
+                    </when>
+                    <when id="consultaSaldoError4">
+                        <simple>${headers.Rut} == ' ' or ${headers.Rut} == ''</simple>
+                        <transform id="consultaSaldoTransformError3">
+                            <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                        </transform>
+                        <setHeader headerName="glosaError" id="consultaSaldoHeader4">
+                            <constant>3</constant>
+                        </setHeader>
+                    </when>
+                    <when id="consultaSaldoError5">
+                        <simple>${headers.Num_cta} == ' ' or ${headers.Num_cta} == ''</simple>
+                        <transform id="consultaSaldoTransformError5">
+                            <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                        </transform>
+                        <setHeader headerName="glosaError" id="consultaSaldoHeader5">
+                            <constant>3</constant>
+                        </setHeader>
+                    </when>
+                    <when id="consultaSaldoError6">
+                        <simple>${headers.Num_cta} == 0</simple>
+                        <transform id="consultaSaldoTransformError6">
+                            <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                        </transform>
+                        <setHeader headerName="glosaError" id="consultaSaldoHeader6">
+                            <constant>2</constant>
+                        </setHeader>
+                    </when>
+                    <when id="consultaSaldoError7">
+                        <simple>${headers.Mes} regex '.*[a-zA-Z].*'</simple>
+                        <log id="_log1" message="####LETRAS#####${headers.Mes}###"/>
+                        <transform id="consultaSaldoTransformError7">
+                            <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                        </transform>
+                        <setHeader headerName="glosaError" id="consultaSaldoHeader7">
+                            <constant>3</constant>
+                        </setHeader>
+                    </when>
+                    <otherwise id="consultaSaldoOk">
+                        <setHeader headerName="glosaError" id="consultaSaldoHeader8">
+                            <constant>0</constant>
+                        </setHeader>
+                        <to id="consultaSaldoXml2trama" uri="xslt://transformations/in/xml2tramaIOC004001I_ConsultaSaldo.xsl"/>
+                        <enrich id="consultaSaldoEnrich" strategyRef="agregadorHeader">
+                            <constant>AMQ:{{amq.queue.amq.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.amq.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.amq.res}}&amp;synchronous=true&amp;exchangePattern=InOut</constant>
+                        </enrich>
+                        <transform id="consultaSaldoTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                    </otherwise>
+                </choice>
+                <to id="consultaSaldoTrama2xml" uri="xslt://transformations/mid/trama2xml_consultaSaldoCDATA.xsl?saxon=true"/>
+                <bean beanType="cl.coopeuch.util.other.StringReplace"
+                    id="consultaSaldoReplaceNewLine" method="replaceNewLineBody"/>
+                <convertBodyTo id="consultaSaldoBodyTo" type="java.lang.String"/>
+                <setHeader headerName="xmlCDATA" id="_setHeader1">
+                    <simple>${body}</simple>
+                </setHeader>
+                <to id="consultaSaldoTrama2xml" uri="xslt://transformations/out/trama2xmlIOC004001O_ConsultaSaldo.xsl?saxon=true"/>
+                <bean beanType="cl.coopeuch.util.other.StringReplace"
+                    id="consultaSaldoReplaceTags" method="replaceTagsBody"/>
+                <doCatch id="consultaSaldoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="consultaSaldoRestoreBody" method="restoreBody"/>
+                    <setBody id="consultaSaldoSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultaSaldoFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="consultaSaldoBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultaSaldoFinally"/>
+            </doTry>
+        </route>
+        <route id="bloqueoDesbloqueo">
+            <from id="bloqueoDesbloqueoFrom" uri="direct:BloqueoDesbloqueo"/>
+            <doTry id="bloqueoDesbloqueoTry">
+                <choice id="bloqueoDesbloqueoValida">
+                    <when id="bloqueoDesbloqueoError1">
+                        <simple>${headers.Mes} regex '\\d{1,}'</simple>
+                        <choice id="_choice2">
+                            <when id="_when2">
+                                <simple>${headers.Mes} &gt; 12</simple>
+                                <transform id="bloqueoDesbloqueoTransformError1">
+                                    <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                                </transform>
+                                <setHeader headerName="glosaError" id="bloqueoDesbloqueoHeader1">
+                                    <constant>1</constant>
+                                </setHeader>
+                            </when>
+                        </choice>
+                    </when>
+                    <when id="bloqueoDesbloqueoError2">
+                        <simple>${headers.Mes} contains '-'</simple>
+                        <transform id="bloqueoDesbloqueoTransformError4">
+                            <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                        </transform>
+                        <setHeader headerName="glosaError" id="bloqueoDesbloqueoHeader2">
+                            <constant>4</constant>
+                        </setHeader>
+                    </when>
+                    <when id="bloqueoDesbloqueoError3">
+                        <simple>${headers.Mes} == ' ' or ${headers.Mes} == ''</simple>
+                        <transform id="bloqueoDesbloqueoTransformError2">
+                            <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                        </transform>
+                        <setHeader headerName="glosaError" id="bloqueoDesbloqueoHeader3">
+                            <constant>3</constant>
+                        </setHeader>
+                    </when>
+                    <when id="bloqueoDesbloqueoError4">
+                        <simple>${headers.Rut} == ' ' or ${headers.Rut} == ''</simple>
+                        <transform id="bloqueoDesbloqueoTransformError3">
+                            <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                        </transform>
+                        <setHeader headerName="glosaError" id="bloqueoDesbloqueoHeader4">
+                            <constant>3</constant>
+                        </setHeader>
+                    </when>
+                    <when id="bloqueoDesbloqueoError5">
+                        <simple>${headers.Num_cta} == ' ' or ${headers.Num_cta} == ''</simple>
+                        <transform id="bloqueoDesbloqueoTransformError5">
+                            <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                        </transform>
+                        <setHeader headerName="glosaError" id="bloqueoDesbloqueoHeader5">
+                            <constant>3</constant>
+                        </setHeader>
+                    </when>
+                    <when id="bloqueoDesbloqueoError6">
+                        <simple>${headers.Num_cta} == 0</simple>
+                        <transform id="bloqueoDesbloqueoTransformError6">
+                            <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                        </transform>
+                        <setHeader headerName="glosaError" id="bloqueoDesbloqueoHeader6">
+                            <constant>2</constant>
+                        </setHeader>
+                    </when>
+                    <when id="bloqueoDesbloqueoError7">
+                        <simple>${headers.Mes} regex '.*[a-zA-Z].*'</simple>
+                        <transform id="bloqueDesbloqueoTransformError7">
+                            <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                        </transform>
+                        <setHeader headerName="glosaError" id="bloqueDesbloqueoHeader7">
+                            <constant>3</constant>
+                        </setHeader>
+                    </when>
+                    <otherwise id="bloqueoDesbloqueoOk">
+                        <setHeader headerName="glosaError" id="bloqueoDesbloqueoHeader8">
+                            <constant>0</constant>
+                        </setHeader>
+                        <to id="bloqueoDesbloqueoXml2trama" uri="xslt://transformations/in/xml2tramaIOC004501I_BloqueoDesbloqueo.xsl"/>
+                        <enrich id="bloqueoDesbloqueoEnrich" strategyRef="agregadorHeader">
+                            <constant>AMQ:{{amq.queue.amq.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.amq.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.amq.res}}&amp;synchronous=true&amp;exchangePattern=InOut</constant>
+                        </enrich>
+                        <transform id="bloqueoDesbloqueoTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                    </otherwise>
+                </choice>
+                <to id="bloqueoDesbloqueoTrama2xml" uri="xslt://transformations/mid/trama2xml_bloqueoDesbloqueoCDATA.xsl?saxon=true"/>
+                <bean beanType="cl.coopeuch.util.other.StringReplace"
+                    id="bloqueoDesbloqueoStringReplaceNewLine" method="replaceNewLineBody"/>
+                <convertBodyTo id="bloqueoDesbloqueoBodyTo" type="java.lang.String"/>
+                <setHeader headerName="xmlCDATA" id="_setHeader2">
+                    <simple>${body}</simple>
+                </setHeader>
+                <to id="bloqueoDesbloqueoTrama2xml" uri="xslt://transformations/out/trama2xmlIOC004501O_BloqueoDesbloqueo.xsl?saxon=true"/>
+                <bean beanType="cl.coopeuch.util.other.StringReplace"
+                    id="bloqueoDesbloqueoStringReplaceTags" method="replaceTagsBody"/>
+                <doCatch id="bloqueoDesbloqueoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="bloqueoDesbloqueoRestoreBody" method="restoreBody"/>
+                    <setBody id="bloqueoDesbloqueoSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="bloqueoDesbloqueoFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="bloqueoDesbloqueoBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="bloqueoDesbloqueoFinally"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

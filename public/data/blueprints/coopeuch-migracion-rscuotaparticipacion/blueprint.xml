@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wscuotaparticipacion" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.cuentas]]"/>
+        <property name="password" value="[[jdbc.db2.password.cuentas]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.cuotaparticipacion}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.cuotaparticipacion}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.cuotaparticipacion}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.cuotaparticipacion}]"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.cuotaparticipacion.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSCuotaParticipacion"
+        id="endpointWsCuotaParticipacion"
+        serviceClass="cl.coopeuch.integracion.cuotaparticipacion.wsdl.WSCuotaParticipacionSOAPPortType" wsdlURL="etc/wsdl/WSCuotaParticipacion.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSCuotaParticipacion"
+        id="WSCuotaParticipacionREST" loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.cuotaparticipacion.wsdl.WSCuotaParticipacionSOAPPortType"/>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <camelContext id="servicio-cuota-participacion" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:WSCuotaParticipacionREST"/>
+            <to id="restToConsultar" uri="direct:inicio"/>
+        </route>
+        <route id="soap-inicio">
+            <from id="inicioSoapServicio" uri="cxf:bean:endpointWsCuotaParticipacion"/>
+            <to id="SoapToConsultar" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionCrear">
+                        <simple>${header.operationName} == 'crear'</simple>
+                        <to id="toCrear" uri="direct:crear"/>
+                    </when>
+                    <when id="inicioWhenOperacionAsociar">
+                        <simple>${header.operationName} == 'asociarCuentaDebito'</simple>
+                        <to id="toAsociarCuentaSocio" uri="direct:asociarCuentaSocio"/>
+                    </when>
+                    <when id="inicioWhenOperacionActualizar">
+                        <simple>${header.operationName} == 'actualizar'</simple>
+                        <to id="toActualizar" uri="direct:actualizar"/>
+                    </when>
+                    <when id="inicioWhenOperacionGenerarPrimerPago">
+                        <simple>${header.operationName} == 'generarPrimerPago'</simple>
+                        <to id="toGenerarPrimerPago" uri="direct:generarPrimerPago"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="toGenerarPrimerPago" uri="direct:consultar"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarCuotaSocio">
+                        <simple>${header.operationName} == 'consultarCuotaSocio'</simple>
+                        <to id="toConsultarCuotaSocio" uri="direct:consultarCuotaSocio"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="crear">
+            <from id="crearFrom" uri="direct:crear"/>
+            <doTry id="crearTry">
+                <marshal id="crearMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuotaparticipacion.wsdl"/>
+                </marshal>
+                <convertBodyTo id="crearConvertBodyToString" type="java.lang.String"/>
+                <setHeader headerName="codigoTransaccion" id="_setHeader1">
+                    <simple>{{cuotasparticipacion.servicio.parametro.codigotransaccion.crearparticipacion}}</simple>
+                </setHeader>
+                <bean id="crearUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="crearToXSLTrama" uri="xslt://etc/xsl/request/IOC732001I_crear_participacion.xsl"/>
+                <to id="crearToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="crearTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="crearToXSLSOAP" uri="xslt://etc/xsl/response/IOC732001O_crear_participacion.xsl?saxon=true"/>
+                <unmarshal id="crearUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuotaparticipacion.wsdl"/>
+                </unmarshal>
+                <doCatch id="crearDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toCrearExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="asociarCuentaSocio">
+            <from id="asociarCuentaSociofrom" uri="direct:asociarCuentaSocio"/>
+            <doTry id="asociarCuentaSocioTry">
+                <marshal id="asociarCuentaSocioMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuotaparticipacion.wsdl"/>
+                </marshal>
+                <convertBodyTo
+                    id="asociarCuentaSocioConvertBodyToString" type="java.lang.String"/>
+                <setHeader headerName="codigoTransaccion" id="_setHeader2">
+                    <simple>{{cuotasparticipacion.servicio.parametro.codigotransaccion.asociar}}</simple>
+                </setHeader>
+                <bean id="asociarCuentaSocioUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="asociarCuentaSocioToXSLTrama" uri="xslt://etc/xsl/request/IOC732001I_asociar.xsl"/>
+                <to id="asociarCuentaSocioToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="asociarCuentaSocioTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="asociarCuentaSocioToXSLSOAP" uri="xslt://etc/xsl/response/IOC732001O_asociar.xsl?saxon=true"/>
+                <unmarshal id="asociarCuentaSocioUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuotaparticipacion.wsdl"/>
+                </unmarshal>
+                <doCatch id="asociarCuentaSocioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toAsociarCuentaSocioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="actualizar">
+            <from id="actualizarFrom" uri="direct:actualizar"/>
+            <doTry id="actualizarTry">
+                <marshal id="actualizarMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuotaparticipacion.wsdl"/>
+                </marshal>
+                <convertBodyTo id="actualizarConvertBodyToString" type="java.lang.String"/>
+                <setHeader headerName="codigoTransaccion" id="_setHeader3">
+                    <simple>{{cuotasparticipacion.servicio.parametro.codigotransaccion.actualizar}}</simple>
+                </setHeader>
+                <bean id="actualizarUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="actualizarToXSLTrama" uri="xslt://etc/xsl/request/IOC732001I_actualizar.xsl"/>
+                <to id="actualizarToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="actualizarTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="actualizarrToXSLSOAP" uri="xslt://etc/xsl/response/IOC732001O_actualizar.xsl?saxon=true"/>
+                <unmarshal id="actualizarUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.cuotaparticipacion.wsdl"/>
+                </unmarshal>
+                <doCatch id="actualizarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toActualizarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generarPrimerPago">
+            <from id="generarPrimerPagoFrom" uri="direct:generarPrimerPago"/>
+            <doTry id="_doTry1">
+                <setHeader headerName="codigoTransaccion" id="_setHeader4">
+                    <simple>{{cuotasparticipacion.servicio.parametro.codigotransaccion.generarprimerpago}}</simple>
+                </setHeader>
+                <setProperty id="_setProperty1" propertyName="operacion">
+                    <simple>${header.operationName}</simple>
+                </setProperty>
+                <bean id="_bean1" method="transformarXmltoIOC736001I" ref="beanRouteFacade"/>
+                <marshal id="_marshal1">
+                    <bindy
+                        classType="cl.coopeuch.integracion.wmq.modelo.IOC736001I" type="Fixed"/>
+                </marshal>
+                <bean id="crearUUIDGenerarPrimerPago"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <log message="\n TRAMA DE ENTRADA GENERAR PRIMER PAGO ::: ${body} :::"/>
+                <to id="primeraCuotaToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <choice id="_choice1">
+                    <when id="_when1">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_unmarshal1">
+                            <bindy
+                                classType="cl.coopeuch.integracion.wmq.modelo.ErrorIOC" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="_beanErrorIOC"
+                            method="transformarErrorIOC736001OtoXml" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <unmarshal id="_unmarshal1">
+                            <bindy
+                                classType="cl.coopeuch.integracion.wmq.modelo.IOC736001O" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="_beanSalidaPrimerPago"
+                            method="transformarIOC736001OtoXml" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="generarPrimerPagoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="togenerarPrimerPagoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultar">
+            <from id="consultarFrom" uri="direct:consultar"/>
+            <doTry id="consultarTry">
+                <setProperty id="_setPropertyUserId2" propertyName="userId">
+                    <xpath resultType="String">substring(//userId, 0, 11)</xpath>
+                </setProperty>
+                <setProperty id="_setPropertyCanal2" propertyName="canal">
+                    <xpath resultType="String">substring(//canalLlamada, 0, 5)</xpath>
+                </setProperty>
+                <to id="consultar-To" uri="sql-stored:classpath:etc/sql/PA_SEL_CUOTAPARTCONSULTAR_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseConsultar"/>
+                <bean id="consultarBean" method="procesarConsultar" ref="beanRouteFacade"/>
+                <doCatch id="consultarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toConsultarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarCuotaSocio">
+            <from id="consultarCuotaSocioFrom" uri="direct:consultarCuotaSocio"/>
+            <doTry id="consultarCuotaSocioTry">
+                <setProperty id="_setPropertyUserId1" propertyName="userId">
+                    <xpath resultType="String">//userId</xpath>
+                </setProperty>
+                <setProperty id="_setPropertyCanal1" propertyName="canal">
+                    <xpath resultType="String">//canalLlamada</xpath>
+                </setProperty>
+                <setProperty id="_setPropertyRutOrigen" propertyName="rut">
+                    <xpath resultType="String">//rut</xpath>
+                </setProperty>
+                <to id="consultarCuotaSocio-To" uri="sql-stored:classpath:etc/sql/PA_SEL_CONSULTARCUOTASOCIO_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseConsultarCuotaSocio"/>
+                <bean id="consultarCuotaSocioBean"
+                    method="procesarConsultarCuotaSocio" ref="beanRouteFacade"/>
+                <removeHeaders id="removeHeaders_01" pattern="*"/>
+                <doCatch id="consultarCuotaSocioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toConsultarCuotaSocioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,712 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+           xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd
+           http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder persistent-id="global" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal" persistent-id="wsejecutivo" placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <cxf:cxfEndpoint address="/WSEjecutivo" id="epEjecutivoSOAP" serviceClass="cl.coopeuch.integracion.wsejecutivo.wsdl.WSEjecutivoPortType" wsdlURL="etc/wsdl/WSEjecutivo.wsdl"/>
+    <bean class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close" id="dataSourceSqlServerawz">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url}]"/>
+        <property name="username" value="[{jdbc.sqlserver.username}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.ejecutivo}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.ejecutivo}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.ejecutivo}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.ejecutivo}]"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.util.RouteFacade" id="beanFacade"/>
+    <bean class="cl.coopeuch.integracion.util.ValidarLlave" id="validarLlave"/>
+    <cxf:rsServer address="/RSEjecutivo" id="epEjecutivoREST" serviceClass="cl.coopeuch.integracion.wsejecutivo.rest.EjecutivoRest"/>
+    <camelContext id="context-wsejecutivo"
+                  xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="JacksonReq" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsejecutivo.wsdl.ConsultarRequest"/>
+            <json id="JacksonResp" include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsejecutivo.wsdl.Response"/>
+            <json id="JacksonRenovarReq" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsejecutivo.wsdl.ConsultarEECRequest"/>
+            <json id="JacksonRenovarResp" include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsejecutivo.wsdl.ConsultarEECResponse"/>
+            <json id="JacksonFault" include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsejecutivo.wsdl.Excepcion"/>
+        </dataFormats>
+        <route id="ConsultaEjecutivo-Ruta-SOAP">
+            <from id="ConsultaEjecutivo-From-SOAP" uri="cxf:bean:epEjecutivoSOAP"/>
+            <doTry id="_doTry1">
+                <setProperty id="inicioSetBody" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setProperty id="nombreOperacion" propertyName="operationName">
+                    <simple>${header.operationName}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <setBody id="ConsultaEjecutivo-SetBody">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <to id="ConsultaEjecutivo-To-SOAP" uri="direct:ejecutivo"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarEEC">
+                        <simple>${header.operationName} == 'consultarEEC'</simple>
+                        <setBody id="ConsultaEEC-SetBody">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <to id="ConsultaEEC-To-SOAP" uri="direct:consultarEEC"/>
+                    </when>
+                    <otherwise id="_otherwise3">
+                        <throwException exceptionType="java.lang.Exception" id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="ConsultaEjecutivo-Ruta-REST">
+            <from id="ConsultaEjecutivo-From-REST" uri="cxfrs:bean:epEjecutivoREST"/>
+            <doTry id="_doTry1REST">
+                <setProperty id="_setProperty3" propertyName="operationName">
+                    <simple>${header.operationName}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion-REST">
+                    <when id="inicioWhenOperacionConsultar-REST">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <setProperty propertyName="tipoRequest">
+                            <simple>consultarRequest</simple>
+                        </setProperty>
+                        <unmarshal id="unmarshall_entrada" ref="JacksonReq"/>
+                        <setProperty id="inicioSetBodyREST" propertyName="requestEntrada">
+                            <simple>${body}</simple>
+                        </setProperty>
+                        <to id="ConsultaEjecutivo-To-REST" uri="direct:ejecutivo"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarEEC-REST">
+                        <simple>${header.operationName} == 'consultarEEC'</simple>
+                        <setProperty propertyName="tipoRequest">
+                            <simple>consultarEECRequest</simple>
+                        </setProperty>
+                        <unmarshal id="_unmarshal1" ref="JacksonRenovarReq"/>
+                        <setProperty id="inicioSetBodyREST" propertyName="requestEntrada">
+                            <simple>${body}</simple>
+                        </setProperty>
+                        <to id="ConsultaEEC-To-REST" uri="direct:consultarEEC"/>
+                    </when>
+                    <otherwise id="inicioOtherwise-REST">
+                        <throwException exceptionType="java.lang.Exception" id="throwExceptionOperacionInvalida-REST" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatchREST">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoErrorREST" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toInicioExcepcionREST" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="ConsultaEjecutivo-Route">
+            <from id="ConsultaEjecutivo-From" uri="direct:ejecutivo"/>
+            <doTry id="ConsultaEjecutivo-DoTry">
+                <marshal id="ConsultaEjecutivo-Marshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsejecutivo.wsdl"/>
+                </marshal>
+                <bean id="ConsultaEjecutivo-Bean" method="idJMS" ref="beanFacade"/>
+                <to id="ConsultaEjecutivo-To-RPG-Input" uri="xslt://etc/xsl/in/IOC709001I_consultar.xsl?saxon=true"/>
+                <to id="ConsultaEjecutivo-To-AMQ" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="ConsultaEjecutivo-Transform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="ConsultaEjecutivo-To-RPG-Output" uri="xslt://etc/xsl/out/IOC709001O_consultar.xsl?saxon=true"/>
+                <choice id="ConsultaEjecutivo-Choice">
+                    <when id="ConsultaEjecutivo-When">
+                        <simple>$simple{body} contains 'OTHERERROR'</simple>
+                        <throwException exceptionType="java.lang.Exception" id="ConsultaEjecutivo-throwException-RPG" message="El servidor lanzo un error, vuelva a intentarlo mas tarde."/>
+                    </when>
+                    <when id="ConsultaEjecutivo-When">
+                        <simple>$simple{body} contains 'ECNLERR'</simple>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <setProperty id="_setProperty1" propertyName="nombres">
+                            <xpath resultType="String">//nombres</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty48" propertyName="code">
+                            <simple>0</simple>
+                        </setProperty>
+                        <setProperty id="_setProperty2" propertyName="apellidos">
+                            <xpath resultType="String">//apellidos</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty4" propertyName="rut">
+                            <xpath resultType="String">substring(//rut, 1, string-length(//rut)-1)</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty23" propertyName="cuentaIbs">
+                            <xpath resultType="String">substring(//cuentaIbs, 1, string-length(//cuentaIbs))</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty24" propertyName="perfil">
+                            <xpath resultType="String">substring(//perfil, 1, string-length(//perfil))</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty25" propertyName="canalVenta">
+                            <xpath resultType="String">substring(//canalVenta, 1, string-length(//canalVenta))</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty26" propertyName="codSucursal">
+                            <xpath resultType="String">substring(//codSucursal, 1, string-length(//codSucursal))</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty27" propertyName="codEjecutivo">
+                            <xpath resultType="String">//*[name() = 'codEjecutivo']</xpath>
+                        </setProperty>
+                        <setHeader headerName="nombreSucursal" id="_setHeader10">
+                            <xpath resultType="String">//*[name() = 'nombreSucursal']</xpath>
+                        </setHeader>
+                        <setProperty id="_setProperty28" propertyName="rutc">
+                            <xpath resultType="String">//*[name() = 'rut']</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty5" propertyName="dv">
+                            <xpath resultType="String">substring(//rut, string-length(//rut), string-length(//rut))</xpath>
+                        </setProperty>
+                        <convertBodyTo id="consultar-ConvertBodyToResponse" type="cl.coopeuch.integracion.wsejecutivo.wsdl.Response"/>
+                        <setProperty id="_setProperty6" propertyName="responseIBS">
+                            <simple>${body}</simple>
+                        </setProperty>
+                        <bean id="rutEjecutivos-Bean" method="obtenerRutEjecutivo" ref="beanFacade"/>
+                        <choice id="ConsultaEjecutivo-choice-Rut">
+                            <when id="ConsultaEjecutivo-When-Rut">
+                                <simple>${property.Rut1} regex ''</simple>
+                                <throwException exceptionType="java.lang.Exception" id="ConsultaEjecutivo-throwException" message="Rut Vacio"/>
+                            </when>
+                            <otherwise id="ConsultaEjecutivo-Otherwise-Rut">
+                                <bean id="_bean11" method="formarBDRut" ref="beanFacade"/>
+                                <to id="ObtieneDatosFuncionarios-SQL-Buscar" uri="sql-stored:classpath:etc/sql/pa_sel_selectemployee.sql?dataSource=dataSourceSqlServerawz&amp;outputHeader=responseDatosEjecutivo"/>
+                                <bean id="_bean5" method="obtieneDatosEjecutivo" ref="beanFacade"/>
+                                <when id="_when3">
+                                    <simple>${header.sw} == true</simple>
+                                    <setHeader headerName="CamelHttpMethod" id="_setHeader5">
+                                        <constant>GET</constant>
+                                    </setHeader>
+                                    <setHeader headerName="auth_token" id="_setHeader3">
+                                        <constant>{{apikey}}</constant>
+                                    </setHeader>
+                                    <setHeader headerName="CamelHttpQuery" id="_setHeader6">
+                                        <simple>rut=${property.rutc}</simple>
+                                    </setHeader>
+                                    <!-- Llamado a API BUK para obtener los datos del empleado (consultar) -->
+                                    <toD id="_to" uri="cxfrs:{{endpoint.url.buk}}employees?bridgeEndpoint=true"/>
+                                    <convertBodyTo id="_convertBodyTo8" type="String"/>
+                                    <setProperty id="_setProperty22" propertyName="total_pages">
+                                        <jsonpath resultType="Integer">$.pagination.total_pages</jsonpath>
+                                    </setProperty>
+                                    <choice id="_choice2">
+                                        <when id="_when8">
+                                            <simple>${property.total_pages} == 0</simple>
+                                            <setProperty id="_setProperty75" propertyName="code">
+                                                <simple>4030</simple>
+                                            </setProperty>
+                                            <throwException exceptionType="java.lang.Exception" id="_throwException1" message="Error en Codigo de Ejecutivo o no Existe Buk"/>
+                                            <stop id="_stop1"/>
+                                        </when>
+                                    </choice>
+                                    <convertBodyTo id="_convertBodyTo4" type="String"/>
+                                    <setProperty id="_setProperty11" propertyName="reponseempleado">
+                                        <simple>${body}</simple>
+                                    </setProperty>
+                                    <setProperty propertyName="rut">
+                                        <jsonpath resultType="String">$.data[0].current_job.boss.rut</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty67" propertyName="BossId">
+                                        <jsonpath resultType="Integer">$.data[0].current_job.boss.id</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty10" propertyName="BossRut">
+                                        <jsonpath resultType="String">$.data[0].current_job.boss.rut</jsonpath>
+                                    </setProperty>
+                                    <choice>
+                                        <when>
+                                            <jsonpath suppressExceptions="true">$.data[0].current_job.custom_attributes['Lugar de Trabajo']</jsonpath>
+                                            <setProperty propertyName="lugarempleado">
+                                                <jsonpath resultType="String">$.data[0].current_job.custom_attributes['Lugar de Trabajo']</jsonpath>
+                                            </setProperty>
+                                        </when>
+                                    </choice>
+                                    <setProperty id="_setProperty29" propertyName="area_id">
+                                        <jsonpath resultType="String">$.data[0].current_job.area_id</jsonpath>
+                                    </setProperty>
+                                    <setHeader headerName="CamelHttpMethod" id="_setHeader8">
+                                        <constant>GET</constant>
+                                    </setHeader>
+                                    <!-- Llamado a API BUK para obtener los datos del área del empleado (consultar) -->
+                                    <toD id="_toD3" uri="cxfrs:{{endpoint.url.buk}}organization/areas/${property.area_id}?bridgeEndpoint=true"/>
+                                    <convertBodyTo id="_convertBodyTo6" type="String"/>
+                                    <setProperty id="_setProperty30" propertyName="parentareaempleado">
+                                        <jsonpath resultType="String">$.data.name</jsonpath>
+                                    </setProperty>
+                                    <bean id="_bean10" method="trasnformarRut" ref="beanFacade"/>
+                                    <setHeader headerName="CamelHttpQuery" id="_setHeader7">
+                                        <simple>rut=${property.rut}</simple>
+                                    </setHeader>
+                                    <!-- Llamado a API BUK para obtener los datos de la jefatura (consultar) -->
+                                    <toD id="_toD2" uri="cxfrs:{{endpoint.url.buk}}employees?bridgeEndpoint=true"/>
+                                    <convertBodyTo id="_convertBodyTo7" type="String"/>
+                                    <setProperty id="_setProperty22" propertyName="total_pages">
+                                        <jsonpath resultType="Integer">$.pagination.total_pages</jsonpath>
+                                    </setProperty>
+                                    <choice id="_choice1">
+                                        <when id="_when7">
+                                            <simple>${property.total_pages} == 0</simple>
+                                            <bean id="_bean9" method="responseBuksinJefatura" ref="beanFacade"/>
+                                            <choice id="_choice5">
+                                                <when id="_when9">
+                                                    <simple>${headers.sw}</simple>
+                                                    <wireTap id="_wireTap2" uri="direct:transformarCache"/>
+                                                </when>
+                                            </choice>
+                                            <stop id="_stop2"/>
+                                        </when>
+                                    </choice>
+                                    <setProperty id="_setProperty31" propertyName="rut">
+                                        <jsonpath resultType="String">$.data[0].current_job.boss.rut</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty32" propertyName="boss_area_id">
+                                        <jsonpath resultType="String">$.data[0].current_job.area_id</jsonpath>
+                                    </setProperty>
+                                    <bean id="_bean5" method="trasnformarRut" ref="beanFacade"/>
+                                    <convertBodyTo id="_convertBodyTo5" type="String"/>
+                                    <setProperty id="_setProperty12" propertyName="nombrejefe">
+                                        <jsonpath resultType="String">$.data[0].first_name</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty13" propertyName="apellidojefe">
+                                        <jsonpath resultType="String">$.data[0].surname</jsonpath>
+                                    </setProperty>
+                                    <setProperty propertyName="segundoapellidojefe">
+                                        <jsonpath resultType="String">$.data[0].second_surname</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty14" propertyName="codcargojefe">
+                                        <jsonpath resultType="String">$.data[0].current_job.role.id</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty15" propertyName="desccargojefe">
+                                        <jsonpath resultType="String">$.data[0].current_job.role.name</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty16" propertyName="areajefe">
+                                        <jsonpath resultType="String">$.data[0].current_job.area_id</jsonpath>
+                                    </setProperty>
+                                    <choice>
+                                        <when>
+                                            <jsonpath suppressExceptions="true">$.data[0].current_job.custom_attributes['Lugar de Trabajo']</jsonpath>
+                                            <setProperty propertyName="BossWorkplace">
+                                                <jsonpath resultType="String">$.data[0].current_job.custom_attributes['Lugar de Trabajo']</jsonpath>
+                                            </setProperty>
+                                        </when>
+                                    </choice>
+                                    <setProperty id="_setProperty18" propertyName="BossOfficePhone">
+                                        <jsonpath resultType="String">$.data[0].office_phone</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty19" propertyName="fechanacimientojefe">
+                                        <jsonpath resultType="String">$.data[0].birthday</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty20" propertyName="mailjefe">
+                                        <jsonpath resultType="String">$.data[0].email</jsonpath>
+                                    </setProperty>
+                                    <setHeader headerName="CamelHttpMethod" id="_setHeader9">
+                                        <constant>GET</constant>
+                                    </setHeader>
+                                    <!-- Llamado a API BUK para obtener los datos del área de la jefatura (consultar) -->
+                                    <toD uri="cxfrs:{{endpoint.url.buk}}organization/areas/${property.areajefe}?bridgeEndpoint=true"/>
+                                    <convertBodyTo id="_convertBodyTo6" type="String"/>
+                                    <setProperty propertyName="parentareajefe">
+                                        <jsonpath resultType="String">$.data.name</jsonpath>
+                                    </setProperty>
+                                    <bean id="_bean9" method="responseBuk" ref="beanFacade"/>
+                                    <when id="_when5">
+                                        <simple>${property.consultarsqlEmpty}</simple>
+                                        <wireTap id="_wireTap1" uri="direct:guardarCacheBD"/>
+                                    </when>
+                                </when>
+                                <removeHeaders id="ConsultaEjecutivo-RemoveHeaders" pattern="*"/>
+                            </otherwise>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <convertBodyTo id="consultarEjecutivo-ConvertBodyToResponse" type="cl.coopeuch.integracion.wsejecutivo.wsdl.Response"/>
+                <doCatch>
+                    <exception>org.apache.camel.CamelException</exception>
+                    <setProperty propertyName="codigoError">
+                        <constant>432</constant>
+                    </setProperty>
+                    <setProperty propertyName="codigoRespuestaBuk">
+                        <simple>${exception.statusCode}</simple>
+                    </setProperty>
+                    <choice>
+                        <when>
+                            <simple>${exception.statusCode} == 401</simple>
+                            <setProperty propertyName="mensajeRespuestaBuk">
+                                <constant>No autorizado</constant>
+                            </setProperty>
+                        </when>
+                        <when>
+                            <simple>${exception.statusCode} == 404</simple>
+                            <setProperty propertyName="mensajeRespuestaBuk">
+                                <constant>Esta página no está disponible</constant>
+                            </setProperty>
+                        </when>
+                    </choice>
+                    <to uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch>
+                    <exception>java.io.IOException</exception>
+                    <setProperty propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="ConsultaEjecutivo-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log message="Error: ${exception.stacktrace}"/>
+                    <setProperty propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="ConsultaEjecutivo-To-Exception" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="ConsultaEEC-Route">
+            <from id="ConsultaEEC-From" uri="direct:consultarEEC"/>
+            <setProperty id="_setProperty78" propertyName="code">
+                <simple>0</simple>
+            </setProperty>
+            <doTry id="ConsultaEEC-DoTry">
+                <marshal id="ConsultaEEC-Marshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsejecutivo.wsdl"/>
+                </marshal>
+                <to id="ConsultaEEC-To-RPG-Input" uri="xslt://etc/xsl/in/IOC727801I_consultarEEC.xsl?saxon=true"/>
+                <bean id="ConsultaEEC-Bean" method="idJMS" ref="beanFacade"/>
+                <to id="ConsultaEEC-To-AMQ" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="ConsultaEEC-Transform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="ConsultaEEC-To-RPG-Output" uri="xslt://etc/xsl/out/IOC727801O_consultarEEC.xsl?saxon=true"/>
+                <log id="_log6" message="!!  Salida de  IOC  consultarEEC  ${body} "/>
+                <choice id="ConsultaEEC-Choice">
+                    <when id="ConsultaEEC-When">
+                        <simple>$simple{body} contains 'OTHERERROR'</simple>
+                        <throwException exceptionType="java.lang.Exception" id="ConsultaEEC-throwException-RPG" message="El servidor lanzo un error, vuelva a intentarlo mas tarde."/>
+                    </when>
+                    <when id="ConsultaEEC-When">
+                        <simple>$simple{body} contains 'ECNLERR'</simple>
+                    </when>
+                    <otherwise id="ConsultaEEC-Otherwise">
+                        <setProperty id="_setProperty7" propertyName="rut">
+                            <xpath resultType="String">substring(//ejecutivo/rut, 1, string-length(//ejecutivo/rut)-1)</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty8" propertyName="dv">
+                            <xpath resultType="String">substring(//ejecutivo/rut, string-length(//ejecutivo/rut), string-length(//ejecutivo/rut))</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty76" propertyName="codEjecutivo">
+                            <xpath resultType="String">//*[name() = 'codEjecutivo']</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty77" propertyName="codEjecutivoioc">
+                            <xpath resultType="String">//*[name() = 'codEjecutivo']</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty79" propertyName="rutc">
+                            <xpath resultType="String">//*[name() = 'rut']</xpath>
+                        </setProperty>
+                        <convertBodyTo id="ConsultaEEC-ConvertBodyToResponse" type="cl.coopeuch.integracion.wsejecutivo.wsdl.ConsultarEECResponse"/>
+                        <setProperty id="_setProperty9" propertyName="responseIBS">
+                            <simple>${body}</simple>
+                        </setProperty>
+                        <bean id="ConsultaEEC-rutEjecutivos-Bean" method="obtenerRutEEC" ref="beanFacade"/>
+                        <choice id="ConsultaEEC-choice-Rut">
+                            <when id="ConsultaEEC-When-Rut">
+                                <simple>${property.Rut1} regex ''</simple>
+                                <throwException exceptionType="java.lang.Exception" id="ConsultaEEC-throwException" message="Rut Vacio"/>
+                            </when>
+                            <otherwise id="ConsultaEEC-Otherwise-Rut">
+                                <bean method="formarBDRut" ref="beanFacade"/>
+                                <to id="ObtieneDatosFuncionarios-SQL-BuscarEEC" uri="sql-stored:classpath:etc/sql/pa_sel_selectemployee.sql?dataSource=dataSourceSqlServerawz&amp;outputHeader=responseDatosEjecutivo"/>
+                                <bean id="_bean6" method="obtieneDatosEEC" ref="beanFacade"/>
+                                <when id="_when4">
+                                    <simple>${header.sw} == true</simple>
+                                    <setProperty id="_setProperty33" propertyName="formato">
+                                        <xpath resultType="String">//consultarEECResponse/formato/text()</xpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty34" propertyName="rutEmpresa">
+                                        <xpath resultType="String">//consultarEECResponse/datosEmpresa/rut/text()</xpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty35" propertyName="nombreEmpresa">
+                                        <xpath resultType="String">//consultarEECResponse/datosEmpresa/nombre/text()</xpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty36" propertyName="codGiroEmpresa">
+                                        <xpath resultType="String">//consultarEECResponse/datosEmpresa/codGiroEmpresa/text()</xpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty37" propertyName="descGiroEmpresa">
+                                        <xpath resultType="String">//consultarEECResponse/datosEmpresa/descGiroEmpresa/text()</xpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty38" propertyName="emailEmpresa">
+                                        <xpath resultType="String">//consultarEECResponse/datosEmpresa/email/text()</xpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty39" propertyName="numeroSolicitud">
+                                        <xpath resultType="Integer">//consultarEECResponse/datosSolicitud/numeroSolicitud/text()</xpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty40" propertyName="codTipoCovenio">
+                                        <xpath resultType="String">//consultarEECResponse/datosSolicitud/codTipoCovenio/text()</xpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty41" propertyName="descTipoCovenio">
+                                        <xpath resultType="String">//consultarEECResponse/datosSolicitud/descTipoCovenio/text()</xpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty42" propertyName="rutEjecutivo">
+                                        <xpath resultType="String">//consultarEECResponse/datosSolicitud/ejecutivo/rut/text()</xpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty43" propertyName="nombresEjecutivo">
+                                        <xpath resultType="String">//consultarEECResponse/datosSolicitud/ejecutivo/nombres/text()</xpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty44" propertyName="apellidosEjecutivo">
+                                        <xpath resultType="String">//consultarEECResponse/datosSolicitud/ejecutivo/apellidos/text()</xpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty45" propertyName="codEjecutivo">
+                                        <xpath resultType="String">//consultarEECResponse/datosSolicitud/ejecutivo/codEjecutivo/text()</xpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty46" propertyName="codCargoEjecutivo">
+                                        <xpath resultType="String">//consultarEECResponse/datosSolicitud/ejecutivo/codCargo/text()</xpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty47" propertyName="cargoEjecutivo">
+                                        <xpath resultType="String">//consultarEECResponse/datosSolicitud/ejecutivo/cargo/text()</xpath>
+                                    </setProperty>
+                                    <setHeader headerName="CamelHttpMethod" id="_setHeader1">
+                                        <constant>GET</constant>
+                                    </setHeader>
+                                    <setHeader headerName="auth_token" id="_setHeader2">
+                                        <constant>{{apikey}}</constant>
+                                    </setHeader>
+                                    <setHeader headerName="CamelHttpQuery" id="_setHeader11">
+                                        <simple>rut=${property.rutc}</simple>
+                                    </setHeader>
+                                    <!-- Llamado a API BUK para obtener los datos del empleado (consultarEEC) -->
+                                    <toD id="_toD1" uri="cxfrs:{{endpoint.url.buk}}employees?bridgeEndpoint=true"/>
+                                    <convertBodyTo id="_convertBodyTo1" type="String"/>
+                                    <setProperty id="_setProperty49" propertyName="total_pages">
+                                        <jsonpath resultType="Integer">$.pagination.total_pages</jsonpath>
+                                    </setProperty>
+                                    <choice id="_choice3">
+                                        <when id="_when1">
+                                            <simple>${property.total_pages} == 0</simple>
+                                            <setProperty id="_setProperty80" propertyName="code">
+                                                <simple resultType="Integer">4030</simple>
+                                            </setProperty>
+                                            <throwException exceptionType="java.lang.Exception" id="_throwException2" message="Error en Codigo de Ejecutivo o no Existe Buk"/>
+                                            <stop id="_stop3"/>
+                                        </when>
+                                    </choice>
+                                    <convertBodyTo id="_convertBodyTo2" type="String"/>
+                                    <setProperty id="_setProperty50" propertyName="reponseempleado">
+                                        <simple>${body}</simple>
+                                    </setProperty>
+                                    <setProperty propertyName="rut">
+                                        <jsonpath resultType="String">$.data[0].current_job.boss.rut</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty73" propertyName="BossId">
+                                        <jsonpath resultType="Integer">$.data[0].current_job.boss.id</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty71" propertyName="BossRut">
+                                        <jsonpath resultType="String">$.data[0].current_job.boss.rut</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty69" propertyName="rutejectuvio">
+                                        <jsonpath resultType="String">$.data[0].rut</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty70" propertyName="Id">
+                                        <jsonpath resultType="String">$.data[0].id</jsonpath>
+                                    </setProperty>
+                                    <choice>
+                                        <when>
+                                            <jsonpath suppressExceptions="true">$.data[0].current_job.custom_attributes['Lugar de Trabajo']</jsonpath>
+                                            <setProperty propertyName="lugarempleado">
+                                                <jsonpath resultType="String">$.data[0].current_job.custom_attributes['Lugar de Trabajo']</jsonpath>
+                                            </setProperty>
+                                        </when>
+                                    </choice>
+                                    <setProperty id="_setProperty53" propertyName="area_id">
+                                        <jsonpath resultType="String">$.data[0].current_job.area_id</jsonpath>
+                                    </setProperty>
+                                    <setHeader headerName="CamelHttpMethod" id="_setHeader12">
+                                        <constant>GET</constant>
+                                    </setHeader>
+                                    <!-- Llamado a API BUK para obtener los datos del área del empleado (consultarEEC) -->
+                                    <toD id="_toD4" uri="cxfrs:{{endpoint.url.buk}}organization/areas/${property.area_id}?bridgeEndpoint=true"/>
+                                    <convertBodyTo id="_convertBodyTo3" type="String"/>
+                                    <setProperty id="_setProperty54" propertyName="parentareaempleado">
+                                        <jsonpath resultType="String">$.data.name</jsonpath>
+                                    </setProperty>
+                                    <bean id="_bean1" method="trasnformarRut" ref="beanFacade"/>
+                                    <setHeader headerName="CamelHttpQuery" id="_setHeader13">
+                                        <simple>rut=${property.rut}</simple>
+                                    </setHeader>
+                                    <!-- Llamado a API BUK para obtener los datos de la jefatura (consultarEEC) -->
+                                    <toD id="_toD5" uri="cxfrs:{{endpoint.url.buk}}employees?bridgeEndpoint=true"/>
+                                    <convertBodyTo id="_convertBodyTo9" type="String"/>
+                                    <setProperty id="_setProperty55" propertyName="total_pages">
+                                        <jsonpath resultType="Integer">$.pagination.total_pages</jsonpath>
+                                    </setProperty>
+                                    <choice id="_choice4">
+                                        <when id="_when2">
+                                            <simple>${property.total_pages} == 0</simple>
+                                            <bean id="_bean2" method="responseBukCEJefatura" ref="beanFacade"/>
+                                            <choice id="_choice6">
+                                                <when id="_when10">
+                                                    <simple>${headers.sw == false}</simple>
+                                                    <wireTap id="_wireTap3" uri="direct:transformarCache"/>
+                                                </when>
+                                            </choice>
+                                            <stop id="_stop4"/>
+                                        </when>
+                                    </choice>
+                                    <setProperty propertyName="rut">
+                                        <jsonpath resultType="String">$.data[0].current_job.boss.rut</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty56" propertyName="rutJefe">
+                                        <jsonpath resultType="String">$.data[0].current_job.boss.rut</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty57" propertyName="boss_area_id">
+                                        <jsonpath resultType="String">$.data[0].current_job.area_id</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty74" propertyName="BossRut">
+                                        <jsonpath resultType="String">$.data[0].current_job.boss.rut</jsonpath>
+                                    </setProperty>
+                                    <bean id="_bean3" method="trasnformarRut" ref="beanFacade"/>
+                                    <setProperty id="_setProperty58" propertyName="nombrejefe">
+                                        <jsonpath resultType="String">$.data[0].first_name</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty59" propertyName="apellidojefe">
+                                        <jsonpath resultType="String">$.data[0].surname</jsonpath>
+                                    </setProperty>
+                                    <setProperty propertyName="segundoapellidojefe">
+                                        <jsonpath resultType="String">$.data[0].second_surname</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty60" propertyName="codcargojefe">
+                                        <jsonpath resultType="String">$.data[0].current_job.role.id</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty61" propertyName="desccargojefe">
+                                        <jsonpath resultType="String">$.data[0].current_job.role.name</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty62" propertyName="areajefe">
+                                        <jsonpath resultType="String">$.data[0].current_job.area_id</jsonpath>
+                                    </setProperty>
+                                    <choice>
+                                        <when>
+                                            <jsonpath suppressExceptions="true">$.data[0].current_job.custom_attributes['Lugar de Trabajo']</jsonpath>
+                                            <setProperty propertyName="BossWorkplace">
+                                                <jsonpath resultType="String">$.data[0].current_job.custom_attributes['Lugar de Trabajo']</jsonpath>
+                                            </setProperty>
+                                        </when>
+                                    </choice>
+                                    <setProperty id="_setProperty64" propertyName="BossOfficePhone">
+                                        <jsonpath resultType="String">$.data[0].office_phone</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty65" propertyName="fechanacimientojefe">
+                                        <jsonpath resultType="String">$.data[0].birthday</jsonpath>
+                                    </setProperty>
+                                    <setProperty id="_setProperty66" propertyName="mailjefe">
+                                        <jsonpath resultType="String">$.data[0].email</jsonpath>
+                                    </setProperty>
+                                    <setHeader headerName="CamelHttpMethod">
+                                        <constant>GET</constant>
+                                    </setHeader>
+                                    <!-- Llamado a API BUK para obtener los datos del área de la jefatura (consultarEEC) -->
+                                    <toD uri="cxfrs:{{endpoint.url.buk}}organization/areas/${property.areajefe}?bridgeEndpoint=true"/>
+                                    <convertBodyTo type="String"/>
+                                    <setProperty propertyName="parentareajefe">
+                                        <jsonpath resultType="String">$.data.name</jsonpath>
+                                    </setProperty>
+                                    <bean id="_bean4" method="responseBukCE" ref="beanFacade"/>
+                                    <when id="_when6">
+                                        <simple>${property.consultarsqlEmpty}</simple>
+                                        <wireTap id="_wireTap4" uri="direct:transformarCache"/>
+                                    </when>
+                                </when>
+                                <removeHeaders id="ConsultaEEC-RemoveHeaders" pattern="*"/>
+                            </otherwise>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <convertBodyTo id="consultarEEC-ConvertBodyToResponse" type="cl.coopeuch.integracion.wsejecutivo.wsdl.ConsultarEECResponse"/>
+                <doCatch>
+                    <exception>org.apache.camel.CamelException</exception>
+                    <setProperty propertyName="codigoError">
+                        <constant>432</constant>
+                    </setProperty>
+                    <setProperty propertyName="codigoRespuestaBuk">
+                        <simple>${exception.statusCode}</simple>
+                    </setProperty>
+                    <choice>
+                        <when>
+                            <simple>${exception.statusCode} == 401</simple>
+                            <setProperty propertyName="mensajeRespuestaBuk">
+                                <constant>No autorizado</constant>
+                            </setProperty>
+                        </when>
+                        <when>
+                            <simple>${exception.statusCode} == 404</simple>
+                            <setProperty propertyName="mensajeRespuestaBuk">
+                                <constant>Esta página no está disponible</constant>
+                            </setProperty>
+                        </when>
+                    </choice>
+                    <to uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch>
+                    <exception>java.io.IOException</exception>
+                    <setProperty propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="ConsultaEEC-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log message="Error: ${exception.stacktrace}"/>
+                    <setProperty propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="CConsultaEEC-To-Exception" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                      method="excepcionCrear" ref="beanFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route2">
+            <from id="transformarEntrada" uri="direct:transformarCache"/>
+            <to id="_to2" uri="direct:guardarCacheBD"/>
+        </route>
+        <route id="guardarDatosDB_route">
+            <from id="guardarDatosDB_from" uri="direct:guardarCacheBD"/>
+            <bean id="_bean8" method="transformarFechas" ref="beanFacade"/>
+            <to id="GuardarFuncionarios-SQL-Buscar" uri="sql-stored:classpath:etc/sql/pa_ins_upd_saveemployee.sql?dataSource=dataSourceSqlServerawz"/>
+            <log id="_log30" loggingLevel="INFO" message="Salida del pa  ${body}"/>
+        </route>
+    </camelContext>
+</blueprint>

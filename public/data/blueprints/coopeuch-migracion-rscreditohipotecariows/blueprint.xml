@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="property-placeholder"
+        persistent-id="serviceProperties" update-strategy="reload"/>
+    <!-- Configure CXF endpoint -->
+    <cxf:cxfEndpoint
+        address="/ServicioHipotecarioWeb/services/ServicioHipotecarioWs"
+        id="ServicioWebHipotecarioEndpoint"
+        serviceClass="cl.coopeuch.hipotecario.web.servicios.ws.ServicioHipotecarioWs" wsdlURL="wsdl/ServicioWebHipotecario.wsdl"/>
+    <!-- Local Beans -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSybase">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="${jdbc.sybase.url.creditohipotecario}/CredHipotecario;charset=iso_1"/>
+        <property name="username" value="${jdbc.sybase.username.creditohipotecario}"/>
+        <property name="password" value="${jdbc.sybase.password.creditohipotecario}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="${jdbc.sybase.timeBetweenEvictionRunsMillis.creditohipotecario}"/>
+        <property name="numTestsPerEvictionRun" value="${jdbc.sybase.numTestsPerEvictionRun.creditohipotecario}"/>
+        <property name="minEvictableIdleTimeMillis" value="${jdbc.sybase.minEvictableIdleTimeMillis.creditohipotecario}"/>
+        <property name="maxActive" value="${jdbc.sybase.maxActive.creditohipotecario}"/>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_selpreaprobadosCH">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selpreaprobadosCH"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_inspreaprobacion">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_inspreaprobacion"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Digito"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Char"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumSolicitud"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="FechaAprobacion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="VarChar"/>
+                </map>
+                <map>
+                    <entry key="name" value="MontoAprobado"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <camelContext id="servicio-WebHipotecario-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml
+                enableFeatures="WRITE_DATES_AS_TIMESTAMPS,WRITE_DATES_WITH_ZONE_ID"
+                id="jack" prettyPrint="true"/>
+        </dataFormats>
+        <!-- Entrada principal del servicio SOAP, obtiene mensaje en un CDATA e invoca un procedimiento almacenado para cahe,
+         si el Rut no tiene cache va a buscar los datos a ASICOM-->
+        <route id="ServicioWebHipotecario">
+            <from id="ServicioWebHipotecariodEndpointListener" uri="cxf:bean:ServicioWebHipotecarioEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ServicioWebHipotecarioTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                    id="backupBody" method="respaldoCuerpo"/>
+                <to id="ServicioWebHipotecarioXml2XMl" uri="xslt://transformations/in/getCDATA.xsl?saxon=true"/>
+                <setHeader headerName="Rut" id="Rut">
+                    <xpath resultType="java.lang.String">//Rut</xpath>
+                </setHeader>
+                <setHeader headerName="Dv" id="Dv">
+                    <xpath resultType="java.lang.String">//Dv</xpath>
+                </setHeader>
+                <setHeader headerName="Digito" id="Digito">
+                    <xpath resultType="java.lang.String">//Dv</xpath>
+                </setHeader>
+                <setHeader headerName="error_Cod" id="error_CodInicial">
+                    <constant/>
+                </setHeader>
+                <to id="pa_selpreaprobadosCH" uri="bean:dbo.pa_selpreaprobadosCH"/>
+                <marshal id="MarshalselXMLpa_selpreaprobadosCH1" ref="jack"/>
+                <convertBodyTo id="ConvertBodyTo5" type="java.lang.String"/>
+                <transform id="Transform1">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <setHeader headerName="EsResultSet" id="EsResultSet">
+                    <xpath resultType="java.lang.String">boolean(//NumSolicitud)</xpath>
+                </setHeader>
+                <choice id="_choice1">
+                    <when id="HayDatosEnCache">
+                        <simple>${header.EsResultSet}</simple>
+                        <setHeader headerName="controlCodigo" id="controlCodigo">
+                            <xpath resultType="java.lang.String">//codigo</xpath>
+                        </setHeader>
+                    </when>
+                    <otherwise id="NoHayDatosEnCache">
+                        <to id="IrAsicoma" uri="direct:IrAsicom"/>
+                        <setHeader headerName="IrAsicom" id="Direct_IrAsicom">
+                            <constant>True</constant>
+                        </setHeader>
+                    </otherwise>
+                </choice>
+                <choice id="_choice3">
+                    <when id="ErroresORespuestaFinal1">
+                        <simple>${header.error_Cod} == '' and ${header.IrAsicom}</simple>
+                        <to id="ServicioHipotecarioXml2XMl24" uri="xslt://transformations/out/Xml2Xml_ServicioHipotecarioAsicom.xsl?saxon=true"/>
+                    </when>
+                    <when id="ErroresORespuestaFinal2">
+                        <simple>${header.error_Cod} == ''</simple>
+                        <to id="ServicioHipotecarioXml2XMl2" uri="xslt://transformations/out/Xml2Xml_ServicioHipotecario.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise10">
+                        <to id="ServicioHipotecarioXml2XMl3" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="ServicioWebHipotecarioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.RespaldarCuerpo"
+                        id="ruteoHipotecariosRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="ruteoHipotecarioSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoHipotecarioFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="ruteoOperacionesBodyError" method="obtenerError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- LLamada a Asicom CXF en caso que el cache este caducado -->
+        <route id="RutaIrAsicom">
+            <from id="IrAsicom" uri="direct:IrAsicom"/>
+            <transform id="vacio">
+                <simple>&lt;trama&gt;vacio&lt;/trama&gt;</simple>
+            </transform>
+            <to id="RemoteCall_AsicomXml2XMl3x" uri="xslt://transformations/mid/RemoteCall_Asicom.xsl?saxon=true"/>
+            <to id="cxfAsicomurl" uri="cxf:{{endpoint.Asicom.url}}?continuationTimeout=100000&amp;dataFormat=MESSAGE"/>
+            <convertBodyTo id="IrAsicomBodyTo" type="java.lang.String"/>
+            <choice id="_choice4">
+                <when id="_when1">
+                    <xpath resultType="java.lang.String"> boolean(//faultcode)</xpath>
+                    <setHeader headerName="faultstring" id="faultstring">
+                        <xpath resultType="java.lang.String">//faultstring</xpath>
+                    </setHeader>
+                    <setHeader headerName="error_Cod" id="error_CodAsicom1">
+                        <constant>0</constant>
+                    </setHeader>
+                </when>
+                <otherwise id="_otherwise1">
+                    <choice id="_choice2">
+                        <when id="_when2">
+                            <xpath resultType="java.lang.String">//estado='0'</xpath>
+                            <setHeader headerName="Solicitud" id="Solicitud1">
+                                <constant>0</constant>
+                            </setHeader>
+                            <setHeader headerName="Monto" id="Monto1">
+                                <constant>0</constant>
+                            </setHeader>
+                            <setHeader headerName="Glosa" id="Glosa11">
+                                <constant>Sin Informacion</constant>
+                            </setHeader>
+                        </when>
+                        <otherwise id="_otherwise2">
+                            <setHeader headerName="Solicitud" id="Solicitud2">
+                                <xpath resultType="java.lang.String">//solicitud</xpath>
+                            </setHeader>
+                            <setHeader headerName="Monto" id="Monto2">
+                                <xpath resultType="java.lang.String">//monto</xpath>
+                            </setHeader>
+                            <setHeader headerName="Glosa" id="Glosa1">
+                                <constant>Solicitud Preaprobada</constant>
+                            </setHeader>
+                            <wireTap id="pa_inspreaprobacionWireTap" uri="direct:pa_inspreaprobacion"/>
+                        </otherwise>
+                    </choice>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- LLamada a PA para poblar Cache -->
+        <route id="PA_Insert">
+            <from id="pa_inspreaprobacionFrom" uri="direct:pa_inspreaprobacion"/>
+            <choice id="_choice5">
+                <when id="PoblarCache-pa_insXmlAsicom">
+                    <simple>${header.error_Cod} == ''</simple>
+                    <setHeader headerName="NumSolicitud" id="NumSolicitud">
+                        <xpath resultType="java.lang.String">//solicitud</xpath>
+                    </setHeader>
+                    <setHeader headerName="FechaAprobacion" id="FechaAprobacion">
+                        <xpath resultType="java.lang.String">//fecha</xpath>
+                    </setHeader>
+                    <setHeader headerName="MontoAprobado" id="MontoAprobado">
+                        <xpath resultType="java.lang.String">//monto</xpath>
+                    </setHeader>
+                    <to id="pa_selXMLCotiAsicomTo" uri="bean:dbo.pa_inspreaprobacion"/>
+                    <marshal id="Marshalpa_insXmlAsicom" ref="jack"/>
+                    <convertBodyTo id="ConvertBodyTo5x" type="java.lang.String"/>
+                </when>
+            </choice>
+        </route>
+    </camelContext>
+</blueprint>

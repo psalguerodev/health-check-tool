@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Configures the Camel Context -->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wscertificados" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Endpoint wsdl Servicio Certificados -->
+    <cxf:cxfEndpoint address="/WSCertificado"
+        id="serviciocertificadosEndpoint" serviceClass="cl.coopeuch.core.certificados.certificados.CertificadosPortType"/>
+    <!-- Conexion AMQ -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <camelContext id="servicio-certificados" xmlns="http://camel.apache.org/schema/blueprint">
+        <!-- Ruta - para entrada principal del servicio SOAP Certificados-->
+        <route id="cx-RuteoOperaciones">
+            <from id="servicioCertificadosEndpointListener" uri="cxf:bean:serviciocertificadosEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.Respaldo"
+                    id="backupBody" method="respaldarCuerpo"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaconsultar">
+                        <simple>${body} contains 'consultar'</simple>
+                        <to id="consultarValidator" uri="validator:xsd/soapCertificados.xsd"/>
+                        <to id="consultarTo" uri="direct:consultar"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.Respaldo"
+                        id="ruteoOperacionesRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.Error"
+                        id="ruteoOperacionesBodyError" method="obtenerErrorConsulta"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultar">
+            <from id="consultarFrom" uri="direct:consultar"/>
+            <doTry id="consultarTry">
+                <setHeader headerName="identificador" id="consultarHeaderRut">
+                    <xpath resultType="String">//identificador</xpath>
+                </setHeader>
+                <setHeader headerName="anno" id="consultarHeaderAnno">
+                    <xpath resultType="String">//anno</xpath>
+                </setHeader>
+                <setHeader headerName="tipo" id="consultarHeaderTipo">
+                    <xpath resultType="String">//tipo</xpath>
+                </setHeader>
+                <choice id="_choice2">
+                    <when id="_when2">
+                        <simple>${headers.identificador} == '' || ${headers.identificador} == ' ' || ${headers.anno} == '' || ${headers.anno} == ' ' || ${headers.tipo} == '' || ${headers.tipo} == ' '</simple>
+                        <transform id="consultarTransformSinDato">
+                            <simple/>
+                        </transform>
+                    </when>
+                    <otherwise id="_otherwise3">
+                        <setHeader headerName="digito" id="consultarHeaderDigito">
+                            <method beanType="cl.coopeuch.util.Rut"
+                                id="consultarObtieneDigito" method="extraeDV(${headers.identificador})"/>
+                        </setHeader>
+                        <setProperty id="_setProperty2" propertyName="fileBase64">
+                            <method
+                                beanType="cl.coopeuch.util.ObtenerArchivo" method="serializarArchivo({{file.path.certificados}},${header.anno},${header.tipo},${header.digito},${header.identificador})"/>
+                        </setProperty>
+                    </otherwise>
+                </choice>
+                <choice id="consultarResultado">
+                    <when id="consultarError">
+                        <simple>${body} == null || ${body} == '' || ${body} == ' ' </simple>
+                        <transform id="consultarTransformError">
+                            <simple>&lt;salida&gt;&lt;/salida&gt;</simple>
+                        </transform>
+                        <to id="_to2" uri="xslt://transformations/error/errorConsultar.xsl"/>
+                    </when>
+                    <otherwise id="consultarOk">
+                        <marshal id="consultarErrorMarshal1">
+                            <base64/>
+                        </marshal>
+                        <transform id="consultarTransform">
+                            <simple>&lt;soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"&gt;&#xd;
+										   &lt;soapenv:Body&gt;&#xd;
+										      &lt;NS1:consultarResponse xmlns:NS1="http://certificados.core.coopeuch.cl"&gt;&#xd;
+										         &lt;salida&gt;&#xd;
+										            &lt;fechaCreacion&gt;&lt;/fechaCreacion&gt;&#xd;
+										            &lt;certificado&gt;${property.fileBase64}&lt;/certificado&gt;&#xd;
+										         &lt;/salida&gt;&#xd;
+										      &lt;/NS1:consultarResponse&gt;&#xd;
+										   &lt;/soapenv:Body&gt;&#xd;
+										&lt;/soapenv:Envelope&gt;</simple>
+                        </transform>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch1">
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.Respaldo"
+                        id="_bean1" method="restaurarCuerpo"/>
+                    <setBody id="_setBody1">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <bean beanType="cl.coopeuch.util.error.Error"
+                        id="_bean2" method="obtenerErrorConsulta"/>
+                </doCatch>
+                <doCatch id="consultarCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean beanType="cl.coopeuch.util.Respaldo"
+                        id="consultarRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="consultarSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.Error"
+                        id="consultarSetBodyError" method="obtenerErrorConsulta"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

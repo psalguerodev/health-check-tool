@@ -1,0 +1,564 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wstokenizacionenrolamiento" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2Personas">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.personas]]"/>
+        <property name="password" value="[[jdbc.db2.password.personas]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.wstokenizacionenrolamiento}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.wstokenizacionenrolamiento}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.wstokenizacionenrolamiento}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.wstokenizacionenrolamiento}]"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2Cuentas">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.cuentas]]"/>
+        <property name="password" value="[[jdbc.db2.password.cuentas]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.wstokenizacionenrolamiento}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.wstokenizacionenrolamiento}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.wstokenizacionenrolamiento}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.wstokenizacionenrolamiento}]"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.tokenizacion.enrolamiento.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/tokenizacion/WSEnrolamiento"
+        id="endpointWSEnrolamiento"
+        serviceClass="cl.coopeuch.integracion.tokenizacion.enrolamiento.wsdl.WSEnrolamientoSOAPPortType" wsdlURL="etc/wsdl/WSEnrolamiento.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+	<camelcxf:rsServer address="/tokenizacion/RSEnrolamiento"
+        id="endpointRSEnrolamiento" serviceClass="cl.coopeuch.integracion.tokenizacion.enrolamiento.wsdl.WSEnrolamientoSOAPPortType"/>
+        
+    <camelcxf:rsClient address="[{rsvalidaciontarjetas.validarcvv.endpoint}]" id="endpointRSValidacionTarjetas">
+        <camelcxf:properties>
+            <entry key="throwExceptionOnFailure" value="true"/>
+        </camelcxf:properties>
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    
+    <camelcxf:rsClient address="[{rstokenizacionutil.obtenercardid.endpoint}]" id="endpointRSTokenizacionUtil" loggingFeatureEnabled="true">
+        <camelcxf:properties>
+            <entry key="throwExceptionOnFailure" value="true"/>
+        </camelcxf:properties>
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    
+    <camelContext id="servicio-tokenizacion-enrolamiento" xmlns="http://camel.apache.org/schema/blueprint">
+		<route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSEnrolamiento"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSEnrolamiento"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+			<from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <setProperty id="setPropertyIssuerId" propertyName="issuerId">
+                    <xpath resultType="String">//issuerId</xpath>
+                </setProperty>
+                <setProperty id="setPropertyUserId" propertyName="userId">
+                    <simple>{{userId}}</simple>
+                </setProperty>
+                <setProperty id="setPropertyCanalLlamada" propertyName="canalLlamada">
+                    <simple>{{canalLlamada}}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionInformarTarjetaHabiente">
+                        <simple>${header.operationName} == 'informarTarjetaHabiente'</simple>
+                        <to id="toInformarTarjetaHabiente" uri="direct:informarTarjetaHabiente"/>
+                    </when>
+                    <when id="inicioWhenOperacionVerificarTarjeta">
+                        <simple>${header.operationName} == 'verificarTarjeta'</simple>
+                        <to id="toVerificarTarjeta" uri="direct:verificarTarjeta"/>
+                    </when>
+                    <when id="inicioWhenOperacionObtenerInfoTarjeta">
+                        <simple>${header.operationName} == 'obtenerInfoTarjeta'</simple>
+                        <to id="toObtenerInfoTarjeta" uri="direct:obtenerInfoTarjeta"/>
+                    </when>
+                    <when id="inicioWhenOperacionVerificardatostarjeta">
+                        <simple>${header.operationName} == 'verificarDatosTarjeta'</simple>
+                        <to id="toVerificardatostarjeta" uri="direct:verificarDatosTarjeta"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="informarTarjetaHabiente">
+            <from id="informarTarjetaHabienteFrom" uri="direct:informarTarjetaHabiente"/>
+            <doTry id="informarTarjetaHabienteTry">
+                <setProperty id="setPropertyconsumerId" propertyName="consumerId">
+                    <xpath resultType="String">//consumerId</xpath>
+                </setProperty>
+                <to id="informarTarjetaHabiente-to" uri="sql-stored:classpath:etc/sql/PA_SEL_WSTOKENIZACIONENROLAMIENTO_INFORMARTARJETAHABIENTE_WS.sql?dataSource=dataSourceSqlDb2Personas&amp;outputHeader=responsePA_WSTOKENIZACION_INFORMARTARJETAHABIENTE_WS"/>
+                <bean id="generarResponseInformarTarjetaHabiente"
+                    method="generarResponseInformarTarjetaHabiente" ref="beanRouteFacade"/>
+                <doCatch id="informarTarjetaHabienteIssuerIdDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="informarTarjetaHabienteIssuerIdCodigoError" propertyName="codigoError">
+                        <constant>400</constant>
+                    </setProperty>
+                    <to id="informarTarjetaHabienteIssuerIdToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="informarTarjetaHabienteDoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty id="codigoErrorInformarTarjetaHabiente" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <to id="excepcionToInformarTarjetaHabiente" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="informarTarjetaHabienteDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="informarTarjetaHabienteCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="informarTarjetaHabienteToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="verificarTarjeta">
+            <from id="verificarTarjetaFrom" uri="direct:verificarTarjeta"/>
+            <doTry id="verificarTarjetaTry">
+                <setProperty id="setPropertyIssuerIdVerificar" propertyName="issuerId">
+                    <xpath resultType="String">//issuerId</xpath>
+                </setProperty>
+                <setProperty id="setPropertyPanVerificar" propertyName="pan">
+                    <xpath resultType="String">//pan</xpath>
+                </setProperty>
+                <setProperty id="setPropertyCardIdVerificar" propertyName="cardId">
+                    <xpath resultType="String">//cardId</xpath>
+                </setProperty>
+                <setProperty id="setPropertyAuthorizationVerificarCVV" propertyName="authorization">
+                    <header>Authorization</header>
+                </setProperty> 
+                <setProperty id="setPropertyClaveJWTVerificarTarjeta" propertyName="tokenJwt">
+                    <simple>{{tarjeta.clave.jwt}}</simple>
+                </setProperty>
+                <setProperty id="setPropertyBodyVerificar" propertyName="BodyVerificar">
+                    <simple>${body}</simple>
+                </setProperty>  
+                <bean id="validaIssuerIdVerificarTarjeta" method="validaIssuerId(${property.issuerId}, exchange)" ref="beanRouteFacade"/>
+                <to id="verificarTarjetaToVerificarCardId" uri="direct:verificarCardId"/>
+                <bean id="validaEntradaCVVVerificarTarjeta" method="validaEntradaCVV" ref="beanRouteFacade"/>    
+                <choice id="choiceVerificarTarjeta">
+                	<when id="whenValidaCVVEntradaTrue">
+                		<simple>${property.existeCVV} == 'true'</simple> 
+                		<to id="verificarTarjetaToVerificarCVV" uri="direct:verificarCVV"/>
+                 			<choice id="verificarTarjetaVerificarCVVChoice">
+                				<when id="verificarTarjetaVerificarCVVValidoWhen">
+                				<simple>${property.tarjetaValida} == 'true'</simple>
+                				<to id="verificarTarjetaToVerificarIOC" uri="direct:verificarIOC"/>
+                				</when>
+                				<when id="verificarTarjetaVerificarCVVInvalidoWhen">
+                				<simple>${property.tarjetaValida} == 'false'</simple> 
+								<setProperty id="verificarTarjetaVerificarCVVCodigoError" propertyName="codigoError">
+                        			<constant>417</constant>
+                    			</setProperty>
+								<throwException exceptionType="java.lang.Exception"
+                            					id="throwExceptionVerificarTarjetaVerificarCVV" message="Los datos ingresados son incorrectos."/>
+                    			<to id="verificarTarjetaVerificarCVVToExcepcion" uri="direct:excepcion"/>         
+                    			<stop/>
+                				</when>
+                			</choice> 
+                	</when>
+                	<when id="whenValidaCVVEntradaFalse">
+                		<simple>${property.existeCVV} == 'false'</simple> 
+						<to id="verificarTarjetaToVerificarIOC" uri="direct:verificarIOC"/>
+                	</when>
+                </choice>
+                <doCatch id="ValidarIssuerIdDoCatch">
+                	<exception>java.lang.Exception</exception>
+                    <to id="validarIssuerIdToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="verificarDatosTarjeta">
+            <from uri="direct:verificarDatosTarjeta"/>
+            <doTry>
+                <setProperty propertyName="issuerId">
+                    <xpath resultType="String">//issuerId</xpath>
+                </setProperty>
+                <setProperty propertyName="pan">
+                    <xpath resultType="String">//pan</xpath>
+                </setProperty>
+                <setProperty propertyName="exp">
+                    <xpath resultType="String">//exp</xpath>
+                </setProperty>
+                <setProperty propertyName="cardId">
+                    <xpath resultType="String">//cardId</xpath>
+                </setProperty>
+                <setProperty propertyName="authorization">
+                    <header>Authorization</header>
+                </setProperty> 
+                <setProperty propertyName="tokenJwt">
+                    <simple>{{tarjeta.clave.jwt}}</simple>
+                </setProperty>
+                <setProperty propertyName="cvvNulo">
+                    <simple>false</simple>
+                </setProperty>                
+                <setProperty propertyName="BodyVerificar">
+                    <simple>${body}</simple>
+                </setProperty>  
+                <bean method="validaIssuerId(${property.issuerId}, exchange)" ref="beanRouteFacade"/>                
+                <bean method="formatAndSetPan" ref="beanRouteFacade"/>                
+                <to uri="sql-stored:classpath:etc/sql/PA_SEL_WSTOKENIZACIONENROLAMIENTO_VERIFICARDATOSTARJETA_WS.sql?dataSource=dataSourceSqlDb2Cuentas&amp;outputHeader=responsePA_SEL_WSTOKENIZACIONENROLAMIENTO_VERIFICARDATOSTARJETA_WS"/>
+                <bean method="generarResponseVerificarDatosTarjeta" ref="beanRouteFacade"/>
+                <choice>
+                	<when>
+                		<simple>${property.fechaValida} == 'true'</simple>
+                			<to uri="direct:verificarCardIdDatosTarjeta"/>
+			                <bean method="validaEntradaCVV" ref="beanRouteFacade"/>
+			                <choice>
+			                	<when>
+			                		<simple>${property.existeCVV} == 'true'</simple> 
+			                		<to uri="direct:verificarCVVDatosTarjeta"/>
+		                 			<choice>
+		                				<when>
+		                				<simple>${property.tarjetaValida} == 'true'</simple>
+		                					<to uri="direct:verificarIOCEnrolamiento"/>
+		                				</when>
+		                				<when>
+		                				<simple>${property.tarjetaValida} == 'false'</simple> 
+											<setProperty propertyName="codigoError">
+			                        			<constant>417</constant>
+			                    			</setProperty>
+			                    			<bean method="generarResponseErrorVerificarTarjetaResponse" ref="beanRouteFacade"/>
+		                    			<stop/>
+		                				</when>
+		                			</choice> 
+			                	</when>
+			                	<when>
+			                		<simple>${property.existeCVV} == 'false'</simple> 
+									<to uri="direct:verificarIOCEnrolamiento"/>
+			                	</when>
+                			</choice>
+                		</when>
+                		<when>
+                			<simple>${property.fechaValida} == 'false'</simple>
+                			<bean method="respuestaFechaValidaErronea" ref="beanRouteFacade"/>
+                		</when>
+                	</choice>
+                <doCatch>
+                	<exception>java.lang.Exception</exception>
+                    <to uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+                
+        <route id="verificarCVV">
+            <from id="verificarCVVFrom" uri="direct:verificarCVV"/>
+            <doTry id="verificarCVVTry">
+            	<log id="verificarCVVEntradaRSValidacionTarjetas" message="Llamada al RSValidacionTarjetas"/>
+            	<bean id="verificarCVVBeanRequest"
+                    method="verificarCVVRequest" ref="beanRouteFacade"/>
+                <setHeader headerName="Content-Type" id="setHeaderContentTypeVerificarCVV">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="Exchange.HTTP_METHOD" id="setHeaderMethodVerificarCVV">
+                    <constant>POST</constant>
+                </setHeader>
+            	<to id="verificarCVVTo" uri="cxfrs:bean:endpointRSValidacionTarjetas"/>
+            	<bean id="verificarCVVBeanResponse"
+                    method="verificarCVVResponse" ref="beanRouteFacade"/>
+                <doCatch id="verificarCVV409DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="verificarCVVWSValidacionTarjetas409Error" propertyName="codigoError">
+                        <constant>409</constant>
+                    </setProperty>
+                    <to id="toVerificarCVVWSValidacionTarjetas409Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="verificarCVVDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="verificarCVVWSValidacionTarjetasError" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <to id="toVerificarCVVWSValidacionTarjetasExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="verificarCVVCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="verificarCVVError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toVerificarCVVExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route>
+	    <from uri="direct:verificarCVVDatosTarjeta"/>
+		    <doTry>
+		        <log message="Llamada al RSValidacionTarjetas"/>		        
+		        <bean method="verificarCVVRequest" ref="beanRouteFacade"/>		        
+		        <setHeader headerName="Content-Type">
+		            <constant>application/json</constant>
+		        </setHeader>
+		        <setHeader headerName="Exchange.HTTP_METHOD">
+		            <constant>POST</constant>
+		        </setHeader>
+		        <to uri="cxfrs:bean:endpointRSValidacionTarjetas"/>
+		        <bean method="verificarCVVResponse" ref="beanRouteFacade"/>				    
+		        <doCatch>
+		            <exception>java.lang.Exception</exception>
+		            <setProperty propertyName="codigoError">
+		                <constant>409</constant>
+		            </setProperty>
+		            <bean method="generarResponseErrorVerificarTarjetaResponse" ref="beanRouteFacade"/>
+		        </doCatch>	        
+		    </doTry>
+		</route>
+        
+        <route id="verificarCardId">
+            <from id="verificarCardIdFrom" uri="direct:verificarCardId"/>
+            <doTry id="verificarCardIdTry">
+            	<log id="verificarCardIdEntradaRSTokenizacionUtil" message="Llamada al RSTokenizacionUtil"/>
+            	<bean id="verificarCardIdBeanRequest"
+                    method="verificarCardIdRequest" ref="beanRouteFacade"/>
+                <setHeader headerName="Content-Type" id="setHeaderContentTypeVerificarCardId">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="Exchange.HTTP_METHOD" id="setHeaderMethodVerificarCardId">
+                    <constant>POST</constant>
+                </setHeader>
+            	<to id="verificarCardIdTo" uri="cxfrs:bean:endpointRSTokenizacionUtil"/>
+            	<bean id="verificarCardIdBeanResponse"
+                    method="verificarCardIdResponse" ref="beanRouteFacade"/>
+                <doCatch id="verificarCardIdDoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="verificarCardIdWSTokenizacionUtilError" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <to id="toVerificarCardIdWSTokenizacionUtilExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="verificarCardIdCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="verificarCardIdError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toVerificarCardIdExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        
+        <route>
+		    <from uri="direct:verificarCardIdDatosTarjeta"/>
+		    <doTry>
+		        <log message="Llamada al RSTokenizacionUtil"/>
+		        <bean method="verificarCardIdRequest" ref="beanRouteFacade"/>
+		        <setHeader headerName="Content-Type">
+		            <constant>application/json</constant>
+		        </setHeader>
+		        <setHeader headerName="Exchange.HTTP_METHOD">
+		            <constant>POST</constant>
+		        </setHeader>
+		        <to uri="cxfrs:bean:endpointRSTokenizacionUtil"/>
+		        <bean method="verificarCardIdResponse" ref="beanRouteFacade"/>
+		        <doCatch>
+		            <exception>java.lang.IllegalArgumentException</exception>
+		            <setProperty propertyName="codigoError">
+		                <constant>503</constant>
+		            </setProperty>
+		            <to uri="direct:excepcion"/>
+		        </doCatch>
+		        <doCatch>
+		            <exception>java.lang.Exception</exception>
+		            <setProperty propertyName="codigoError">
+		                <constant>500</constant>
+		            </setProperty>
+		            <to uri="direct:excepcion"/>
+		        </doCatch>
+		    </doTry>
+		</route>
+        
+        
+        <route id="verificarIOC">
+            <from id="verificarIOCFrom" uri="direct:verificarIOC"/>
+            <doTry id="verificarIOCTry">
+                <setBody>
+        			<simple>${property.BodyVerificar}</simple>
+    			</setBody>
+                <marshal id="verificarTarjetaMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tokenizacion.enrolamiento.wsdl"/>
+                </marshal>
+                <convertBodyTo id="verificarTarjetaConvertBodyToString" type="java.lang.String"/>
+                <bean id="verificarTarjetaUUID"
+                      method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="verificarTarjetaToXSLTrama" uri="xslt://etc/xsl/request/IOC650001I_verificarTarjeta.xsl"/>
+                <log id="verificarIOCTrama" message="Trama generada = ${body}"/>
+                <to id="verificarTarjetaToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="verificarIOCTramaResponse" message="Trama recibida = ${body}"/>
+                <transform id="verificarTarjetaTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="verificarTarjetaToXSLSOAP" uri="xslt://etc/xsl/response/IOC650001O_verificarTarjeta.xsl?saxon=true"/>
+                <unmarshal id="verificarTarjetaUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tokenizacion.enrolamiento.wsdl" encoding="UTF-8"/>
+                </unmarshal>
+                <removeHeaders id="verificarTarjeta_removeHeaders_JMS" pattern="JMS*"/>
+                <removeHeaders id="verificarTarjeta_removeHeaders_Transfer" pattern="Transfer*"/>
+                <setProperty id="verificarTarjeta_HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="verificarTarjeta_CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="verificarTarjeta_CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="verificarTarjeta_CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <doCatch id="verificarIOCDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="verificarIOCCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toVerificarIOCExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="verificarIOCEnrolamiento">
+            <from uri="direct:verificarIOCEnrolamiento"/>
+            <doTry>
+                <setBody>
+                    <simple>${property.BodyVerificar}</simple>
+                </setBody>
+                <marshal>
+                    <jaxb contextPath="cl.coopeuch.integracion.tokenizacion.enrolamiento.wsdl"/>
+                </marshal>
+                <convertBodyTo type="java.lang.String"/>
+                <bean method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to uri="xslt://etc/xsl/request/IOC650001I_verificarTarjeta.xsl"/>
+                <log message="Trama generada = ${body}"/>
+                <to uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log message="Trama recibida = ${body}"/>
+                <transform>
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to uri="xslt://etc/xsl/response/IOC650001O_verificardatostarjeta.xsl?saxon=true"/>
+                <unmarshal>
+                    <jaxb contextPath="cl.coopeuch.integracion.tokenizacion.enrolamiento.wsdl" encoding="UTF-8"/>
+                </unmarshal>
+                <removeHeaders pattern="JMS*"/>
+                <removeHeaders pattern="Transfer*"/>
+                <setProperty propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <doCatch>
+                    <exception>java.lang.Exception</exception>
+                    <setProperty propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="obtenerInfoTarjeta">
+            <from id="obtenerInfoTarjetaFrom" uri="direct:obtenerInfoTarjeta"/>
+            <doTry id="obtenerInfoTarjetaTry">
+                <setProperty id="setPropertyCardIdObtenerInfoTarjeta" propertyName="cardId">
+                    <xpath resultType="String">//cardId</xpath>
+                </setProperty>
+                <to id="obtenerInfoTarjeta-to" uri="sql-stored:classpath:etc/sql/PA_SEL_WSTOKENIZACIONENROLAMIENTO_OBTENERINFOTARJETA_WS.sql?dataSource=dataSourceSqlDb2Cuentas&amp;outputHeader=responsePA_WSTOKENIZACION_OBTENERINFOTARJETA_WS"/> 
+                <bean id="generarResponseObtenerInfoTarjeta" method="generarResponseObtenerInfoTarjeta" ref="beanRouteFacade"/>
+                <doCatch id="obtenerInfoTarjeta495DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="obtenerInfoTarjeta495CodigoError" propertyName="codigoError">
+                        <constant>495</constant>
+                    </setProperty>
+                    <to id="obtenerInfoTarjeta495ToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="obtenerInfoTarjetaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="obtenerInfoTarjetaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="obtenerInfoTarjetaToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

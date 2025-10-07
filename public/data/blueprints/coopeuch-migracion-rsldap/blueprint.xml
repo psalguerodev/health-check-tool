@@ -1,0 +1,359 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camel="http://camel.apache.org/schema/blueprint"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd        http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd        http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0 http://aries.apache.org/schemas/blueprint-cm/blueprint-cm-1.1.0.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder persistent-id="serviceProperties" update-strategy="reload"/>
+    <!-- Local Beans -->
+    <bean class="org.apache.activemq.ActiveMQConnectionFactory" id="amqConnectionFactory">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="jmsConfig">
+        <property name="connectionFactory" ref="amqConnectionFactory"/>
+        <property name="concurrentConsumers" value="10"/>
+    </bean>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="configuration" ref="jmsConfig"/>
+    </bean>
+    <camelContext id="servicio-ldap" xmlns="http://camel.apache.org/schema/blueprint">
+        <!-- Ruta se encarga de derivar cada una de las operaciones a un modulo de acción. -->
+        <route id="ruteoOperaciones">
+            <!-- Inicio: Asignación de valores de entrada de las operaciones en la cabecera del servicio -->
+            <!-- Fin: Asignación de valores de entrada de las operaciones en la cabecera del servicio -->
+            <from id="recibeAMQsearchuser" uri="AMQ:{{amq.queue.ldap.req}}"/>
+            <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+            <setHeader headerName="Rut" id="ruteoOperacionesHeaderRut">
+                <xpath resultType="java.lang.String">/Ldap/Rut</xpath>
+            </setHeader>
+            <setHeader headerName="Clave" id="ruteoOperacionesHeaderClave">
+                <xpath resultType="java.lang.String">/Ldap/Clave</xpath>
+            </setHeader>
+            <setHeader headerName="NuevaClave" id="ruteoOperacionesHeaderNuevaClave">
+                <xpath resultType="java.lang.String">/Ldap/NuevaClave</xpath>
+            </setHeader>
+            <setHeader headerName="FlagMod" id="ruteoOperacionesFlagMod">
+                <xpath resultType="java.lang.String">/Ldap/FlagMod</xpath>
+            </setHeader>
+            <choice id="ruteoOperaciones">
+                <when id="rutaSearch">
+                    <xpath>/Ldap/Operacion='Search'</xpath>
+                    <to id="searchTo" uri="direct:searchRut"/>
+                </when>
+                <when id="rutaCreate">
+                    <xpath>/Ldap/Operacion='Create'</xpath>
+                    <to id="createTo" uri="direct:createRut"/>
+                </when>
+                <when id="rutaModify">
+                    <xpath>/Ldap/Operacion='Modify'</xpath>
+                    <to id="modifyTo" uri="direct:modifyRut"/>
+                </when>
+                <when id="rutaAuthenticate">
+                    <xpath>/Ldap/Operacion='Authenticate'</xpath>
+                    <to id="authenticateTo" uri="direct:authenticateRut"/>
+                </when>
+                <otherwise id="_otherwise1"/>
+            </choice>
+        </route>
+        <!--  -->
+        <!--  -->
+        <!-- Inicio: Esta ruta modifica la clave del usuario -->
+        <route id="ruta_ldap_modifyuser">
+            <!-- Realiza la busqueda del usuario en el sistema de seguridad LDAP. -->
+            <from id="recibeAMQmodifyUser" uri="direct:modifyRut"/>
+            <to id="_to1" uri="direct:searchRut"/>
+            <choice id="_choice1">
+                <when id="_when1">
+                    <!-- Revisa que el body del mensaje contenga 'USUARIO NO EXISTE'. -->
+                    <simple>${body} contains 'USUARIO NO EXISTE'</simple>
+                    <choice id="_choice3">
+                        <when id="_when2">
+                            <!-- Revisa que el FlagMod sea igual a cero para poder realizar la modificación de la clave. -->
+                            <simple>${headers.FlagMod} == 0</simple>
+                            <!-- Llama a la operación 'crearUsuario' para la creación del usuario en LDAP.  -->
+                            <setHeader headerName="security_principal" id="_setHeader1">
+                                <simple>{{ldap.security_principal}}</simple>
+                            </setHeader>
+                            <setHeader headerName="security_credentials" id="_setHeader2">
+                                <simple>{{ldap.security_credentials}}</simple>
+                            </setHeader>
+                            <setHeader headerName="provider_url" id="_setHeader3">
+                                <simple>{{ldap.provider_url}}</simple>
+                            </setHeader>                            
+                            <bean beanType="cl.coopeuch.util.PluginLdap"
+                                id="_bean1" method="crearUsuario"/>                            
+                            <choice id="_choice7">
+                                <!-- Revisa que el body del mensaje contenga 'USUARIO CREADO'. -->
+                                <when id="_when5">
+                                    <simple>${body} contains 'USUARIO CREADO'</simple>
+                                    <doTry id="modifyUserModifyLdapTry">
+                                    <!-- Llama a la operación 'modificarClave' para la modificación de la clave LDAP para el usuario. -->
+                                    <!-- Inicio: Corresponde a una excepción en caso de que la operacion se vaya por error. -->
+                                    <!-- Fin: Corresponde a una excepción en caso de que la operacion se vaya por error. -->
+                                    <setHeader
+                                    headerName="security_principal" id="_setHeader4">
+                                    <simple>{{ldap.security_principal}}</simple>
+                                    </setHeader>
+                                    <setHeader
+                                    headerName="security_credentials" id="_setHeader5">
+                                    <simple>{{ldap.security_credentials}}</simple>
+                                    </setHeader>
+                                    <setHeader
+                                    headerName="provider_url" id="_setHeader6">
+                                    <simple>{{ldap.provider_url}}</simple>
+                                    </setHeader>                                    
+                                    <bean
+                                    beanType="cl.coopeuch.util.PluginLdap"
+                                    id="modifyUserModifyLdap" method="modificarClave"/>                                    
+                                    <doCatch id="modifyUserUserModifyLdapCatch">
+                                    <exception>java.lang.Exception</exception>
+                                    <transform id="modifyUserModifyLdapResponse">
+                                    <simple>ERROR:${exception}</simple>
+                                    </transform>                                    
+                                    </doCatch>
+                                    <doFinally id="modifyUserModifyLdapFinally"/>
+                                    </doTry>
+                                </when>
+                                <!-- El FlagMod es distinto a 0. -->
+                                <otherwise id="_otherwise3">
+                                    <setBody id="_setBody1">
+                                    <constant>&lt;Salida&gt;CLAVE NO MODIFICADA&lt;/Salida&gt;</constant>
+                                    </setBody>
+                                </otherwise>
+                            </choice>
+                        </when>
+                        <!-- El body del mensaje es distinto a  'USUARIO CREADO'. -->
+                        <otherwise id="_otherwise4">
+                            <setBody id="_setBody2">
+                                <constant>&lt;Salida&gt;USUARIO NO EXISTE&lt;/Salida&gt;</constant>
+                            </setBody>
+                        </otherwise>
+                    </choice>
+                </when>
+                <!-- Revisa que el body del mensaje contenga 'USUARIO EXISTE'. -->
+                <when id="_when3">
+                    <simple>${body} contains 'USUARIO EXISTE'</simple>
+                    <choice id="_choice2">
+                        <when id="_when4">
+                            <!-- Revisa que el FlagMod sea igual a cero para poder realizar la modificación de la clave. -->
+                            <simple>${headers.FlagMod} == 0</simple>
+                            <doTry id="modifyUserModifyLdapTry">
+                                <!-- Llama a la operación 'modificarClave' para la modificación de la clave LDAP para el usuario. -->
+                                <!-- Inicio: Corresponde a una excepción en caso de que la operacion se vaya por error. -->
+                                <setHeader
+                                    headerName="security_principal" id="_setHeader7">
+                                    <simple>{{ldap.security_principal}}</simple>
+                                </setHeader>
+                                <setHeader
+                                    headerName="security_credentials" id="_setHeader8">
+                                    <simple>{{ldap.security_credentials}}</simple>
+                                </setHeader>
+                                <setHeader headerName="provider_url" id="_setHeader9">
+                                    <simple>{{ldap.provider_url}}</simple>
+                                </setHeader>                                
+                                <bean
+                                    beanType="cl.coopeuch.util.PluginLdap"
+                                    id="modifyUserModifyLdap" method="modificarClave"/>                                
+                                <doCatch id="modifyUserUserModifyLdapCatch">
+                                    <exception>java.lang.Exception</exception>
+                                    <transform id="modifyUserModifyLdapResponse">
+                                    <simple>ERROR:${exception}</simple>
+                                    </transform>
+                                </doCatch>
+                                <doFinally id="modifyUserModifyLdapFinally"/>
+                                <!-- Fin: Corresponde a una excepción en caso de que la operacion se vaya por error. -->
+                            </doTry>
+                        </when>
+                        <!-- El FlagMod es distinto a 0. -->
+                        <otherwise id="_otherwise2">
+                            <setBody id="_setBody3">
+                                <constant>&lt;Salida&gt;CLAVE NO MODIFICADA&lt;/Salida&gt;</constant>
+                            </setBody>
+                        </otherwise>
+                    </choice>
+                </when>
+                <otherwise id="_otherwise6">
+                    <setBody id="_setBody4">
+                        <constant>ERROR</constant>
+                    </setBody>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Fin: Esta ruta modifica la clave del usuario -->
+        <!--  -->
+        <!--  -->
+        <!-- Inicio: Esta ruta crea el usuario. -->
+        <route id="ruta_ldap_createuser">
+            <!-- Realiza la busqueda del usuario en el sistema de seguridad LDAP. -->
+            <from id="recibeAMQcreateUser" uri="direct:createRut"/>
+            <to id="_to2" uri="direct:searchRut"/>
+            <choice id="createUserSearchValida">
+                <when id="createUserSearchNoExiste">
+                    <!-- Revisa que el body del mensaje contenga 'USUARIO NO EXISTE'. -->
+                    <simple>${body} contains 'USUARIO NO EXISTE'</simple>
+                    <doTry id="createUserLdapTry">
+                        <!-- Llama a la operación 'crearUsuario' para la creación del usuario en LDAP.  -->
+                        <!-- Inicio: Corresponde a una excepción en caso de que la operacion se vaya por error. -->
+                        <!-- Fin: Corresponde a una excepción en caso de que la operacion se vaya por error. -->
+                        <setHeader headerName="security_principal" id="_setHeader10">
+                            <simple>{{ldap.security_principal}}</simple>
+                        </setHeader>
+                        <setHeader headerName="security_credentials" id="_setHeader11">
+                            <simple>{{ldap.security_credentials}}</simple>
+                        </setHeader>
+                        <setHeader headerName="provider_url" id="_setHeader12">
+                            <simple resultType="java.lang.String">{{ldap.provider_url}}</simple>
+                        </setHeader>                        
+                        <bean beanType="cl.coopeuch.util.PluginLdap"
+                            id="userCreateLdap" method="crearUsuario"/>                        
+                        <doCatch id="createUserLdapCatch">
+                            <exception>java.lang.Exception</exception>
+                            <transform id="createUserLdapResponse">
+                                <simple>ERROR</simple>
+                            </transform>                            
+                        </doCatch>
+                        <doFinally id="createUserLdapSearchFinally"/>
+                    </doTry>
+                    <choice id="createUserValida">
+                        <when id="createUserOk">
+                            <!-- Revisa que el body del mensaje contenga 'USUARIO CREADO'. -->
+                            <simple>${body} contains 'USUARIO CREADO'</simple>
+                            <setBody id="createUserOkResponse">
+                                <constant>&lt;Salida&gt;USUARIO CREADO&lt;/Salida&gt;</constant>
+                            </setBody>
+                        </when>
+                        <!-- El body del mensaje es distinto a 'USUARIO CREADO'. -->
+                        <otherwise id="createUserError">
+                            <setBody id="createUserErrorResponse">
+                                <constant>&lt;Salida&gt;USUARIO NO CREADO&lt;/Salida&gt;</constant>
+                            </setBody>                            
+                        </otherwise>
+                    </choice>
+                </when>
+                <when id="createUserSearchError">
+                    <simple>${body} contains 'ERROR'</simple>
+                    <setBody id="createUserSearchErrorResponse">
+                        <constant>&lt;Salida&gt;ERROR&lt;/Salida&gt;</constant>
+                    </setBody>                   
+                </when>
+                <!-- Revisa que el body del mensaje contenga 'USUARIO EXISTE'. -->
+                <when id="createUserSearchExiste">
+                    <simple>${body} contains 'USUARIO EXISTE'</simple>
+                    <setBody id="createUserSearchOkResponse">
+                        <constant>&lt;Salida&gt;USUARIO EXISTE&lt;/Salida&gt;</constant>
+                    </setBody>
+                </when>
+                <otherwise id="createUserSearchOtroError">
+                    <setBody id="createUserSearchOtroErrorResponse">
+                        <constant>&lt;Salida&gt;ERROR&lt;/Salida&gt;</constant>
+                    </setBody>                    
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Fin: Esta ruta crea el usuario. -->
+        <!--  -->
+        <!--  -->
+        <!-- Inicio: Esta ruta buscar el usuario en LDAP. -->
+        <route id="ruta_ldap_searchuser">
+            <!-- Inicio: Corresponde a una excepción en caso de que la operacion se vaya por error. -->
+            <!-- Fin: Corresponde a una excepción en caso de que la operacion se vaya por error. -->
+            <from id="recibeAMQsearchRut" uri="direct:searchRut"/>
+            <doTry id="searchUserLdapTry">
+                <!-- Llama a la operación 'buscarUsuario' para buscar el usuario en LDAP.. -->
+                <setHeader headerName="security_principal" id="ldap.security_principal">
+                    <simple>{{ldap.security_principal}}</simple>
+                </setHeader>
+                <setHeader headerName="security_credentials" id="ldap.security_credentials">
+                    <simple>{{ldap.security_credentials}}</simple>
+                </setHeader>
+                <setHeader headerName="provider_url" id="ldap.provider_url">
+                    <simple resultType="java.lang.String">{{ldap.provider_url}}</simple>
+                </setHeader>               
+                <bean beanType="cl.coopeuch.util.PluginLdap"
+                    id="userSearchLdap" method="buscarUsuario"/>                
+                <doCatch id="searchUserLdapCatch">
+                    <exception>java.lang.Exception</exception>
+                    <transform id="searchUserLdapSearchResponse">
+                        <simple>ERROR:${exception}</simple>
+                    </transform>                    
+                </doCatch>
+                <doFinally id="searchUserLdapSearchFinally"/>
+            </doTry>
+            <choice id="_choice6">
+                <!-- Revisa que el body del mensaje contenga 'NullPointerException'. -->
+                <when id="_when10">
+                    <simple>${body} contains 'NullPointerException'</simple>
+                    <setBody id="_setBody10">
+                        <constant>USUARIO NO EXISTE</constant>
+                    </setBody>
+                </when>
+                <!-- Revisa que el body del mensaje contenga 'No existe'. -->
+                <when id="_when8">
+                    <simple>${body} contains 'No existe'</simple>
+                    <setBody id="_setBody10">
+                        <constant>USUARIO NO EXISTE</constant>
+                    </setBody>
+                </when>
+                <!-- Revisa que el body del mensaje contenga 'ERROR'. -->
+                <when id="_when11">
+                    <simple>${body} contains 'ERROR'</simple>
+                    <setBody id="_setBody11">
+                        <constant>ERROR</constant>
+                    </setBody>
+                </when>
+                <!-- Revisa que el body del mensaje contenga 'idcliente'. -->
+                <when id="_when12">
+                    <simple>${body} contains 'idcliente'</simple>
+                    <setBody id="_setBody12">
+                        <constant>USUARIO EXISTE</constant>
+                    </setBody>
+                </when>
+                <otherwise id="_otherwise7">
+                    <setBody id="_setBody13">
+                        <constant>ERROR</constant>
+                    </setBody>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Fin: Esta ruta buscar el usuario en LDAP. -->
+        <!--  -->
+        <!--  -->
+        <!-- Inicio: Esta ruta autentica al usuario en LDAP. -->
+        <route id="ruta_ldap_authenticateuser">
+            <!-- Realiza la busqueda del usuario en el sistema de seguridad LDAP. -->
+            <from id="recibeAMQauthenticateRut" uri="direct:authenticateRut"/>
+            <to id="authenticateUserSearchRut" uri="direct:searchRut"/>
+            <choice id="_choice4">
+                <when id="_when6">
+                    <!-- Revisa que el body del mensaje contenga 'USUARIO EXISTE'. -->
+                    <simple>${body} contains 'USUARIO EXISTE'</simple>
+                    <!-- Llama a la operación 'validaClave' para validar la clave del usuario en LDAP.. -->
+                    <setHeader headerName="security_principal" id="_setHeader13">
+                        <simple>{{ldap.security_principal}}</simple>
+                    </setHeader>
+                    <setHeader headerName="security_credentials" id="_setHeader14">
+                        <simple>{{ldap.security_credentials}}</simple>
+                    </setHeader>
+                    <setHeader headerName="provider_url" id="_setHeader15">
+                        <simple>{{ldap.provider_url}}</simple>
+                    </setHeader>                    
+                    <setHeader headerName="validaClave" id="authenticateUserHeaderValidaClave">
+                        <method beanType="cl.coopeuch.util.PluginLdap"
+                            id="authenticateUserValidaClave" method="validaClave"/>
+                    </setHeader>                    
+                    <setBody id="_setBody5">
+                        <simple>${headers.validaClave}</simple>
+                    </setBody>
+                </when>
+                <otherwise id="_otherwise5">
+                    <setBody id="_setBody6">
+                        <constant>ERROR DE CLAVE</constant>
+                    </setBody>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Fin: Esta ruta autentica al usuario en LDAP. -->
+    </camelContext>
+</blueprint>

@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder persistent-id="wsvalidacedula"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Configure CXF endpoint -->
+    <cxf:cxfEndpoint address="/ServicioValidaCedula"
+        id="servicioValidaCedulaEndpoint"
+        serviceClass="cl.coopeuch.core.validacedula.validacedula.ValidaCedulaPortPortType" wsdlURL="etc/wsdl/ServicioValidaCedula.wsdl"/>
+    <cxf:rsServer address="/RSValidaCedula" id="ValidaCedulaRest" serviceClass="cl.coopeuch.integracion.validacedula.rest.ValidaCedulaRest"/>
+    <!-- Configure Active MQ connection factory -->
+    <bean class="cl.coopeuch.util.RouteFacade" id="routeFacade"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.transformacion.TransformacionSalida" id="transformacionSalida"/>
+    <bean class="cl.coopeuch.util.jms.CorrelacionId" id="convertCorrelationId"/>
+    <camelContext id="servicio-validaCedula" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-InicioREST">
+            <from id="inicioFrom-REST" uri="cxfrs:bean:ValidaCedulaRest"/>
+            <unmarshal id="consultar_unmarshal">
+                <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.validacedula.soap.DatosCedulaIdentidad"/>
+            </unmarshal>
+            <bean id="consultar_bean6" method="datosCedulaIdentidadRest" ref="routeFacade"/>
+            <marshal id="consultar_marshal5">
+                <jaxb contextPath="cl.coopeuch.integracion.validacedula.soap"/>
+            </marshal>
+            <to id="_to7" uri="direct:inicio"/>
+            <unmarshal id="consultar_unmarshal6">
+                <jaxb contextPath="cl.coopeuch.integracion.validacedula.soap"/>
+            </unmarshal>
+            <bean id="consultar_bean7"
+                method="datosSalidaCedulaIdentidadRest" ref="routeFacade"/>
+            <marshal id="consultar_marshal6">
+                <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.validacedula.soap.DatosSalidaCedulaIdentidad"/>
+            </marshal>
+        </route>
+        <route id="cx-RuteoOperaciones">
+            <from id="inicioFrom" uri="cxf:bean:servicioValidaCedulaEndpoint?DataFormat=MESSAGE"/>
+            <to id="_toInicioWSDL" uri="direct:inicio"/>
+        </route>
+        <!-- Ruta que invoca operaciones del servicio web -->
+        <route id="cx-servicioValidaCedulaEndpointListener">
+            <from id="servicioValidaCedulaEndpointListener" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <setProperty id="_setProperty1" propertyName="idConsulta">
+                    <simple>{{XMLNSC.DatosSalidaCedulaIdentidad.salida.IdConsulta}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="origen">
+                    <simple>{{XMLNSC.DatosSalidaCedulaIdentidad.salida.error.errores.DetalleError.origen}}</simple>
+                </setProperty>
+                <to id="validaCedulaValidator" uri="validator:etc/xsd/soap.xsd"/>
+                <setProperty id="_setHeader1" propertyName="valida.cedula.consulta">
+                    <simple>{{valida.cedula.consulta}}</simple>
+                </setProperty>
+                <setProperty id="_setHeader2" propertyName="valida.cedula.cache">
+                    <simple>{{valida.cedula.cache}}</simple>
+                </setProperty>
+                <setProperty id="_setPropertyRut" propertyName="propertyRutDv">
+                    <xpath resultType="java.lang.String">concat(//rut,//dv)</xpath>
+                </setProperty>
+                <removeHeaders id="remove_all" pattern="*"/>
+                <bean id="_bean1" method="crearJMSCorrelacionId24" ref="convertCorrelationId"/>
+                <bean id="validaCedulaRut" method="validaRut" ref="routeFacade"/>
+	            <choice id="choiceValidarRequest">
+	                <when id="whenValidarRequest">
+	                    <simple>${exchangeProperty.validacionRut} == 'Correcto'</simple>
+							<to id="RemoteCall_ConectorSinacofi_ConsultaCedulaXml2XMl" uri="xslt://etc/xsl/mid/RemoteCall_ConectorSinacofi_ConsultaCedula.xsl?saxon=true"/>
+	                    <to id="activemq-conectorSinacofiTo" uri="beanAMQ:{{amq.queue.conectorsinacofi.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;explicitQosEnabled=true&amp;replyToDeliveryPersistent=false"/>
+			                </when>
+	                <otherwise>
+	                	<to id="errorValidacionRut" uri="xslt://etc/xsl/error/validarDatosEntrada_request.xsl?saxon=true"/>
+	                </otherwise>
+	            </choice>
+                <to id="RemoteCall_ConectorSinacofi_Out" uri="xslt://etc/xsl/mid/RemoteCall_ConectorSinacofi_Out.xsl?saxon=true"/>
+                <unmarshal id="_unmarshal1">
+                    <jaxb contextPath="cl.coopeuch.jaxb.scoring2"/>
+                </unmarshal>
+                <process id="_process1" ref="transformacionSalida"/>
+                <marshal id="_marshal1">
+                    <jaxb contextPath="cl.coopeuch.jaxb.validacedula"/>
+                </marshal>
+                <to id="_to2" uri="xslt://etc/xsl/request/eliminarNamespaces.xsl"/>
+                <to id="_to1" uri="xslt://etc/xsl/response/xml2xml_SalidaValidaCedula.xsl?saxon=true"/>
+                <bean id="analisisFechaExpiracion" method="obtenerFechaExpiracion" ref="routeFacade"/>
+                <choice>
+                	<when>
+                		<simple>${exchangeProperty.salida}</simple>
+                		<to id="_to1" uri="xslt://etc/xsl/response/xml2xml_SalidaValidaCedula_Decreto.xsl?saxon=true"/>
+                	</when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.RespaldarMensaje"
+                        id="ruteoOperacionesRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="ruteoOperacionesBodyError1">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="ruteoOperacionesBodyError" method="obtenerError"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

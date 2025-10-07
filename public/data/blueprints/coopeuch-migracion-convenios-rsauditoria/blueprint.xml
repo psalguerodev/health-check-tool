@@ -1,0 +1,1015 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cxf:cxfEndpoint address="/convenios/WSServicioDeAuditoria"
+        id="servicioDeAuditoriaEndpoint" wsdlURL="etc/wsdl/WSServicioDeAuditoria.wsdl"/>
+    <cm:property-placeholder
+        id="property-placeholder-servicio-auditoria"
+        persistent-id="global" update-strategy="reload"/>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSource">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="${jdbc.url.usuarioConvenio};charset=iso_1"/>
+        <property name="username" value="${jdbc.username.usuarioConvenio}"/>
+        <property name="password" value="${jdbc.password.usuarioConvenio}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="${jdbc.timeBetweenEvictionRunsMillis.usuarioConvenio}"/>
+        <property name="numTestsPerEvictionRun" value="${jdbc.numTestsPerEvictionRun.usuarioConvenio}"/>
+        <property name="minEvictableIdleTimeMillis" value="${jdbc.minEvictableIdleTimeMillis.usuarioConvenio}"/>
+        <property name="maxActive" value="${jdbc.maxActive.usuarioConvenio}"/>
+    </bean>
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.auditoria.util.RouteFacade" id="beanRouteFacade"/>
+    <!-- Define the stored procedure bean with the input and output params -->
+    <bean
+        class="cl.coopeuch.integracion.auditoria.util.db.StoredProcedureBean" id="call_sp_audit_login">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_audit_login"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="action"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="solicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="moduleId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="modulesListStr"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="admin"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="bit"/>
+                </map>
+                <map>
+                    <entry key="name" value="status"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.auditoria.util.db.StoredProcedureBean" id="call_sp_audit_logout">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_audit_logout"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="action"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="solicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="moduleId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="status"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.auditoria.util.db.StoredProcedureBean" id="call_sp_audit_accept_credit_request">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_audit_accept_credit_request"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="action"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="solicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="moduleId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="creditRequestId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="rutSocio"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="amount"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="status"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.auditoria.util.db.StoredProcedureBean" id="call_sp_audit_reject_credit_request">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_audit_reject_credit_request"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="action"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="solicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="moduleId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="creditRequestId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="rutSocio"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="reason"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="observation"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="amount"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="status"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.auditoria.util.db.StoredProcedureBean" id="call_sp_audit_user_admin">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_audit_user_admin"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="rutExecutor"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="action"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="solicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="moduleId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="firstName"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="secondName"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="lastName"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="secondLastName"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="phone"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="email"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="phoneMovil"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="permissionType"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="bit"/>
+                </map>
+                <map>
+                    <entry key="name" value="startDate"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="endDate"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="moduleAccess"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="userType"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                
+                
+                <map>
+                    <entry key="name" value="hasIndexaUser"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="indexaProfile"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                
+                
+                <map>
+                    <entry key="name" value="status"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.auditoria.util.db.StoredProcedureBean" id="call_sp_audit_delete_user">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_audit_delete_user"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="action"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="solicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="moduleId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="rutExecutor"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="firstName"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="secondName"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="lastName"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="secondLastName"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="phone"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="email"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="phoneMovil"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="permissionType"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="startDate"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="endDate"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="moduleAccess"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="userType"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                
+                <map>
+                    <entry key="name" value="hasIndexaUser"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="indexaProfile"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                
+                <map>
+                    <entry key="name" value="status"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.auditoria.util.db.StoredProcedureBean" id="call_sp_audit_planilla">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_audit_planilla"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="nombreSocio"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="action"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="solicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="moduleId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="planillaId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="informedAmount"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="paidAmount"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="fileName"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="reason"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="palniaStatus"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="rutExecutor"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="status"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <camelContext id="servicio-auditoria" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml id="jacksonTransform" prettyPrint="true"/>
+        </dataFormats>
+        <route id="cxf-inicio">
+            <from id="servicioDeAuditoriaEndpointListener" uri="cxf:bean:servicioDeAuditoriaEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="cxf-inicioTry">
+                <convertBodyTo id="routeOperationBody" type="java.lang.String"/>
+                <bean id="backupBody" method="backupBody" ref="beanRouteFacade"/>
+                <choice id="routeOperations">
+                    <when id="loginAuditRoute">
+                        <simple>${body} contains 'loginAuditRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest1" propertyName="tipoRequest">
+                            <simple>LoginAuditRequest</simple>
+                        </setProperty>
+                        <to id="toInicioDeSesionDeAuditoria" uri="direct:inicioDeSesionDeAuditoria"/>
+                    </when>
+                    <when id="auditoriaDeCierreDeSesionRoute">
+                        <simple>${body} contains 'auditoriaDeCierreDeSesionRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest2" propertyName="tipoRequest">
+                            <simple>auditoriaDeCierreDeSesionRequest</simple>
+                        </setProperty>
+                        <to id="toAuditoriaDeCierreDeSesion" uri="direct:auditoriaDeCierreDeSesion"/>
+                    </when>
+                    <when id="auditoriaDeAceptarSolicitudCreditoRoute">
+                        <simple>${body} contains 'auditoriaDeAceptarSolicitudCreditoRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest3" propertyName="tipoRequest">
+                            <simple>AuditoriaDeAceptarSolicitudCreditoRequest</simple>
+                        </setProperty>
+                        <to id="toAuditoriaDeAceptarSolicitudCredito" uri="direct:auditoriaDeAceptarSolicitudCredito"/>
+                    </when>
+                    <when id="auditoriaDeRechazarSolicitudCreditoRoute">
+                        <simple>${body} contains 'auditoriaDeRechazarSolicitudCreditoRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest4" propertyName="tipoRequest">
+                            <simple>AuditoriaDeRechazarSolicitudCreditoRequest</simple>
+                        </setProperty>
+                        <to id="toAuditoriaDeRechazarSolicitudCredito" uri="direct:auditoriaDeRechazarSolicitudCredito"/>
+                    </when>
+                    <when id="auditoriaCrearActualizarUsuarioConvenioRoute">
+                        <simple>${body} contains 'auditoriaCrearActualizarUsuarioConvenio'</simple>
+                        <setProperty id="inicioSetTipoRequest5" propertyName="tipoRequest">
+                            <simple>AuditoriaCrearActualizarUsuarioConvenioRequest</simple>
+                        </setProperty>
+                        <to
+                            id="toAuditoriaCrearActualizarUsuarioConvenio" uri="direct:auditoriaCrearActualizarUsuarioConvenio"/>
+                    </when>
+                    <when id="auditoriaBorrarUsuarioConvenioRoute">
+                        <simple>${body} contains 'auditoriaBorrarUsuarioConvenio'</simple>
+                        <setProperty id="inicioSetTipoRequest6" propertyName="tipoRequest">
+                            <simple>AuditoriaBorrarUsuarioConvenioRequest</simple>
+                        </setProperty>
+                        <to id="toAuditoriaBorrarUsuarioConvenio" uri="direct:auditoriaBorrarUsuarioConvenio"/>
+                    </when>
+                    <when id="auditoriaPlanillaRoute">
+                        <simple>${body} contains 'auditoriaPlanilla'</simple>
+                        <setProperty id="inicioSetTipoRequest7" propertyName="tipoRequest">
+                            <simple>AuditoriaPlanillaRequest</simple>
+                        </setProperty>
+                        <to id="toAuditoriaPlanilla" uri="direct:auditoriaPlanilla"/>
+                    </when>
+                </choice>
+                <doCatch id="cxf-inicioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="ruteoOperacionesPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="cxfinicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="loginAudit">
+            <from id="loginAuditFrom" uri="direct:inicioDeSesionDeAuditoria"/>
+            <doTry id="loginAuditTry">
+                <setHeader headerName="rut" id="inputRut">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <setHeader headerName="action" id="inputAction">
+                    <xpath resultType="String">//action</xpath>
+                </setHeader>
+                <setHeader headerName="solicitudId" id="inputSolicitudId">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <setHeader headerName="moduleId" id="inputModuleId">
+                    <xpath resultType="String">//moduleId</xpath>
+                </setHeader>
+                <setHeader headerName="modulesListStr" id="inputModulesListStr">
+                    <xpath resultType="String">//modulesListStr</xpath>
+                </setHeader>
+                <setHeader headerName="admin" id="inputAdmin">
+                    <xpath resultType="String">//admin</xpath>
+                </setHeader>
+                <to id="to_call_sp_audit_login" uri="bean:call_sp_audit_login"/>
+                <setProperty id="spresult" propertyName="status">
+                    <simple>${body.[status]}</simple>
+                </setProperty>
+                <marshal id="auditLog_storedProcResultMarshal" ref="jacksonTransform"/>
+                <convertBodyTo id="auditLog_storedProcResult" type="java.lang.String"/>
+                <removeHeaders id="removeHeader1" pattern="*"/>
+                <to id="auditLoginResponseXml" uri="xslt://etc/xsl/response/auditLoginResponse.xsl"/>
+                <doCatch id="loginAuditCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="inicioDeSesionDeAuditoriaPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="inicioDeSesionDeAuditoriaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="auditoriaDeCierreDeSesion">
+            <from id="logoutAuditFrom" uri="direct:auditoriaDeCierreDeSesion"/>
+            <doTry id="logoutAuditTry">
+                <setHeader headerName="rut" id="logOutInputRut">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <setHeader headerName="action" id="logOutInputAction">
+                    <xpath resultType="String">//action</xpath>
+                </setHeader>
+                <setHeader headerName="solicitudId" id="logOutInputSolicitudId">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <setHeader headerName="moduleId" id="logOutInputModuleId">
+                    <xpath resultType="String">//moduleId</xpath>
+                </setHeader>
+                <to id="to_call_sp_audit_logout" uri="bean:call_sp_audit_logout"/>
+                <setProperty id="spresultlogout" propertyName="status">
+                    <simple>${body.[status]}</simple>
+                </setProperty>
+                <marshal id="auditLogout_storedProcResultMarshal" ref="jacksonTransform"/>
+                <convertBodyTo id="auditLogout_storedProcResult" type="java.lang.String"/>
+                <removeHeaders id="removeHeader2" pattern="*"/>
+                <to id="auditLogoutResponseXml" uri="xslt://etc/xsl/response/auditLogoutResponse.xsl"/>
+                <doCatch id="logoutAuditCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="auditoriaDeCierreDeSesionPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="auditoriaDeCierreDeSesionExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="auditoriaDeAceptarSolicitudCredito">
+            <from id="aceptarCreditoAuditFrom" uri="direct:auditoriaDeAceptarSolicitudCredito"/>
+            <doTry id="aceptarSolicitudCreditoTry">
+                <setHeader headerName="rut" id="aceptarCreditoInputRut">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <setHeader headerName="action" id="aceptarCreditoInputAccion">
+                    <xpath resultType="String">//accion</xpath>
+                </setHeader>
+                <setHeader headerName="solicitudId" id="aceptarCreditoInputIdDeSolicitud">
+                    <xpath resultType="String">//idDeSolicitud</xpath>
+                </setHeader>
+                <setHeader headerName="moduleId" id="aceptarCreditoInputIdDeModulo">
+                    <xpath resultType="String">//idDeModulo</xpath>
+                </setHeader>
+                <setHeader headerName="creditRequestId" id="aceptarCreditoInputIdDeSolicitudDeCredito">
+                    <xpath resultType="String">//idDeSolicitudDeCredito</xpath>
+                </setHeader>
+                <setHeader headerName="rutSocio" id="aceptarCreditoInputRutSocio">
+                    <xpath resultType="String">//rutSocio</xpath>
+                </setHeader>
+                <setHeader headerName="rutSocio" id="aceptarCreditoInputRutSocio">
+                    <xpath resultType="String">//rutSocio</xpath>
+                </setHeader>
+                <setHeader headerName="amount" id="aceptarCreditoInputAmount">
+                    <xpath resultType="String">//monto</xpath>
+                </setHeader>
+                <to id="to_call_sp_audit_aceptarCredito" uri="bean:call_sp_audit_accept_credit_request"/>
+                <setProperty id="spresultaceptarcredito" propertyName="status">
+                    <simple>${body.[status]}</simple>
+                </setProperty>
+                <marshal
+                    id="auditAceptarCredito_storedProcResultMarshal" ref="jacksonTransform"/>
+                <convertBodyTo id="auditAceptarCredito_storedProcResult" type="java.lang.String"/>
+                <removeHeaders id="removeHeader3" pattern="*"/>
+                <to id="auditAceptarCreditoResponseXml" uri="xslt://etc/xsl/response/AuditoriaAceptarCreditoResponse.xsl"/>
+                <doCatch id="aceptarCreditoAuditCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="auditoriaDeAceptarSolicitudCreditoPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="auditoriaDeAceptarSolicitudCreditoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="auditoriaDeRechazarSolicitudCredito">
+            <from id="rechazarCreditoAuditFrom" uri="direct:auditoriaDeRechazarSolicitudCredito"/>
+            <doTry id="rechazarSolicitudCreditoTry">
+                <setHeader headerName="rut" id="rechazarCreditoInputRut">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <setHeader headerName="action" id="rechazarCreditoInputAccion">
+                    <xpath resultType="String">//accion</xpath>
+                </setHeader>
+                <setHeader headerName="solicitudId" id="rechazarCreditoInputIdDeSolicitud">
+                    <xpath resultType="String">//idDeSolicitud</xpath>
+                </setHeader>
+                <setHeader headerName="moduleId" id="rechazarCreditoInputIdDeModulo">
+                    <xpath resultType="String">//idDeModulo</xpath>
+                </setHeader>
+                <setHeader headerName="creditRequestId" id="rechazarCreditoInputIdDeSolicitudDeCredito">
+                    <xpath resultType="String">//idDeSolicitudDeCredito</xpath>
+                </setHeader>
+                <setHeader headerName="rutSocio" id="rechazarCreditoInputRutSocio">
+                    <xpath resultType="String">//rutSocio</xpath>
+                </setHeader>
+                <setHeader headerName="reason" id="rechazarCreditoInputReason">
+                    <xpath resultType="String">//reason</xpath>
+                </setHeader>
+                <setHeader headerName="observation" id="rechazarCreditoInputObservation">
+                    <xpath resultType="String">//observation</xpath>
+                </setHeader>
+                <setHeader headerName="amount" id="rechazarCreditoInputAmount">
+                    <xpath resultType="String">//amount</xpath>
+                </setHeader>
+                <to id="to_call_sp_audit_rechazarCredito" uri="bean:call_sp_audit_reject_credit_request"/>
+                <setProperty id="spresultRechazarcredito" propertyName="status">
+                    <simple>${body.[status]}</simple>
+                </setProperty>
+                <marshal
+                    id="auditRechazarCredito_storedProcResultMarshal" ref="jacksonTransform"/>
+                <convertBodyTo
+                    id="auditRechazarCredito_storedProcResult" type="java.lang.String"/>
+                <removeHeaders id="removeHeader4" pattern="*"/>
+                <to id="auditRechazarCreditoResponseXml" uri="xslt://etc/xsl/response/AuditoriaRechazarCreditoResponse.xsl"/>
+                <doCatch id="RechazarCreditoAuditCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="auditoriaDeRechazarSolicitudCreditoPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to
+                        id="auditoriaDeRechazarSolicitudCreditoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="auditoriaCrearActualizarUsuarioConvenio">
+            <from id="updatedUserAuditFrom" uri="direct:auditoriaCrearActualizarUsuarioConvenio"/>
+            <doTry id="updateUserAuditTry">
+                <setHeader headerName="rut" id="updateUserAuditInputRut">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <setHeader headerName="rutExecutor" id="updateUserAuditInputRutExecutor">
+                    <xpath resultType="String">//rutExecutor</xpath>
+                </setHeader>
+                <setHeader headerName="action" id="updateUserAuditInputAction">
+                    <xpath resultType="String">//action</xpath>
+                </setHeader>
+                <setHeader headerName="solicitudId" id="updateUserAuditSolicitudId">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <setHeader headerName="moduleId" id="updateUserAuditModuleId">
+                    <xpath resultType="String">//moduleId</xpath>
+                </setHeader>
+                <setHeader headerName="firstName" id="updateUserAuditFirstName">
+                    <xpath resultType="String">//firstName</xpath>
+                </setHeader>
+                <setHeader headerName="secondName" id="updateUserAuditSecondName">
+                    <xpath resultType="String">//secondName</xpath>
+                </setHeader>
+                <setHeader headerName="lastName" id="updateUserAuditLastName">
+                    <xpath resultType="String">//lastName</xpath>
+                </setHeader>
+                <setHeader headerName="secondLastName" id="updateUserAuditSecondLastName">
+                    <xpath resultType="String">//secondLastName</xpath>
+                </setHeader>
+                <setHeader headerName="phone" id="updateUserAuditPhone">
+                    <xpath resultType="String">//phone</xpath>
+                </setHeader>
+                <setHeader headerName="email" id="updateUserAuditEmail">
+                    <xpath resultType="String">//email</xpath>
+                </setHeader>
+                <setHeader headerName="phoneMovil" id="updateUserAuditPhoneMovil">
+                    <xpath resultType="String">//phoneMovil</xpath>
+                </setHeader>
+                <setHeader headerName="permissionType" id="updateUserAuditPermissionType">
+                    <xpath resultType="String">//permissionType</xpath>
+                </setHeader>
+                <setHeader headerName="startDate" id="updateUserAuditStartDate">
+                    <xpath resultType="String">//startDate</xpath>
+                </setHeader>
+                <setHeader headerName="endDate" id="updateUserAuditEndDate">
+                    <xpath resultType="String">//endDate</xpath>
+                </setHeader>
+                <setHeader headerName="moduleAccess" id="updateUserAuditModuleAccess">
+                    <xpath resultType="String">//moduleAccess</xpath>
+                </setHeader>
+                <setHeader headerName="userType" id="updateUserAuditUserType">
+                    <xpath resultType="String">//userType</xpath>
+                </setHeader>
+                
+                <setHeader headerName="hasIndexaUser" id="updateUserAuditHasIndexaUser">
+                    <xpath resultType="String">//hasIndexaUser</xpath>
+                </setHeader>
+                <setHeader headerName="indexaProfile" id="updateUserAuditIndexaProfile">
+                    <xpath resultType="String">//indexaProfile</xpath>
+                </setHeader>
+                
+                <to id="to_call_sp_audit_user_admin" uri="bean:call_sp_audit_user_admin"/>
+                <setProperty id="spresultupdateUserAudit" propertyName="status">
+                    <simple>${body.[status]}</simple>
+                </setProperty>
+                <marshal id="updateUserAudit_storedProcResultMarshal" ref="jacksonTransform"/>
+                <convertBodyTo id="updateUserAudit_storedProcResult" type="java.lang.String"/>
+                <removeHeaders id="removeHeader5" pattern="*"/>
+                <to id="updateUserAuditAuditResponseXml" uri="xslt://etc/xsl/response/auditUserAdminResponse.xsl"/>
+                <doCatch id="updateUserAuditCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="auditoriaCrearActualizarUsuarioConvenioPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to
+                        id="auditoriaCrearActualizarUsuarioConvenioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="auditoriaBorrarUsuarioConvenio">
+            <from id="borrarUsuarioConvenioAuditFrom" uri="direct:auditoriaBorrarUsuarioConvenio"/>
+            <doTry id="borrarUsuarioConvenioAuditTry">
+                <setHeader headerName="rut" id="borrarUsuarioConvenioInputRut">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <setHeader headerName="action" id="borrarUsuarioConvenioInputAction">
+                    <xpath resultType="String">//action</xpath>
+                </setHeader>
+                <setHeader headerName="solicitudId" id="borrarUsuarioConvenioInputSolicitudId">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <setHeader headerName="moduleId" id="borrarUsuarioConvenioInputModuleId">
+                    <xpath resultType="String">//moduleId</xpath>
+                </setHeader>
+                <setHeader headerName="rutExecutor" id="borrarUsuarioConvenioInputRutExecutor">
+                    <xpath resultType="String">//rutExecutor</xpath>
+                </setHeader>
+                <setHeader headerName="firstName" id="borrarUsuarioConvenioInputFirstName">
+                    <xpath resultType="String">//firstName</xpath>
+                </setHeader>
+                <setHeader headerName="secondName" id="borrarUsuarioConvenioInputSecondName">
+                    <xpath resultType="String">//secondName</xpath>
+                </setHeader>
+                <setHeader headerName="lastName" id="borrarUsuarioConvenioInputLastName">
+                    <xpath resultType="String">//lastName</xpath>
+                </setHeader>
+                <setHeader headerName="secondLastName" id="borrarUsuarioConvenioInputSecondLastName">
+                    <xpath resultType="String">//secondLastName</xpath>
+                </setHeader>
+                <setHeader headerName="phone" id="borrarUsuarioConvenioInputPhone">
+                    <xpath resultType="String">//phone</xpath>
+                </setHeader>
+                <setHeader headerName="email" id="borrarUsuarioConvenioInputEmail">
+                    <xpath resultType="String">//email</xpath>
+                </setHeader>
+                <setHeader headerName="phoneMovil" id="borrarUsuarioConvenioInputPhoneMovil">
+                    <xpath resultType="String">//phoneMovil</xpath>
+                </setHeader>
+                <setHeader headerName="permissionType" id="borrarUsuarioConvenioInputPermissionType">
+                    <xpath resultType="String">//permissionType</xpath>
+                </setHeader>
+                <setHeader headerName="startDate" id="borrarUsuarioConvenioInputStartDate">
+                    <xpath resultType="String">//startDate</xpath>
+                </setHeader>
+                <setHeader headerName="endDate" id="borrarUsuarioConvenioInputEndDate">
+                    <xpath resultType="String">//endDate</xpath>
+                </setHeader>
+                <setHeader headerName="moduleAccess" id="borrarUsuarioConvenioInputModuleAccess">
+                    <xpath resultType="String">//moduleAccess</xpath>
+                </setHeader>
+                <setHeader headerName="userType" id="borrarUsuarioConvenioInputUserType">
+                    <xpath resultType="String">//userType</xpath>
+                </setHeader>
+                
+                <setHeader headerName="hasIndexaUser" id="borrarUsuarioConvenioInputHasIndexaUser">
+                    <xpath resultType="String">//hasIndexaUser</xpath>
+                </setHeader>
+                <setHeader headerName="indexaProfile" id="borrarUsuarioConvenioInputIndexaProfile">
+                    <xpath resultType="String">//indexaProfile</xpath>
+                </setHeader>
+                
+                <to id="to_call_sp_audit_borrarUsuarioConvenio" uri="bean:call_sp_audit_delete_user"/>
+                <setProperty id="spresultborrarUsuarioConvenio" propertyName="status">
+                    <simple>${body.[status]}</simple>
+                </setProperty>
+                <marshal
+                    id="auditborrarUsuarioConvenio_storedProcResultMarshal" ref="jacksonTransform"/>
+                <convertBodyTo
+                    id="auditborrarUsuarioConvenio_storedProcResult" type="java.lang.String"/>
+                <removeHeaders id="removeHeader6" pattern="*"/>
+                <to id="auditborrarUsuarioConvenioResponseXml" uri="xslt://etc/xsl/response/auditDeleteUserResponse.xsl"/>
+                <doCatch id="borrarUsuarioConvenioAuditCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="borrarUsuarioConvenioAuditPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="borrarUsuarioConvenioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="auditoriaPlanilla">
+            <from id="auditoriaPlanillaFrom" uri="direct:auditoriaPlanilla"/>
+            <doTry id="auditoriaPlanillaTry">
+                <removeHeaders id="removeSoapActionHeader345" pattern="*"/>
+                <setHeader headerName="rut" id="auditoriaPlanillaInputRut">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <setHeader headerName="nombreSocio" id="auditoriaPlanillaInputNombreSocio">
+                    <xpath resultType="String">//nombreSocio</xpath>
+                </setHeader>
+                <setHeader headerName="action" id="auditoriaPlanillaInputAction">
+                    <xpath resultType="String">//action</xpath>
+                </setHeader>
+                <setHeader headerName="solicitudId" id="auditoriaPlanillaSolicitudId">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <setHeader headerName="moduleId" id="auditoriaPlanillaModuleId">
+                    <xpath resultType="String">//moduleId</xpath>
+                </setHeader>
+                <setHeader headerName="planillaId" id="auditoriaPlanillaPlanillaId">
+                    <xpath resultType="String">//planillaId</xpath>
+                </setHeader>
+                <setHeader headerName="informedAmount" id="auditoriaPlanillaInformedAmount">
+                    <xpath resultType="String">//informedAmount</xpath>
+                </setHeader>
+                <setHeader headerName="paidAmount" id="auditoriaPlanillaPaidAmount">
+                    <xpath resultType="String">//paidAmount</xpath>
+                </setHeader>
+                <setHeader headerName="fileName" id="auditoriaPlanillaFileName">
+                    <xpath resultType="String">//fileName</xpath>
+                </setHeader>
+                <setHeader headerName="reason" id="auditoriaPlanillaReason">
+                    <xpath resultType="String">//reason</xpath>
+                </setHeader>
+                <setHeader headerName="palniaStatus" id="auditoriaPlanillaPalniaStatus">
+                    <xpath resultType="String">//palniaStatus</xpath>
+                </setHeader>
+                <setHeader headerName="rutExecutor" id="auditoriaPlanillaRutExecutor">
+                    <xpath resultType="String">//rutExecutor</xpath>
+                </setHeader>
+                <to id="to_call_sp_audit_planilla" uri="bean:call_sp_audit_planilla"/>
+                <setProperty id="spresultauditoriaPlanilla" propertyName="status">
+                    <simple>${body.[status]}</simple>
+                </setProperty>
+                <marshal id="auditoriaPlanilla_storedProcResultMarshal" ref="jacksonTransform"/>
+                <convertBodyTo id="auditoriaPlanilla_storedProcResult" type="java.lang.String"/>
+                <removeHeaders id="removeHeader7" pattern="*"/>
+                <to id="auditoriaPlanillaAuditResponseXml" uri="xslt://etc/xsl/response/auditPlanillaResponse.xsl"/>
+                <doCatch id="auditoriaPlanillaCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="auditoriaBorrarUsuarioConvenioEPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="auditoriaBorrarUsuarioConvenioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <setBody id="exceptionBodyError">
+                    <simple>${body}</simple>
+                </setBody>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

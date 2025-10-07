@@ -1,0 +1,1245 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wscreditolisto" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Configure CXF endpoint -->
+    <cxf:cxfEndpoint
+        address="/ServiciosMovilesWeb/services/ServicioCreditoFacilWSDL"
+        id="servicioCreditoListoEndpoint" loggingFeatureEnabled="true" serviceClass="cl.coopeuch.serviciosmoviles.creditosfacil.ServicioCreditoFacilWSDL"/>
+    <!-- Local Beans -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <cxf:rsServer address="/RSCreditoListo" id="creditoListoRest"
+        loggingFeatureEnabled="true" serviceClass="cl.coopeuch.serviciosmoviles.creditosfacil.rest.CreditoListoRest"/>
+    <bean class="cl.coopeuch.util.RouteFacade" id="routeFacade"/>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSQLServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.creditolisto}]/creditos;charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.creditolisto}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.creditolisto}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.creditolisto}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.creditolisto}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.creditolisto}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.creditolisto}]"/>
+    </bean>
+    <bean class="cl.coopeuch.util.Agregador" id="aggregation"/>
+    <bean class="cl.coopeuch.util.AggregationPreAprobado" id="aggregationPreAprobado"/>
+    <!-- Beans Procedimientos almacenados -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_selCotiPrevired">
+        <argument ref="dataSourceSQLServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selCotiPrevired"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="diasCache"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_selCampanaCL_IBS">
+        <argument ref="dataSourceSQLServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selCampanaCL_IBS"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_insXmlPrevired">
+        <argument ref="dataSourceSQLServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_insXmlPrevired"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Xml"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_insRentasPrevired">
+        <argument ref="dataSourceSQLServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_insRentasPrevired"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Ano"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Mes"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Renta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_selRentasLagunas">
+        <argument ref="dataSourceSQLServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selRentasLagunas"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_selXMLPrevired">
+        <argument ref="dataSourceSQLServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selXMLPrevired"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="diasCache"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.RouteFacade" id="beanRouteFacade"/>
+    <camelContext id="servicio-creditolisto" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml
+                enableFeatures="WRITE_DATES_AS_TIMESTAMPS,WRITE_DATES_WITH_ZONE_ID"
+                id="jack" prettyPrint="true"/>
+        </dataFormats>
+        <!-- Entrada principal al servicio Credito Listo -->
+        <route id="cxf-CreditoListo">
+            <from id="servicioCreditoListoEndpointListener" uri="cxf:bean:servicioCreditoListoEndpoint?DataFormat=MESSAGE"/>
+            <to id="toInicio" uri="direct:inicio"/>
+        </route>
+        <route id="cxfrs-RuteoOperaciones-rs">
+            <from id="servicioCreditolistoEndpointListenerRest" uri="cxfrs:bean:creditoListoRest"/>
+            <choice id="choiceRest">
+                <when id="whenRest">
+                    <simple>${header.operationName} == 'creditoFacil'</simple>
+                    <unmarshal id="unmarshalRest">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.serviciosmoviles.creditosfacil.soap.CreditoFacil"/>
+                    </unmarshal>
+                    <bean id="beanRest" method="creditoFacilRequest" ref="routeFacade"/>
+                    <marshal id="marshalRest">
+                        <jaxb contextPath="cl.coopeuch.serviciosmoviles.creditosfacil.soap"/>
+                    </marshal>
+                    <to id="toRest" uri="direct:inicio"/>
+                    <unmarshal id="unmarshalRest2">
+                        <jaxb contextPath="cl.coopeuch.serviciosmoviles.creditosfacil.soap"/>
+                    </unmarshal>
+                    <bean id="beanRest2" method="creditoFacilResponse" ref="routeFacade"/>
+                    <marshal id="marshalRest2">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.serviciosmoviles.creditosfacil.soap.CreditoFacilResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenRest-generarPreaprobacion">
+                    <simple>${header.operationName} == 'generarPreaprobacion'</simple>
+                    <unmarshal id="unmarshalRest-generarPreaprobacion">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.serviciosmoviles.creditosfacil.soap.GenerarPreaprobacionRequest"/>
+                    </unmarshal>
+                    <bean id="beanRest-generarPreaprobacion"
+                        method="generarPreaprobacionRequest" ref="routeFacade"/>
+                    <marshal id="marshalRest-generarPreaprobacion">
+                        <jaxb contextPath="cl.coopeuch.serviciosmoviles.creditosfacil.soap"/>
+                    </marshal>
+                    <to id="toRest-generarPreaprobacion" uri="direct:inicio"/>
+                    <unmarshal id="unmarshalRest2-generarPreaprobacion">
+                        <jaxb contextPath="cl.coopeuch.serviciosmoviles.creditosfacil.soap"/>
+                    </unmarshal>
+                    <bean id="beanRest2-generarPreaprobacion"
+                        method="generarPreaprobacionResponse" ref="routeFacade"/>
+                    <marshal id="marshalRest2-generarPreaprobacion">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.serviciosmoviles.creditosfacil.soap.GenerarPreaprobacionResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <route id="iniciows">
+            <from id="iniciows" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <convertBodyTo id="ruteoOperacionesCreditoListoBodyTo" type="java.lang.String"/>
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <log id="_log1" message="operationName: ${header.operationName}"/>
+                <log id="_log2" message="operationName: ${headers}"/>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacion-creditoFacil">
+                        <simple>${body} contains 'creditoFacil'</simple>
+                        <to id="inicio-To-creditoFacil" uri="direct:creditoFacil"/>
+                    </when>
+                    <when id="inicioWhenOperacion-generarPreaprobacion">
+                        <simple>${body} contains 'generarPreaprobacion'</simple>
+                        <to id="inicio-To-generarPreaprobacion" uri="direct:generarPreaprobacion"/>
+                    </when>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route1">
+            <from id="inicio-generarPreaprobacion" uri="direct:generarPreaprobacion"/>
+            <bean id="Bean-obtieneDatos"
+                method="obtieneDatosGenerarPreAprobacion" ref="beanRouteFacade"/>
+            <choice id="validarRut-Beans">
+                <when id="rutVacio">
+                    <simple>${exchangeProperty.validaRut} contains 'rut vacio'</simple>
+                    <setHeader headerName="codError" id="setHeader-rutvacio">
+                        <constant>1</constant>
+                    </setHeader>
+                    <to id="error-rutvacio" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                </when>
+                <when id="rutNegativo">
+                    <simple>${exchangeProperty.validaRut} contains 'negativo'</simple>
+                    <setHeader headerName="codError" id="setHeader-rutNegativo">
+                        <constant>5</constant>
+                    </setHeader>
+                    <to id="error-rutNegativo" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                </when>
+                <when id="rutLargo">
+                    <simple>${exchangeProperty.validaRut} contains 'rut largo'</simple>
+                    <setHeader headerName="codError" id="setHeader-rutLargo">
+                        <constant>6</constant>
+                    </setHeader>
+                    <to id="error-rutLargo" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                </when>
+                <when id="rutNoNumerico">
+                    <simple>${exchangeProperty.validaRut} contains 'caracteres no numericos'</simple>
+                    <setHeader headerName="codError" id="setHeader-rutNoNumerico">
+                        <constant>1</constant>
+                    </setHeader>
+                    <to id="error-rutNoNumerico" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                </when>
+                <when id="rutIncorrecto">
+                    <simple>${exchangeProperty.validaRut} contains 'Incorrecto'</simple>
+                    <setHeader headerName="codError" id="setHeader-rutIncorrecto">
+                        <constant>7</constant>
+                    </setHeader>
+                    <to id="error-rutIncorrecto" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                </when>
+                <otherwise id="caso_exitoso">
+                    <multicast id="Multicast-generarPreaprobacion"
+                        parallelProcessing="true" strategyRef="aggregationPreAprobado">
+                        <to
+                            id="multicastResumenSinacofiTo-generarPreaprobacion" uri="direct:creditoListoResumenSinacofi"/>
+                        <to
+                            id="multicastPreviredTo-generarPreaprobacion" uri="direct:obtenerCotizaciones"/>
+                    </multicast>
+                    <log id="_log22222222" message="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx RutEmpleadorCot1: ${property.RutEmpleadorCot1} / /xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"/>
+                    <choice id="choice-validaRespServiciosExterno">
+                        <when id="_when18">
+                            <simple>${exchangeProperty.validaErrorRespuestaPreviredBD}</simple>
+                            <to id="error-validaErrorRespuestaPrevired" uri="xslt://etc/xsl/response/responseErrorGenerarPreAprobacion.xsl?saxon=true"/>
+                        </when>
+                        <when id="when-validaRespServiciosExterno">
+                            <simple>${exchangeProperty.errorSinacofi}</simple>
+                            <to id="error-validaErrorSinacofi" uri="xslt://etc/xsl/response/responseErrorGenerarPreAprobacion.xsl?saxon=true"/>
+                        </when>
+                        <when id="when-validaRespServiciosExterno">
+                            <simple>${exchangeProperty.validaErrorRespuestaPrevired}</simple>
+                            <to id="error-validaErrorSinacofi" uri="xslt://etc/xsl/response/responseErrorGenerarPreAprobacion.xsl?saxon=true"/>
+                        </when>
+                        <otherwise id="_otherwise9">
+                            <bean id="Bean-obtenerCredenciales"
+                                method="obtenerCredenciales" ref="beanRouteFacade"/>
+                            <to id="IOC002901-generarPreaprobacion" uri="direct:IOC002901"/>
+                            <choice id="_choice17">
+                                <when id="when-obtenerCampana">
+                                    <simple>${headers.codError} == '0'</simple>
+                                    <to id="selCampanaCL_IBS" uri="direct:dbo.pa_selCampanaCL_IBS"/>
+                                    <choice id="_choice20">
+                                    <when id="when-obtenerCampaan">
+                                    <simple>${headers.codError} == '0'</simple>
+                                    <to id="IOC002101-To" uri="direct:IOC002101"/>
+                                    <choice id="_choice21">
+                                    <when id="_when25">
+                                    <simple>${headers.codError} == '0'</simple>
+                                    <to
+                                    id="MotorDescisiones-To" uri="direct:irMotor"/>
+                                    <setHeader
+                                    headerName="codEvaluacionPolitica" id="codEvaluacionPolitica-setHeader">
+                                    <xpath resultType="String">//Resultados2/EvaluaciondePoliticas/Resp[@cod='1454']/@cod</xpath>
+                                    </setHeader>
+                                    <setHeader
+                                    headerName="codEvaluacionPolitica1" id="codEvaluacionPolitica1-setHeader">
+                                    <xpath resultType="String">//Resultados2/EvaluaciondePoliticas/Resp[@cod='1149']/@cod</xpath>
+                                    </setHeader>
+                                    <choice id="_choice25">
+                                    <when id="_when29">
+                                    <simple>${header.codError} == '0'</simple>
+                                    <choice id="_choice26">
+                                    <when id="_when30">
+                                    <simple>${header.CategoriaDeDecision} == '05' and ${header.codEvaluacionPolitica1} != '1149'</simple>
+
+                                    <bean
+                                    id="Bean-obtenerCredenciales-IOC0030"
+                                    method="obtenerCredenciales" ref="beanRouteFacade"/>
+                                    <to
+                                    id="IOC003001-To" uri="direct:ofertaWeb"/>
+                                    </when>
+
+                                    <otherwise id="_otherwise14">
+
+                                    <setHeader
+                                    headerName="codError" id="setHeader-codError">
+                                    <constant>15</constant>
+                                    </setHeader>
+                                    </otherwise>
+                                    </choice>
+                                    </when>
+                                    </choice>
+                                    <choice id="respuestaFinal-generarPreaprobacion">
+                                    <when id="sinErrorRespuestaFinal-generarPreaprobacion">
+                                    <simple>${headers.codError} == '0'</simple>
+                                    </when>
+                                    <otherwise id="conErrorRespuestaFinal-generarPreaprobacion">
+                                    <to
+                                    id="respuestaFinal2Xml-generarPreaprobacion" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                                    </otherwise>
+                                    </choice>
+                                    </when>
+                                    </choice>
+                                    </when>
+                                    </choice>
+                                </when>
+                                <otherwise id="_otherwise11">
+                                    <log id="_log3" message="error: ${headers.descError}"/>
+                                    <to
+                                    id="respuestaError-IOC0029-generarPreaprobacion" uri="xslt://etc/xsl/response/trama2XmlIOC002901O.xsl?saxon=true"/>
+                                </otherwise>
+                            </choice>
+                        </otherwise>
+                    </choice>
+                </otherwise>
+            </choice>
+            <removeHeaders id="removeHeaders-generarPreaprobacion" pattern="*"/>
+            <setProperty id="set_CHARSET_NAME-generarPreaprobacion" propertyName="Exchange.CHARSET_NAME">
+                <constant>utf-8</constant>
+            </setProperty>
+            <setProperty id="set_CONTENT_TYPE-generarPreaprobacion" propertyName="Exchange.CONTENT_TYPE">
+                <constant>text/xml;charset=utf-8</constant>
+            </setProperty>
+        </route>
+        <route id="obtenerCotizaciones">
+            <from id="from-obtenerCotizaciones" uri="direct:obtenerCotizaciones"/>
+            <doTry id="doTryObtenerCotizaciones">
+                <to id="pa_selCotiPrevired-To" uri="sql-stored:classpath:etc/sql/pa_selXMLPrevired.sql?dataSource=dataSourceSQLServer&amp;outputHeader=responseXML"/>
+                <bean id="Bean-restablecerRespuestaXML"
+                    method="restablecerRespuestaXML" ref="beanRouteFacade"/>
+                <bean beanType="cl.coopeuch.util.Xml"
+                    id="beanRecuperaCCA" method="respalda"/>
+                <unmarshal id="unmarshalPojoCCA">
+                    <jaxb contextPath="cl.coopeuch.util.pojocca"/>
+                </unmarshal>
+                <bean id="beanBuscaRutEmpleador"
+                    method="buscaRutEmpleador" ref="routeFacade"/>
+                <bean beanType="cl.coopeuch.util.Cabecera"
+                    id="beanRecuperaCCA2" method="respaldaRutEmpleador"/>
+                <bean beanType="cl.coopeuch.util.Xml"
+                    id="beanRecuperaCCA" method="recupera"/>
+                <setProperty id="obtenerCotizacionesHeaderRutEmpleador" propertyName="RUTEMPLEADORCOT">
+                    <constant>$simple{headers.RutEmpleadorCot}</constant>
+                </setProperty>
+                <log id="_log3333333334" message="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx RutEmpleadorCot: ${property.RutEmpleadorCot1} xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"/>
+                <choice id="_choice22">
+                    <when id="_when26">
+                        <simple>${exchangeProperty.validaErrorRespuestaPrevired}</simple>
+                        <to id="error-evalidaErrorRespPrevired" uri="xslt://etc/xsl/response/responseErrorGenerarPreAprobacion.xsl?saxon=true"/>
+                    </when>
+                </choice>
+                <doCatch id="_doCatch16">
+                    <exception>java.lang.Exception</exception>
+                    <setHeader headerName="codError" id="_setHeader16">
+                        <constant>16</constant>
+                    </setHeader>
+                    <setBody id="_setBody16">
+                        <simple>&lt;trama&gt;vacio&lt;/trama&gt;</simple>
+                    </setBody>
+                    <to id="_to16" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cxf-RuteoOperaciones-inicio">
+            <from id="_fromInicio" uri="direct:creditoFacil"/>
+            <doTry id="doTryCreditoListo">
+                <bean beanType="cl.coopeuch.util.jms.Correlativo"
+                    id="createJMSCorrelationId" method="creaCorrelativo"/>
+                <setHeader headerName="Rut" id="creditoListoHeaderRutDv1">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <setHeader headerName="UsuarioPrevired" id="creditoListoHeaderUsuario">
+                    <xpath resultType="String">//user</xpath>
+                </setHeader>
+                <setHeader headerName="PasswordPrevired" id="creditoListoHeaderPassword">
+                    <xpath resultType="String">//pass</xpath>
+                </setHeader>
+                <setHeader headerName="CodigoAutorizacion" id="creditoListoHeaderCodigoAutorizacion">
+                    <xpath resultType="String">//codigoAutorizacion</xpath>
+                </setHeader>
+                <setHeader headerName="diasCache" id="creditoListoHeaderNumeroDias">
+                    <constant>{{creditolisto.numeroDias}}</constant>
+                </setHeader>
+                <setHeader headerName="consultaOnline" id="creditoListoHeaderConsultaOnline">
+                    <constant>{{creditolisto.consultaOnline}}</constant>
+                </setHeader>
+                <setHeader headerName="codError" id="sinError">
+                    <constant>0</constant>
+                </setHeader>
+                <setProperty id="OperationName-creditoFacil" propertyName="OperationName">
+                    <constant>creditoFacil</constant>
+                </setProperty>
+                <setHeader headerName="validaRut" id="creditoListoHeaderValidaRut">
+                    <method beanType="cl.coopeuch.util.Rut"
+                        id="creditoListoValidaRut" method="validaRut(${headers.Rut})"/>
+                </setHeader>
+                <choice id="_choice8">
+                    <when id="_when8">
+                        <xpath>normalize-space(//rut/text()) = ''</xpath>
+                        <setHeader headerName="codError" id="_setHeader1">
+                            <constant>1</constant>
+                        </setHeader>
+                        <to id="_to1" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                    </when>
+                    <when id="_when19">
+                        <simple>${header.validaRut} contains 'negativo'</simple>
+                        <setHeader headerName="codError" id="_setHeader8">
+                            <constant>5</constant>
+                        </setHeader>
+                        <to id="_to5" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                    </when>
+                    <when id="_when20">
+                        <simple>${header.validaRut} contains 'rut largo'</simple>
+                        <setHeader headerName="codError" id="_setHeader9">
+                            <constant>6</constant>
+                        </setHeader>
+                        <to id="_to6" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                    </when>
+                    <when id="_when17">
+                        <simple>${headers.validaRut} contains 'caracteres no numericos'</simple>
+                        <setHeader headerName="codError" id="_setHeader6">
+                            <constant>1</constant>
+                        </setHeader>
+                        <to id="_to3" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                    </when>
+                    <when id="_when2">
+                        <simple>${headers.validaRut} contains 'Incorrecto'</simple>
+                        <setHeader headerName="Rut" id="RutIncorrecto">
+                            <constant>0</constant>
+                        </setHeader>
+                        <setHeader headerName="Dv" id="DvIncorrecto">
+                            <constant>0</constant>
+                        </setHeader>
+                        <setHeader headerName="codError" id="_setHeader5">
+                            <constant>7</constant>
+                        </setHeader>
+                        <to id="_to2" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise10">
+                        <setHeader headerName="Rut" id="creditoListoHeaderRut">
+                            <xpath resultType="java.lang.String">substring-before(//rut,'-')</xpath>
+                        </setHeader>
+                        <setHeader headerName="Dv" id="creditoListoHeaderDv">
+                            <xpath resultType="java.lang.String">substring-after(//rut,'-')</xpath>
+                        </setHeader>
+                        <setProperty id="creditoListoHeaderRutDv" propertyName="RutDv">
+                            <simple>${headers.Rut}${headers.Dv}</simple>
+                        </setProperty>
+                        <bean beanType="cl.coopeuch.util.Cabecera"
+                            id="backupHeader" method="respalda"/>
+                        <multicast id="resumenSinacofiPreviredMulticast"
+                            parallelProcessing="true" strategyRef="aggregation">
+                            <to id="multicastResumenSinacofiTo" uri="direct:creditoListoResumenSinacofi"/>
+                            <to id="multicastPreviredTo" uri="direct:creditoListoPrevired"/>
+                        </multicast>
+                        <bean beanType="cl.coopeuch.util.Cadena"
+                            id="_bean10" method="reemplaza"/>
+                        <setHeader headerName="codError" id="errorRutaSinacofi">
+                            <xpath resultType="String">//resumenSinacofi</xpath>
+                        </setHeader>
+                        <choice id="_choice1">
+                            <when id="_when1">
+                                <simple>${headers.codError} == '0'</simple>
+                                <setHeader headerName="codError" id="errorRutaPrevired">
+                                    <xpath resultType="String">/Agregado/resultadoPrevired/previred</xpath>
+                                </setHeader>
+                                <setHeader headerName="codigo" id="codigoErrorRutaPrevired">
+                                    <xpath resultType="String">/Agregado/resultadoPrevired/codigoPrevired</xpath>
+                                </setHeader>
+                                <setProperty id="previRedGetCodigo2" propertyName="codigo2">
+                                    <xpath resultType="java.lang.String">//respuestaservicio[2]/control/@codigo</xpath>
+                                </setProperty>
+                            </when>
+                        </choice>
+                        <choice id="_choice2">
+                            <when id="_when21">
+                                <simple>${headers.codError} == '0'</simple>
+                                <to id="IrIOC002901To" uri="direct:IOC002901"/>
+                            </when>
+                        </choice>
+                        <choice id="_choice18">
+                            <when id="_when23">
+                                <simple>${headers.codError} == '0'</simple>
+                                <to id="irPA_selCampanaCL_IBS" uri="direct:dbo.pa_selCampanaCL_IBS"/>
+                            </when>
+                        </choice>
+                        <choice id="_choice3">
+                            <when id="_when3">
+                                <simple>${headers.codError} == '0'</simple>
+                                <to id="IrIOC002101To" uri="direct:IOC002101"/>
+                            </when>
+                        </choice>
+                        <choice id="_choice4">
+                            <when id="_when4">
+                                <simple>${header.codError} == '0'</simple>
+                                <to id="IrMotorTo" uri="direct:irMotor"/>
+                            </when>
+                        </choice>
+                        <setHeader headerName="codEvaluacionPolitica" id="_setHeader10">
+                            <xpath resultType="String">//Resultados2/EvaluaciondePoliticas/Resp[@cod='1454']/@cod</xpath>
+                        </setHeader>
+                        <setHeader headerName="codEvaluacionPolitica1" id="_setHeader11">
+                            <xpath resultType="String">//Resultados2/EvaluaciondePoliticas/Resp[@cod='1149']/@cod</xpath>
+                        </setHeader>
+                        <choice id="_choice11">
+                            <when id="_when11">
+                                <simple>${header.codError} == '0'</simple>
+                                <choice id="_choice13">
+                                    <when id="_when14">
+                                    <simple>${header.CategoriaDeDecision} == '05' and ${header.codEvaluacionPolitica1} != '1149'</simple>
+                                    <to id="IrIOC003001To" uri="direct:IOC003001"/>
+                                    </when>
+                                    <otherwise id="_otherwise8">
+                                    <setHeader headerName="codError" id="_setHeader2">
+                                    <constant>12</constant>
+                                    </setHeader>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                        </choice>
+                        <choice id="respuestaFinal">
+                            <when id="sinErrorRespuestaFinal">
+                                <simple>${headers.codError} == '0'</simple>
+                            </when>
+                            <otherwise id="conErrorRespuestaFinal">
+                                <to id="respuestaFinal2Xml" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                            </otherwise>
+                        </choice>
+                        <removeHeaders id="_removeHeaders1" pattern="*"/>
+                        <setProperty id="_set_CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                            <constant>utf-8</constant>
+                        </setProperty>
+                        <setProperty id="_set_CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                            <constant>text/xml;charset=utf-8</constant>
+                        </setProperty>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <setHeader headerName="codError" id="_setHeader7">
+                        <constant>1</constant>
+                    </setHeader>
+                    <setBody id="_setBody2">
+                        <simple>&lt;trama&gt;vacio&lt;/trama&gt;</simple>
+                    </setBody>
+                    <to id="_to4" uri="xslt://transformations/error/errores.xsl?saxon=true"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta encargada de obtener informacion desde el servicio resumen sinacofi -->
+        <route id="creditoListoResumenSinacofi">
+            <from id="creditoListoResumenSinacofiFrom" uri="direct:creditoListoResumenSinacofi"/>
+            <removeHeader headerName="operationName" id="_removeHeader1"/>
+            <setHeader headerName="rutEmpleador" id="resumenSinacofiHeaderRutEmpleador">
+                <constant>{{creditolisto.rutEmpleador}}</constant>
+            </setHeader>
+            <setHeader headerName="dvEmpleador" id="resumenSinacofiHeaderDvEmpleador">
+                <constant>{{creditolisto.dvEmpleador}}</constant>
+            </setHeader>
+            <setHeader headerName="codErrorSinacofi" id="sinErrorSinacofi">
+                <constant>0</constant>
+            </setHeader>
+            <transform id="resumenSinacofiTransform">
+                <simple>&lt;trama&gt;vacio&lt;/trama&gt;</simple>
+            </transform>
+            <doTry id="resumenSinacofiDoTry">
+                <to id="resumenSinacofi2Xml" uri="xslt://transformations/mid/xml2xml_ResumenSinacofi.xsl?saxon=true"/>
+                <to id="cxfResumenSinacofiurl" uri="cxf:{{endpoint.servicioresumensinacofi.url}}?dataFormat=MESSAGE&amp;loggingFeatureEnabled=true"/>
+                <convertBodyTo id="resumenSinacofiBodyTo" type="java.lang.String"/>
+                <doCatch id="resumenSinacofiDoCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setHeader headerName="codErrorSinacofi" id="resumenSinacofiError1">
+                        <constant>1</constant>
+                    </setHeader>
+                    <setBody id="exceptionResumenSinacofi">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+            <choice id="_choice5">
+                <when id="_when5">
+                    <simple>${headers.codErrorSinacofi} == '0'</simple>
+                    <choice id="_choice6">
+                        <when id="_when6">
+                            <xpath resultType="String">//codError = '0'</xpath>
+                            <setHeader headerName="EstadoCedula" id="resumenSinacofiHeaderEstadoCedula">
+                                <xpath resultType="String">//EstadoCedula</xpath>
+                            </setHeader>
+                            <setHeader
+                                headerName="CantidadProtestoAnual" id="resumenSinacofiHeaderCantidadProtestoAnual">
+                                <xpath resultType="String">//cantidadProtestoAnual</xpath>
+                            </setHeader>
+                            <setHeader
+                                headerName="CantidadProtestoSemestral" id="resumenSinacofiHeaderCantidadProtestoSemestral">
+                                <xpath resultType="String">//CantidadProtestoSemestral</xpath>
+                            </setHeader>
+                            <setHeader headerName="MontoProtestoEmpresa" id="resumenSinacofiHeaderMontoProtestoEmpresa">
+                                <xpath resultType="String">//MontoProtestoEmpresa</xpath>
+                            </setHeader>
+                            <setHeader headerName="MontoTotalProtesto" id="resumenSinacofiHeaderMontoTotalProtesto">
+                                <xpath resultType="String">//MontoTotalProtesto</xpath>
+                            </setHeader>
+                            <setHeader headerName="Score" id="resumenSinacofiHeaderScore">
+                                <xpath resultType="String">//Score</xpath>
+                            </setHeader>
+                            <setHeader headerName="MontoMoraTotal" id="resumenSinacofiHeaderMontoMoraTotal">
+                                <xpath resultType="String">//MontoMoraTotal</xpath>
+                            </setHeader>
+                            <setHeader headerName="CedulaVigente" id="resumenSinacofiHeaderCedulaVigente">
+                                <xpath resultType="String">//CedulaVigente</xpath>
+                            </setHeader>
+                            <setHeader
+                                headerName="FechaVencimientoCedula" id="resumenSinacofiHeaderFechaVencimientoCedula">
+                                <xpath resultType="String">//FechaVencimientoCedula</xpath>
+                            </setHeader>
+                        </when>
+                        <otherwise id="_otherwise3">
+                            <setHeader headerName="codErrorSinacofi" id="resumenSinacofiError2">
+                                <constant>2</constant>
+                            </setHeader>
+                        </otherwise>
+                    </choice>
+                </when>
+            </choice>
+            <transform id="resumenSinacofiResultado">
+                <simple>&lt;resumenSinacofi&gt;${headers.codErrorSinacofi}&lt;/resumenSinacofi&gt;</simple>
+            </transform>
+        </route>
+        <route id="creditoListoPrevired">
+            <from id="creditoListoPreviredFrom" uri="direct:creditoListoPrevired"/>
+            <setHeader headerName="codErrorPrevired" id="sinErrorPrevired">
+                <constant>0</constant>
+            </setHeader>
+            <choice id="opcionConsultaOnline">
+                <when id="conConsultaOnLine">
+                    <simple>${headers.consultaOnline} == '1'</simple>
+                    <to id="irPreviredTo" uri="direct:irPrevired"/>
+                </when>
+                <otherwise id="sinConsultaOnLine">
+                    <doTry id="selCotiPreviredDoTry">
+                        <to id="pa_selCotiPreviredTo" uri="bean:dbo.pa_selCotiPrevired"/>
+                        <marshal id="selCotiPreviredMarshal" ref="jack"/>
+                        <convertBodyTo id="selCotiPreviredBodyTo" type="java.lang.String"/>
+                        <doCatch id="selCotiPreviredDoCatch">
+                            <exception>java.sql.SQLException</exception>
+                            <exception>java.net.ConnectException</exception>
+                            <exception>java.io.IOException</exception>
+                            <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                            <setHeader headerName="codErrorPrevired" id="selCotiPreviredError">
+                                <constant>3</constant>
+                            </setHeader>
+                            <setBody id="exceptionpa_selCotiPrevired">
+                                <simple>${exception}</simple>
+                            </setBody>
+                            <log id="excepcionLog1" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del PA:pa_selCotiPrevired: ${body}"/>
+                        </doCatch>
+                    </doTry>
+                    <choice id="choiceDatosCache">
+                        <when id="evaluaErrorSelCotiPreviRed">
+                            <simple>${headers.codErrorPrevired} == '0'</simple>
+                            <transform id="Transform1">
+                                <simple>${in.body.replaceAll('&lt;&gt;','&lt;dias&gt;')}</simple>
+                            </transform>
+                            <transform id="Transform2">
+                                <simple>${in.body.replaceAll('&lt;/&gt;','&lt;/dias&gt;')}</simple>
+                            </transform>
+                            <choice id="sinErrorSelCotiPreviRed">
+                                <when id="conCache">
+                                    <xpath resultType="String">//dias = '0'</xpath>
+                                    <to id="irPreviredTo" uri="direct:irPrevired"/>
+                                </when>
+                                <otherwise id="_otherwise4">
+                                    <doTry id="selCampanaCLDoTry">
+                                    <to id="selXMLPreviredPATo" uri="direct:dbo.pa_selXMLPrevired"/>
+                                    <doFinally id="selCampanaCLDoFinaly"/>
+                                    </doTry>
+                                    <choice id="_choice7">
+                                    <when id="_when7">
+                                    <simple>${headers.codErrorPrevired} == '0'</simple>
+                                    </when>
+                                    </choice>
+                                </otherwise>
+                            </choice>
+                        </when>
+                    </choice>
+                    <bean beanType="cl.coopeuch.util.Cadena" id="_bean3" method="reemplaza"/>
+                </otherwise>
+            </choice>
+            <transform id="previRedResultado">
+                <simple>&lt;resultadoPrevired&gt;&lt;previred&gt;${headers.codErrorPrevired}&lt;/previred&gt;&lt;codigoPrevired&gt;${headers.codigo}&lt;/codigoPrevired&gt;&lt;resultado&gt;${body}&lt;/resultado&gt;&lt;/resultadoPrevired&gt;</simple>
+            </transform>
+            <log id="_log15" message="\n\n PASA DESPUES DEL TRANSFORM ${body}"/>
+        </route>
+        <!-- Ruta encargada de obtener las liquidaciones de la persona desde PREVIRED -->
+        <route id="irPreviRed">
+            <from id="irPreviredfrom" uri="direct:irPrevired"/>
+            <transform id="vacio">
+                <simple>&lt;trama&gt;vacio&lt;/trama&gt;</simple>
+            </transform>
+            <doTry id="previRedDoTry">
+                <to id="previRed2Xml" uri="xslt://transformations/mid/xml2xmlCDATA_Previred.xsl?saxon=true"/>
+                <removeHeader headerName="operationName" id="_removeHeader2"/>
+                <removeHeader headerName="operationNamespace" id="_removeHeader3"/>
+                <setHeader headerName="SOAPAction" id="soapAct">
+                    <constant>creditoFacil</constant>
+                </setHeader>
+                <to id="cxfPreviredurl" uri="cxf:{{endpoint.Previred.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="previRedBodyTo" type="java.lang.String"/>
+                <doCatch id="previRedDoCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setHeader headerName="codErrorPrevired" id="cxfPreviRedError">
+                        <constant>5</constant>
+                    </setHeader>
+                    <setBody id="exceptionirPreviRed">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog2" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+            <choice id="choiceResultadoPrevired">
+                <when id="evaluaErrorPreviRed">
+                    <simple>${headers.codErrorPrevired} == '0'</simple>
+                    <to id="previredXml2XmlCDATA" uri="xslt://transformations/in/getCDATA.xsl?saxon=true"/>
+                    <setHeader headerName="Xml" id="creditoListoHeaderXmlPrevired">
+                        <simple>${body}</simple>
+                    </setHeader>
+                    <setHeader headerName="codigo" id="previRedGetCodigo">
+                        <xpath resultType="java.lang.String">/respuesta/control/@codigo</xpath>
+                    </setHeader>
+                    <choice id="_choice9">
+                        <when id="_when9">
+                            <simple>${headers.codigo} != '9000'</simple>
+                            <setHeader headerName="codErrorPrevired" id="error9XXXPrevired">
+                                <constant>6</constant>
+                            </setHeader>
+                        </when>
+                        <otherwise id="_otherwise2">
+                            <doTry id="insXmlPreviredTry">
+                                <bean beanType="cl.coopeuch.util.Cuerpo"
+                                    id="beanRespalda" method="respalda"/>
+                                <to id="dbo.pa_insXmlPreviredTo" uri="bean:dbo.pa_insXmlPrevired"/>
+                                <marshal id="insXmlPreviredMarshal" ref="jack"/>
+                                <convertBodyTo id="insXmlPreviredBodyTo" type="java.lang.String"/>
+                                <doCatch id="insXmlPreviredCatch">
+                                    <exception>java.sql.SQLException</exception>
+                                    <exception>java.net.ConnectException</exception>
+                                    <exception>java.io.IOException</exception>
+                                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                                    <setHeader
+                                    headerName="codErrorPrevired" id="insXmlPreviredError">
+                                    <constant>7</constant>
+                                    </setHeader>
+                                    <setBody id="exceptionpa_insXmlPrevired">
+                                    <simple>${exception}</simple>
+                                    </setBody>
+                                    <log id="excepcionLog3"
+                                    loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del PA:pa_insXmlPrevired: ${body}"/>
+                                </doCatch>
+                                <doFinally id="insXmlPreviredFinaly"/>
+                            </doTry>
+                            <choice id="_choice10">
+                                <when id="_when10">
+                                    <simple>${headers.codErrorPrevired} == '0'</simple>
+                                    <bean
+                                    beanType="cl.coopeuch.util.Cuerpo"
+                                    id="beanRecupera" method="recupera"/>
+                                    <unmarshal id="unmarshalPojo">
+                                    <jaxb contextPath="cl.coopeuch.util.pojo"/>
+                                    </unmarshal>
+                                    <bean
+                                    beanType="cl.coopeuch.util.Rentas"
+                                    id="beanRentas" method="acumulaRegistro"/>
+                                    <split id="splitDetalle">
+                                    <tokenize
+                                    token="respuestaccx_detalle" xml="true"/>
+                                    <to id="insRentasPreviredTo" uri="direct:insRentasPrevired"/>
+                                    </split>
+                                </when>
+                            </choice>
+                            <bean beanType="cl.coopeuch.util.Cuerpo"
+                                id="_bean4" method="recupera"/>
+                        </otherwise>
+                    </choice>
+                </when>
+            </choice>
+            <bean beanType="cl.coopeuch.util.Cadena" id="_bean5" method="reemplaza"/>
+        </route>
+        <!-- Ruta encargada de Validar las Rentas de previred en IBS -->
+        <route id="IOC002901">
+            <from id="IOC002901From" uri="direct:IOC002901"/>
+            <bean beanType="cl.coopeuch.util.Cabecera"
+                id="IOC002901backupHeader" method="respalda"/>
+            <doTry id="IOC002901DoTry">
+                <to id="xml2tramaIOC002901" uri="xslt://transformations/in/xml2tramaIOC002901I.xsl?saxon=true"/>
+                <log id="_log4" message="xml2tramaIOC002901: ${body}"/>
+                <to id="amqIOC002901" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="_log5" message="Salida: ${body}"/>
+                <convertBodyTo id="IOC002901BodyTo" type="java.lang.String"/>
+                <doCatch id="IOC002901DoCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setHeader headerName="codError" id="IOC002901Error">
+                        <constant>13</constant>
+                    </setHeader>
+                    <setBody id="exceptionIOC002901">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog4" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del IOC0029: ${body}"/>
+                </doCatch>
+            </doTry>
+            <choice id="_choice16">
+                <when id="_when22">
+                    <simple>${headers.codError} == '13'</simple>
+                    <bean beanType="cl.coopeuch.util.Cabecera"
+                        id="IOC002901restoreHeader" method="recupera"/>
+                    <bean beanType="cl.coopeuch.util.Cuerpo" id="_bean2" method="recupera"/>
+                    <setHeader headerName="codError" id="_setHeader12">
+                        <constant>13</constant>
+                    </setHeader>
+                </when>
+                <otherwise id="_otherwise1">
+                    <bean beanType="cl.coopeuch.util.Cabecera"
+                        id="IOC002901restoreHeader" method="recupera"/>
+                    <transform id="_transform1">
+                        <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                    </transform>
+                    <setHeader headerName="descError" id="IOC002901DescError">
+                        <xpath resultType="String">//trama</xpath>
+                    </setHeader>
+                    <setHeader headerName="codErrorTrama" id="_setHeader13">
+                        <xpath resultType="java.lang.String">substring(//trama,11, 4)</xpath>
+                    </setHeader>
+                    <choice id="_choice19">
+                        <when id="_when24">
+                            <simple>${headers.codErrorTrama} != '0000'</simple>
+                            <setHeader headerName="codError" id="_setHeader12">
+                                <constant>14</constant>
+                            </setHeader>
+                        </when>
+                    </choice>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Obtiene variables desde IBS utilizadas para el Motor por medio del 
+			RPG IOC0021 -->
+        <route id="IOC002101">
+            <from id="IOC002101From" uri="direct:IOC002101"/>
+            <bean beanType="cl.coopeuch.util.Cabecera"
+                id="IOC002101backupHeader" method="respalda"/>
+            <bean beanType="cl.coopeuch.util.Cuerpo" id="_bean6" method="respalda"/>
+            <doTry id="IOC002101DoTry">
+                <to id="xml2tramaIOC002101" uri="xslt://transformations/in/xml2tramaIOC002101I.xsl?saxon=true"/>
+                <log id="_log6" message="IOC002101: ${body}"/>
+                <to id="amqIOC002101" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <convertBodyTo id="IOC002101BodyTo" type="java.lang.String"/>
+                <log id="_log7" message="IOC002101O: ${body}"/>
+                <doCatch id="IOC002101DoCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setHeader headerName="codError" id="IOC002101Error">
+                        <constant>7</constant>
+                    </setHeader>
+                    <setBody id="exceptionIOC002101">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog5" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del IOC0021: ${body}"/>
+                </doCatch>
+                <doFinally id="IOC002101DoFinaly"/>
+            </doTry>
+            <choice id="_choice14">
+                <when id="_when15">
+                    <simple>${headers.codError} == '7'</simple>
+                    <bean beanType="cl.coopeuch.util.Cabecera"
+                        id="IOC002101restoreHeader" method="recupera"/>
+                    <bean beanType="cl.coopeuch.util.Cuerpo" id="_bean7" method="recupera"/>
+                    <setHeader headerName="codError" id="_setHeader4">
+                        <constant>7</constant>
+                    </setHeader>
+                </when>
+                <otherwise id="_otherwise6">
+                    <bean beanType="cl.coopeuch.util.Cabecera"
+                        id="IOC002101restoreHeader" method="recupera"/>
+                    <transform id="_transform2">
+                        <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                    </transform>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Ruta encargada de generar la evaluacion de la persona en el Motor 
+			de Riesgo -->
+        <route id="motor">
+            <from id="motorFrom" uri="direct:irMotor"/>
+            <bean beanType="cl.coopeuch.util.ObtenerRandom"
+                id="obtenerNumeroRandom" method="numeroRandom"/>
+            <log id="logNumeroRandom" message="Numero Random ${property.numeroRandom}"/>
+            <setHeader headerName="idSol" id="_setHeader3">
+                <simple>${property.numeroRandom}</simple>
+            </setHeader>
+            <doTry id="_doTry1">
+                <bean beanType="cl.coopeuch.util.Cuerpo" id="_bean1" method="respalda"/>
+                <setBody id="_setBody1">
+                    <method beanType="cl.coopeuch.util.Rut" method="extraerRutsinDV(${header.Rut})"/>
+                </setBody>
+                <to id="dbo.pa_selRentasLagunas" uri="bean:dbo.pa_selRentasLagunas"/>
+                <marshal id="creditoListoMarshal" ref="jack"/>
+                <convertBodyTo id="creditoListoBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.Cadena" id="_bean8" method="reemplazaEtiquetaVacia"/>
+                <setProperty id="_setProperty1" propertyName="laguna">
+                    <xpath resultType="String">//campo1</xpath>
+                </setProperty>
+                <setHeader headerName="Canal" id="resumenSinacofiHeaderCanal">
+                    <constant>CRLISTO</constant>
+                </setHeader>
+                <bean beanType="cl.coopeuch.util.Cuerpo" id="_bean9" method="recupera"/>
+                <to id="creditoListoTrama2Xml2" uri="xslt://transformations/mid/trama2XmlIOC002101_precache.xsl?saxon=true"/>
+                <log id="_log8" message="Motor:${body}"/>
+                <choice id="personaIndSocio">
+                    <when id="_when12">
+                        <xpath resultType="String">//formato='IOC002101O'</xpath>
+                        <when id="personaIndSocio">
+                            <xpath resultType="String">//personaIndSocio != 'S'</xpath>
+                            <setHeader headerName="codError" id="motorError">
+                                <constant>9</constant>
+                            </setHeader>
+                        </when>
+                    </when>
+                    <otherwise id="_otherwise5">
+                        <setHeader headerName="codError" id="motorError">
+                            <constant>7</constant>
+                        </setHeader>
+                    </otherwise>
+                </choice>
+                <choice id="_choice12">
+                    <when id="_when13">
+                        <simple>${headers.codError} == '0'</simple>
+                        <bean beanType="cl.coopeuch.util.Cabecera"
+                            id="motorBackupHeader" method="respalda"/>
+                        <doTry id="riesgoScoringE1DoTry">
+                            <to id="amqRiesgoScoringE1" uri="AMQ:{{riesgoscoring.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                            <log id="_log9" message="SalidaMotor:${body}"/>
+                            <convertBodyTo id="riesgoScoringE1BodyTo" type="java.lang.String"/>
+                            <doCatch id="riesgoScoringE1DoCatch">
+                                <exception>java.net.ConnectException</exception>
+                                <exception>java.io.IOException</exception>
+                                <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                                <setHeader headerName="codError" id="riesgoScoringE1Error">
+                                    <constant>11</constant>
+                                </setHeader>
+                                <setBody id="exceptionRiesgoScoring">
+                                    <simple>${exception}, Body -&gt; ${body}</simple>
+                                </setBody>
+                                <log id="excepcionLog6"
+                                    loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del servicio AMQ RiesgoScoring: ${body}"/>
+                            </doCatch>
+                        </doTry>
+                        <choice id="_choice15">
+                            <when id="_when16">
+                                <simple>${headers.codError} == '11'</simple>
+                            </when>
+                            <otherwise id="_otherwise7">
+                                <bean
+                                    beanType="cl.coopeuch.util.Cabecera"
+                                    id="motorRestoreHeader" method="recupera"/>
+                                <setHeader
+                                    headerName="CategoriaDeDecision" id="_setHeader13CL3">
+                                    <xpath resultType="String">//DecisionDeRiesgos/CategoriaDeDecision</xpath>
+                                </setHeader>
+                            </otherwise>
+                        </choice>
+                    </when>
+                </choice>
+                <doCatch id="_doCatch1">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setHeader headerName="codErrorSinacofi" id="psError1">
+                        <constant>1</constant>
+                    </setHeader>
+                    <setBody id="exceptionMotor">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog7" loggingLevel="ERROR" message="Ha ocurrido un error durante la ejecucion del Motor: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta encargada de insertar la campana credito listo pre-aprobada en 
+			IBS -->
+        <route id="IOC003001">
+            <from id="IOC003001From" uri="direct:IOC003001"/>
+            <bean beanType="cl.coopeuch.util.Cabecera"
+                id="IOC003001backupHeader" method="respalda"/>
+            <doTry id="IOC003001DoTry">
+                <enrich id="_enrich1">
+                    <simple>direct:dbo.pa_selCampanaCL_IBS</simple>
+                </enrich>
+                <to id="xml2tramaIOC003001" uri="xslt://transformations/in/xml2tramaIOC003001I.xsl?saxon=true"/>
+                <log id="_log10" message="IOC003001I: ${body}"/>
+                <to id="amqIOC003001" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <convertBodyTo id="IOC003001BodyTo" type="java.lang.String"/>
+                <log id="_log11" message="IOC003001O: ${body}"/>
+                <doCatch id="IOC003001DoCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setHeader headerName="codError" id="IOC003001Error">
+                        <constant>8</constant>
+                    </setHeader>
+                    <setBody id="exceptionIOC003001">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog8" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del IO0030: ${body}"/>
+                </doCatch>
+            </doTry>
+            <choice id="_choice23">
+                <when id="_when27">
+                    <simple>${headers.codError} == '8'</simple>
+                </when>
+                <otherwise id="_otherwise12">
+                    <bean beanType="cl.coopeuch.util.Cabecera"
+                        id="_bean11" method="recupera"/>
+                    <transform id="creditoListoTransformx">
+                        <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                    </transform>
+                    <to id="creditoListoTrama2Xml3001" uri="xslt://transformations/out/trama2XmlIOC003001O.xsl?saxon=true"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="GuardarOfertaWeb">
+            <from id="GuardarOfertaWeb-From" uri="direct:ofertaWeb"/>
+            <bean beanType="cl.coopeuch.util.Cabecera"
+                id="GuardarOfertaWeb-backupHeader" method="respalda"/>
+            <doTry id="GuardarOfertaWeb-DoTry">
+                <enrich id="GuardarOfertaWeb-enrich1">
+                    <simple>direct:dbo.pa_selCampanaCL_IBS</simple>
+                </enrich>
+                <to id="xml2tramaIOC003002" uri="xslt://etc/xsl/request/xml2tramaIOC003101I_web.xsl?saxon=true"/>
+                <log id="_log12" message="IOC003002I: ${body}"/>
+                <to id="amqIOC003002" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <convertBodyTo id="GuardarOfertaWeb--BodyTo" type="java.lang.String"/>
+                <log id="_log13" message="IOC003002O: ${body}"/>
+                <doCatch id="IOC003002DoCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setHeader headerName="codError" id="GuardarOfertaWeb-Error">
+                        <constant>8</constant>
+                    </setHeader>
+                    <setBody id="exceptionIOC003002">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog-GuardarOfertaWeb"
+                        loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del IO0030: ${body}"/>
+                </doCatch>
+            </doTry>
+            <choice id="_choice24">
+                <when id="_when28">
+                    <simple>${headers.codError} == '8'</simple>
+                </when>
+                <otherwise id="_otherwise13">
+                    <bean beanType="cl.coopeuch.util.Cabecera"
+                        id="_bean12" method="recupera"/>
+                    <transform id="_transform3">
+                        <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                    </transform>
+                    <to id="_to7" uri="xslt://etc/xsl/response/trama2XmlIOC003101O.xsl?saxon=true"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Ruta encargada de guardar en BD tabla Rentas_Previred, las rentas 
+			obtenidas desde previred -->
+        <route id="insRentasPrevired">
+            <from id="insRentasPreviredFrom" uri="direct:insRentasPrevired"/>
+            <setHeader headerName="Ano" id="insRentasPreviredAno">
+                <xpath resultType="Integer">substring(/respuestaccx_detalle/@mes,string-length(/respuestaccx_detalle/@mes)-3, 4)</xpath>
+            </setHeader>
+            <setHeader headerName="Mes" id="insRentasPreviredMes">
+                <xpath resultType="String">substring-before(/respuestaccx_detalle/@mes,'20')</xpath>
+            </setHeader>
+            <setHeader headerName="Renta" id="insRentasPreviredRenta">
+                <xpath resultType="String">/respuestaccx_detalle/@remuneracionimponible</xpath>
+            </setHeader>
+            <doTry id="insRentasPreviredTry">
+                <to id="dbo.pa_insRentasPreviredTo" uri="bean:dbo.pa_insRentasPrevired"/>
+                <marshal id="insRentasPreviredMarshal" ref="jack"/>
+                <convertBodyTo id="insRentasPreviredBodyTo" type="java.lang.String"/>
+                <doCatch id="insRentasPreviredCatch">
+                    <exception>java.sql.SQLException</exception>
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setHeader headerName="codErrorPrevired" id="insRentasPreviredError">
+                        <constant>8</constant>
+                    </setHeader>
+                    <setBody id="exceptionpa_insRentasPrevired">
+                        <simple>${exception}</simple>
+                    </setBody>
+                    <log id="excepcionLog9" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del PA:pa_insRentasPrevired: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta encargada de obtener las ultimas rentas registradas en BD de 
+			la persona -->
+        <route id="pa_selCampanaCL_IBS">
+            <from id="pa_selCampanaCL_IBSFrom" uri="direct:dbo.pa_selCampanaCL_IBS"/>
+            <doTry id="pa_selCampanaCL_IBSDoTry">
+                <to id="dbo.pa_selCampanaCL_IBSTo" uri="bean:dbo.pa_selCampanaCL_IBS"/>
+                <marshal id="selCampanaClMarshal" ref="jack"/>
+                <convertBodyTo id="selCampanaClBodyTo" type="java.lang.String"/>
+                <doCatch id="selCampanaCLDoCatch">
+                    <exception>java.sql.SQLException</exception>
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setHeader headerName="codErrorPrevired" id="selCampanaClError">
+                        <constant>4</constant>
+                    </setHeader>
+                    <setBody id="exceptionpa_selCampanaCL_IBS">
+                        <simple>${exception}</simple>
+                    </setBody>
+                    <log id="excepcionLog10" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del PA:pa_selCampanaCL_IBS: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta encargada de obtener las ultimas cotizaciones en formato XML 
+			registradas en BD de la persona -->
+        <route id="pa_selXMLPrevired">
+            <from id="pa_selXMLPreviredFrom" uri="direct:dbo.pa_selXMLPrevired"/>
+            <doTry id="pa_selXMLPreviredDoTry">
+                <to id="pa_selXMLPreviredTo" uri="bean:dbo.pa_selXMLPrevired"/>
+                <marshal id="selXMLPreviredMarshal" ref="jack"/>
+                <convertBodyTo id="selXMLPreviredBodyTo" type="java.lang.String"/>
+                <doCatch id="selXMLPreviredDoCatch">
+                    <exception>java.sql.SQLException</exception>
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setHeader headerName="codErrorPrevired" id="selXMLPreviredError">
+                        <constant>3</constant>
+                    </setHeader>
+                    <setBody id="exceptionpa_selXMLPrevired">
+                        <simple>${exception}</simple>
+                    </setBody>
+                    <log id="excepcionLog11" loggingLevel="ERROR" message="Ha ocurrido un error en la ejecucion del PA:pa_selXMLPrevired: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

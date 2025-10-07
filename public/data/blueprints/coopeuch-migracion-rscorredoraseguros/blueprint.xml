@@ -1,0 +1,375 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wscorredoraseguros" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{corredoraseguros.sqlserver.url}];charset=iso_1"/>
+        <property name="username" value="[{corredoraseguros.sqlserver.username}]"/>
+        <property name="password" value="[{corredoraseguros.sqlserver.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{corredoraseguros.sqlserver.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{corredoraseguros.sqlserver.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{corredoraseguros.sqlserver.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{corredoraseguros.sqlserver.maxActive}]"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.corredoraseguros.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSCorredoraSeguros"
+        id="endpointWSCorredoraSeguros"
+        serviceClass="cl.coopeuch.integracion.corredoraseguros.wsdl.WSCorredoraSegurosSOAPPortType" wsdlURL="etc/wsdl/WSCorredoraSeguros.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSCorredoraSeguros"
+        id="WSCorredoraSegurosREST" loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.corredoraseguros.wsdl.WSCorredoraSegurosSOAPPortType"/>
+    <camelContext id="servicio-corredora-seguros" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:WSCorredoraSegurosREST"/>
+            <to id="restToConsultar" uri="direct:inicio"/>
+        </route>
+        <route id="soap-inicio">
+            <from id="inicioSoapServicio" uri="cxf:bean:endpointWSCorredoraSeguros"/>
+            <to id="SoapToConsultar" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultarSeguros'</simple>
+                        <to id="toConsultar" uri="direct:consultarSeguros"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarDatosSocio">
+                        <simple>${header.operationName} == 'consultarDatosSocio'</simple>
+                        <to id="toConsultarDatosSocio" uri="direct:consultarDatosSocio"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoErrorInicio" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarDatosSocio">
+            <from id="consultarDatosSocio-From" uri="direct:consultarDatosSocio"/>
+<!--             <doTry id="cconsultarDatosSocio-Try"> -->
+                <setBody id="consultarDatosSocio-SetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <setProperty id="consultarDatosSocio-Rut" propertyName="rut">
+                    <simple>$simple{body.rut}</simple>
+                </setProperty>
+                <setProperty id="consultarDatosSocio-userid" propertyName="userid">
+                    <simple>$simple{body.userid}</simple>
+                </setProperty>
+                <setProperty id="consultarDatosSocio-canalLlamada" propertyName="canalLlamada">
+                    <simple>$simple{body.canalLlamada}</simple>
+                </setProperty>
+                <to id="datosPersona-Email-To" uri="direct:datosPersona"/>
+                <choice id="_choice2">
+                    <when id="_when2">
+                        <simple>${exchangeProperty.Error} == '0'</simple>
+                        <to id="toConsultarDatosProductos" uri="direct:datosProducto"/>
+                        <choice id="_choice3">
+                            <when id="_when3">
+                                <simple>${exchangeProperty.Error} == '0'</simple>
+                                <to id="toConsultarDatosProductos" uri="direct:AnalizaLLamadaTarjetaCredito"/>
+                            </when>
+                            <otherwise id="_otherwise1">
+                                <unmarshal id="_unmarshal3">
+                                    <jaxb contextPath="cl.coopeuch.integracion.corredoraseguros.wsdl"/>
+                                </unmarshal>
+                                <stop id="consultarDatosSocio-datosCuentaSocio-Stop"/>
+                            </otherwise>
+                        </choice>
+                        <bean id="_bean1" method="filtrarTarjeta" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <unmarshal id="_unmarshal4">
+                            <jaxb contextPath="cl.coopeuch.integracion.corredoraseguros.wsdl"/>
+                        </unmarshal>
+                        <stop id="consultarDatosSocio-datosPersona-Stop"/>
+                    </otherwise>
+                </choice>
+                <unmarshal id="_unmarshal1">
+                    <jaxb contextPath="cl.coopeuch.integracion.corredoraseguros.wsdl"/>
+                </unmarshal>
+<!--                 <doCatch id="consultarDatosSocio-DoCatch"> -->
+<!--                     <exception>java.lang.Exception</exception> -->
+<!--                     <setProperty id="consultarDatosSocio-General" propertyName="codigoError"> -->
+<!--                         <constant>500</constant> -->
+<!--                     </setProperty> -->
+<!--                     <to id="consultarDatosSocio-toExcepcion" uri="direct:excepcion"/> -->
+<!--                 </doCatch> -->
+<!--             </doTry> -->
+        </route>
+        <route id="consultarSeguros">
+            <from id="consultarSegurosFrom" uri="direct:consultarSeguros"/>
+            <doTry id="consultarSegurosTry">
+                <setBody id="consultarSegurosSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <setProperty id="consultarSeguros-Rut" propertyName="rut">
+                    <simple>$simple{body.rut}</simple>
+                </setProperty>
+                <choice id="_choice4">
+                    <when id="ValidaRut-When">
+                        <simple>${exchangeProperty.rut.trim()} == '' </simple>
+                        <throwException
+                            exceptionType="java.lang.IllegalArgumentException"
+                            id="throwExceptionOperacionInvalida-Rut" message="Rut invalido"/>
+                    </when>
+                    <otherwise id="ValidaRut-Otherwise">
+                        <to id="spConsultarSeguros" uri="sql-stored:classpath:etc/sql/pa_ConsultarPolizasXSocio.sql?outputHeader=consultaPaResponse&amp;dataSource=dataSourceSqlServer"/>
+                        <bean id="consultarSegurosBeanProceso"
+                            method="procesoConsultarSegurosResponse" ref="beanRouteFacade"/>
+                        <unmarshal id="_unmarshal2">
+                            <jaxb contextPath="cl.coopeuch.integracion.corredoraseguros.wsdl"/>
+                        </unmarshal>
+                    </otherwise>
+                </choice>
+                <doCatch id="consultarSegurosDoCatchSQL">
+                    <exception>java.sql.SQLException</exception>
+                    <choice id="consultarSegurosChoiceSQL">
+                        <when id="consultarSegurosWhenSQLCantRegistros">
+                            <simple>${exchangeProperty.CamelExceptionCaught.message} contains 'esperados'</simple>
+                            <setProperty id="exceptionCantRegistros" propertyName="codigoError">
+                                <constant>508</constant>
+                            </setProperty>
+                        </when>
+                        <otherwise id="consultarSegurosSQLGeneral">
+                            <setProperty id="exceptionCantSQL" propertyName="codigoError">
+                                <constant>509</constant>
+                            </setProperty>
+                        </otherwise>
+                    </choice>
+                    <to id="toConsultarSegurosExcepcionSQL" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="ValidaRut-DoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="ValidaRut-Property" propertyName="codigoError">
+                        <constant>409</constant>
+                    </setProperty>
+                    <to id="toConsultarSegurosExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultarSegurosDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarSegurosGeneral" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toConsultarSegurosExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="datosPersona">
+            <from id="datosPersona-from" uri="direct:datosPersona"/>
+            <doTry id="datosPersona-Try">
+                <bean id="datosPersona-Bean"
+                    method="llamarTraerDatosBasicosYDir" ref="beanRouteFacade"/>
+                <marshal id="datosPersona-marshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.corredoraseguros.wsdl.wspersona"/>
+                </marshal>
+                <convertBodyTo id="DatosCliente-ConvertBodyToString" type="java.lang.String"/>
+                <bean id="DatosCliente-consultarUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="datosPersona-to-AMQ" uri="beanAMQ:{{colas.servicio.persona.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <to id="datosPersona-eliminarTag-XSLT" uri="xslt://etc/xsl/response/eliminarTag.xsl?saxon=true"/>
+                <convertBodyTo id="datosPersona-convertBodyTo" type="java.lang.String"/>
+                <convertBodyTo id="datosPersona-ConvertBodyToResponse" type="cl.coopeuch.integracion.corredoraseguros.wsdl.wspersona.TraerDatosBasicosYDirResponse"/>
+                <bean id="datosPersona-BeanResponse"
+                    method="obtenerDatosCliente" ref="beanRouteFacade"/>
+                <convertBodyTo id="_convertBodyTo3" type="java.lang.String"/>
+                <doCatch id="datosPersona-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="datosPersona-SetProperty" propertyName="codigoError">
+                        <simple>{{error.servicio.wspersona.codigo}}</simple>
+                    </setProperty>
+                    <setProperty
+                        id="datosPersona-SetProperty-MensajeSalida" propertyName="MensajeSalida">
+                        <simple>{{error.servicio.wspersona.descripcion}}</simple>
+                    </setProperty>
+                    <setProperty
+                        id="datosPersona-SetProperty-servicioInterno" propertyName="servicioInterno">
+                        <simple>{{error.servicio.wspersona}}</simple>
+                    </setProperty>
+                    <to id="datosPersona-To-Excepcion" uri="direct:excepcion"/>
+                    <setProperty id="ObtenerDatosECC-CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                        <constant>text/xml;charset=utf-8</constant>
+                    </setProperty>
+                    <setProperty
+                        id="datosPersona-HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <setProperty id="datosPersona-CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <setProperty id="datosPersona-CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <stop id="datosPersona-Stop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="AnalizaLLamadaTarjetaCredito">
+            <from id="AnalizaLLamadaTarjetaCredito-from" uri="direct:AnalizaLLamadaTarjetaCredito"/>
+            <choice id="_choice1">
+                <when id="_when1">
+                    <simple>${exchangeProperty.CantidadTarjeta} != '0'</simple>
+                    <to id="toConsultarDatosTarjetaCredito" uri="direct:datosTarjetaCredito"/>
+                </when>
+            </choice>
+        </route>
+        <route id="datosTarjetaCredito">
+            <from id="datosTarjetaCredito-from" uri="direct:datosTarjetaCredito"/>
+            <doTry id="datosTarjetaCredito-Try">
+                <bean id="datosTarjetaCredito-Bean"
+                    method="llamarTraerDatosTarjetaCredito" ref="beanRouteFacade"/>
+                <marshal id="datosTarjetaCredito-marshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.corredoraseguros.wsdl.wstarjetacredito"/>
+                </marshal>
+                <convertBodyTo
+                    id="datosTarjetaCredito-ConvertBodyToString" type="java.lang.String"/>
+                <bean id="datosTarjetaCredito-consultarUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="datosTarjetaCredito-to-AMQ" uri="beanAMQ:{{colas.servicio.tarjetacredito.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <to id="datosTarjetaCredito-eliminarTag-XSLT" uri="xslt://etc/xsl/response/eliminarTag.xsl?saxon=true"/>
+                <convertBodyTo id="datosTarjetaCredito-convertBodyTo" type="java.lang.String"/>
+                <convertBodyTo
+                    id="datosTarjetaCredito-ConvertBodyToResponse" type="cl.coopeuch.integracion.corredoraseguros.wsdl.wstarjetacredito.TraerDatosCuentaTarjetaCreditoResponse"/>
+                <bean id="datosTarjetaCredito-BeanResponse"
+                    method="obtenerDatosTarjeta" ref="beanRouteFacade"/>
+                <convertBodyTo
+                    id="datosTarjetaCredito-convertBodyTo-Java" type="java.lang.String"/>
+                <to id="to-AnalizaLLamadaTarjetaCredito-Recursiva" uri="direct:AnalizaLLamadaTarjetaCredito"/>
+                <doCatch id="datosTarjetaCredito-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="datosTarjetaCredito-SetProperty" propertyName="codigoError">
+                        <simple>{{error.servicio.wstarjetacredito.codigo}}</simple>
+                    </setProperty>
+                    <setProperty
+                        id="datosTarjetaCredito-SetProperty-MensajeSalida" propertyName="MensajeSalida">
+                        <simple>{{error.servicio.wstarjetacredito.descripcion}}</simple>
+                    </setProperty>
+                    <setProperty
+                        id="datosTarjetaCredito-SetProperty-servicioInterno" propertyName="servicioInterno">
+                        <simple>{{error.servicio.wstarjetacredito}}</simple>
+                    </setProperty>
+                    <to id="datosTarjetaCredito-To-Excepcion" uri="direct:excepcion"/>
+                    <setProperty id="datosTarjetaCredito-CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                        <constant>text/xml;charset=utf-8</constant>
+                    </setProperty>
+                    <setProperty
+                        id="datosTarjetaCredito-HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <setProperty
+                        id="datosTarjetaCredito-CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <setProperty id="datosTarjetaCredito-CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <stop id="datosTarjetaCredito-Stop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="datosProducto">
+            <from id="datosProducto-from" uri="direct:datosProducto"/>
+            <doTry id="datosProducto-Try">
+                <bean id="datosProducto-Bean"
+                    method="obtenerDatosProducto" ref="beanRouteFacade"/>
+                <marshal id="datosProducto-marshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.corredoraseguros.wsdl.wsproducto"/>
+                </marshal>
+                <convertBodyTo id="datosProducto-ConvertBodyToString" type="java.lang.String"/>
+                <bean id="datosProducto-consultarUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="datosProducto-to" uri="beanAMQ:{{colas.servicio.producto.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <to id="datosProducto-eliminarTag-XSLT" uri="xslt://etc/xsl/response/eliminarTag.xsl?saxon=true"/>
+                <convertBodyTo id="datosProducto-convertBodyTo" type="java.lang.String"/>
+                <convertBodyTo id="datosProducto-ConvertBodyToResponse" type="cl.coopeuch.integracion.corredoraseguros.wsdl.wsproducto.ConsultarProductosSitioResponse"/>
+                <bean id="datosProducto-Bean-Respuesta"
+                    method="obtenerDatosCuenta" ref="beanRouteFacade"/>
+                <convertBodyTo id="_convertBodyTo4" type="java.lang.String"/>
+                <doCatch id="datosProducto-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="datosProducto-SetProperty" propertyName="codigoError">
+                        <simple>{{error.servicio.wsproducto.codigo}}</simple>
+                    </setProperty>
+                    <setProperty
+                        id="datosProducto-SetProperty-MensajeSalida" propertyName="MensajeSalida">
+                        <simple>{{error.servicio.wsproducto.descripcion}}</simple>
+                    </setProperty>
+                    <setProperty
+                        id="datosProducto-SetProperty-servicioInterno" propertyName="servicioInterno">
+                        <simple>{{error.servicio.wsproducto}}</simple>
+                    </setProperty>
+                    <to id="datosProducto-To-Excepcion" uri="direct:excepcion"/>
+                    <setProperty id="datosProducto-CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                        <constant>text/xml;charset=utf-8</constant>
+                    </setProperty>
+                    <setProperty
+                        id="datosProducto-HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <setProperty id="datosProducto-CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <setProperty id="datosProducto-CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <stop id="datosProducto-Stop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Configures the Camel Context -->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="variablesGlobales"
+        persistent-id="global" placeholder-prefix="{["
+        placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="variablesLocales"
+        persistent-id="serviciodatosfraudecca" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioDatosFraudeCCA"
+        id="servicioDatosFraudeEndpoint"
+        serviceClass="cl.coopeuch.core.datosfraudecca.datosfraudecca.DatosFraudeCCAPortType" wsdlURL="wsdl/ServicioDatosFraudeCCA.wsdl"/>
+    <bean
+        class="cl.coopeuch.core.datosfraudecca.datosfraudecca.DatosFraudeCCASOAPImpl" id="servicioDatosFraudeImpl"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <camelContext id="servicio-mantenedor-datosfraude" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-RuteoOperaciones">
+            <from id="servicioDatosFraudeEndpointListener" uri="cxf:bean:servicioDatosFraudeEndpoint?DataFormat=MESSAGE"/>
+            <bean beanType="cl.coopeuch.util.jms.CorrelacionId"
+                id="_beanCorrelationCxf" method="crearJMSCorrelacionId24"/>
+            <to id="_to6" uri="direct:inicio"/>
+        </route>
+        <route id="_routeColas">
+            <from id="_fromColas" uri="AMQ:queue:{{colas.servicio.fraudecca.in.temp}}?preserveMessageQos=true"/>
+            <bean beanType="cl.coopeuch.util.jms.CorrelacionId"
+                id="_beanCorrelation" method="crearJMSCorrelacionId24"/>
+            <to id="_toColas" uri="direct:inicio"/>
+        </route>
+        <!-- Inicio: Consulta los datos de fraude enviados a la CCA y guardados en la tabla TEFCCA. -->
+        <route id="consultarDatosFraudeCCA">
+            <from id="consultarDatosFraudeCCAFrom" uri="direct:consultarDatosFraudeCCA"/>
+            <doTry id="consultarDatosFraudeCCATry">
+                <!-- XSLT  de entrada para IOC1700 - consulta de datos fraude CCA.-->
+                <!-- Inicio: Llamada a AS400. -->
+                <!-- Fin: Llamada a AS400. -->
+                <!-- XSLT  de salida para IOC1700 - consulta de datos fraude CCA.-->
+                <log id="_log1" message="FraudeCCAlinea 41 : ${body}"/>
+                <to id="consultarDatosFraudeXml2trama" uri="xslt://transformations/in/xml2tramaIOC170002I_consultardatosfraude.xsl"/>
+                <to id="activemq-consultarDatosFraudeCCA" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <convertBodyTo charset="UTF-8" id="_convertBodyTo1" type="java.lang.String"/>
+                <transform id="consultarDatosFraudeTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarDatosFraudeTrama2xml" uri="xslt://transformations/out/trama2xmlIOC170002O_consultardatosfraude.xsl?saxon=true"/>
+                <transform id="_transform1">
+                    <simple>${in.body.replaceAll('á','a').replaceAll('é','e').replaceAll('í','i').replaceAll('ó','o').replaceAll('ú','u')}</simple>
+                </transform>
+                <removeHeaders id="_removeHeaders4" pattern="JMS*"/>
+                <doCatch id="consultarDatosFraudeCCACatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.aggregation.RespaldarMensaje"
+                        id="consultarDatosFraudeCCARestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="consultarDatosFraudeCCASetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarDatosFraudeCCAFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="consultarDatosFraudeCCASetBodyError" method="obtenerError"/>
+                    <removeHeaders id="_removeHeaders5" pattern="JMS*|breadcrumbId|Server|SOAPAction|Host|JMSCorrelationID"/>
+                </doCatch>
+                <doFinally id="consultarDatosFraudeCCAFinally"/>
+            </doTry>
+        </route>
+        <!-- Fin: Consulta los datos de fraude enviados a la CCA y guardados en la tabla TEFCCA. -->
+        <!-- Inicio: Modificar los datos de fraude enviados a CCA y guardados en la tabla TEFCCA. -->
+        <route id="modificarDatosFraudeCCA">
+            <from id="modificarDatosFraudeCCAFrom" uri="direct:modificarDatosFraudeCCA"/>
+            <doTry id="modificarDatosFraudeCCATry">
+                <!-- XSLT  de entrada para IOC1700 - modificar de datos fraude CCA.-->
+                <!-- Inicio: Llamada a AS400. -->
+                <!-- Fin: Llamada a AS400. -->
+                <!-- XSLT  de salida para IOC1700 - modificar de datos fraude CCA.-->
+                <to id="modificarDatosFraudeXml2trama" uri="xslt://transformations/in/xml2tramaIOC170001I_modificardatosfraude.xsl"/>
+                <to id="activemq-modificarDatosFraudeCCA" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="modificarDatosFraudeTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="modificarDatosFraudeTrama2xml" uri="xslt://transformations/out/trama2xmlIOC170001O_modificardatosfraude.xsl?saxon=true"/>
+                <transform id="_transform2">
+                    <simple>${in.body.replaceAll('á','a').replaceAll('é','e').replaceAll('í','i').replaceAll('ó','o').replaceAll('ú','u')}</simple>
+                </transform>
+                <doCatch id="modificarDatosFraudeCCACatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.aggregation.RespaldarMensaje"
+                        id="modificarDatosFraudeCCARestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="modificarDatosFraudeCCASetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="modificarDatosFraudeCCAFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="modificarDatosFraudeCCASetBodyError" method="obtenerError"/>
+                </doCatch>
+                <doFinally id="modificarDatosFraudeCCAFinally"/>
+            </doTry>
+        </route>
+        <!-- Fin: Modificar los datos de fraude enviados a CCA y guardados en la tabla TEFCCA. -->
+        <!-- Inicio: Registrar los datos de fraude enviados a CCA y guardados en la tabla TEFCCA. -->
+        <route id="registrarDatosFraudeCCA">
+            <from id="registrarDatosFraudeCCAFrom" uri="direct:registrarDatosFraudeCCA"/>
+            <doTry id="registrarDatosFraudeCCATry">
+                <!-- XSLT  de entrada para IOC1700 - registrar de datos fraude CCA.-->
+                <!-- Inicio: Llamada a AS400. -->
+                <!-- Fin: Llamada a AS400. -->
+                <!-- XSLT  de salida para IOC1700 - registrar de datos fraude CCA.-->
+                <to id="registrarDatosFraudeXml2trama" uri="xslt://transformations/in/xml2tramaIOC170001I_registrardatosfraude.xsl"/>
+                <to id="activemq-registrarDatosFraudeCCA" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="registrarDatosFraudeTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="registrarDatosFraudeTrama2xml2" uri="xslt://transformations/out/trama2xmlIOC170001O_registrardatosfraude.xsl?saxon=true"/>
+                <transform id="_transform3">
+                    <simple>${in.body.replaceAll('á','a').replaceAll('é','e').replaceAll('í','i').replaceAll('ó','o').replaceAll('ú','u')}</simple>
+                </transform>
+                <doCatch id="registrarDatosFraudeCCACatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.aggregation.RespaldarMensaje"
+                        id="registrarDatosFraudeCCARestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="registrarDatosFraudeCCASetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="registrarDatosFraudeCCAFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="registrarDatosFraudeCCASetBodyError" method="obtenerError"/>
+                </doCatch>
+                <doFinally id="registrarDatosFraudeCCAFinally"/>
+            </doTry>
+        </route>
+        <!-- Fin: Registrar los datos de fraude enviados a CCA y guardados en la tabla TEFCCA. -->
+        <route id="_route1">
+            <from id="_from2" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean
+                    beanType="cl.coopeuch.util.aggregation.RespaldarMensaje"
+                    id="backupBody" method="respaldarCuerpo"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaConsultarDatosFraudeCCA">
+                        <simple>${body} contains 'consultarDatosFraudeCCA'</simple>
+                        <to id="consultarDatosFraudeValidator" uri="validator:xsd/soap1.xsd"/>
+                        <to id="consultarDatosFraudeTo" uri="direct:consultarDatosFraudeCCA"/>
+                        <removeHeaders id="_removeHeaders1" pattern="JMS*|breadcrumbId|Server|SOAPAction|Host|JMSCorrelationID"/>
+                    </when>
+                    <when id="rutaModificarDatosFraudeCCA">
+                        <simple>${body} contains 'modificarDatosFraudeCCA'</simple>
+                        <to id="modificarDatosFraudeValidator" uri="validator:xsd/soap2.xsd"/>
+                        <to id="modificarDatosFraudeTo" uri="direct:modificarDatosFraudeCCA"/>
+                        <removeHeaders id="_removeHeaders2" pattern="JMS*"/>
+                    </when>
+                    <when id="rutaRegistrarDatosFraudeCCA">
+                        <simple>${body} contains 'registrarDatosFraudeCCA'</simple>
+                        <to id="registrarDatosFraudeValidator" uri="validator:xsd/soap3.xsd"/>
+                        <to id="registrarDatosFraudeTo" uri="direct:registrarDatosFraudeCCA"/>
+                        <removeHeaders id="_removeHeaders3" pattern="JMS*"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.aggregation.RespaldarMensaje"
+                        id="ruteoOperacionesRestoreBody" method="restaurarCuerpo"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <bean
+                        beanType="cl.coopeuch.integracion.datosfraudecca.util.RouteFacade"
+                        id="ruteoOperacionesFiltraErrorXMLSchema" method="errorXMLSchema"/>
+                    <when id="_when1">
+                        <simple>${headers.tipoError} != 'xmlschema'</simple>
+                        <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    </when>
+                    <bean beanType="cl.coopeuch.util.error.CapturaError"
+                        id="ruteoOperacionesBodyError" method="obtenerError"/>
+                    <removeHeaders id="_removeHeaders1" pattern="JMS*|breadcrumbId|Server|SOAPAction|Host|JMSCorrelationID"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

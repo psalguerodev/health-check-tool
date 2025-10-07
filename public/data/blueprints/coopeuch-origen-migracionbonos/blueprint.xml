@@ -1,0 +1,383 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder persistent-id="serviceProperties" update-strategy="reload"/>
+    <!-- Configure CXF endpoint -->
+    <cxf:cxfEndpoint address="/ServicioMigracionBonos"
+        id="migracionBonosEndpoint"
+        serviceClass="cl.coopeuch.core.migracionbonos.serviciomigracionbonos.MigracionBonosPortType" wsdlURL="wsdl/ServicioMigracionBonos.wsdl"/>
+    <!-- Configure Active MQ connection factory -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Configure JDBC connection -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSource">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="${jdbc.sybase.url.migracionbonos}/Socios;charset=iso_1"/>
+        <property name="username" value="${jdbc.sybase.username.migracionbonos}"/>
+        <property name="password" value="${jdbc.sybase.password.migracionbonos}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="${jdbc.sybase.timeBetweenEvictionRunsMillis.migracionbonos}"/>
+        <property name="numTestsPerEvictionRun" value="${jdbc.sybase.numTestsPerEvictionRun.migracionbonos}"/>
+        <property name="minEvictableIdleTimeMillis" value="${jdbc.sybase.minEvictableIdleTimeMillis.migracionbonos}"/>
+        <property name="maxActive" value="${jdbc.sybase.maxActive.migracionbonos}"/>
+    </bean>
+    <!-- Local Beans -->
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_selsociovigant">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_selsociovigant"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Vigencia"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="FeIngreso"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="date"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_seldatossocio">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_seldatossocio"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_selPersonalCoop">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_selPersonalCoop"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="RutPersonal"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="integer"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_selcuotpart">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_selcuotpart"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_selmorcred">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_selmorcred"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="RutSocio"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Antiguedad"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="integer"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_selconsrutsocio">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_selconsrutsocio"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <camelContext id="servicio-migracion-bonos-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml disableFeatures="WRITE_DATES_AS_TIMESTAMPS"
+                id="jack" prettyPrint="true"/>
+            <xmljson elementName="resultado" id="xmljsonJson2Xml" rootName="salida"/>
+            <json id="gsonMap2Json" library="Gson" prettyPrint="true"/>
+        </dataFormats>
+        <route id="cx-RuteoOperaciones">
+            <from id="migracionBonosEndpointListener" uri="cxf:bean:migracionBonosEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutatraerSocioVigente">
+                        <simple>${body} contains 'traerSocioVigente'</simple>
+                        <to id="traerSocioVigenteValidator" uri="validator:xsd/soapTraerSocioVigente.xsd"/>
+                        <to id="traerSocioVigenteTo" uri="direct:traerSocioVigente"/>
+                    </when>
+                    <when id="rutatraerDatosSocio">
+                        <simple>${body} contains 'traerDatosSocio'</simple>
+                        <to id="traerDatosSocioValidator" uri="validator:xsd/soapTraerDatosSocio.xsd"/>
+                        <to id="traerDatosSocioTo" uri="direct:traerDatosSocio"/>
+                    </when>
+                    <when id="rutatraerPersonalCoop">
+                        <simple>${body} contains 'traerPersonalCoop'</simple>
+                        <to id="traerPersonalCoopValidator" uri="validator:xsd/soapTraerPersonalCoop.xsd"/>
+                        <to id="traerPersonalCoopTo" uri="direct:traerPersonalCoop"/>
+                    </when>
+                    <when id="rutatraerCuotasParticipacion">
+                        <simple>${body} contains 'traerCuotasParticipacion'</simple>
+                        <to id="traerCuotasParticipacionValidator" uri="validator:xsd/soapTraerCuotasParticipacion.xsd"/>
+                        <to id="traerCuotasParticipacionTo" uri="direct:traerCuotasParticipacion"/>
+                    </when>
+                    <when id="rutatraerMorosidad">
+                        <simple>${body} contains 'traerMorosidad'</simple>
+                        <to id="traerMorosidadValidator" uri="validator:xsd/soapTraerMorosidad.xsd"/>
+                        <to id="traerMorosidadTo" uri="direct:traerMorosidad"/>
+                    </when>
+                    <when id="rutatraerSocioNuevo">
+                        <simple>${body} contains 'traerSocioNuevo'</simple>
+                        <to id="traerSocioNuevoValidator" uri="validator:xsd/soapTraerSocioNuevo.xsd"/>
+                        <to id="traerSocioNuevoTo" uri="direct:traerSocioNuevo"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <route id="traerSocioVigente">
+            <from id="traerSocioVigenteFrom" uri="direct:traerSocioVigente"/>
+            <doTry id="traerSocioVigenteTry">
+                <setHeader headerName="Rut" id="traerSocioVigenteHeader">
+                    <xpath resultType="java.lang.String">//rut/text()</xpath>
+                </setHeader>
+                <to id="pa_selsociovigant" uri="bean:pa_selsociovigant"/>
+                <marshal id="traerSocioVigenteResultset2xml" ref="jack"/>
+                <convertBodyTo id="traerSocioVigenteConvertBodyTo" type="java.lang.String"/>
+                <transform id="traerSocioVigenteTransform">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <to id="traerSocioVigenteXml2xml" uri="xslt://transformations/out/resultset2xml_traerSocioVigente.xsl?saxon=true"/>
+                <doCatch id="traerSocioVigenteCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerSocioVigenteRestoreBody" method="restoreBody"/>
+                    <setBody id="traerSocioVigenteSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerSocioVigenteFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="traerSocioVigenteSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerSocioVigenteFinally"/>
+            </doTry>
+        </route>
+        <route id="traerDatosSocio">
+            <from id="traerDatosSocioFrom" uri="direct:traerDatosSocio"/>
+            <doTry id="traerDatosSocioTry">
+                <setHeader headerName="Rut" id="traerDatosSociosetHeader">
+                    <xpath resultType="java.lang.String">//rut/text()</xpath>
+                </setHeader>
+                <to id="pa_seldatossocio" uri="bean:pa_seldatossocio"/>
+                <marshal id="traerDatosSocioResultset2xml" ref="jack"/>
+                <to id="traerDatosSocioXml2xml" uri="xslt://transformations/out/resultset2xml_traerDatosSocio.xsl?saxon=true"/>
+                <doCatch id="traerDatosSocioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerDatosSocioRestoreBody" method="restoreBody"/>
+                    <setBody id="traerDatosSocioSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerDatosSocioFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="traerDatosSocioSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerDatosSocioFinally"/>
+            </doTry>
+        </route>
+        <route id="traerPersonalCoop">
+            <from id="traerPersonalCoopFrom" uri="direct:traerPersonalCoop"/>
+            <doTry id="traerPersonalCoopTry">
+                <setHeader headerName="Rut" id="traerPersonalCoopHeader">
+                    <xpath resultType="java.lang.String">//rut/text()</xpath>
+                </setHeader>
+                <to id="pa_selPersonalCoop" uri="bean:pa_selPersonalCoop"/>
+                <marshal id="traerPersonalCoopResultset2xml" ref="jack"/>
+                <convertBodyTo id="traerPersonalCoopConvertBodyTo" type="java.lang.String"/>
+                <transform id="traerPersonalCoopTransform">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <to id="traerPersonalCoopXml2xml" uri="xslt://transformations/out/resultset2xml_traerPersonalCoop.xsl?saxon=true"/>
+                <doCatch id="traerPersonalCoopCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerPersonalCoopRestoreBody" method="restoreBody"/>
+                    <setBody id="traerPersonalCoopSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerPersonalCoopFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="traerPersonalCoopSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerPersonalCoopFinally"/>
+            </doTry>
+        </route>
+        <route id="traerCuotasParticipacion">
+            <from id="traerCuotasParticipacionFrom" uri="direct:traerCuotasParticipacion"/>
+            <doTry id="traerCuotasParticipacionTry">
+                <setHeader headerName="Rut" id="traerCuotasParticipacionHeader">
+                    <xpath resultType="java.lang.String">//rut/text()</xpath>
+                </setHeader>
+                <to id="pa_selcuotpart" uri="bean:pa_selcuotpart"/>
+                <marshal id="traerCuotasParticipacionMarshal" ref="gsonMap2Json"/>
+                <unmarshal id="traerCuotasParticipacionUnMarshal" ref="xmljsonJson2Xml"/>
+                <to id="traerCuotasParticipacionXml2xml" uri="xslt://transformations/out/resultset2xml_traerCuotasParticipacion.xsl?saxon=true"/>
+                <doCatch id="traerCuotasParticipacionCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerCuotasParticipacionRestoreBody" method="restoreBody"/>
+                    <setBody id="traerCuotasParticipacionSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerCuotasParticipacionFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="traerCuotasParticipacionSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerCuotasParticipacionFinally"/>
+            </doTry>
+        </route>
+        <route id="traerMorosidad">
+            <from id="traerMorosidadFrom" uri="direct:traerMorosidad"/>
+            <doTry id="traerMorosidadTry">
+                <setHeader headerName="RutSocio" id="traerMorosidadHeader">
+                    <xpath resultType="java.lang.String">//rut/text()</xpath>
+                </setHeader>
+                <to id="pa_selmorcred" uri="bean:pa_selmorcred"/>
+                <marshal id="traerMorosidadResultset2xml" ref="jack"/>
+                <convertBodyTo id="traerMorosidadConvertBodyTo" type="java.lang.String"/>
+                <transform id="traerMorosidadTransform">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <to id="traerMorosidadXml2xml" uri="xslt://transformations/out/resultset2xml_traerMorosidad.xsl?saxon=true"/>
+                <doCatch id="traerMorosidadCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerMorosidadRestoreBody" method="restoreBody"/>
+                    <setBody id="traerMorosidadSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerMorosidadFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="traerMorosidadSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerMorosidadFinally"/>
+            </doTry>
+        </route>
+        <route id="traerSocioNuevo">
+            <from id="traerSocioNuevoFrom" uri="direct:traerSocioNuevo"/>
+            <doTry id="traerSocioNuevoTry">
+                <setHeader headerName="Rut" id="traerSocioNuevoHeader">
+                    <xpath resultType="java.lang.String">//rut/text()</xpath>
+                </setHeader>
+                <to id="pa_selconsrutsocio" uri="bean:pa_selconsrutsocio"/>
+                <marshal id="traerSocioNuevoMarshal" ref="gsonMap2Json"/>
+                <convertBodyTo id="traerSocioNuevoConvertBodyTo" type="java.lang.String"/>
+                <transform id="traerSocioNuevoTransform">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <unmarshal id="traerSocioNuevoUnMarshal" ref="xmljsonJson2Xml"/>
+                <to id="traerSocioNuevoXml2xml" uri="xslt://transformations/out/resultset2xml_traerSocioNuevo.xsl?saxon=true"/>
+                <doCatch id="traerSocioNuevoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerSocioNuevoRestoreBody" method="restoreBody"/>
+                    <setBody id="traerSocioNuevoSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerSocioNuevoFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="traerSocioNuevoSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerSocioNuevoFinally"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

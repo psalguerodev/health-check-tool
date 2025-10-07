@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyAmqTicketDocumento"
+        persistent-id="amqticketdocumento" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.pool.PooledConnectionFactory"
+        destroy-method="stop" id="poolConnectionFactory" init-method="start">
+        <property name="maxConnections" value="[{amq.ticketdocumento.poolConnectionFactory}]"/>
+        <property name="connectionFactory" ref="jmsConnectionFactory"/>
+    </bean>
+    <bean class="org.apache.activemq.ActiveMQConnectionFactory" id="jmsConnectionFactory">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+    </bean>
+    <bean
+        class="org.springframework.jms.connection.JmsTransactionManager" id="jmsTransactionManager">
+        <property name="connectionFactory" ref="poolConnectionFactory"/>
+    </bean>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="connectionFactory" ref="poolConnectionFactory"/>
+        <property name="transacted" value="true"/>
+        <property name="transactionManager" ref="jmsTransactionManager"/>
+    </bean>
+    <bean class="org.apache.camel.builder.DeadLetterChannelBuilder" id="myDeadLetterErrorHandler">
+        <property name="deadLetterUri" value="beanAMQ:[{amq.ticketdocumento.faul}]?jmsMessageType=Text"/>
+        <property name="redeliveryPolicy" ref="myRedeliveryPolicyConfig"/>
+    </bean>
+    <bean class="org.apache.camel.processor.RedeliveryPolicy" id="myRedeliveryPolicyConfig">
+        <property name="maximumRedeliveries" value="5"/>
+        <property name="redeliveryDelay" value="7000"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.ticketdocumento.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/AMQTicketDocumento"
+        id="endpointAMQTicketDocumento"
+        serviceClass="cl.coopeuch.integracion.ticketdocumento.wsdl.AMQTicketDocumentoSOAPPortType" wsdlURL="etc/wsdl/AMQTicketDocumento.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelContext errorHandlerRef="myDeadLetterErrorHandler"
+        id="servicio-amqticket-documento" streamCache="true" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointAMQTicketDocumento"/>
+            <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+            </setProperty>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-amq">
+            <from id="amqInicio" uri="beanAMQ:{{amq.ticketdocumento.req}}?concurrentConsumers={{amq.ticketdocumento.concurrentConsumers}}&amp;transacted=true&amp;preserveMessageQos=true"/>
+            <log id="_log1" message="Entrada Mensaje: ${date:now:dd-MM-yyyy HH:mm:ss:SSS}"/>
+            <unmarshal id="amqunMarshall">
+                <jaxb contextPath="cl.coopeuch.integracion.ticketdocumento.wsdl"/>
+            </unmarshal>
+            <setProperty id="amqInicioSetTipoRequest" propertyName="tipoRequest">
+                <simple>$simple{body.class.getSimpleName()}</simple>
+            </setProperty>
+            <to id="amqToInicio" uri="direct:cxf-inicio"/>
+            <convertBodyTo id="amqInicioConvertTo" type="java.lang.String"/>
+            <log id="_log2" message="Salida Mensaje: ${date:now:dd-MM-yyyy HH:mm:ss:SSS}"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                <simple>${body}</simple>
+            </setProperty>
+            <choice id="inicioChoiceOperacion">
+                <when id="inicioWhenOperacionCrear">
+                    <simple>${exchangeProperty.tipoRequest} == 'CrearRequest'</simple>
+                    <to id="toCrear" uri="direct:crear"/>
+                </when>
+                <otherwise id="inicioOtherwise">
+                    <throwException exceptionType="java.lang.Exception"
+                        id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="crear">
+            <from id="crearFrom" uri="direct:crear"/>
+            <bean id="beanBuscoDocsS3" method="beanBuscoDocsS3" ref="beanRouteFacade"/>
+            <bean id="beanGuardarArchivo" method="beanGuardarArchivo" ref="beanRouteFacade"/>
+        </route>
+    </camelContext>
+</blueprint>

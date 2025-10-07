@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wscalcularpmt" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.microservicio.wscalcular.pmt.util.RouteFacade" id="beanRouteFacade"/>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <camelcxf:cxfEndpoint address="/WSCalcularPMT"
+        id="endpointWSCalcularPMT"
+        serviceClass="cl.coopeuch.integracion.microservicio.wscalcular.pmt.wsdl.WSCalcularPMTSOAPPortType" wsdlURL="etc/wsdl/WSCalcularPMT.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelContext id="wscalcular-PMT" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="route-entradaJMS">
+            <from id="from-entradaJMS" uri="beanAMQ:queue:{{colas.servicio.wscalcularpmt.in.temp}}?preserveMessageQos=true"/>
+            <setBody id="calcular-SetBody-jms">
+                <simple>$simple{body}</simple>
+            </setBody>
+            <setProperty id="inicioSetTipoRequest-jms" propertyName="tipoRequest">
+                <simple>$simple{body.class.getSimpleName()}</simple>
+            </setProperty>
+            <to id="id-jms" uri="direct:inicio"/>
+        </route>
+        <route id="_route2">
+            <from id="from-inicio" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionCalcularPMT">
+                        <simple>${header.operationName} == 'calcular'</simple>
+                        <to id="calcularPMT-To" uri="direct:calcular"/>
+                    </when>
+                    <when id="inicioWhenOperacionObtenerPMT">
+                        <simple>${header.operationName} == 'obtenerPMT'</simple>
+                        <to id="calcularPMT-To" uri="direct:obtenerPMT"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="cxf:bean:endpointWSCalcularPMT"/>
+            <setBody id="calcular-SetBody">
+                <simple>$simple{body}</simple>
+            </setBody>
+            <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                <simple>$simple{body.class.getSimpleName()}</simple>
+            </setProperty>
+            <to id="id-inicio-cxf" uri="direct:inicio"/>
+        </route>
+        <route id="calcularPMT">
+            <from id="calcularPMT-From" uri="direct:calcular"/>
+            <doTry id="calcular-DoTry">
+                <bean id="validaciones-Bean"
+                    method="validarCamposEntradas" ref="beanRouteFacade"/>
+                <choice id="validarCampos-Choice">
+                    <when id="validarCampos-When">
+                        <simple>${exchangeProperty.validaciones} == 'Correcto'</simple>
+                        <bean id="calcular-Bean"
+                            method="modifcarEntradaCalcularPMT" ref="beanRouteFacade"/>
+                        <marshal id="calcular-Marshal">
+                            <jaxb contextPath="cl.coopeuch.integracion.microservicio.wscalcular.pmt.wsdl"/>
+                        </marshal>
+                        <convertBodyTo id="calcular-ConvertBodyToString" type="java.lang.String"/>
+                        <bean id="calcular-UUID"
+                            method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                        <to id="calcular-ToXSLTrama" uri="xslt://etc/xsl/request/IOC729001I_calcular.xsl"/>
+                        <log id="calcular-Trama" loggingLevel="INFO" message="Trama generada = ${body}"/>
+                        <to id="calcular-ToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <log id="calcular-TramaResponse"
+                            loggingLevel="INFO" message="Trama recibida = ${body}"/>
+                        <transform id="calcular-TransformBody">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="calcular-ToXSLSOAP" uri="xslt://etc/xsl/response/IOC729001O_calcular.xsl?saxon=true"/>
+                        <convertBodyTo
+                            id="calcular-ConvertBodyToResponse" type="cl.coopeuch.integracion.microservicio.wscalcular.pmt.wsdl.CalcularResponse"/>
+                    </when>
+                    <otherwise id="validarCampos-Otherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException1" message="Error Validaciones Minimas"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="calcular-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toCrearExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routePMTyPV">
+            <from id="_fromObtenerPMT" uri="direct:obtenerPMT"/>
+            <doTry id="_doTry1">
+                <setProperty id="_setProperty1" propertyName="ioc">
+                    <constant>IOC729001I</constant>
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="banco">
+                    <constant>01</constant>
+                </setProperty>
+                <setProperty id="_setProperty3" propertyName="transaccion">
+                    <constant>1131</constant>
+                </setProperty>
+                <setProperty id="_setProperty4" propertyName="canal">
+                    <constant>0005</constant>
+                </setProperty>
+                <setProperty id="_setProperty5" propertyName="operacion">
+                    <constant>0001</constant>
+                </setProperty>
+                <bean id="createJMSCorrelationIdPMT3"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <bean id="_bean1" method="obtenerPMTRequest" ref="beanRouteFacade"/>
+                <marshal id="_marshal1">
+                    <bindy
+                        classType="cl.coopeuch.integracion.microservicio.wscalcular.pmt.modelo.IOC729001I" type="Fixed"/>
+                </marshal>
+                <log id="_log4" message="Entrada PMT: ${body}"/>
+                <to id="activemq-obtenerPMT" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="_log4" message="Salida PMT: ${body}"/>
+                <choice id="_choice3">
+                    <when id="_when5">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_marshal2">
+                            <bindy
+                                classType="cl.coopeuch.integracion.microservicio.wscalcular.pmt.modelo.IOCERROR" type="Fixed"/>
+                        </unmarshal>
+                        <throwException
+                            exceptionType="cl.coopeuch.integracion.microservicio.wscalcular.pmt.excepciones.ConvertErrorException"
+                            id="_throwException2" message="Error de conversion"/>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <unmarshal id="_unmarshal1">
+                            <bindy
+                                classType="cl.coopeuch.integracion.microservicio.wscalcular.pmt.modelo.IOC729001O" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="_bean2" method="obtenerPMTResponse" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch7">
+                    <exception>cl.coopeuch.integracion.microservicio.wscalcular.pmt.excepciones.ConvertErrorException</exception>
+                    <bean id="_bean11" method="errorToXML" ref="beanRouteFacade"/>
+                    <stop id="_stop8"/>
+                </doCatch>
+                <doCatch id="_doCatch8">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <bean id="_bean9" method="errorIOC" ref="beanRouteFacade"/>
+                    <stop id="_stop9"/>
+                </doCatch>
+                <doCatch id="_doCatch9">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="_bean26" method="errorIOC" ref="beanRouteFacade"/>
+                    <stop id="_stop10"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCalculoPMT" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal" persistent-id="mqlog"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{mqlog.sqlserver.url}];charset=iso_1"/>
+        <property name="username" value="[{mqlog.sqlserver.username}]"/>
+        <property name="password" value="[{mqlog.sqlserver.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{mqlog.sqlserver.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{mqlog.sqlserver.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{mqlog.sqlserver.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{mqlog.sqlserver.maxActive}]"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.mqlog.util.RouteFacade" id="beanRouteFacade"/>
+    <camelContext id="context-mqlog" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="ConsultaColas">
+            <from id="_from1" uri="quartz2:ejecutaProceso/proceso?cron={{cron.tiempo.programado}}"/>
+            <doTry id="route1DoTry">
+                <setBody id="_setBody1">
+                    <simple>{{mqlog.colas}}</simple>
+                </setBody>
+                <setHeader headerName="cola" id="_setHeaderp">
+                    <constant>true</constant>
+                </setHeader>
+                <split id="_split1">
+                    <tokenize token=";"/>
+                    <setHeader headerName="nombres_colas" id="_setHeader1">
+                        <simple>${body}</simple>
+                    </setHeader>
+                    <setBody id="_setBody1">
+                        <simple>${properties:${header.nombres_colas}}</simple>
+                    </setBody>
+                    <to id="_to" uri="direct:split"/>
+                </split>
+                <doCatch id="route1DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="route1-descRespuesta" propertyName="descRespuesta">
+                        <simple>${exception.message}</simple>
+                    </setProperty>
+                    <to id="route1ToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="Parametrizacion">
+            <from id="split colas" uri="direct:split"/>
+            <doTry id="ParametrizacionTry">
+                <split id="_split2">
+                    <tokenize token=";"/>
+                    <setHeader headerName="cola_dinamica" id="_setHeader2">
+                        <simple>${body}</simple>
+                    </setHeader>
+                    <choice id="_choice2">
+                        <when id="_when2">
+                            <simple>${body} contains 'AMQ.FAULT'</simple>
+                            <to id="_to2" uri="direct:amq"/>
+                        </when>
+                    </choice>
+                </split>
+                <doCatch id="ParametrizacionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="Parametrizacion-descRespuesta" propertyName="descRespuesta">
+                        <simple>${exception.message}</simple>
+                    </setProperty>
+                    <to id="split2ToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="amq">
+            <from id="readamq" uri="direct:amq"/>
+            <doTry id="amqDoTry">
+                <loop copy="true" doWhile="true" id="_loop1">
+                    <simple>${header.cola} == true</simple>
+                    <pollEnrich id="_enrich2" timeout="100">
+                        <simple>beanAMQ:${header.cola_dinamica}</simple>
+                    </pollEnrich>
+                    <choice id="_choice1">
+                        <when id="_when1">
+                            <simple>${body}!= null </simple>
+                            <setHeader headerName="cola" id="_setHeader3">
+                                <constant>true</constant>
+                            </setHeader>
+                            <to id="_to3" uri="direct:sql"/>
+                        </when>
+                        <otherwise id="_otherwise1">
+                            <stop id="_stop1"/>
+                        </otherwise>
+                    </choice>
+                </loop>
+                <doCatch id="amqDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="amq-descRespuesta" propertyName="descRespuesta">
+                        <simple>${exception.message}</simple>
+                    </setProperty>
+                    <to id="amqToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="division">
+            <from id="readsql" uri="direct:sql"/>
+            <doTry id="divisionDoTry">
+                <setHeader headerName="id" id="_setHeader4">
+                    <jsonpath>$.identificador</jsonpath>
+                </setHeader>
+                <setHeader headerName="fecha" id="_setHeader5">
+                    <jsonpath>$.fecha</jsonpath>
+                </setHeader>
+                <setHeader headerName="servicio" id="_setHeader6">
+                    <jsonpath>$.nombre</jsonpath>
+                </setHeader>
+                <setHeader headerName="operacion" id="_setHeader7">
+                    <jsonpath>$.operacion</jsonpath>
+                </setHeader>
+                <setHeader headerName="canalLlamada" id="_setHeader8">
+                    <jsonpath>$.canalLlamada</jsonpath>
+                </setHeader>
+                <setHeader headerName="peticion" id="_setHeader9">
+                    <jsonpath>$.request</jsonpath>
+                </setHeader>
+                <setHeader headerName="codigoError" id="_setHeader10">
+                    <jsonpath>$.error.codigo</jsonpath>
+                </setHeader>
+                <setHeader headerName="mensajeError" id="_setHeader11">
+                    <jsonpath>$.error.mensaje</jsonpath>
+                </setHeader>
+                <setHeader headerName="detalleError" id="_setHeader12">
+                    <jsonpath>$.error.detalle</jsonpath>
+                </setHeader>
+                <setHeader headerName="tipoMensaje" id="_setHeader13">
+                    <constant>error</constant>
+                </setHeader>
+                <setHeader headerName="fechaRegistro" id="_setHeader15">
+                    <simple>${date:now:yyyy-MM-dd HH:mm:ss}</simple>
+                </setHeader>
+                <bean id="division" method="divisionCola" ref="beanRouteFacade"/>
+                <to id="spCrearlog" uri="sql-stored:classpath:etc/sql/PA_INSMensajes.sql?outputHeader=respuesta&amp;dataSource=dataSourceSqlServer"/>
+                <doCatch id="divisionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="division-descRespuesta" propertyName="descRespuesta">
+                        <simple>${exception.message}</simple>
+                    </setProperty>
+                    <to id="divisionToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="colaErrorTry">
+                <bean id="colaErrorExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="colaErrorMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="colaErrorConvertTo" type="java.lang.String"/>
+                <to id="colaErrorFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <doCatch id="colaErrorCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,246 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="none"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal" persistent-id="wssocio"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="none"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.creditos]]"/>
+        <property name="password" value="[[jdbc.db2.password.creditos]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive}]"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.socio.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSSocio" id="endpointWSSocio"
+        serviceClass="cl.coopeuch.integracion.socio.wsdl.WSSocioSOAPPortType" wsdlURL="etc/wsdl/WSSocio.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSSocio" id="endpointRSSocio" serviceClass="cl.coopeuch.integracion.socio.wsdl.WSSocioSOAPPortType"/>
+    <camelContext id="servicio-socio" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSSocio"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSSocio"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="inicioToMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.socio.wsdl"/>
+                </marshal>
+                <convertBodyTo id="inicioToBodyString" type="java.lang.String"/>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionActivarSocio1">
+                        <simple>${header.operationName} == 'activar'</simple>
+                        <to id="toActivar" uri="direct:activarSocio"/>
+                    </when>
+                    <when id="inicioWhenOperacionActivarSocio">
+                        <simple>${header.operationName} == 'consultarAltas'</simple>
+                        <to id="inicioToConsultarAltas1" uri="direct:consultarAltas"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarEstadoSituacion">
+                        <simple>${header.operationName} == 'consultarEstadoSituacion'</simple>
+                        <to id="inicioToConsultarEstadoSituacion" uri="direct:consultarEstadoSituacion"/>
+                    </when>
+                    <when id="inicioWhenOperacionRentasUltimoCredito">
+                        <simple>${header.operationName} == 'rentasUltimoCredito'</simple>
+                        <setProperty id="_setProperty71" propertyName="userId">
+                            <xpath resultType="String">//userId</xpath>
+                        </setProperty>
+                        <to id="inicioToRentasUltimoCredito" uri="direct:rentasUltimoCredito"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="amq-inicio">
+            <from id="amqFrom" uri="beanAMQ:queue:{{colas.servicio.socio.in.temp}}?preserveMessageQos=true"/>
+            <choice id="amqChoice">
+                <when id="amqActivarSocio">
+                    <simple>${body} contains 'activarRequest'</simple>
+                    <setProperty id="amqSetTipoRequestActivar" propertyName="tipoRequest">
+                        <constant>ActivarRequest</constant>
+                    </setProperty>
+                    <to id="amqToActivarSocio" uri="direct:activarSocio"/>
+                </when>
+                <when id="amqConsultarAltas">
+                    <simple>${body} contains 'consultarAltasRequest'</simple>
+                    <setProperty id="amqSetTipoRequestConsultarAltas" propertyName="tipoRequest">
+                        <constant>ConsultarAltasRequest</constant>
+                    </setProperty>
+                    <to id="amqToConsultarAltas" uri="direct:consultarAltas"/>
+                </when>
+                <when id="amqConsultarAltas">
+                    <simple>${body} contains 'rentasUltimoCredito'</simple>
+                    <setProperty
+                        id="amqSetTipoRequestRentasUltimoCredito" propertyName="tipoRequest">
+                        <constant>rentasUltimoCredito</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty76" propertyName="userId">
+                        <xpath resultType="String">//userId</xpath>
+                    </setProperty>
+                    <to id="amqToConsultarAltasRequest" uri="direct:rentasUltimoCredito"/>
+                </when>
+                <when id="amqConsultarEstadoSituacion">
+                    <simple>${body} contains 'consultarEstadoSituacion'</simple>
+                    <setProperty
+                        id="amqSetTipoRequestConsultarEstadoSituacion" propertyName="tipoRequest">
+                        <constant>consultarEstadoSituacion</constant>
+                    </setProperty>
+                    <to id="amqToConsultarEstadoSituacionRequest" uri="direct:consultarEstadoSituacion"/>
+                </when>
+            </choice>
+            <marshal id="amqToMarshal">
+                <jaxb contextPath="cl.coopeuch.integracion.socio.wsdl"/>
+            </marshal>
+            <convertBodyTo id="amqToBodyString" type="java.lang.String"/>
+        </route>
+        <route id="rentasUltimoCredito">
+            <from id="idRentasUltimoCredito" uri="direct:rentasUltimoCredito"/>
+            <doTry id="_doTry15">
+                <setProperty id="_setProperty73" propertyName="canalLlamada">
+                    <xpath resultType="String">//canalLlamada</xpath>
+                </setProperty>
+                <setProperty id="_setProperty74" propertyName="rut">
+                    <xpath resultType="String">//rut</xpath>
+                </setProperty>
+                <setProperty id="_setProperty75" propertyName="numeroCliente">
+                    <xpath resultType="Integer">//numeroCliente</xpath>
+                </setProperty>
+                <to id="consultaPA" uri="sql-stored:classpath:etc/sql/PA_SEL_SOCIO_ULTIMASRENTAS_WS.sql?dataSource=dataSourceSqlDb2"/>
+                <setBody id="_setBody2">
+                    <simple>${body[#result-set-1]}</simple>
+                </setBody>
+                <bean id="_bean54" method="transformarXml" ref="beanRouteFacade"/>
+                <doCatch id="inicioDoCatchSQL">
+                    <exception>java.sql.SQLException</exception>
+                    <log id="_log38" loggingLevel="ERROR" message="${property.CamelExceptionCaught}"/>
+                    <to id="toInicioExcepcionSql" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log39" loggingLevel="ERROR" message="${property.CamelExceptionCaught}"/>
+                    <to id="toInicioExcepcion1" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="activarSocio">
+            <from id="activarSocioFrom" uri="direct:activarSocio"/>
+            <doTry id="activarSocioTry">
+                <bean id="activarSocioUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="activarSocioToXSLTrama" uri="xslt://etc/xsl/request/IOC733001I_activar.xsl"/>
+                <to id="activarSocioToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="activarSocioTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="activarSocioToXSLSOAP" uri="xslt://etc/xsl/response/IOC733001O_activar.xsl?saxon=true"/>
+                <unmarshal id="activarSocioToObject">
+                    <jaxb contextPath="cl.coopeuch.integracion.socio.wsdl"/>
+                </unmarshal>
+                <doCatch id="activarSocioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toActivarSocioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarAltas">
+            <from id="consultarAltasFrom" uri="direct:consultarAltas"/>
+            <doTry id="consultarAltasTry">
+                <bean id="consultarAltasUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultarAltasToXSLTrama" uri="xslt://etc/xsl/request/IOC733501I_consultarAltas.xsl"/>
+                <to id="consultarAltasToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="consultarAltasTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarAltasToXSLSOAP" uri="xslt://etc/xsl/response/IOC733501O_consultarAltas.xsl?saxon=true"/>
+                <unmarshal id="consultarTasasToObject">
+                    <jaxb contextPath="cl.coopeuch.integracion.socio.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultarAltasDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="consultarAltasToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarEstadoSituacion">
+            <from id="consultarEstadoSituacionFrom" uri="direct:consultarEstadoSituacion"/>
+            <doTry id="consultarEstadoSituacionTry">
+                <marshal id="consultarEstadoSituacionMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.socio.wsdl"/>
+                </marshal>
+                <convertBodyTo id="consultarEstadoSituacionBodyToString" type="java.lang.String"/>
+                <bean id="consultarEstadoSituacionUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultarEstadoSituacionToXSLTrama" uri="xslt://etc/xsl/request/IOC753001I_consultarEstadoSituacion.xsl"/>
+                <log id="consultarEstadoSituacionTramaRequest"
+                    loggingLevel="DEBUG" message="trama generada: ${body}"/>
+                <to id="consultarEstadoSituacionToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="consultarEstadoSituacionTramaResponse"
+                    loggingLevel="INFO" message="trama recibida: ${body}"/>
+                <transform id="consultarEstadoSituacionTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarEstadoSituacionToXSLSOAP" uri="xslt://etc/xsl/response/IOC753001O_consultarEstadoSituacion.xsl?saxon=true"/>
+                <unmarshal id="consultarEstadoSituacionUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.socio.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultarEstadoSituacionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty49" propertyName="error">
+                        <constant>WSSocio-consultarEstadoSituacion</constant>
+                    </setProperty>
+                    <bean id="_bean36"
+                        method="errorConsultarEstadoSituacion" ref="beanRouteFacade"/>
+                    <to id="consultarEstadoSituacionToExcepcion" uri="direct:excepcion"/>
+                    <stop id="_stop12"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <bean id="excepcionBeanExcepcion" method="excepcionCrear" ref="beanRouteFacade"/>
+        </route>
+    </camelContext>
+</blueprint>

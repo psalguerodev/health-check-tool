@@ -1,0 +1,382 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wstarjetaprepago" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>    
+        
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    
+    <bean class="cl.coopeuch.integracion.tarjetaprepago.util.RouteFacade" id="beanRouteFacade"/>
+    
+    <camelcxf:cxfEndpoint address="/dale/WSTarjetaPrepago"
+        id="endpointWSTarjetaPrepago"
+        serviceClass="cl.coopeuch.integracion.tarjetaprepago.wsdl.ServicioTarjetaPrepagoSOAPPortType" wsdlURL="etc/wsdl/wstarjetaprepago.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+
+	<camelcxf:rsServer address="/dale/RSTarjetaPrepago"
+        id="endpointRSTarjetaPrepago" loggingFeatureEnabled="false" serviceClass="cl.coopeuch.integracion.tarjetaprepago.wsdl.ServicioTarjetaPrepagoSOAPPortType"/>
+        
+<!-- Clientes Externos  -->
+   
+    <camelcxf:rsClient address="[{tarjeta.prepago.action.url}]" id="endpointAction">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient
+        address="[{tarjeta.prepago.renovacionenlinea.url}]" id="endpointRenovacion">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+
+	<bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+	
+    <camelContext id="servicio-tarjeta-prepago" xmlns="http://camel.apache.org/schema/blueprint">    
+		<route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSTarjetaPrepago"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSTarjetaPrepago"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">        
+			<from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>                
+                <setProperty propertyName="bypass">
+                    <simple>{{tarjetaprepago.bypass}}</simple>
+                </setProperty>                                             
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsultarCodigoSeguridad">
+                        <simple>${header.operationName} == 'consultarCodigoSeguridad'</simple>
+                        <to id="toConsultarCodigoSeguridad" uri="direct:consultarCodigoSeguridad"/>
+                    </when>
+                    <when id="inicioWhenOperacionRenovacion">
+                        <simple>${header.operationName} == 'renovacion'</simple>
+                        <to id="toRenovacion" uri="direct:renovacion"/>
+                    </when>
+                    <when id="inicioWhenOperacionReposicion">
+                        <simple>${header.operationName} == 'reposicion'</simple>
+                        <to id="toReposicion" uri="direct:reposicion"/>
+                    </when>
+                    <when id="inicioWhenOperacionBloquear">
+                        <simple>${header.operationName} == 'bloquear'</simple>
+                        <to id="toBloquear" uri="direct:bloquear"/>
+                    </when>
+                    <when id="inicioWhenOperacionDesbloquear">
+                        <simple>${header.operationName} == 'desbloquear'</simple>
+                        <to id="toDesbloquear" uri="direct:desbloquear"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>                   
+                </choice>
+                <removeHeaders id="_removeHeaders1" pattern="*"/>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>		
+        </route>
+        
+
+<!-- Operacion Renovacion -->        
+        <route id="renovacion">
+            <from id="renovacionFrom" uri="direct:renovacion"/>
+            <doTry id="renovacionDoTry">	    
+                <removeHeaders id="removeHeadersrenovacion" pattern="*"/>                                               
+                <bean id="beanrenovacionrequest" method="renewalOnlineRequest" ref="beanRouteFacade"/>
+                <log loggingLevel="INFO" message="REQUEST_RENOVACION ::: ${body}"/>              
+                <choice>
+                	<when>
+                		<simple>${property.bypass}</simple> 
+                		<log message="Entrada renovacion valor true :: ${property.bypass}"/>                		
+	                	<!-- consume Dummy --> 
+		                <bean id="beanrenovacionresponse" method="renewalOnlineResponseDummy" ref="beanRouteFacade"/>                             
+		                <log loggingLevel="INFO" message="RESPONSE_RENOVACION_DUMMY ::: ${body}"/>		                	               	
+                	</when>
+                	<otherwise>
+	                    <log message="Entrada renovacion valor false  ::  ${property.bypass}"/>	                		
+	                	<!-- Ruta al Renewal  -->
+	                	<to id="renovacion" uri="cxfrs:bean:endpointRenovacion"/>
+	                	<!-- consume Respuesta Renewal  -->   
+		                <bean id="beanrenovacionresponse" method="renewalOnlineResponse" ref="beanRouteFacade"/>
+		                <log loggingLevel="INFO" message="RESPONSE_RENOVACION ::: ${body}"/>		                
+                	</otherwise>      
+                </choice>		
+                <doCatch id="renovacionExceptionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log loggingLevel="ERROR" message="EXCEPCION GENERAL"/>                    
+                    <setProperty id="renovacionCodigoError" propertyName="codigoError">
+					<simple>500</simple>
+					</setProperty>
+					<to id="renovacionExcepcion" uri="direct:excepcion"/>
+                    <log loggingLevel="ERROR" message="${body}"/>
+                    <stop id="renovacionExcepcionStop"/>
+                </doCatch>           
+            </doTry>
+        </route>
+
+<!-- Operacion ***ConsultarCodigoSeguridad*** -->        
+        <route id="consultarCodigoSeguridad">
+            <from id="consultarCodigoSeguridadFrom" uri="direct:consultarCodigoSeguridad"/>
+            <doTry id="consultarCodigoSeguridadDoTry">            
+                <setProperty id="llavePublicaProperty" propertyName="tarjeta.prepago.llave.publica">
+                    <simple>{{tarjeta.prepago.llave.publica}}</simple>
+                </setProperty>
+                <setProperty id="claveJWTProperty" propertyName="tokenJwt">
+                    <simple>{{tarjeta.prepago.clave.jwt}}</simple>
+                </setProperty>
+                <setProperty id="authorizationProperty" propertyName="authorization">
+                    <header>Authorization</header>
+                </setProperty>                                             
+                <setProperty id="valorADQProperty" propertyName="tarjeta.prepago.valor.adq">
+                    <simple>{{tarjeta.prepago.valor.adq}}</simple>
+                </setProperty>
+                <setProperty id="codigoServicioProperty" propertyName="tarjeta.prepago.valor.codigoservicio">
+                    <simple>{{tarjeta.prepago.valor.codigoservicio}}</simple>
+                </setProperty>                              
+                <log id="authorization" message="AUTHORIZATION:: ${property.authorization}"/>                   
+                <removeHeaders id="consultarCodigoSeguridadremoveHeaders" pattern="*"/>                    
+                <bean id="consultarcodigoseguridadRequest" method="cycRequest" ref="beanRouteFacade"/>
+                <log loggingLevel="INFO" message="REQUEST_CVV ::: ${body}"/>                
+                <choice>
+                	<when>
+                		<simple>${property.bypass}</simple> 
+                		<log message="Entrada ConsultarCodigoSeguridad valor true :: ${property.bypass}"/>    
+                		<!-- consume Dummy  -->
+		                <bean id="consultarcodigoseguridadResponse" method="cysResponseDummy" ref="beanRouteFacade"/>
+		                <log loggingLevel="INFO" message="RESPONSE_CONSULTARCODIGOSEGURIDAD_DUMMY ::: ${body}"/>                		
+                	</when>
+                	<otherwise>
+		                <!-- Ruta al Renewal  -->
+		                <to id="action" uri="cxfrs:bean:endpointAction"/>		                
+		                <convertBodyTo id="consultarCodigoSeguridadconvertBody" type="String"/>
+		                
+		               <!-- consume Respuesta Renewal  -->                 
+		               <bean id="consultarcodigoseguridadResponse" method="cysResponse" ref="beanRouteFacade"/>
+		               <log loggingLevel="INFO" message="RESPONSE_CONSULTARCODIGOSEGURIDAD ::: ${body}"/>              	
+                	</otherwise>               
+                </choice>               
+                <doCatch id="consultarcodigoseguridadExcepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarcodigoseguridadCodigoError" propertyName="codigoError">
+					<simple>500</simple>
+					</setProperty>
+                    <to id="consultarcodigoseguridadTo" uri="direct:excepcion"/>
+                    <log loggingLevel="ERROR" message="${body}"/>
+                    <stop id="consultarcodigoseguridadExceptionStop"/>
+                </doCatch>
+            </doTry>
+        </route> 
+
+<!-- Operacion ***Reposicion*** -->        
+        <route id="reposicion">
+            <from id="reposicionFrom" uri="direct:reposicion"/>
+            <doTry id="reposicionDoTry">                                    
+                <marshal id="reposicionMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tarjetaprepago.wsdl"/>
+                </marshal>
+                <convertBodyTo id="reposicionConvertBodyToString" type="java.lang.String"/>
+                <bean id="reposicionUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>                    
+                <to id="reposicionToXSLTrama" uri="xslt://etc/xsl/request/IOC765001I_reposicion.xsl"/>                
+                <log id="reposicionTrama" loggingLevel="INFO" message="Trama generada = ${body}"/>                            
+                <to id="reposicionToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="reposicionTramaResponse" loggingLevel="INFO" message="Trama recibida = |${body}|"/>                
+                <transform id="reposicionTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>                
+                <to id="reposicionToXSLSOAP" uri="xslt://etc/xsl/response/IOC765001O_reposicion.xsl?saxon=true"/>
+                <log id="reposicionTrama" loggingLevel="INFO" message="salida: = ${body}"/>                    
+                <unmarshal id="reposicionUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tarjetaprepago.wsdl" encoding="UTF-8"/>
+                </unmarshal>                
+                <removeHeaders id="reposicion_removeHeaders_JMS" pattern="JMS*"/>
+                <removeHeaders id="reposicion_removeHeaders_Transfer" pattern="Transfer*"/>
+                <setProperty id="reposicion_HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="reposicion_CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="reposicion_CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="reposicion_CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>				
+				<!-- Excepciones **Reposicion** -->				
+   				<doCatch id="reposicionAMQDoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="reposicionAMQCodigoError" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="reposicionAMQTo" uri="direct:excepcion"/>
+                    <log loggingLevel="ERROR" message="${body}"/>
+                </doCatch>               
+                <doCatch id="reposicionExcepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="reposicionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="reposicionExceptionTo" uri="direct:excepcion"/>
+                    <log loggingLevel="ERROR" message="${body}"/>
+                </doCatch>            
+            </doTry>
+        </route> 
+
+<!-- Operacion ***Bloquear*** -->        
+        <route id="bloquear">
+            <from id="bloquearFrom" uri="direct:bloquear"/>
+            <doTry id="bloquearDoTry">            
+                <marshal id="bloquearMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tarjetaprepago.wsdl"/>
+                </marshal>
+                <convertBodyTo id="bloquearConvertBodyToString" type="java.lang.String"/>                                
+                <bean id="bloquearUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>                    
+                <to id="bloquearToXSLTrama" uri="xslt://etc/xsl/request/IOC701001I_bloquear.xsl"/>                
+                <log id="bloquearTrama" loggingLevel="INFO" message="Trama generada = ${body}"/>                
+                <to id="bloquearToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="bloquearTramaResponse" loggingLevel="INFO" message="Trama recibida = |${body}|"/>                
+                <transform id="bloquearTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>                
+                <to id="bloquearToXSLSOAP" uri="xslt://etc/xsl/response/IOC701001O_bloquear.xsl?saxon=true"/>
+                <log id="bloquearTrama" loggingLevel="INFO" message="salida: = ${body}"/>                
+                <unmarshal id="bloquearUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tarjetaprepago.wsdl" encoding="UTF-8"/>
+                </unmarshal>                
+                <removeHeaders id="bloquear_removeHeaders_JMS" pattern="JMS*"/>
+                <removeHeaders id="bloquear_removeHeaders_Transfer" pattern="Transfer*"/>
+                <setProperty id="bloquear_HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="bloquear_CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="bloquear_CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="bloquear_CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>                  
+                <!-- Excepciones **Bloquear** -->                             
+                <doCatch id="bloquearAMQDoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="bloquearAMQCodigoError" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="bloquearAMQTo" uri="direct:excepcion"/>
+                    <log loggingLevel="ERROR" message="${body}"></log>
+                </doCatch>                
+                <doCatch id="bloquearExcepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="bloquearExcepcionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="bloquearExcepcionTo" uri="direct:excepcion"/>
+                    <log loggingLevel="ERROR" message="${body}"></log>
+                </doCatch>                
+            </doTry>
+        </route>        
+
+<!-- Operacion ***Desbloquear*** -->        
+        <route id="desbloquear">
+            <from id="desbloquearFrom" uri="direct:desbloquear"/>
+            <doTry id="desbloquearDoTry">            
+                <marshal id="desbloquearMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tarjetaprepago.wsdl"/>
+                </marshal>
+                <convertBodyTo id="desbloquearConvertBodyToString" type="java.lang.String"/>				
+				<!-- El codigo desbloqueo es un caracter vacio que espera el IOC en trama para desbloquear -->
+                <setProperty id="codigoDesbloqueoIOC" propertyName="codigoDesbloqueo">
+                    <constant> </constant>
+                </setProperty>                
+                <bean id="desbloquearUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>                    
+                <to id="desbloquearToXSLTrama" uri="xslt://etc/xsl/request/IOC701001I_desbloquear.xsl"/>                
+                <log id="desbloquearTrama" loggingLevel="INFO" message="Trama generada = ${body}"/>                
+                <to id="desbloquearToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="desbloquearTramaResponse" loggingLevel="INFO" message="Trama recibida = |${body}|"/>                
+                <transform id="desbloquearTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>                
+                <to id="desbloquearToXSLSOAP" uri="xslt://etc/xsl/response/IOC701001O_desbloquear.xsl?saxon=true"/>
+                <log id="desbloquearTrama" loggingLevel="INFO" message="salida: = ${body}"/>                
+                <unmarshal id="desbloquearUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tarjetaprepago.wsdl" encoding="UTF-8"/>
+                </unmarshal>               
+                <!-- Excepciones **Desbloquear** -->                               
+                <doCatch id="desbloquearAMQDoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="desbloquearAMQCodigoError" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="desbloquearAMQTo" uri="direct:excepcion"/>
+                </doCatch>
+                
+                <doCatch id="desbloquearExceptionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="desbloquearExceptionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="desbloquearExcepcionTo" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route> 
+        
+<!-- Excepcion  -->      
+
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

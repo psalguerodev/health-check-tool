@@ -1,0 +1,678 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyMQGetway"
+        persistent-id="globalmq" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsnotificaciones" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="com.ibm.mq.jms.MQConnectionFactory" id="websphereConnectionFactory">
+        <property name="transportType" value="1"/>
+        <property name="hostName" value="[[ibm.mq.host]]"/>
+        <property name="port" value="[[ibm.mq.port]]"/>
+        <property name="queueManager" value="[[ibm.qm.name]]"/>
+        <property name="useConnectionPooling" value="true"/>
+        <property name="channel" value="[[ibm.qm.channel]]"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="websphereConfig">
+        <property name="connectionFactory" ref="websphereConnectionFactory"/>
+        <property name="concurrentConsumers" value="[{ibm.mq.concurrentConsumers.notificacion}]"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsComponent" id="websphere">
+        <property name="configuration" ref="websphereConfig"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.wsnotificacion}]/Notificacion;charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.wsnotificacion}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.wsnotificacion}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.wsnotificacion}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.wsnotificacion}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.wsnotificacion}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.wsnotificacion}]"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.tarea.wsdl.wsnotificacion.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProviderIn"/>
+    <camelcxf:cxfEndpoint address="/WSNotificaciones"
+        id="endpointWSNotificaciones" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.tarea.wsdl.wsnotificacion.WSNotificacionesSOAPPortType" wsdlURL="etc/wsdl/WSNotificaciones.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:cxfEndpoint
+        address="[{wsnotificacion.servicio.destinatarios.convenio.endpoint}]"
+        id="endpointWSDestinatariosConvenio"
+        loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.tarea.wsdl.wsdestinatario.convenio.WSDestinatariosConvenioSOAPPortType" wsdlURL="etc/wsdl/WSDestinatariosConvenio.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:cxfEndpoint
+        address="[{wsnotificacion.servicio.envio.email.endpoint}]"
+        id="endpointWSEnvioEmail" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.tarea.wsdl.envio.email.EnvioEmailPortType" wsdlURL="etc/wsdl/ServicioEnvioEmail.wsdl"/>
+    <camelcxf:cxfEndpoint
+        address="[{wsnotificacion.servicio.envio.email.transferencia.endpoint}]"
+        id="endpointWSEnvioEmailTransferencia"
+        loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.tarea.wsdl.envio.email.transferencia.EnvioEmailTransferenciaPortType" wsdlURL="etc/wsdl/ServicioEnvioEmailTransferencia.wsdl"/>
+    <camelcxf:rsServer address="/RSNotificaciones"
+        id="endpointRSNotificaciones" loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.tarea.wsdl.wsnotificacion.WSNotificacionesSOAPPortType"/>
+    <camelcxf:rsClient
+        address="[{wsnotificacion.servicio.destinatario.consultar.endpoint}]"
+        id="wsdestinatario" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProviderIn"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient
+        address="[{wsnotificacion.amazonaws.pinpoint.endpoint}]"
+        id="awsPinpointEndpoint" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProviderIn"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelContext id="servicio-notificaciones" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="gsonMap2Json" library="Gson" prettyPrint="true"/>
+        </dataFormats>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSNotificaciones"/>
+            <to id="restToInicioWs" uri="direct:inicio"/>
+        </route>
+        <route id="_route1">
+            <from id="inicioFromServicio" uri="cxf:bean:endpointWSNotificaciones"/>
+            <to id="_to1" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicio" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="requestEntrada" propertyName="requestEntrada">
+                    <simple>${body.get(0)}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionEnviar">
+                        <simple>${header.operationName} == 'enviar'</simple>
+                        <to id="Enviar-To" uri="direct:enviar"/>
+                    </when>
+                </choice>
+            </doTry>
+        </route>
+        <route id="EnviarNotificacion">
+            <from id="EnviarNotificacion-From" uri="direct:enviar"/>
+            <doTry id="EnviarNotificacion-DoTry">
+                <bean id="EnviarNotificacion-Bean"
+                    method="guardarDatosEntrada" ref="beanRouteFacade"/>
+                <to id="EnviarNotificacion-ProcedimientoAlmacenado-To" uri="direct:procedimientoAlmacenado"/>
+                <choice id="EnviarNotificacion-Choice">
+                    <when id="EnviarNotificacion-When">
+                        <simple>${exchangeProperty.Salida} != 'OK'</simple>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwException-ValidaCanal" message="${exchangeProperty.Mensaje}"/>
+                        <stop id="ErrorValidacionCanal"/>
+                    </when>
+                    <otherwise id="EnviarNotificacion-Otherwise">
+                        <choice id="EnviarNotificacion-Choice">
+                            <when id="EnviarNotificacion-When">
+                                <simple>${exchangeProperty.TIPO_NOTIFICACION} contains 'EMAIL'</simple>
+                                <bean
+                                    id="EnviarNotificacion-Bean-ValidarDatosEntrada"
+                                    method="validarValoresEntrada" ref="beanRouteFacade"/>
+                                <choice id="validarValoresEntrada-Choice">
+                                    <when id="validarValoresEntrada-When">
+                                    <simple>${exchangeProperty.MensajeSalida} != 'OK'</simple>
+                                    <setProperty
+                                    id="EnviarNotificacion-validarValoresEntrada-SetProperty" propertyName="codigoError">
+                                    <simple>{{error.validar.valores.entrada.codigo}}</simple>
+                                    </setProperty>
+                                    <setProperty
+                                    id="EnviarNotificacion-validarValoresEntrada-SetProperty-MensajeSalida" propertyName="Mensaje">
+                                    <simple>${exchangeProperty.Mensaje}</simple>
+                                    </setProperty>
+                                    <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="throwException-EnviarNotificacion" message="${exchangeProperty.Mensaje}"/>
+                                    <removeHeaders
+                                    id="throwException-EnviarNotificacion-RemoveHeaders" pattern="*"/>
+                                    <setProperty
+                                    id="throwException-EnviarNotificacion-CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                                    <constant>text/xml;charset=utf-8</constant>
+                                    </setProperty>
+                                    <setProperty
+                                    id="throwException-EnviarNotificacion-HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                                    <constant>utf-8</constant>
+                                    </setProperty>
+                                    <setProperty
+                                    id="throwException-EnviarNotificacion-CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                                    <constant>utf-8</constant>
+                                    </setProperty>
+                                    <setProperty
+                                    id="throwException-EnviarNotificacion-CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                                    <constant>utf-8</constant>
+                                    </setProperty>
+                                    <stop id="ErrorValidacionCanal"/>
+                                    </when>
+                                    <otherwise id="validarValoresEntrada-Otherwise">
+                                    <choice id="ValidaBuscaDestinatario-Choice">
+                                    <when id="ValidaBuscaDestinatario-When">
+                                    <simple>${exchangeProperty.DESTINATARIO} == 'FALSE'</simple>
+                                    <toD
+                                    id="ValidaBuscaDestinatario-EnvioEmail-To" uri="direct:${exchangeProperty.TIPO_NOTIFICACION}"/>
+                                    <removeHeaders
+                                    id="ValidaBuscaDestinatario-EnvioEmail-RemoveHeaders" pattern="*"/>
+                                    </when>
+                                    <otherwise id="ValidaBuscaDestinatario-Otherwise">
+                                    <to
+                                    id="EnviarNotificacion-Destinatarios-To" uri="direct:Destinatarios"/>
+                                    </otherwise>
+                                    </choice>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="EnviarNotificacion-Otherwise">
+                                <setProperty
+                                    id="EnviarNotificacion-SetProperty" propertyName="codigoError">
+                                    <simple>{{error.tipo.notificacion.codigo}}</simple>
+                                </setProperty>
+                                <setProperty
+                                    id="EnviarNotificacion-SetProperty-MensajeSalida" propertyName="Mensaje">
+                                    <simple>{{error.tipo.notificacion.descripcion}}</simple>
+                                </setProperty>
+                                <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="throwException-EnviarNotificacion" message="{{error.tipo.notificacion.descripcion}}"/>
+                                <removeHeaders
+                                    id="ErrorValidacionCanal-RemoveHeaders" pattern="*"/>
+                                <setProperty
+                                    id="ErrorValidacionCanal-CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                                    <constant>text/xml;charset=utf-8</constant>
+                                </setProperty>
+                                <setProperty
+                                    id="ErrorValidacionCanal-HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                                    <constant>utf-8</constant>
+                                </setProperty>
+                                <setProperty
+                                    id="ErrorValidacionCanal-CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                                    <constant>utf-8</constant>
+                                </setProperty>
+                                <setProperty
+                                    id="ErrorValidacionCanal-CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                                    <constant>utf-8</constant>
+                                </setProperty>
+                                <stop id="ErrorValidacionCanal"/>
+                            </otherwise>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="OrigenDatosNotificacion-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="OrigenDatosNotificacion-To-Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="Destinatarios">
+            <from id="Destinatarios-From" uri="direct:Destinatarios"/>
+            <choice id="Destinatarios-Choice">
+                <when id="Destinatarios-PortalConvenio-When">
+                    <simple>${exchangeProperty.CanalLlamada} == 'PEMP'</simple>
+                    <to id="DestinatariosConvenio-To" uri="direct:DestinatariosConvenio"/>
+                </when>
+                <otherwise id="_otherwise1">
+                    <to id="DestinatariosConsultar-To" uri="direct:DestinatariosConsultar"/>
+                    <wireTap
+                        id="wireTap-CambioEmailDestino-Destinatario-Destinatario" uri="direct:UpdateDatosEntrada"/>
+                    <toD id="Destinatarios-Destinatario-EnvioEmail-To" uri="direct:${exchangeProperty.TIPO_NOTIFICACION}"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="DestinatariosConsultar">
+            <from id="DestinatariosConsultar-From" uri="direct:DestinatariosConsultar"/>
+            <doTry id="DestinatariosConsultarDoTry">
+                <bean id="DestinatariosConsultar-Bean"
+                    method="setHeaderDetinatarioConsultar" ref="beanRouteFacade"/>
+                <to id="destinatariosConsultartToInstanda" uri="cxfrs://bean://wsdestinatario"/>
+                <bean id="destinatariosConsultarBean"
+                    method="detinatarioConsultarResponse" ref="beanRouteFacade"/>
+                <doCatch id="destinatariosConsultarCamelDoCatch">
+                    <exception>org.apache.camel.CamelException</exception>
+                    <setProperty id="destinatariosConsultarCamelCodigo" propertyName="codigoError">
+                        <simple>419</simple>
+                    </setProperty>
+                    <setProperty
+                        id="destinatariosConsultarCamelCodigoExt" propertyName="codigoErrorExt">
+                        <simple>${exception.statusCode}</simple>
+                    </setProperty>
+                    <to id="destinatariosConsultarCamelToException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="destinatariosConsultarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="destinatariosConsultarCodigo" propertyName="codigoError">
+                        <simple>504</simple>
+                    </setProperty>
+                    <to id="destinatariosConsultarToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="DestinatariosConvenio">
+            <from id="Destinatarios-From" uri="direct:DestinatariosConvenio"/>
+            <choice id="DestinatariosConvenio-Choice">
+                <when id="DestinatariosConvenio-When">
+                    <simple>${exchangeProperty.idNotificacion} == '5'</simple>
+                    <to id="DestinatarioConvenio-VBEmpleador-To" uri="direct:DestinatarioConvenio-VBEmpleador"/>
+                    <choice id="DestinatariosConvenio-Destinatario-Choice">
+                        <when id="DestinatariosConvenio-Destinatario-When">
+                            <simple>${exchangeProperty.destinatarios} == ''</simple>
+                            <wireTap
+                                id="wireTap-SalidaOK-DestinatariosConvenio-destinatarios-Vacio" uri="direct:MQLOG_Salida"/>
+                            <stop id="DestinatariosConvenio-Destinatario-Stop"/>
+                        </when>
+                        <otherwise id="DestinatariosConvenio-Destinatario-Otherwise">
+                            <wireTap
+                                id="wireTap-CambioEmailDestino-DestinatarioConvenio-Destinatario" uri="direct:UpdateDatosEntrada"/>
+                            <toD
+                                id="DestinatariosConvenio-Destinatario-EnvioEmail-To" uri="direct:${exchangeProperty.TIPO_NOTIFICACION}"/>
+                            <removeHeaders
+                                id="DestinatariosConvenio-Destinatario-EnvioEmail-RemoveHeaders" pattern="*"/>
+                            <wireTap
+                                id="wireTap-SalidaOK-DestinatariosConvenio" uri="direct:MQLOG_Salida"/>
+                        </otherwise>
+                    </choice>
+                </when>
+                <when id="_when6">
+                    <simple>${exchangeProperty.idNotificacion} == '6'</simple>
+                    <to id="DestinatarioConvenio-VBResolucion-To" uri="direct:DestinatarioConvenio-VBResolucion"/>
+                    <choice id="DestinatarioConvenio-VBResolucion-Choice">
+                        <when id="DestinatarioConvenio-VBResolucion-When">
+                            <simple>${exchangeProperty.destinatarios} == ''</simple>
+                            <wireTap
+                                id="wireTap-SalidaOK-DestinatariosConvenio-VBResolucion-destinatarios-Vacio" uri="direct:MQLOG_Salida"/>
+                            <stop id="DestinatarioConvenio-VBResolucion-Destinatarios-Stop"/>
+                        </when>
+                        <otherwise id="DestinatarioConvenio-VBResolucion-Otherwise">
+                            <wireTap
+                                id="wireTap-CambioEmailDestino-DestinatarioConvenio-VBResolucion" uri="direct:UpdateDatosEntrada"/>
+                            <toD
+                                id="DestinatarioConvenio-VBResolucion-EnvioEmail-To" uri="direct:${exchangeProperty.TIPO_NOTIFICACION}"/>
+                            <wireTap
+                                id="wireTap-SalidaOK-DestinatarioConvenio-VBResolucion" uri="direct:MQLOG_Salida"/>
+                        </otherwise>
+                    </choice>
+                </when>
+            </choice>
+        </route>
+        <route id="ProcedimientoAlmacenado">
+            <from id="ProcedimientoAlmacenado-From" uri="direct:procedimientoAlmacenado"/>
+            <doTry id="ProcedimientoAlmacenado-DoTry">
+                <to id="pa_obtenerInformacionNotificacion-To" uri="sql-stored:classpath:etc/sql/pa_obtenerInformacionNotificacion.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseInformacionNotificacion"/>
+                <bean id="ProcedimientoAlmacenado-Bean"
+                    method="obtenerInformacionNotificacion" ref="beanRouteFacade"/>
+                <wireTap id="_wireTap1" uri="direct:MQLOG"/>
+                <doCatch id="ProcedimientoAlmacenado-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="OrigenDatosNotificacion-SetProperty" propertyName="codigoError">
+                        <simple>{{error.base.datos.codigo.notificacion}}</simple>
+                    </setProperty>
+                    <setProperty
+                        id="OrigenDatosNotificacion-SetProperty-MensajeSalida" propertyName="Mensaje">
+                        <simple>{{error.base.datos.descripcion.notificacion}}</simple>
+                    </setProperty>
+                    <to id="ProcedimientoAlmacenado-toCrearExcepcion" uri="direct:excepcion"/>
+                    <removeHeaders
+                        id="ProcedimientoAlmacenado-RemoveHeaders" pattern="*"/>
+                    <setProperty
+                        id="ProcedimientoAlmacenado-CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                        <constant>text/xml;charset=utf-8</constant>
+                    </setProperty>
+                    <setProperty
+                        id="ProcedimientoAlmacenado-HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <setProperty
+                        id="ProcedimientoAlmacenado-CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <setProperty
+                        id="ProcedimientoAlmacenado-CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <stop id="ProcedimientoAlmacenado-Stop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="EMAIL_ANTISPAM">
+            <from id="EnvioEmailTransferencia-From" uri="direct:EMAIL_ANTISPAM"/>
+            <doTry id="EnvioEmailTransferencia-Try">
+                <to id="EMAIL_ANTISPAM-ValidarMail-To" uri="direct:VALIDAR_EMAIL"/>
+                <removeHeaders
+                    id="EnvioEmailTransferencia-removeHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="EnvioEmailTransferencia-OperationName">
+                    <constant>enviaEmailTransferencia</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="EnvioEmailTransferencia-SOAPAction">
+                    <constant>http://www.example.org/envioEmailTransferencia/enviaEmailTransferencia</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="EnvioEmailTransferencia-OperationNamespace">
+                    <constant>http://envioemailtransferencia.core.coopeuch.cl/envioemailtransferencia</constant>
+                </setHeader>
+                <bean id="EnvioEmailTransferencia-Bean"
+                    method="requestEnviaEmailTransferencia" ref="beanRouteFacade"/>
+                <to id="EnvioEmailTransferencia-To" uri="cxf:bean:endpointWSEnvioEmailTransferencia"/>
+                <bean id="EnvioEmailTransferencia-Response-Bean"
+                    method="respuestaEnviarEmailTransferencia" ref="beanRouteFacade"/>
+                <wireTap id="wireTap-SalidaOK-EmailTransferencia" uri="direct:MQLOG_Salida"/>
+                <doCatch id="EnvioEmailTransferencia-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="EnvioEmailTransferencia-SetProperty" propertyName="codigoError">
+                        <simple>{{error.servicio.envio.email.transferencia.codigo}}</simple>
+                    </setProperty>
+                    <setProperty
+                        id="EnvioEmailTransferencia-SetProperty-MensajeSalida" propertyName="Mensaje">
+                        <simple>{{error.servicio.envio.email.transferencia.descripcion}}</simple>
+                    </setProperty>
+                    <setProperty id="EnvioEmailTransferencia-BaseDatos" propertyName="BaseDatos">
+                        <simple>{{error.servicio.envio.email.transferencia}}</simple>
+                    </setProperty>
+                    <to id="EnvioEmailTransferencia-To-Excepcion" uri="direct:excepcion"/>
+                    <stop id="EnvioEmailTransferencia-Stop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="ValidarEmail">
+            <from id="ValidarEmail-From" uri="direct:VALIDAR_EMAIL"/>
+            <doTry id="ValidarEmail-Try">
+                <choice id="ValidarEmail-Choice">
+                    <when id="ValidarEmail-When">
+                        <simple>${exchangeProperty.EMAIL_DESTINO} == ''</simple>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwException-ValidarEmail" message="${exchangeProperty.Mensaje}"/>
+                    </when>
+                </choice>
+                <doCatch id="ValidarEmail-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="ValidarEmail-To-Excepcion" uri="direct:excepcion"/>
+                    <stop id="ValidarEmail-Stop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="EnvioEmail">
+            <from id="EnvioEmail-From" uri="direct:EMAIL_EXCHANGE"/>
+            <doTry id="EnvioEmail-Try">
+                <removeHeaders id="EnvioEmail-removeHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="EnvioEmail-OperationName">
+                    <constant>enviaEmail</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="EnvioEmail-SOAPAction">
+                    <constant>http://www.example.org/EnvioEmail/envioEmail</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="EnvioEmail-OperationNamespace">
+                    <constant>http://envioemail.core.coopeuch.cl/envioemail</constant>
+                </setHeader>
+                <bean id="EnvioEmail-Bean" method="requestEnviaEmail" ref="beanRouteFacade"/>
+                <to id="EnvioEmail-To" uri="cxf:bean:endpointWSEnvioEmail"/>
+                <bean id="EnvioEmail-Response-Bean"
+                    method="respuestaEnviarEmail" ref="beanRouteFacade"/>
+                <log id="_log2" message="Salida Respuesta: ${body} "/>
+                <wireTap id="wireTap-SalidaOK-Email" uri="direct:MQLOG_Salida"/>
+                <doCatch id="EnvioEmail-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="EnvioEmail-SetProperty" propertyName="codigoError">
+                        <simple>{{error.servicio.envio.email.codigo}}</simple>
+                    </setProperty>
+                    <setProperty
+                        id="EnvioEmail-SetProperty-MensajeSalida" propertyName="Mensaje">
+                        <simple>{{error.servicio.envio.email.descripcion}}</simple>
+                    </setProperty>
+                    <setProperty id="EnvioEmail-BaseDatos" propertyName="BaseDatos">
+                        <simple>{{error.servicio.envio.email}}</simple>
+                    </setProperty>
+                    <to id="EnvioEmail-To-Excepcion" uri="direct:excepcion"/>
+                    <stop id="EnvioEmail-Stop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="DestinatarioConvenio-VBEmpleador">
+            <from id="DestinatarioConvenio-VBEmpleador-From" uri="direct:DestinatarioConvenio-VBEmpleador"/>
+            <doTry id="DestinatarioConvenio-VBEmpleador-Try">
+                <removeHeaders
+                    id="DestinatarioConvenio-VBEmpleador-removeHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="DestinatarioConvenio-VBEmpleador-OperationName">
+                    <constant>consultarVBEmpleador</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="DestinatarioConvenio-VBEmpleador-SOAPAction">
+                    <constant>http://integracion.coopeuch.cl/WSDestinatariosConvenio/consultarVBEmpleador</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="DestinatarioConvenio-VBEmpleador-OperationNamespace">
+                    <constant>http://integracion.coopeuch.cl/WSDestinatariosConvenio/</constant>
+                </setHeader>
+                <bean id="DestinatarioConvenio-VBEmpleador-Bean"
+                    method="requestDestinatariosConvenio" ref="beanRouteFacade"/>
+                <to id="DestinatarioConvenio-VBEmpleador-Operacion-To" uri="cxf:bean:endpointWSDestinatariosConvenio"/>
+                <bean
+                    id="DestinatarioConvenio-VBEmpleador-Response-Bean"
+                    method="respuestaDestinatarioConvenioVBEmpleador" ref="beanRouteFacade"/>
+                <doCatch id="DestinatarioConvenio-VBEmpleador-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="DestinatarioConvenio-VBEmpleador-SetProperty" propertyName="codigoError">
+                        <simple>{{error.servicio.consultar.vb.empleador.codigo}}</simple>
+                    </setProperty>
+                    <setProperty
+                        id="DestinatarioConvenio-VBEmpleador-SetProperty-MensajeSalida" propertyName="Mensaje">
+                        <simple>{{error.servicio.consultar.vb.empleador.descripcion}}</simple>
+                    </setProperty>
+                    <setProperty
+                        id="DestinatarioConvenio-VBEmpleador-BaseDatos" propertyName="BaseDatos">
+                        <simple>{{error.servicio.consultar.vb.empleador.transferencia}}</simple>
+                    </setProperty>
+                    <to
+                        id="DestinatarioConvenio-VBEmpleador-To-Excepcion" uri="direct:excepcion"/>
+                    <removeHeaders
+                        id="DestinatarioConvenio-VBEmpleador-RemoveHeaders" pattern="*"/>
+                    <setProperty
+                        id="DestinatarioConvenio-VBEmpleador-CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                        <constant>text/xml;charset=utf-8</constant>
+                    </setProperty>
+                    <setProperty
+                        id="DestinatarioConvenio-VBEmpleador-HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <setProperty
+                        id="DestinatarioConvenio-VBEmpleador-CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <setProperty
+                        id="DestinatarioConvenio-VBEmpleador-CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <stop id="DestinatarioConvenio-VBEmpleador-Stop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="MQLOG_Cola-Entrada">
+            <from id="MQLOG_Cola-Entrada-from" uri="direct:MQLOG"/>
+            <bean id="obtener_IDAuditoria-Entrada"
+                method="enviarDatosEntradaMQ" ref="beanRouteFacade"/>
+            <log id="MQLOG_Cola-Entrada-LogAuditoria" message="Auditoria MQ Log:${body}"/>
+            <to id="MQLOG_Cola-Entrada-activemq" uri="beanAMQ:{{amq.queue.notificacion.log}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;explicitQosEnabled=true&amp;replyToDeliveryPersistent=false"/>
+        </route>
+        <route id="MQLOG_Cola-Salida">
+            <from id="MQLOG_Cola-Salida-from" uri="direct:MQLOG_Salida"/>
+            <bean id="obtener_IDAuditoria-Salida"
+                method="enviarDatosSalidaMQ" ref="beanRouteFacade"/>
+            <log id="MQLOG_Cola-Salida-LogAuditoria" message="Auditoria MQ Log:${body}"/>
+            <to id="MQLOG_Cola-Salida-activemq" uri="beanAMQ:{{amq.queue.notificacion.log}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;explicitQosEnabled=true&amp;replyToDeliveryPersistent=false"/>
+        </route>
+        <route id="DestinatarioConvenio-VBResolucion">
+            <from id="DestinatarioConvenio-VBResolucion-From" uri="direct:DestinatarioConvenio-VBResolucion"/>
+            <doTry id="DestinatarioConvenio-VBResolucion-Try">
+                <removeHeaders
+                    id="DestinatarioConvenio-VBResolucion-removeHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="DestinatarioConvenio-VBResolucion-OperationName">
+                    <constant>consultarVBResolucion</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="DestinatarioConvenio-VBResolucion-SOAPAction">
+                    <constant>http://integracion.coopeuch.cl/WSDestinatariosConvenio/consultarVBResolucion</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="DestinatarioConvenio-VBResolucion-OperationNamespace">
+                    <constant>http://integracion.coopeuch.cl/WSDestinatariosConvenio/</constant>
+                </setHeader>
+                <bean id="DestinatarioConvenio-VBResolucion-Bean"
+                    method="requestDestinatariosVBResolucion" ref="beanRouteFacade"/>
+                <to id="DestinatarioConvenio-VBResolucion-Operacion-To" uri="cxf:bean:endpointWSDestinatariosConvenio"/>
+                <bean
+                    id="DestinatarioConvenio-VBResolucion-Response-Bean"
+                    method="respuestaDestinatarioConvenioVBResolucion" ref="beanRouteFacade"/>
+                <doCatch id="DestinatarioConvenio-VBResolucion-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="DestinatarioConvenio-VBResolucion-SetProperty" propertyName="codigoError">
+                        <simple>{{error.servicio.consultar.vb.resolucion.codigo}}</simple>
+                    </setProperty>
+                    <setProperty
+                        id="DestinatarioConvenio-VBResolucion-SetProperty-MensajeSalida" propertyName="Mensaje">
+                        <simple>{{error.servicio.consultar.vb.resolucion.descripcion}}</simple>
+                    </setProperty>
+                    <setProperty
+                        id="DestinatarioConvenio-VBResolucion-BaseDatos" propertyName="BaseDatos">
+                        <simple>{{error.servicio.consultar.vb.resolucion.transferencia}}</simple>
+                    </setProperty>
+                    <to
+                        id="DestinatarioConvenio-VBResolucion-To-Excepcion" uri="direct:excepcion"/>
+                    <stop id="DestinatarioConvenio-VBResolucion-Stop"/>
+                    <removeHeaders
+                        id="DestinatarioConvenio-VBResolucion-RemoveHeaders" pattern="*"/>
+                    <setProperty
+                        id="DestinatarioConvenio-VBResolucion-CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                        <constant>text/xml;charset=utf-8</constant>
+                    </setProperty>
+                    <setProperty
+                        id="DestinatarioConvenio-VBResolucion-HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <setProperty
+                        id="DestinatarioConvenio-VBResolucion-CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                    <setProperty
+                        id="DestinatarioConvenio-VBResolucion-CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                        <constant>utf-8</constant>
+                    </setProperty>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="UpdateDatosEntrada-EnviarNotificacion-MQ">
+            <from id="UpdateDatosEntrada-MQLOG_Cola-Entrada-from" uri="direct:UpdateDatosEntrada"/>
+            <choice id="_choice1">
+                <when id="_when1">
+                    <simple>${exchangeProperty.AUDITORIA} == 1</simple>
+                    <setBody id="UpdateDatosEntrada-EnviarNotificacion-MQ-SetBody">
+                        <simple>${exchangeProperty.requestEntrada}</simple>
+                    </setBody>
+                    <log
+                        id="UpdateDatosEntrada-MQLOG_Cola-Entrada-LogAuditoria" message="Auditoria MQ Log:${body}"/>
+                    <to
+                        id="UpdateDatosEntrada-MQLOG_Cola-Entrada-activemq" uri="beanAMQ:{{amq.queue.notificacion.log}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;explicitQosEnabled=true&amp;replyToDeliveryPersistent=false"/>
+                </when>
+            </choice>
+        </route>
+        <route id="EnviarNotificacion-MQ">
+            <from id="EnviarNotificacion-MQ-From" uri="websphere:queue:{{ibm.queueBlist.in}}"/>
+            <convertBodyTo id="EnviarNotificacion-MQ-BodyTo" type="java.lang.String"/>
+            <log id="_log3" message="cola MQ = ${body}"/>
+            <to id="EnviarNotificacion-MQ-To" uri="xslt://etc/xsl/request/trama2xml_Enviar.xsl?saxon=true"/>
+            <log id="_log4" message="XML cola MQ = ${body}"/>
+            <convertBodyTo id="_convertBodyTo1" type="cl.coopeuch.integracion.tarea.wsdl.wsnotificacion.EnviarRequest"/>
+            <setBody id="EnviarNotificacion-MQ-SetBody">
+                <simple>${body}</simple>
+            </setBody>
+            <setProperty id="requestEntrada-MQ" propertyName="requestEntrada">
+                <simple>${body}</simple>
+            </setProperty>
+            <to id="EnviarNotificacion-MQ-Ruta" uri="direct:enviar"/>
+        </route>
+        <route id="EMAIL_AWS">
+            <from id="fromEmailAws" uri="direct:EMAIL_AWS"/>
+            <doTry id="emailAwsDoTry">
+                <bean id="envioEmailAWSRequest"
+                    method="envioEmailAWSRequest" ref="beanRouteFacade"/>
+                <marshal id="bodyJsonMarshal" ref="gsonMap2Json"/>
+                <convertBodyTo id="emailAwsToString" type="java.lang.String"/>
+                <to id="emailAwsToPinPoint" uri="cxfrs://bean://awsPinpointEndpoint?throwExceptionOnFailure=false"/>
+                <unmarshal id="unmarshallResponseApiNotificacionSchema">
+                    <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tarea.wsdl.wsnotificacion.pojo.ResponseApiNotificacionSchema"/>
+                </unmarshal>
+                <bean id="responseEnvioEmailAWS"
+                    method="responseEnvioEmailAWS" ref="beanRouteFacade"/>
+                <doCatch id="emailAwsDoCatchIOException">
+                    <exception>java.io.IOException</exception>
+                    <to id="envioEmailAwsToCamelIOExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="emailAwsDoCatchException">
+                    <exception>org.apache.camel.CamelException</exception>
+                    <setProperty
+                        id="emailAwsSetPropertyCodigoErrorCamelEx" propertyName="codigoError">
+                        <constant>418</constant>
+                    </setProperty>
+                    <setProperty id="emailAwsCamelExSetMensaje" propertyName="Mensaje">
+                        <simple>Error en API Notificacion AWS. ${property.detalleErrorAws}</simple>
+                    </setProperty>
+                    <to id="envioEmailAwsToCamelExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="emailAwsDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="emailAwsSetPropertyCodigoError" propertyName="codigoError">
+                        <constant>417</constant>
+                    </setProperty>
+                    <setProperty id="emailAwsExSetMensaje" propertyName="Mensaje">
+                        <constant>Los datos ingresados son incorrectos.</constant>
+                    </setProperty>
+                    <to id="envioEmailAwsToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <!--             <doTry id="excepcionTry"> -->
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+            <marshal id="excepcionMarshalJson">
+                <json library="Jackson"/>
+            </marshal>
+            <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+            <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+            <bean id="excepcionBeanExcepcion"
+                method="excepcionNotificacion" ref="beanRouteFacade"/>
+            <wireTap id="wireTap-Error" uri="direct:MQLOG_Salida"/>
+            <!--                 <doCatch id="excepcionDoCatch"> -->
+            <!--                     <exception>java.lang.Exception</exception> -->
+            <!--                     <setBody id="exceptionFinalSetBodyError"> -->
+            <!--                         <simple>${exception}, Body -&gt; ${body}</simple> -->
+            <!--                     </setBody> -->
+            <!--                     <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/> -->
+            <!--                 </doCatch> -->
+            <!--             </doTry> -->
+        </route>
+    </camelContext>
+</blueprint>

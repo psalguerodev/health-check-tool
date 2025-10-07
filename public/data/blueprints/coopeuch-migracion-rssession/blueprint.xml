@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder persistent-id="serviceProperties" update-strategy="reload"/>
+    <!-- Configure CXF endpoint -->
+    <cxf:cxfEndpoint address="/ServicioSession"
+        id="servicioSessionEndpoint"
+        serviceClass="cl.coopeuch.core.session.session.Session" wsdlURL="wsdl/ServicioSession.wsdl"/>
+    <!-- Configure Active MQ connection factory -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Configure JDBC connection -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSource">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="${jdbc.sybase.url.session}/Coopeuch;charset=iso_1"/>
+        <property name="username" value="${jdbc.sybase.username.session}"/>
+        <property name="password" value="${jdbc.sybase.password.session}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="${jdbc.sybase.timeBetweenEvictionRunsMillis.session}"/>
+        <property name="numTestsPerEvictionRun" value="${jdbc.sybase.numTestsPerEvictionRun.session}"/>
+        <property name="minEvictableIdleTimeMillis" value="${jdbc.sybase.minEvictableIdleTimeMillis.session}"/>
+        <property name="maxActive" value="${jdbc.sybase.maxActive.session}"/>
+    </bean>
+    <!-- Local Beans -->
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_selsession">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_selsession"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <camelContext id="servicio-session-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml id="jack" prettyPrint="true"/>
+        </dataFormats>
+        <route id="cx-RuteoOperaciones">
+            <from id="servicioSessionEndpointListener" uri="cxf:bean:servicioSessionEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaobtenerSession">
+                        <simple>${body} contains 'obtenerSession'</simple>
+                        <to id="obtenerSessionValidator" uri="validator:xsd/soap.xsd"/>
+                        <to id="obtenerSessionTo" uri="direct:obtenerSession"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <route id="obtenerSession">
+            <from id="obtenerSessionFrom" uri="direct:obtenerSession"/>
+            <doTry id="obtenerSessionTry">
+                <setHeader headerName="Rut" id="obtenerSessionHeaderRut">
+                    <xpath resultType="java.lang.String">//rut/text()</xpath>
+                </setHeader>
+                <to id="pa_selsession" uri="bean:pa_selsession"/>
+                <marshal id="obtenerSessionResultset2xml" ref="jack"/>
+                <convertBodyTo id="obtenerSessionConvertBodyTo" type="java.lang.String"/>
+                <transform id="obtenerSessionTransform">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <setHeader headerName="parametroLoginSession" id="obtenerSessionHeaderLogin">
+                    <simple>{{parametroLoginSession}}</simple>
+                </setHeader>
+                <to id="obtenerSessionXml2xml" uri="xslt://transformations/out/resultset2xml_obtenerSession.xsl?saxon=true"/>
+                <doCatch id="obtenerSessionCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="obtenerSessionRestoreBody" method="restoreBody"/>
+                    <setBody id="obtenerSessionSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="obtenerSessionFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="obtenerSessionSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="obtenerSessionFinally"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

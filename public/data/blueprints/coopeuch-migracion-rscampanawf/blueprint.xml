@@ -1,0 +1,613 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd  http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsconsultacampanawf" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <camelcxf:rsClient address="[{wscuentavista.endpoint}]"
+        id="endpointWSCuentaVista" loggingFeatureEnabled="true"/>
+    <camelcxf:rsClient address="[{wscampanaibs.endpoint}]"
+        id="endpointWSCampanaIBS" loggingFeatureEnabled="true"/>
+    <camelcxf:rsClient address="[{wspersona.endpoint}]"
+        id="endpointWSPersona" loggingFeatureEnabled="true"/>
+    <camelcxf:rsClient address="[{wslistasnegras.endpoint}]"
+        id="endpointWSListasNegras" loggingFeatureEnabled="true"/>
+    <camelcxf:rsClient address="[{wscreditosconsumo.endpoint}]"
+        id="endpointWSCreditosConsumo" loggingFeatureEnabled="true"/>
+    <camelcxf:rsClient address="[{wsresumensinacofi.endpoint}]"
+        id="endpointWSResumenSinacofi" loggingFeatureEnabled="true"/>
+    <camelcxf:rsClient address="[{rsproductos.endpoint}]"
+                       id="endpointRSProductos" loggingFeatureEnabled="true"/>
+	<camelcxf:rsClient address="[{wsLogPlataformas.endpoint}]" 
+		id="endpointLogPlataformas"	loggingFeatureEnabled="true" />                
+    <bean
+        class="cl.coopeuch.integracion.consultacampanawf.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSCampanaWF"
+        id="endpointWSConsultaCampanaWF" continuationTimeout="40000" 
+        serviceClass="cl.coopeuch.integracion.campanawf.wsdl.WSCampanaWFSOAPPortType" wsdlURL="etc/wsdl/WSCampanaWF.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSCampanaWF"
+        id="endpointRSConsultaCampanaWF" serviceClass="cl.coopeuch.integracion.campanawf.wsdl.WSCampanaWFSOAPPortType"/>
+    <camelContext id="servicio-campanaWF" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSConsultaCampanaWF"/>
+            <to id="soapToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSConsultaCampanaWF"/>
+            <setProperty propertyName="entrada_rest">
+                <simple>1</simple>
+            </setProperty>
+            <to id="restToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <!-- Ruta principal de inicio del servicio WSConsultaCampanaWF -->
+        <route id="iniciows">
+            <from id="iniciows" uri="direct:iniciows"/>
+            <doTry id="inicioTry">
+	            <setProperty propertyName="entra_fault">
+	            	<simple>1</simple>
+	            </setProperty>                
+				<setProperty propertyName="rut_log">
+		           	<simple>19</simple>
+		        </setProperty>        	            
+                <bean id="obtenerDatosOperacionBean"
+                    method="obtenerDatosOperacion" ref="beanRouteFacade"/>                    
+                <choice>
+                	<when>
+                		<simple>${exchangeProperty.validaDatos}</simple>
+                		<setProperty id="inicioSetRequest" propertyName="requestEntrada">
+	                    	<simple>${body.get(0)}</simple>
+		                </setProperty>                
+		                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+		                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+		                </setProperty>
+		                <setProperty id="inicioSetOperationName" propertyName="operationName">
+		                    <simple>${header.operationName}</simple>
+		                </setProperty>		                
+		                <choice id="inicioChoiceOperacion">
+		                    <when id="inicioWhenOperacionConsCampana">
+		                        <simple>${header.operationName} == 'consultar'</simple>  
+		                        <setProperty propertyName="rut_log">
+						           	<simple>${body.get(0).rut}</simple>
+						        </setProperty>  
+		                        <to id="toConsCampana" uri="direct:consultarCampana"/>
+		                    </when>
+                            <when id="inicioWhenOperacionConsCampana">
+                                <simple>${header.operationName} == 'consultarATE'</simple>
+                                <setProperty propertyName="rut_log">
+                                    <simple>${body.get(0).rut}</simple>
+                                </setProperty>
+                                <to id="toConsCampanaAte" uri="direct:consultarCampanaATE"/>
+                            </when>
+		                    <otherwise id="inicioOtherwise">
+		                        <throwException
+		                            exceptionType="java.lang.Exception"
+		                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+		                    </otherwise>
+		                </choice>
+                	</when>
+                </choice>            
+                
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta de operacion consultarCampana del servicio -->
+       	<route id="consultarCampana">
+			<from id="consultarCampanaFrom" uri="direct:consultarCampana"/>
+			<doTry id="consultarCampanaTry">
+				<to id="obtenerCampanasCITo" uri="direct:obtenerCampanasCI"/>
+				<choice id="choice-CampanaIBS">
+					<when id="when-CampanaIBS">
+						<simple>${exchangeProperty.CI_listaCampanas} != null</simple>	
+						<to id="consultarCVTo" uri="direct:consultarCV"/>	
+						<choice id="choiceCV">
+							<when id="whenCV">
+								<simple>${exchangeProperty.CV_estado} == 'A'</simple>
+								<to id="obtenerMarcaATETo" uri="direct:marcaATE"/>
+								<choice id="RespuestaMarcaAte-Choice">
+									<when id="RespuestaMarcaAte-When">
+										<simple>${exchangeProperty.numeroSolicitud} == 0</simple> 
+										<choice>
+											<when>
+												<simple>${exchangeProperty.flagOperacionCursada} == 'N'</simple>												
+												<choice>
+													<when>
+														<simple>${exchangeProperty.cc_tipoCampana} == ${exchangeProperty.camapanaMoraExterna}</simple>
+														<bean id="consultarCampanaResponse-CAM9" method="consultarCampanaResponse" ref="beanRouteFacade"/>
+													</when>
+													<otherwise>
+														<to id="traerDatosBasicosPTo" uri="direct:traerDatosBasicosP"/>
+														<choice>
+															<when>
+																<simple>${exchangeProperty.P_primerNombre} != ''</simple>
+																<to id="verificarLNTo" uri="direct:verificarLN"/>
+																<choice id="choiceLN">
+																	<when id="whenLN">
+																		<simple>${exchangeProperty.LN_codigo} == '0'</simple>
+                                                                        <to id="consultarMoraInternaTo" uri="direct:consultarMoraInterna"/>
+																		<choice>
+																			<when>
+																				<simple>${exchangeProperty.moraCoopeuch} == 'OK'</simple>
+                                                                                <choice>
+                                                                                    <when>
+                                                                                        <simple>${exchangeProperty.cc_tipoCampana} == ${exchangeProperty.codigoCampanaAte}</simple>
+                                                                                        <bean id="consultarCampanaResponse-CAM8" method="consultarCampanaResponse" ref="beanRouteFacade"/>
+                                                                                        <stop/>
+                                                                                    </when>
+                                                                                    <otherwise>
+                                                                                        <to  id="obtenerDeudaExterna-To" uri="direct:obtenerDeudaExterna"/>
+                                                                                        <choice>
+                                                                                            <when>
+                                                                                                <simple>${exchangeProperty.MontoMoraTotal} == 0 </simple>
+                                                                                                <bean id="consultarCampanaResponse" method="consultarCampanaResponse" ref="beanRouteFacade"/>
+                                                                                                <stop/>
+                                                                                            </when>
+                                                                                            <when>
+                                                                                                <simple>${exchangeProperty.MontoMoraTotal} > 0</simple>
+                                                                                                <setProperty id="verificarLNCodigoError" propertyName="codigoError">
+                                                                                                    <simple>456</simple>
+                                                                                                </setProperty>
+                                                                                                <setProperty
+                                                                                                        id="obtenerDeudaExterna-ResponseError-DeudaExterna-Origen" propertyName="origenError">
+                                                                                                    <constant>ServicioResumenSinacofi</constant>
+                                                                                                </setProperty>
+                                                                                                <bean  id="obtenerDeudaExterna-ResponseError-DeudaExterna"
+                                                                                                       method="errorResumenSinacofi" ref="beanRouteFacade"/>
+                                                                                            </when>
+                                                                                            <otherwise>
+                                                                                                <setProperty id="verificarLNCodigoError" propertyName="codigoError">
+                                                                                                    <simple>456</simple>
+                                                                                                </setProperty>
+                                                                                                <setProperty
+                                                                                                        id="obtenerDeudaExterna-OrigenError" propertyName="origenError">
+                                                                                                    <constant>ServicioResumenSinacofi</constant>
+                                                                                                </setProperty>
+                                                                                                <bean
+                                                                                                        id="obtenerDeudaExterna-ResponseErrorLN"
+                                                                                                        method="errorResumenSinacofi" ref="beanRouteFacade"/>
+                                                                                            </otherwise>
+                                                                                        </choice>
+                                                                                    </otherwise>
+                                                                                </choice>
+																			</when>
+																			<otherwise>
+																				<setProperty id="verificarLNCodigoError" propertyName="codigoError">
+																					<simple>460</simple>
+																				</setProperty>
+																				<setProperty
+																								id="obtenerDeudaExterna-ResponseError-DeudaExterna-Origen" propertyName="origenError">
+																					<constant>ServicioProductos</constant>
+																				</setProperty>
+																				<bean  id="obtenerDeudaExterna-ResponseError-DeudaExterna" method="errorMoraInterna" ref="beanRouteFacade"/>
+																			</otherwise>
+																		</choice>
+																	</when>
+																	<otherwise id="verificarLNOtherwise">
+																		<setProperty
+																				id="verificarLNCodigoError" propertyName="codigoError">
+																			<simple>452</simple>
+																		</setProperty>
+																		<setProperty
+																				id="verificarLNOrigenError" propertyName="origenError">
+																			<constant>WSListasNegras</constant>
+																		</setProperty>
+																		<bean
+																				id="consultarCampanaResponseErrorLN"
+																				method="responseError" ref="beanRouteFacade"/>
+																	</otherwise>
+																</choice>
+															</when>
+														</choice>
+													</otherwise>												
+												</choice>
+											</when>											
+											<otherwise>
+												<setProperty id="verificarLNCodigoError" propertyName="codigoError">
+													<simple>459</simple>
+												</setProperty>
+
+												<setProperty
+																id="obtenerMarcaATE-ResponseError--Origen" propertyName="origenError">
+													<constant>WSMarcaAte</constant>
+												</setProperty>
+												<bean  id="obtenerMarcaATE-ResponseError" method="errorMarcaAte" ref="beanRouteFacade"/>
+											</otherwise>  
+										</choice>
+									</when>
+									<otherwise>
+										<setProperty id="verificarLNCodigoError" propertyName="codigoError">
+											<simple>458</simple>
+										</setProperty>
+										<setProperty
+														id="obtenerMarcaATE-ResponseError--Origen" propertyName="origenError">
+											<constant>WSMarcaAte</constant>
+										</setProperty>
+										<bean  id="obtenerMarcaATE-ResponseError"
+													method="errorMarcaAte" ref="beanRouteFacade"/>
+									</otherwise>
+									
+								</choice>
+							</when>
+							<when id="whenSCV">
+								<simple>${exchangeProperty.CV_nroRegistros} == '0'</simple>
+								<setProperty id="consultarCVCodigoError" propertyName="codigoError">
+									<simple>451</simple>
+								</setProperty>
+								<setProperty id="consultarCVOrigenError" propertyName="origenError">
+									<constant>WSCuentaVista</constant>
+								</setProperty>
+								<bean id="consultarCampanaResponseErrorCV"
+											method="responseError" ref="beanRouteFacade"/>
+							</when>
+						</choice>										
+					</when>	
+				</choice>
+				<doCatch id="consultarCampanaDoCatchEx">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="consultarCampanaCodigoErrorEx" propertyName="codigoError">
+						<constant>500</constant>
+					</setProperty>
+					<to id="toConsultarCampanaExcepcionEx" uri="direct:excepcion"/>
+				</doCatch>
+			</doTry>
+		</route>
+
+        <route id="consultarATE">
+            <from id="consultarATE" uri="direct:consultarCampanaATE" />
+            <doTry id="consultarATE-try">
+                <to id="obtenerCampana-to" uri="direct:obtenerCampanasCI"/>
+                <choice>
+                    <when>
+                        <simple>${exchangeProperty.errorCampana} == null</simple>
+                        <to id="consultarCV-to" uri="direct:consultarCV"/>
+                        <choice>
+                            <when>
+                                <simple>${exchangeProperty.errorCuentaVista} == null</simple>
+                                <to id="marcaATE-to" uri="direct:marcaATE"/>
+                                <choice>
+                                    <when>
+                                        <simple>${exchangeProperty.numeroSolicitud} == 0 || ${exchangeProperty.flagOperacionCursada} == 'N'</simple>
+                                        <to id="datosBasicosP-to" uri="direct:traerDatosBasicosP"/>
+                                        <choice>
+                                            <when>
+                                                <simple>${exchangeProperty.errorPersona} == null</simple>
+                                                <to id="verificaLN-to" uri="direct:verificarLN"/>
+                                                <choice>
+                                                    <when>
+                                                        <simple>${exchangeProperty.LN_codigo} == '0'</simple>
+                                                        <to id="consultaMoraInterna-to" uri="direct:consultarMoraInterna"/>
+                                                        <bean id="consultarATEResponse-bean" method="consultarATEResponseBean" ref="beanRouteFacade"/>
+                                                    </when>
+                                                    <otherwise>
+                                                        <setProperty id="verificaLN-prop-codErr" propertyName="codigoError">
+                                                            <simple>452</simple>
+                                                        </setProperty>
+                                                        <setProperty id="verificaLN-prop-OriErr" propertyName="origenError">
+                                                            <constant>WSListasNegras</constant>
+                                                        </setProperty>
+                                                        <bean id="consultarATEResponseErrorLN" method="responseError" ref="beanRouteFacade"/>
+                                                    </otherwise>
+                                                </choice>
+                                            </when>
+                                        </choice>
+                                    </when>
+                                    <otherwise>
+                                        <bean  id="errorMarcaAte" method="errorMarcaAte" ref="beanRouteFacade"/>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                        </choice>
+                    </when>
+                </choice>
+                <doCatch>
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarATE-EX" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="consultarATE-EX-to" uri="direct:excepcion"/>
+
+                </doCatch>
+            </doTry>
+
+        </route>
+
+        <!-- Ruta de invocacion al Servicio REST RSCuentaVista - operacion consultar -->
+        <route id="consultarCV">
+            <from id="consultaCV-From" uri="direct:consultarCV"/>
+            <doTry id="consultarCVDoTry">
+                <bean id="consultarCVBean" method="consultarCVRequest" ref="beanRouteFacade"/>
+                <to id="consultarCVto" uri="cxfrs:bean:endpointWSCuentaVista?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <bean id="consultarCVBean" method="consultarCVResponse" ref="beanRouteFacade"/>
+                <doCatch id="consultarCVDoCatchNullPointer">
+                    <exception>java.lang.NullPointerException</exception>
+                    <setProperty id="codigoErrorRestCV" propertyName="errorRest">
+                        <constant>1</constant>
+                    </setProperty>
+                    <to id="toConsultarCVNullExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultarCVDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoErrorConsultarCV" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toConsultarCVExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <!-- Ruta de invocacion al Servicio REST RSPersona - operacion traerDatosBasicos -->
+        <route id="traerDatosBasicosP">
+            <from id="traerDatosBasicosP-From" uri="direct:traerDatosBasicosP"/>
+            <doTry id="traerDatosBasicosPDoTry">
+                <bean id="traerDatosBasicosPBean"
+                    method="traerDatosBasicosPRequest" ref="beanRouteFacade"/>
+                <to id="traerDatosBasicosPto" uri="cxfrs:bean:endpointWSPersona?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <bean id="traerDatosBasicosPBean"
+                    method="traerDatosBasicosPResponse" ref="beanRouteFacade"/>
+                <doCatch id="traerDatosBasicosPDoCatchNullPointer">
+                    <exception>java.lang.NullPointerException</exception>
+                    <setProperty id="codigoErrorRestP" propertyName="errorRest">
+                        <constant>1</constant>
+                    </setProperty>
+                    <to id="toTraerDatosBasicosPNullExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="traerDatosBasicosPDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoErrorTraerDatosBasicosP" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                     <setProperty id="descripcion-ErrorTraerDatosBasicosP" propertyName="servicioError">
+                        <constant>Servicio Persona - Traer Datos Basicos</constant>
+                    </setProperty>
+                    <to id="totraerDatosBasicosPExcepcion" uri="direct:excepcion"/>
+                    <stop></stop>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta de invocacion al Servicio REST RSListasNegras - operacion verificar -->
+        <route id="verificarLN">
+            <from id="verificarLN-From" uri="direct:verificarLN"/>
+            <doTry id="verificarLNDoTry">
+                <bean id="verificarLNBean" method="verificarLNRequest" ref="beanRouteFacade"/>
+                <to id="verificarLNto" uri="cxfrs:bean:endpointWSListasNegras?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <bean id="verificarLNBean" method="verificarLNResponse" ref="beanRouteFacade"/>
+                <doCatch id="verificarLNDoCatchNullPointer">
+                    <exception>java.lang.NullPointerException</exception>
+                    <setProperty id="codigoErrorRestLN" propertyName="errorRest">
+                        <constant>1</constant>
+                    </setProperty>
+                    <to id="toVerificarLNNullExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="verificarLNDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoErrorVerificarLN" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="descripcion-Verificar" propertyName="servicioError">
+                        <constant>Servicio Listas Negras - Verificar</constant>
+                    </setProperty>
+                    <to id="toVerificarLNExcepcion" uri="direct:excepcion"/>
+                    <stop></stop>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta de invocacion al Servicio REST RSCampanaIBS - operacion obtenerCampanas -->
+        <route id="obtenerCampanasCI">
+            <from id="obtenerCampanasCI-From" uri="direct:obtenerCampanasCI"/>
+            <doTry id="obtenerCampanasCIDoTry">
+                <bean id="obtenerCampanasCIBean"
+                    method="obtenerCampanasCIRequest" ref="beanRouteFacade"/>
+                <to id="obtenerCampanasCIto" uri="cxfrs:bean:endpointWSCampanaIBS?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <bean id="obtenerCampanasCIBean"
+                    method="obtenerCampanasCIResponse" ref="beanRouteFacade"/>                
+                <doCatch id="obtenerCampanasDoCatchNullPointer">
+                    <exception>java.lang.NullPointerException</exception>
+                    <setProperty id="codigoErrorRest" propertyName="errorRest">
+                        <constant>1</constant>
+                    </setProperty>
+                    <to id="toObtenerCampanasNullExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="obtenerCampanasCIDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoErrorObtenerCampanasCI" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="descripcion-ConsultarCampana" propertyName="servicioError">
+                        <constant>Servicio Campana IBS - Consultar Campana</constant>
+                    </setProperty>
+                    <to id="toObtenerCampanasCIExcepcion" uri="direct:excepcion"/>
+                    <stop></stop>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta encargada de generar la excepcion general del servicio -->
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <choice>
+	                <when id="entraFault">
+	                	<simple resultType="java.lang.Integer">${property.entra_fault} == 0</simple>                
+	                	<to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+	                </when>
+	                <otherwise>
+	                	
+	                	<when>
+	                		<simple>${property.tieneCampana} == 1</simple>
+	                		<wireTap id="wireTap-excepcionToLogPlataformas" uri="direct:wsLogPlataformasGuardar"/>
+	                	</when>                	
+	                </otherwise>
+                </choice>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <!-- Ruta de invocacion al Servicio REST RSResumenSnacofi - operacion 
+			resumenAntecedentesComerciales -->
+        <route id="obtenerDeudaExterna">
+            <from id="obtenerDeudaExterna-From" uri="direct:obtenerDeudaExterna"/>
+            <doTry id="obtenerDeudaExterna-DoTry">
+                <bean id="obtenerDeudaExterna-Bean"
+                    method="obtenerDeudaExternaRequest" ref="beanRouteFacade"/>
+                <to id="obtenerDeudaExterna-to" uri="cxfrs:bean:endpointWSResumenSinacofi?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                
+                <bean id="obtenerDeudaExterna-Bean"
+                    method="obtenerDeudaExternaResponse" ref="beanRouteFacade"/>
+                <doCatch id="obtenerDeudaExterna-DoCatchNullPointer">
+                    <exception>java.lang.NullPointerException</exception>
+                    <setProperty id="codigoErrorRest-obtenerDeudaExterna" propertyName="errorRest">
+                        <constant>1</constant>
+                    </setProperty>
+                    <to id="to-obtenerDeudaExterna-NullExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="obtenerDeudaExterna-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoError-obtenerDeudaExterna" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="descripcion-ErrorResumenAntecedentesComerciales" propertyName="servicioError">
+                        <constant>Servicio Resumen Sinacofi - Resumen Antecedentes Comerciales</constant>
+                    </setProperty>
+                    <to id="to-obtenerDeudaExterna-Excepcion" uri="direct:excepcion"/>                    
+					<stop></stop>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <!-- Ruta de invocacion al Servicio REST RSProductos - operacion
+			consultaProductoDetalle -->
+        <route id="consultarMoraInterna">
+            <from id="consultarMoraInterna-From" uri="direct:consultarMoraInterna"/>
+            <doTry id="consultarMoraInterna-DoTry">
+                <bean id="consultarMoraInterna-Bean"
+                    method="consultarMoraInternaRequest" ref="beanRouteFacade"/>
+                <to id="consultarDeudaInterna-to" uri="cxfrs:bean:endpointRSProductos?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <bean id="consultarDeudaInterna-Bean"
+                      method="consultarMoraInternaResponse" ref="beanRouteFacade"/>
+
+                <doCatch id="consultarDeudaInterna-DoCatchNullPointer">
+                    <exception>java.lang.NullPointerException</exception>
+                    <setProperty id="codigoErrorRest-consultarMoraInterna" propertyName="errorRest">
+                        <constant>1</constant>
+                    </setProperty>
+                    <to id="to-consultarMoraInterna-NullExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultarMoraInterna-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoError-consultarMoraInterna" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="descripcion-ErrorConsultarMoraInterna" propertyName="servicioError">
+                        <constant>WSProductos - Consultar Producto Detalle</constant>
+                    </setProperty>
+                    <to id="to-consultarMoraInterna-Excepcion" uri="direct:excepcion"/>
+					<stop></stop>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="marca_ate">
+            <from id="marca_ate-From" uri="direct:marcaATE"/>      
+             <doTry id="marca_ate-DoTry">                        
+                <bean id="marca_ate-BeanRouteFacadeUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>               
+                <setBody id="Marca-MOLMonetario-SetBodyError">
+                     <simple>${exchangeProperty.requestEntrada}</simple>                        
+                </setBody>                 
+                <convertBodyTo id="MarcaAte-BodyTo" type="java.lang.String"/>               
+                <to id="marca_ate-ToXSLTrama" uri="xslt://etc/xslt/request/IOC015001I_marcaATERequest.xsl"/>
+                <log message="Trama IOC: ${body}" />
+                <to id="marca_ate-ToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=ERROR&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="marca_ate-Transform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                
+                <to id="marca_ate-XSLSOAP" uri="xslt://etc/xslt/response/IOC015001O_marcaATEResponse.xsl?saxon=true"/>
+                <log message="Salida IOC0150: ${body}" />              
+                <choice>
+                	<when>
+                		<simple>${body} contains 'IOC015001O'</simple>
+                		<setProperty id="numeroSolicitud" propertyName="numeroSolicitud">
+		                    <xpath resultType="String">//numeroSolicitud</xpath>
+		                </setProperty>
+		                <setProperty id="flagOperacionCursada" propertyName="flagOperacionCursada">
+		                    <xpath resultType="String">//flagOperacionCursada</xpath>
+		                </setProperty>
+		                <setProperty id="codigoError" propertyName="codigoErrorAte">
+		                    <constant>0</constant>
+		                </setProperty>
+		                
+                	</when>
+                	<otherwise>
+                		<setProperty id="codigoError" propertyName="codigoErrorAte">
+		                    <xpath resultType="String">//codigo</xpath>
+		                </setProperty>
+		                <setProperty id="descripcionError" propertyName="descripcionErrorAte">
+		                    <xpath resultType="String">//descripcion</xpath>
+		                </setProperty>			               
+                	</otherwise>
+                </choice>
+                <doCatch id="marca_ate-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoError-marca_ate" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="descripcion-ConsultarMarcaATE" propertyName="servicioError">
+                        <constant>WSMarcaAte - Consultar Marca ATE</constant>
+                    </setProperty>
+                    <to id="to-marca_ate-Excepcion" uri="direct:excepcion"/>                    
+					<stop></stop>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="wsLogPlataformasGuardar">
+        	<from id="wsLogPlataformasGuardar-From" uri="direct:wsLogPlataformasGuardar"/>        	
+        	<doTry id="wsLogPlataformasGuardar-doTry">
+        		<setProperty propertyName="nivelLog">
+        			<simple>ERRO</simple>
+        		</setProperty>
+        		<bean id="wsLogPlataformasGuardar-Bean" ref="beanRouteFacade" method="guardarLogRequest"/>
+        		<to id="wsLogPlataformasGuardar-To" uri="cxfrs:bean:endpointLogPlataformas"/>
+        		<doCatch id="wsLogPlataformasGuardar-doCatch">
+        			<exception>java.lang.Exception</exception>
+        			<setBody>
+        				<simple>ERROR-logPlataformas: ${exception}-${body}</simple>
+        			</setBody>
+        			<log message="${body}"/>
+        		</doCatch>
+        	</doTry>
+        </route>
+    </camelContext>
+</blueprint>

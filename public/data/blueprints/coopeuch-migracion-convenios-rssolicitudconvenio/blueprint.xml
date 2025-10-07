@@ -1,0 +1,697 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cxf:cxfEndpoint address="/convenios/WSSolicitudConvenio"
+        id="servicioSolicitudEndpoint" wsdlURL="etc/wsdl/WSSolicitudConvenio.wsdl"/>
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global" update-strategy="reload"/>
+    <cm:property-placeholder
+        id="property-placeholder-service-solicitud-convenios"
+        persistent-id="wssolicitudconvenio" placeholder-prefix="{["
+        placeholder-suffix="]}" update-strategy="reload"/>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSource">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="${jdbc.url.usuarioConvenio};charset=iso_1"/>
+        <property name="username" value="${jdbc.username.usuarioConvenio}"/>
+        <property name="password" value="${jdbc.password.usuarioConvenio}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="${jdbc.timeBetweenEvictionRunsMillis.usuarioConvenio}"/>
+        <property name="numTestsPerEvictionRun" value="${jdbc.numTestsPerEvictionRun.usuarioConvenio}"/>
+        <property name="minEvictableIdleTimeMillis" value="${jdbc.minEvictableIdleTimeMillis.usuarioConvenio}"/>
+        <property name="maxActive" value="${jdbc.maxActive.usuarioConvenio}"/>
+    </bean>
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.solicitudconvenio.util.RouteFacade" id="beanRouteFacade"/>
+    <!-- Define the stored procedure bean with the input and output params -->
+    <bean
+        class="cl.coopeuch.integracion.solicitudconvenio.util.db.StoredProcedureBean" id="call_sp_get_user_permissions">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_get_user_permissions"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="inputRut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet1"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.solicitudconvenio.util.db.StoredProcedureBean" id="sp_get_user_solicitud_permissions">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_get_user_solicitud_permissions"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="inputRut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="inputSolicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet2"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.solicitudconvenio.util.db.StoredProcedureBean" id="call_sp_get_usertype">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_get_usertype"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="inputRut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="userType"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.solicitudconvenio.util.db.ObtenerInformacionConvenioProcedureBean" id="call_sp_obtener_informacion_convenio">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_obtener_informacion_convenio"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="inputSolicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.solicitudconvenio.util.db.ConsultarUsuarioProcedureBean" id="call_sp_delete_user">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_delete_user"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="idSolicitud"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="status"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.solicitudconvenio.util.db.ConsultarUsuarioProcedureBean" id="call_sp_get_solicitud_user">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_get_solicitud_user"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="inputSolicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet3"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.solicitudconvenio.util.db.ConsultarSolicitudProcedureBean" id="call_sp_get_solicitud">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_get_solicitud"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="inputSolicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet3"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.solicitudconvenio.util.db.ConsultarSolicitudEIBSProcedureBean" id="call_sp_get_solicitud_eibs">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_get_solicitud_eibs"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="inputSolicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet3"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.solicitudconvenio.util.db.CrearSolicitudBean" id="call_sp_save_solicitud">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_save_solicitud"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="solicitudid"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="name"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="region"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="tipoSolicitud"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="status"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <camelContext id="servicio-solicitudconvenio" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml id="jacksonTransform" prettyPrint="true"/>
+        </dataFormats>
+        <route id="cxf-RuteoOperaciones-jms">
+            <from id="servicioEndpointListenerJms" uri="beanAMQ:queue:{{colas.servicio.solicitud.convenio.in.temp}}?preserveMessageQos=true"/>
+            <to id="_to2_Inicio" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="servicioSolicitudEndpointistener" uri="cxf:bean:servicioSolicitudEndpoint?DataFormat=MESSAGE"/>
+            <to id="_to1" uri="direct:inicio"/>
+        </route>
+        <route id="_route1">
+            <from id="_from1" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean id="backupBody" method="backupBody" ref="beanRouteFacade"/>
+                <log id="routeOperations01" loggingLevel="INFO" message="routeOperations: ${body}"/>
+                <choice id="routeOperations">
+                    <when id="routeOperationGetUserPermissions">
+                        <simple>${body} contains 'consultarPermisosRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest1" propertyName="tipoRequest">
+                            <simple>consultarPermisosRequest</simple>
+                        </setProperty>
+                        <to id="toUserPermissionDetails" uri="direct:consultarPermisos"/>
+                    </when>
+                    <when id="consultarPermisosSolicitudRoute">
+                        <simple>${body} contains 'consultarPermisosSolicitudRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest1" propertyName="tipoRequest">
+                            <simple>consultarPermisosSolicitudRequest</simple>
+                        </setProperty>
+                        <to id="toConsultarPermisosSolicitud" uri="direct:consultarPermisosSolicitud"/>
+                    </when>
+                    <when id="consultarTipoDeUsuarioRoute">
+                        <simple>${body} contains 'consultarTipoDeUsuarioRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest1" propertyName="tipoRequest">
+                            <simple>ConsultarTipoDeUsuarioRequest</simple>
+                        </setProperty>
+                        <to id="toConsultarTipoDeUsuario" uri="direct:consultarTipoDeUsuario"/>
+                    </when>
+                    <when id="consultarResumenRequestParam">
+                        <simple>${body} contains 'consultarResumenRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest1" propertyName="tipoRequest">
+                            <simple>consultarResumenRequest</simple>
+                        </setProperty>
+                        <to
+                            id="toObtenerInformacionConvenioRequestParam" uri="direct:consultarResumenOperations"/>
+                    </when>
+                    <when id="rutocontactar">
+                        <simple>${body} contains 'consultarEjecutivoRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest1" propertyName="tipoRequest">
+                            <simple>consultarEjecutivoRequest</simple>
+                        </setProperty>
+                        <to id="toContactenos" uri="direct:consultarEjecutivoRequest"/>
+                    </when>
+                    <when id="routeOperationEliminarUsuario">
+                        <simple>${body} contains 'eliminarUsuarioRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest4" propertyName="tipoRequest">
+                            <simple>EliminarUsuarioRequest</simple>
+                        </setProperty>
+                        <to id="toDeleteUserDetails" uri="direct:eliminarUsuario"/>
+                    </when>
+                    <when id="routeOperationConsultarUsuarios">
+                        <simple>${body} contains 'consultarUsuariosRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest3" propertyName="tipoRequest">
+                            <simple>ConsultarUsuariosRequest</simple>
+                        </setProperty>
+                        <to id="toListUserDetails" uri="direct:consultarUsuarios"/>
+                    </when>
+                    <when id="routeOperationCreate">
+                        <simple>${body} contains 'crearRequest'</simple>
+                        <setProperty id="inicioSetCreate" propertyName="tipoRequest">
+                            <simple>CrearRequest</simple>
+                        </setProperty>
+                        <to id="toCreate" uri="direct:crear"/>
+                    </when>
+                    <when id="routeOperationUpdate">
+                        <simple>${body} contains 'actualizarRequest'</simple>
+                        <setProperty id="inicioSetUpdate" propertyName="tipoRequest">
+                            <simple>ActualizarRequest</simple>
+                        </setProperty>
+                        <to id="toUpdate" uri="direct:actualizar"/>
+                    </when>
+                    <when id="routeOperationGetEIBSRequest">
+                        <simple>${body} contains 'consultarSolicitudEIBS'</simple>
+                        <setProperty id="inicioSetGetEIBSRequest" propertyName="tipoRequest">
+                            <simple>consultarSolicitudEIBS</simple>
+                        </setProperty>
+                        <to id="toConsultarSolicitudEIBS" uri="direct:consultarSolicitudEIBS"/>
+                    </when>
+                    <when id="routeOperationGetRequest">
+                        <simple>${body} contains 'consultarSolicitud'</simple>
+                        <setProperty id="inicioSetGetRequest" propertyName="tipoRequest">
+                            <simple>ConsultarSolicitud</simple>
+                        </setProperty>
+                        <to id="toConsultarSolicitud" uri="direct:consultarSolicitud"/>
+                    </when>
+                </choice>
+                <doCatch id="cxf-inicioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="ruteoOperacionesPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="cxfinicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarPermisos">
+            <from id="userDetailsFrom" uri="direct:consultarPermisos"/>
+            <doTry id="userDetailsTry">
+                <setHeader headerName="inputRut" id="inputRut1">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <to id="to_call_sp_get_usertype1" uri="bean:call_sp_get_usertype"/>
+                <setProperty id="userTypeProperty" propertyName="userType">
+                    <xpath resultType="String">//userType</xpath>
+                </setProperty>
+                <log id="consultarPermisosLog01" loggingLevel="INFO" message="Resultado: ${body}"/>
+                <to id="to_call_sp_get_user_permissions" uri="bean:call_sp_get_user_permissions"/>
+                <removeHeaders id="removeHeader1" pattern="*"/>
+                <doCatch id="userDetailsCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="ruteoUserDetailsPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteoUserDetailsExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarPermisosSolicitud">
+            <from id="consultarPermisosSolicitudFrom" uri="direct:consultarPermisosSolicitud"/>
+            <doTry id="SolicitudInfoTry">
+                <setHeader headerName="inputRut" id="inputRut2">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <setHeader headerName="inputSolicitudId" id="inputSolicitudId2">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <log id="consultarPermisosSolicitud01"
+                    loggingLevel="INFO" message="consultarPermisosSolicitud request: ${body}"/>
+                <to id="to_call_sp_get_user_solicitud_permissions" uri="bean:sp_get_user_solicitud_permissions"/>
+                <removeHeaders id="removeHeader2" pattern="*"/>
+                <log id="consultarPermisosSolicitud02"
+                    loggingLevel="INFO" message="consultarPermisosSolicitud response: ${body}"/>
+                <doCatch id="SolicitudInfoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="ruteoSolicitudInfoPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteoSolicitudInfoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarTipoDeUsuario">
+            <from id="userDetailsFrom" uri="direct:consultarTipoDeUsuario"/>
+            <doTry id="consultarTipoDeUsuarioTry">
+                <setHeader headerName="inputRut" id="inputRut3">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <to id="to_call_sp_get_usertype" uri="bean:call_sp_get_usertype"/>
+                <setProperty id="userTypeResponse" propertyName="userType">
+                    <xpath resultType="String">//userType</xpath>
+                </setProperty>
+                <to id="userDetailsResponseXml" uri="xslt://etc/xsl/response/userType.xsl"/>
+                <removeHeaders id="removeHeader3" pattern="*"/>
+                <doCatch id="consultarTipoDeUsuarioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="ruteoconsultarTipoDeUsuarioPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteoconsultarTipoDeUsuarioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarResumenOperations">
+            <from id="consultarResumenEndpointListener" uri="direct:consultarResumenOperations"/>
+            <doTry id="consultarResumenTry">
+                <convertBodyTo id="routeconsultarResumenBody2" type="java.lang.String"/>
+                <setHeader headerName="inputSolicitudId" id="consultarResumenSolicitudId">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <to id="to_call_sp_obtener_informacion_convenio" uri="bean:call_sp_obtener_informacion_convenio"/>
+                <removeHeaders id="removeHeader4" pattern="*"/>
+                <doCatch id="consultarResumenCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="obtenerInformacionCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="obtenerInformacionExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarEjecutivo">
+            <from id="consultarResumenEndpointListener" uri="direct:consultarEjecutivoRequest"/>
+            <doTry id="contactarTry">
+                <convertBodyTo id="contactarBody" type="java.lang.String"/>
+                <setHeader headerName="emailAddress" id="emailAddress">
+                    <xpath resultType="String">//emailAddress</xpath>
+                </setHeader>
+                <setHeader headerName="emailBody" id="emailBody">
+                    <xpath resultType="String">//emailBody</xpath>
+                </setHeader>
+                <!-- utf8 -->
+                <setHeader headerName="firstName" id="firstName">
+                    <xpath resultType="String">//firstName</xpath>
+                </setHeader>
+                <setHeader headerName="solicitudId" id="solicitudId">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <setHeader headerName="senderName" id="senderName">
+                    <xpath resultType="String">//senderName</xpath>
+                </setHeader>
+                <setHeader headerName="fromEmailAddress" id="fromEmailAddress">
+                    <xpath resultType="String">//fromEmailAddress</xpath>
+                </setHeader>
+                <setHeader headerName="senderPhoneNo" id="senderPhoneNo">
+                    <xpath resultType="String">//senderPhoneNo</xpath>
+                </setHeader>
+                <removeHeaders id="_removeHeaders2" pattern="JMS*"/>
+                <setProperty id="_setProperty9" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty10" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty11" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty12" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <to id="sendContactUsEmailRequestXsl" uri="xslt://etc/xsl/request/sendContactUsEmailRequest.xsl"/>
+                <convertBodyTo id="sendContactUsEmailRequestBody" type="java.lang.String"/>
+                <removeHeaders id="removeSoapActionHeader" pattern="SOAPAction*"/>
+                <to id="cxfsendContactUsEmailRequest" uri="cxf:{{endpoint.notifications.service}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="sendOTPEmailRequestEmailResponseBody" type="java.lang.String"/>
+                <to id="contactUsResponseXml" uri="xslt://etc/xsl/response/contactUsResponse.xsl"/>
+                <removeHeaders id="removeHeader6" pattern="*"/>
+                <doCatch id="contactarCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="contactarCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="contactarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="eliminarUsuario">
+            <from id="eliminarUsuarioFrom" uri="direct:eliminarUsuario"/>
+            <doTry id="eliminarUsuarioTry">
+                <setHeader headerName="rut" id="eliminarUsuario_rutInput">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <setHeader headerName="idSolicitud" id="eliminarUsuario_solicitudIdInput">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <log id="delete_userdetails_log1" message="delete_user_state request :${body}"/>
+                <to id="to_call_sp_delete_userdetails" uri="bean:call_sp_delete_user"/>
+                <log id="delete_userdetails_log2" message="delete_user_state response 1 :${body}"/>
+                <setProperty id="deletespresult" propertyName="status">
+                    <simple>${body.[status]}</simple>
+                </setProperty>
+                <marshal id="eliminarUsuario_storedProcResultMarshal" ref="jacksonTransform"/>
+                <convertBodyTo id="eliminarUsuario_storedProcResult" type="java.lang.String"/>
+                <to id="eliminarUsuarioResponseXml" uri="xslt://etc/xsl/response/eliminarUsuarioResponse.xsl"/>
+                <log id="delete_userdetails_log3" message="delete_user_state response 2 :${body}"/>
+                <removeHeaders id="removeHeader5" pattern="*"/>
+                <doCatch id="eliminarUsuarioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="ruteodeleteUserDetailPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteodeleteUserDetailListExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarUsuarios">
+            <from id="consultarUsuariosFrom" uri="direct:consultarUsuarios"/>
+            <doTry id="getsolicitudUserListTry">
+                <setHeader headerName="inputSolicitudId" id="consultarUsuarios_solicitudIdInput">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <log id="consultarUsuarios_log_req" message="list_user_details request : ${body}"/>
+                <to id="to_call_sp_list_userdetails" uri="bean:call_sp_get_solicitud_user"/>
+                <marshal id="consultarUsuarios_storedProcResultMarshal" ref="jacksonTransform"/>
+                <convertBodyTo id="consultarUsuarios_storedProcResult" type="java.lang.String"/>
+                <removeHeaders id="removeHeader7" pattern="*"/>
+                <setBody id="setBodyEntradaConsulta">
+                    <xpath resultType="String">//responseXML</xpath>
+                </setBody>
+                <log id="consultarUsuarios_log_res" message="list_user_details response : ${body}"/>
+                <doCatch id="getsolicitudUserListCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="ruteogetsolicitudUserListPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteogetsolicitudUserListExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="crear">
+            <from id="directSaveRequest" uri="direct:crear"/>
+            <doTry id="saveRequestTry">
+                <setHeader headerName="solicitudid" id="saveRequestSolicitudId">
+                    <xpath resultType="String">//solicitudid</xpath>
+                </setHeader>
+                <setHeader headerName="name" id="saveRequestName">
+                    <xpath resultType="String">//name</xpath>
+                </setHeader>
+                <setHeader headerName="region" id="saveRequestRegion">
+                    <xpath resultType="String">//region</xpath>
+                </setHeader>
+                <setHeader headerName="tipoSolicitud" id="saveRequestTipoSolicitud">
+                    <xpath resultType="String">//tipoSolicitud</xpath>
+                </setHeader>
+                <log id="saveLog_002" loggingLevel="INFO" message="crear request: ${body}"/>
+                <to id="to_call_sp_save_solicitud" uri="bean:call_sp_save_solicitud"/>
+                <setProperty id="statusResult" propertyName="status">
+                    <simple>${body.[status]}</simple>
+                </setProperty>
+                <log id="saveLog_002" loggingLevel="INFO" message="crear response: ${body}"/>
+                <marshal id="saveRequestStoredProcedureResultMarshal" ref="jacksonTransform"/>
+                <convertBodyTo id="saveRequestStoredProcedureResult" type="java.lang.String"/>
+                <removeHeaders id="saveRequestRemoveHeader2" pattern="*"/>
+                <to id="saveRequestResponseXml" uri="xslt://etc/xsl/response/crearResponse.xsl"/>
+                <doCatch id="saveRequestCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="ruteoSaveRequestPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteoSaveRequestExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="actualizar">
+            <from id="directUpdateRequest" uri="direct:actualizar"/>
+            <doTry id="updateRequestTry">
+                <setHeader headerName="solicitudid" id="updateRequestSolicitudId">
+                    <xpath resultType="String">//solicitudid</xpath>
+                </setHeader>
+                <setHeader headerName="name" id="updateRequestName">
+                    <xpath resultType="String">//name</xpath>
+                </setHeader>
+                <setHeader headerName="region" id="updateRequestRegion">
+                    <xpath resultType="String">//region</xpath>
+                </setHeader>
+                <setHeader headerName="tipoSolicitud" id="updateRequestTipoSolicitud">
+                    <xpath resultType="String">//tipoSolicitud</xpath>
+                </setHeader>
+                <log id="updateLog_002" loggingLevel="INFO" message="update request: ${body}"/>
+                <to id="to_call_sp_update_solicitud" uri="bean:call_sp_save_solicitud"/>
+                <setProperty id="statusResultUpdateRequest" propertyName="status">
+                    <simple>${body.[status]}</simple>
+                </setProperty>
+                <log id="updateLog_002" loggingLevel="INFO" message="update response: ${body}"/>
+                <marshal id="updateRequestStoredProcedureResultMarshal" ref="jacksonTransform"/>
+                <convertBodyTo id="updateRequestStoredProcedureResult" type="java.lang.String"/>
+                <removeHeaders id="updateRequestRemoveHeader2" pattern="*"/>
+                <to id="updateRequestResponseXml" uri="xslt://etc/xsl/response/actualizarResponse.xsl"/>
+                <doCatch id="updateRequestCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="ruteoUpdateRequestPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteoUpdateRequestExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarSolicitud">
+            <from id="consultarSolicitudFrom" uri="direct:consultarSolicitud"/>
+            <doTry id="getConsultarSolicitudListTry">
+                <setHeader headerName="inputSolicitudId" id="consultarSolicitud_solicitudIdInput">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <log id="consultarSolicitud_log_req" message="list_consultar_solicitud request : ${body}"/>
+                <to id="to_call_sp_get_solicitud" uri="bean:call_sp_get_solicitud"/>
+                <marshal id="consultarSolicitud_storedProcResultMarshal" ref="jacksonTransform"/>
+                <convertBodyTo id="consultarSolicitud_storedProcResult" type="java.lang.String"/>
+                <removeHeaders id="removeHeader7consultarSolicitud" pattern="*"/>
+                <setBody id="setBodyEntradaConsultarSolicitud">
+                    <xpath resultType="String">//responseXML</xpath>
+                </setBody>
+                <log id="consultarSolicitud_log_res" message="list_consultar_solicitud response : ${body}"/>
+                <doCatch id="getConsultarSolicitudListCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="ruteoGetConsultarSolicitudListPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteoGetConsultarSolicitudListExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarSolicitudEIBS">
+            <from id="consultarSolicitudEIBSFrom" uri="direct:consultarSolicitudEIBS"/>
+            <doTry id="getConsultarSolicitudEIBSListTry">
+                <setHeader headerName="inputSolicitudId" id="consultarSolicitudEIBS_solicitudIdInput">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <log id="consultarSolicitudEIBS_log_req" message="list_consultar_solicitudEIBS request : ${body}"/>
+                <to id="to_call_sp_get_solicitud_eibs" uri="bean:call_sp_get_solicitud_eibs"/>
+                <marshal
+                    id="consultarSolicitudEIBS_storedProcResultMarshal" ref="jacksonTransform"/>
+                <convertBodyTo
+                    id="consultarSolicitudEIBS_storedProcResult" type="java.lang.String"/>
+                <removeHeaders id="removeHeader7consultarSolicitudEIBS" pattern="*"/>
+                <setBody id="setBodyEntradaConsultarSolicitudEIBS">
+                    <xpath resultType="String">//responseXML</xpath>
+                </setBody>
+                <log id="consultarSolicitudEIBS_log_res" message="list_consultar_solicitudEIBS response : ${body}"/>
+                <doCatch id="getConsultarSolicitudEIBSListCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="ruteoGetConsultarSolicitudEIBSListPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="ruteoGetConsultarSolicitudEIBSListExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <setBody id="exceptionBodyError">
+                    <simple>${body}</simple>
+                </setBody>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

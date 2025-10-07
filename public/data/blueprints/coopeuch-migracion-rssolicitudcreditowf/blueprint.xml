@@ -1,0 +1,405 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wssolicitudcreditowf" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.solicitudcreditowf.util.RouteFacade" id="beanRouteFacade"/>
+    <bean
+        class="cl.coopeuch.integracion.solicitudcreditowf.util.AggregatorEstados" id="aggrgatorStatus"/>
+    <camelcxf:cxfEndpoint address="/WSSolicitudCreditoWF"
+        id="endpointWSSolicitudCreditoWF"
+        serviceClass="cl.coopeuch.integracion.solicitudcreditowf.wsdl.WSSolicitudCreditoWFSOAPPortType" wsdlURL="etc/wsdl/WSSolicitudCreditoWF.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSSolicitudCreditoWF"
+        id="endpointRSSolicitudCreditoWF" loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.solicitudcreditowf.wsdl.WSSolicitudCreditoWFSOAPPortType"/>
+    <camelcxf:rsClient
+        address="[{solicitudCreditoWF.wscuentavista.endpoint}]"
+        id="endpointRSCuentaVista" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient
+        address="[{solicitudCreditoWF.wsadministradoridg.endpoint}]"
+        id="endpointRSAdministradorIDG" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient
+        address="[{solicitudCreditoWF.wsgestioncredito.endpoint}]"
+        id="endpointRSGestionCredito" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:cxfEndpoint
+        address="[{solicitudCreditoWF.verificaSolicitudes.endpoint}]"
+        id="endpointVerificaSolicitudes" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.solicitudcreditowf.wsdl.verificaSolicitudes.VerificaSolicitudesSoap" wsdlURL="etc/wsdl/VerificaSolicitudes.wsdl"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <camelContext id="servicio-solicitud-creditoWF" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSSolicitudCreditoWF"/>
+            <to id="soapToInicio" uri="direct:inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSSolicitudCreditoWF"/>
+            <to id="restToInicio" uri="direct:inicio"/>
+        </route>
+        <route id="iniciows">
+            <from id="iniciows" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsCampana">
+                        <simple>${header.operationName} == 'consultarCampana'</simple>
+                        <throwException
+                            exceptionType="java.lang.IllegalArgumentException"
+                            id="throwExceptionConsultarCampana" message="Operacion no habilitada"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsDatosSimulacion">
+                        <simple>${header.operationName} == 'consultarDatosSimulacion'</simple>
+                        <throwException
+                            exceptionType="java.lang.IllegalArgumentException"
+                            id="throwExceptionConsultarDatosSimulacion" message="Operacion no habilitada"/>
+                    </when>
+                    <when id="inicioWhenOperacionSimular">
+                        <simple>${header.operationName} == 'simular'</simple>
+                        <throwException
+                            exceptionType="java.lang.IllegalArgumentException"
+                            id="throwExceptionSimular" message="Operacion no habilitada"/>
+                    </when>
+                    <when id="inicioWhenOperacionEvaluar">
+                        <simple>${header.operationName} == 'evaluar'</simple>
+                        <throwException
+                            exceptionType="java.lang.IllegalArgumentException"
+                            id="throwExceptionEvaluar" message="Operacion no habilitada"/>
+                    </when>
+                    <when id="inicioWhenOperacionFormalizar">
+                        <simple>${header.operationName} == 'formalizar'</simple>
+                        <throwException
+                            exceptionType="java.lang.IllegalArgumentException"
+                            id="throwExceptionFormalizar" message="Operacion no habilitada"/>
+                    </when>
+                    <when id="inicioWhenOperacionCursar">
+                        <simple>${header.operationName} == 'cursar'</simple>
+                        <throwException
+                            exceptionType="java.lang.IllegalArgumentException"
+                            id="throwExceptionCursar" message="Operacion no habilitada"/>
+                    </when>
+                    <when id="inicioWhenOperacionValIdentidad">
+                        <simple>${header.operationName} == 'validarIdentidad'</simple>
+                        <throwException
+                            exceptionType="java.lang.IllegalArgumentException"
+                            id="throwExceptionValidarIdentidad" message="Operacion no habilitada"/>
+                    </when>
+                    <when id="inicioWhenOperacionIndicadorCurseDG">
+                        <simple>${header.operationName} == 'indicadorCurseDG'</simple>
+                        <to id="inicioToIndicadorCurseDG" uri="direct:indicadorCurseDG"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatchOperacion">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="inicioOperacionErrorCod" propertyName="codigoError">
+                        <constant>517</constant>
+                    </setProperty>
+                    <to id="inicioToExceptionOp" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarCV">
+            <from id="consultaCV-From" uri="direct:consultarCV"/>
+            <doTry id="consultarCVDoTry">
+                <bean id="consultarCVBeanRequest"
+                    method="consultarCVRequest" ref="beanRouteFacade"/>
+                <to id="consultarCVto" uri="cxfrs:bean:endpointRSCuentaVista?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <bean id="consultarCVBeanResponse"
+                    method="consultarCVResponse" ref="beanRouteFacade"/>
+                <doCatch id="consultarCVNullDoCatch">
+                    <exception>java.lang.NullPointerException</exception>
+                    <to id="consultarCVToExcepcionErrorCV" uri="direct:excepcion"/>
+                    <stop id="stopCuentaVista"/>
+                </doCatch>
+                <doCatch id="consultarCVIllegalDoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="consultarCVToExcepcionSinCV" uri="direct:excepcion"/>
+                    <stop id="stopSinCuenta"/>
+                </doCatch>
+                <doCatch id="consultarCVDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoErrorConsultarCV" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toConsultarCVExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopCVGeneral"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="indicadorCurseDG">
+            <from id="indicadorCurseDGFrom" uri="direct:indicadorCurseDG"/>
+            <doTry id="indicadorCurseDGDoTry">
+                <bean id="indicadorCurseValidarBean"
+                    method="validarRequest" ref="beanRouteFacade"/>
+                <setProperty id="control_error" propertyName="controlError">
+                    <constant>0</constant>
+                </setProperty>
+                <to id="indicadorCurseDGToConsultarCV" uri="direct:consultarCV"/>
+                <choice id="_choice1">
+                    <when id="_when1">
+                        <simple>${exchangeProperty.codigoError} == 0 </simple>
+                        <to id="indicadorCurseDGToObtenerTarjeta" uri="direct:obtenerTarjeta"/>
+                        <to id="indicadorCurseDGToVerificarSolicitudes" uri="direct:verificarSolicitudes"/>
+                        <log id="_log1" message="prueba: ${property.listaIndicadorCurse}"/>
+                        <choice id="_choice3">
+                            <when id="_when8">
+                                <simple>${property.listaIndicadorCurse} contains 'false'</simple>
+                                <to id="consultarDerivadasWebTo1" uri="direct:consultarDerivadasWeb"/>
+                            </when>
+                            <when id="_when4">
+                                <simple>${body} == ''</simple>
+                                <to id="consultarDerivadasWebTo" uri="direct:consultarDerivadasWeb"/>
+                            </when>
+                            <when id="_when5">
+                                <simple>${property.listaIndicadorCurse} contains 'true'</simple>
+                                <setProperty id="control_error-true" propertyName="controlError">
+                                    <constant>1</constant>
+                                </setProperty>
+                                <to id="consultarDerivadasWebTo1" uri="direct:consultarDerivadasWeb"/>
+                                <log id="_log2" message="Salida: ${body}"/>
+                                <choice id="_choice5">
+                                    <when id="_when9">
+                                    <simple>${body} contains 'IOC032701O00000'</simple>
+                                    <setBody id="registrarToken-SetBodyError">
+                                    <simple>${exchangeProperty.SalidaVerificar}</simple>
+                                    </setBody>
+                                    <split id="indicadorCurseSplit"
+                                    parallelProcessing="true"
+                                    stopOnException="true" strategyRef="aggrgatorStatus">
+                                    <tokenize token=","/>
+                                    <to id="indicadorCurseTo" uri="direct:obtenerEstado"/>
+                                    </split>
+                                    <bean id="indicadorCurseBean"
+                                    method="responseServicio" ref="beanRouteFacade"/>
+                                    </when>
+                                </choice>
+                            </when>
+                        </choice>
+                    </when>
+                </choice>
+                <doCatch id="indicadorCurseDGIllegalDoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="indicadorCurseDGToExcepcionSinCV" uri="direct:excepcion"/>
+                    <stop id="stopIndicadorCurseDG"/>
+                </doCatch>
+                <doCatch id="indicadorCurseDGDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="indicadorCurseDGCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="indicadorCurseDGToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarDerivadasWeb">
+            <from id="consultarDerivadasWeb-From" uri="direct:consultarDerivadasWeb"/>
+            <doTry id="_doTry1">
+                <removeHeaders id="_removeHeaders1" pattern="*"/>
+                <bean id="_bean1" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <bean id="_bean2" method="consultarDerivadasWebRequest" ref="beanRouteFacade"/>
+                <marshal id="_marshal1">
+                    <bindy
+                        classType="cl.coopeuch.integracion.solicitudcreditowf.modelo.IOC032701I" type="Fixed"/>
+                </marshal>
+                <to id="activemq-consultarDerivadasWeb" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="_log3" message="Salida IOC032701: ${body}"/>
+                <choice id="_choice4">
+                    <when id="_when6">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_unmarshal4">
+                            <bindy
+                                classType="cl.coopeuch.integracion.solicitudcreditowf.modelo.IOCERROR" type="Fixed"/>
+                        </unmarshal>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException2" message="Error en conversion de archivo"/>
+                    </when>
+                    <when id="_when7">
+                        <simple>${body} contains 'IOC032701O00000'</simple>
+                        <log id="_log4" message="IOC032701: ${body}"/>
+                        <log id="_log5" message="controlError: ${exchangeProperty.controlError}"/>
+                        <choice id="_choice6">
+                            <when id="_when10">
+                                <simple>${exchangeProperty.controlError} == '0'</simple>
+                                <throwException
+                                    exceptionType="java.lang.NullPointerException"
+                                    id="_throwException1" message="ERROR"/>
+                            </when>
+                        </choice>
+                    </when>
+                    <when id="_when7">
+                        <simple>${body} contains 'IOC032701O00001'</simple>
+                        <unmarshal id="_unmarshal2">
+                            <bindy
+                                classType="cl.coopeuch.integracion.solicitudcreditowf.modelo.IOC032701O2" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="_bean6" method="salidaIOC" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <unmarshal id="_unmarshal1">
+                            <bindy
+                                classType="cl.coopeuch.integracion.solicitudcreditowf.modelo.IOC032701O" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="_bean4" method="salidaIOC" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.NullPointerException</exception>
+                    <bean id="_bean5" method="crearErrorSindatos" ref="beanRouteFacade"/>
+                    <stop id="_stop2"/>
+                </doCatch>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="_bean3" method="errorToXML" ref="beanRouteFacade"/>
+                    <stop id="_stop1"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="obtenerTarjetaCoordenadas">
+            <from id="obtenerTarjetaFrom" uri="direct:obtenerTarjeta"/>
+            <doTry id="obtenerTarjetaDoTry">
+                <bean id="obtenerTarjetaBeanRequest"
+                    method="obtenerTarjetaRequest" ref="beanRouteFacade"/>
+                <to id="obtenerTarjetaToAdministradorIDG" uri="cxfrs:bean:endpointRSAdministradorIDG?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <bean id="obtenerTarjetaBeanResponse"
+                    method="obtenerTarjetaResponse" ref="beanRouteFacade"/>
+                <doCatch id="obtenerTarjetaNullDoCatch">
+                    <exception>java.lang.NullPointerException</exception>
+                    <to id="obtenerTarjetaToExcepcionErrorCV" uri="direct:excepcion"/>
+                    <stop id="obtenerTarjetaStop"/>
+                </doCatch>
+                <doCatch id="obtenerTarjetaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoErrorObtenerTarjeta" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="obtenerTarjetaToExcepcion" uri="direct:excepcion"/>
+                    <stop id="obtenerTarjetaStopGeneral"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="verificarSolicitudes">
+            <from id="verificarSolicitudesFrom" uri="direct:verificarSolicitudes"/>
+            <doTry id="verificarSolicitudesDoTry">
+                <bean id="verificarSolicitudesBeanRequest"
+                    method="verificarSolicitudesRequest" ref="beanRouteFacade"/>
+                <to id="generarMandatoToDocumento" uri="cxf:bean:endpointVerificaSolicitudes"/>
+                <bean id="verificarSolicitudesBeanResponse"
+                    method="verificarSolicitudesResponse" ref="beanRouteFacade"/>
+                <doCatch id="verificarSolicitudesNullDoCatch">
+                    <exception>java.lang.NullPointerException</exception>
+                    <to id="verificarSolicitudesToExcepcionErrorWS" uri="direct:excepcion"/>
+                    <stop id="verificarSolicitudesStopNull"/>
+                </doCatch>
+                <doCatch id="verificarSolicitudesDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="verificarSolicitudesCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="verificarSolicitudesToExcepcion" uri="direct:excepcion"/>
+                    <stop id="verificarSolicitudesStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="obtenerEstado">
+            <from id="obtenerEstadoFrom" uri="direct:obtenerEstado"/>
+            <doTry id="obtenerEstadoDoTry">
+                <bean id="obtenerEstadoBeanRequest"
+                    method="obtenerEstadoRequest" ref="beanRouteFacade"/>
+                <to id="obtenerEstadoToGestionCredito" uri="cxfrs:bean:endpointRSGestionCredito?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <bean id="obtenerEstadoBeanResponse"
+                    method="obtenerEstadoResponse" ref="beanRouteFacade"/>
+                <doCatch id="obtenerEstadoNullDoCatch">
+                    <exception>java.lang.NullPointerException</exception>
+                    <to id="obtenerEstadoToExcepcionErrorWS" uri="direct:excepcion"/>
+                    <stop id="obtenerEstadoStopNull"/>
+                </doCatch>
+                <doCatch id="obtenerEstadoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoErrorobtenerEstado" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="obtenerEstadoToExcepcion" uri="direct:excepcion"/>
+                    <stop id="obtenerEstadoStopGeneral"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <choice id="_choice2">
+                    <when id="_when2">
+                        <simple>${exchangeProperty.codigoError} == '419'</simple>
+                    </when>
+                    <when id="_when3">
+                        <simple>${exchangeProperty.codigoError} == '500'</simple>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    </otherwise>
+                </choice>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

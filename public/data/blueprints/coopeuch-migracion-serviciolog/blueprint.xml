@@ -1,0 +1,508 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder persistent-id="serviceProperties" update-strategy="reload"/>
+    <!-- Configure CXF endpoint -->
+    <cxf:cxfEndpoint address="/ServicioLog" id="servicioLogEndpoint"
+        serviceClass="cl.coopeuch.core.log.log.LogPortType" wsdlURL="wsdl/ServicioLog.wsdl"/>
+    <!-- Configure Active MQ connection factory -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSybase">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="${jdbc.sybase.url.log}/TarjetaCredito;charset=iso_1"/>
+        <property name="username" value="${jdbc.sybase.username.log}"/>
+        <property name="password" value="${jdbc.sybase.password.log}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="${jdbc.sybase.timeBetweenEvictionRunsMillis.log}"/>
+        <property name="numTestsPerEvictionRun" value="${jdbc.sybase.numTestsPerEvictionRun.log}"/>
+        <property name="minEvictableIdleTimeMillis" value="${jdbc.sybase.minEvictableIdleTimeMillis.log}"/>
+        <property name="maxActive" value="${jdbc.sybase.maxActive.log}"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="${jdbc.sqlserver.url.log}/PortalWeb;charset=iso_1"/>
+        <property name="username" value="${jdbc.sqlserver.username.log}"/>
+        <property name="password" value="${jdbc.sqlserver.password.log}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="${jdbc.sqlserver.timeBetweenEvictionRunsMillis.log}"/>
+        <property name="numTestsPerEvictionRun" value="${jdbc.sqlserver.numTestsPerEvictionRun.log}"/>
+        <property name="minEvictableIdleTimeMillis" value="${jdbc.sqlserver.minEvictableIdleTimeMillis.log}"/>
+        <property name="maxActive" value="${jdbc.sqlserver.maxActive.log}"/>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.PA_consultarLogNavegacion">
+        <argument ref="dataSourceSqlServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.PA_consultarLogNavegacion"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="FechaDesde"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="FechaHasta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="PA_registrarCanalLogNavegacion">
+        <argument ref="dataSourceSqlServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="PA_registrarCanalLogNavegacion"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="IP"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="Browser"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="SistemaOperativo"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="Fecha"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="Funcionalidad"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="CodigoSalida"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="Canal"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="PA_registrarLogNavegacion">
+        <argument ref="dataSourceSqlServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="PA_registrarLogNavegacion"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="IP"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="Browser"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="SistemaOperativo"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="Fecha"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="Funcionalidad"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="CodigoSalida"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_inslogwebpay">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_inslogwebpay"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Token"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="TipoTransaccion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumeroTarjeta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="CodigoSet"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="CodigoGet"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="ATN"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="RutClienteTrans"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="RutClientePag"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="Monto"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Fecha"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="CAVV"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="ECI"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="VCI"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <camelContext id="servicio-log-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml disableFeatures="WRITE_DATES_AS_TIMESTAMPS"
+                id="jack" prettyPrint="true"/>
+            <xmljson elementName="resultado" id="xmljsonJson2Xml" rootName="salida"/>
+            <json id="gsonMap2Json" library="Gson" prettyPrint="true"/>
+        </dataFormats>
+        <route id="cx-RuteoOperaciones">
+            <from id="servicioLogEndpointListener" uri="cxf:bean:servicioLogEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaconsultarLogNavegacion">
+                        <simple>${body} contains 'consultarLogNavegacion'</simple>
+                        <to id="consultarLogNavegacionValidator" uri="validator:xsd/soapConsultarLogNavegacion.xsd"/>
+                        <to id="consultarLogNavegacionTo" uri="direct:consultarLogNavegacion"/>
+                    </when>
+                    <when id="rutaregistrarCanalLogNav">
+                        <simple>${body} contains 'registrarCanalLogNav'</simple>
+                        <to id="registrarCanalLogNavValidator" uri="validator:xsd/soapRegistrarCanalLogNav.xsd"/>
+                        <to id="registrarCanalLogNavTo" uri="direct:registrarCanalLogNav"/>
+                    </when>
+                    <when id="rutaregistrarLogNavegacion">
+                        <simple>${body} contains 'registrarLogNavegacion'</simple>
+                        <to id="registrarLogNavegacionValidator" uri="validator:xsd/soapRegistrarLogNavegacion.xsd"/>
+                        <to id="registrarLogNavegacionTo" uri="direct:registrarLogNavegacion"/>
+                    </when>
+                    <when id="rutaregistrarLogWebPay">
+                        <simple>${body} contains 'registrarLogWebPay'</simple>
+                        <to id="registrarLogWebPayValidator" uri="validator:xsd/soapRegistrarLogWebPay.xsd"/>
+                        <to id="registrarLogWebPayTo" uri="direct:registrarLogWebPay"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <route id="consultarLogNavegacion">
+            <from id="consultarLogNavegacionFrom" uri="direct:consultarLogNavegacion"/>
+            <doTry id="consultarLogNavegacionTry">
+                <setHeader headerName="Rut" id="consultarLogNavegacionHeaderRut">
+                    <xpath resultType="java.lang.String">//Rut/text()</xpath>
+                </setHeader>
+                <setHeader headerName="FechaDesde" id="consultarLogNavegacionHeaderFechaDesde">
+                    <xpath resultType="java.lang.String">//FechaDesde/text()</xpath>
+                </setHeader>
+                <setHeader headerName="FechaHasta" id="consultarLogNavegacionHeaderFechaHasta">
+                    <xpath resultType="java.lang.String">//FechaHasta/text()</xpath>
+                </setHeader>
+                <to id="PA_consultarLogNavegacion" uri="bean:dbo.PA_consultarLogNavegacion"/>
+                <marshal id="consultarLogNavegacionMarshal" ref="gsonMap2Json"/>
+                <unmarshal id="consultarLogNavegacionUnMarshal" ref="xmljsonJson2Xml"/>
+                <to id="consultarLogNavegacionXml2xml" uri="xslt://transformations/out/resultset2xml_consultarLogNavegacion.xsl?saxon=true"/>
+                <doCatch id="consultarLogNavegacionCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="consultarLogNavegacionRestoreBody" method="restoreBody"/>
+                    <setBody id="consultarLogNavegacionSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarLogNavegacionFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="consultarLogNavegacionSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultarLogNavegacionFinally"/>
+            </doTry>
+        </route>
+        <route id="registrarCanalLogNav">
+            <from id="registrarCanalLogNavFrom" uri="direct:registrarCanalLogNav"/>
+            <doTry id="registrarCanalLogNavTry">
+                <setHeader headerName="Rut" id="registrarCanalLogNavHeaderRut">
+                    <xpath resultType="java.lang.String">//Rut/text()</xpath>
+                </setHeader>
+                <setHeader headerName="IP" id="registrarCanalLogNavHeaderIP">
+                    <xpath resultType="java.lang.String">//IP/text()</xpath>
+                </setHeader>
+                <setHeader headerName="Browser" id="registrarCanalLogNavHeaderBrowser">
+                    <xpath resultType="java.lang.String">//Browser/text()</xpath>
+                </setHeader>
+                <setHeader headerName="SistemaOperativo" id="registrarCanalLogNavHeaderSistemaOperativo">
+                    <xpath resultType="java.lang.String">//SistemaOperativo/text()</xpath>
+                </setHeader>
+                <setHeader headerName="Fecha" id="registrarCanalLogNavHeaderFecha">
+                    <xpath resultType="java.lang.String">//Fecha/text()</xpath>
+                </setHeader>
+                <setHeader headerName="Funcionalidad" id="registrarCanalLogNavHeaderFuncionalidad">
+                    <xpath resultType="java.lang.String">//Funcionalidad/text()</xpath>
+                </setHeader>
+                <setHeader headerName="CodigoSalida" id="registrarCanalLogNavHeaderCodigoSalida">
+                    <xpath resultType="java.lang.String">//CodigoSalida/text()</xpath>
+                </setHeader>
+                <setHeader headerName="Canal" id="registrarCanalLogNavHeaderCanal">
+                    <xpath resultType="java.lang.String">//Canal/text()</xpath>
+                </setHeader>
+                <to id="PA_registrarCanalLogNavegacion" uri="bean:PA_registrarCanalLogNavegacion"/>
+                <marshal id="registrarCanalLogNavResultset2xml" ref="jack"/>
+                <convertBodyTo id="registrarCanalLogNavConvertBodyTo" type="java.lang.String"/>
+                <transform id="registrarCanalLogNavTransform1">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <transform id="registrarCanalLogNavTransform2">
+                    <simple>${in.body.replaceAll('&lt;&gt;','&lt;salida&gt;')}</simple>
+                </transform>
+                <transform id="registrarCanalLogNavTransform3">
+                    <simple>${in.body.replaceAll('&lt;/&gt;','&lt;/salida&gt;')}</simple>
+                </transform>
+                <to id="registrarCanalLogNavXml2xml" uri="xslt://transformations/out/resultset2xml_registrarCanalLogNav.xsl?saxon=true"/>
+                <doCatch id="registrarCanalLogNavCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="registrarCanalLogNavRestoreBody" method="restoreBody"/>
+                    <setBody id="registrarCanalLogNavSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="registrarCanalLogNavFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="registrarCanalLogNavSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="registrarCanalLogNavFinally"/>
+            </doTry>
+        </route>
+        <route id="registrarLogNavegacion">
+            <from id="registrarLogNavegacionFrom" uri="direct:registrarLogNavegacion"/>
+            <doTry id="registrarLogNavegacionTry">
+                <setHeader headerName="Rut" id="registrarLogNavegacionHeaderRut">
+                    <xpath resultType="java.lang.String">//Rut/text()</xpath>
+                </setHeader>
+                <setHeader headerName="IP" id="registrarLogNavegacionHeaderIP">
+                    <xpath resultType="java.lang.String">//IP/text()</xpath>
+                </setHeader>
+                <setHeader headerName="Browser" id="registrarLogNavegacionHeaderBrowser">
+                    <xpath resultType="java.lang.String">//Browser/text()</xpath>
+                </setHeader>
+                <setHeader headerName="SistemaOperativo" id="registrarLogNavegacionHeaderSistemaOperativo">
+                    <xpath resultType="java.lang.String">//SistemaOperativo/text()</xpath>
+                </setHeader>
+                <setHeader headerName="Fecha" id="registrarLogNavegacionHeaderFecha">
+                    <xpath resultType="java.lang.String">//Fecha/text()</xpath>
+                </setHeader>
+                <setHeader headerName="Funcionalidad" id="registrarLogNavegacionHeaderFuncionalidad">
+                    <xpath resultType="java.lang.String">//Funcionalidad/text()</xpath>
+                </setHeader>
+                <setHeader headerName="CodigoSalida" id="registrarLogNavegacionHeaderCodigoSalida">
+                    <xpath resultType="java.lang.String">//CodigoSalida/text()</xpath>
+                </setHeader>
+                <to id="PA_registrarLogNavegacion" uri="bean:PA_registrarLogNavegacion"/>
+                <marshal id="registrarLogNavegacionResultset2xml" ref="jack"/>
+                <convertBodyTo id="registrarLogNavegacionConvertBodyTo" type="java.lang.String"/>
+                <transform id="registrarLogNavegacionTransform">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <transform id="registrarLogNavegacionTransform">
+                    <simple>${in.body.replaceAll('&lt;&gt;','&lt;salida&gt;')}</simple>
+                </transform>
+                <transform id="registrarLogNavegacionTransform">
+                    <simple>${in.body.replaceAll('&lt;/&gt;','&lt;/salida&gt;')}</simple>
+                </transform>
+                <to id="registrarLogNavegacionXml2xml" uri="xslt://transformations/out/resultset2xml_registrarLogNavegacion.xsl?saxon=true"/>
+                <doCatch id="registrarLogNavegacionCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="registrarLogNavegacionRestoreBody" method="restoreBody"/>
+                    <setBody id="registrarLogNavegacionSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="registrarLogNavegacionFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="registrarLogNavegacionSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="registrarLogNavegacionFinally"/>
+            </doTry>
+        </route>
+        <route id="registrarLogWebPay">
+            <from id="registrarLogWebPayFrom" uri="direct:registrarLogWebPay"/>
+            <doTry id="registrarLogWebPayTry">
+                <setHeader headerName="Token" id="registrarLogWebPayHeaderToken">
+                    <xpath resultType="java.lang.String">//Token/text()</xpath>
+                </setHeader>
+                <setHeader headerName="TipoTransaccion" id="registrarLogWebPayHeaderTipoTransaccion">
+                    <xpath resultType="java.lang.String">//TipoTransaccion/text()</xpath>
+                </setHeader>
+                <setHeader headerName="NumeroTarjeta" id="registrarLogWebPayHeaderNumeroTarjeta">
+                    <xpath resultType="java.lang.String">//NumeroTarjeta/text()</xpath>
+                </setHeader>
+                <setHeader headerName="CodigoSet" id="registrarLogWebPayHeaderCodigoSet">
+                    <xpath resultType="java.lang.String">//CodigoSet/text()</xpath>
+                </setHeader>
+                <setHeader headerName="CodigoGet" id="registrarLogWebPayHeaderCodigoGet">
+                    <xpath resultType="java.lang.String">//CodigoGet/text()</xpath>
+                </setHeader>
+                <setHeader headerName="ATN" id="registrarLogWebPayHeaderATN">
+                    <xpath resultType="java.lang.String">//ATN/text()</xpath>
+                </setHeader>
+                <setHeader headerName="RutClienteTrans" id="registrarLogWebPayHeaderRutClienteTrans">
+                    <xpath resultType="java.lang.String">//RutClienteTrans/text()</xpath>
+                </setHeader>
+                <setHeader headerName="RutClientePag" id="registrarLogWebPayHeaderRutClientePag">
+                    <xpath resultType="java.lang.String">//RutClientePag/text()</xpath>
+                </setHeader>
+                <setHeader headerName="Monto" id="registrarLogWebPayHeaderMonto">
+                    <xpath resultType="java.lang.String">//Monto/text()</xpath>
+                </setHeader>
+                <setHeader headerName="Fecha" id="registrarLogWebPayHeaderFecha">
+                    <xpath resultType="java.lang.String">//Fecha/text()</xpath>
+                </setHeader>
+                <setHeader headerName="CAVV" id="registrarLogWebPayHeaderCAVV">
+                    <xpath resultType="java.lang.String">//CAVV/text()</xpath>
+                </setHeader>
+                <setHeader headerName="ECI" id="registrarLogWebPayHeaderECI">
+                    <xpath resultType="java.lang.String">//ECI/text()</xpath>
+                </setHeader>
+                <setHeader headerName="VCI" id="registrarLogWebPayHeaderVCI">
+                    <xpath resultType="java.lang.String">//VCI/text()</xpath>
+                </setHeader>
+                <to id="pa_inslogwebpay" uri="bean:pa_inslogwebpay"/>
+                <marshal id="registrarLogWebPayResultset2xml" ref="jack"/>
+                <convertBodyTo id="registrarLogWebPayConvertBodyTo" type="java.lang.String"/>
+                <transform id="registrarLogWebPayTransform">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <to id="registrarLogWebPayXml2xml" uri="xslt://transformations/out/resultset2xml_registrarLogWebPay.xsl?saxon=true"/>
+                <doCatch id="registrarLogWebPayCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="registrarLogWebPayRestoreBody" method="restoreBody"/>
+                    <setBody id="registrarLogWebPaySetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="registrarLogWebPayFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="registrarLogWebPaySetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="registrarLogWebPayFinally"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

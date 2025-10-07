@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.parametrosenrolamiento.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSParametrosEnrolamiento"
+        id="endpointWSParametrosEnrolamiento"
+        serviceClass="cl.coopeuch.integracion.parametrosenrolamiento.wsdl.WSParametrosEnrolamientoSOAPPortType" wsdlURL="etc/wsdl/WSParametrosEnrolamiento.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSParametrosEnrolamiento"
+        id="endpointRSParametrosEnrolamiento" serviceClass="cl.coopeuch.integracion.parametrosenrolamiento.wsdl.WSParametrosEnrolamientoSOAPPortType"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <camelContext id="servicio-parametros-enrolamiento" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSParametrosEnrolamiento"/>
+            <to id="soapToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSParametrosEnrolamiento"/>
+            <to id="restToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="iniciows" uri="direct:iniciows"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setProperty id="inicioSetBody" propertyName="bodyEntrada">
+                    <simple>${body.get(0)}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionObtieneSemilla">
+                        <simple>${header.operationName} == 'obtieneSemilla'</simple>
+                        <to id="toObtieneSemilla" uri="direct:obtieneSemilla"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodError" propertyName="codigoError">
+                        <simple>500</simple>
+                    </setProperty>
+                    <setHeader headerName="entra_fault" id="_headEntraFaultInicio">
+                        <simple>0</simple>
+                    </setHeader>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+            <removeHeaders id="_removeHeaders1" pattern="*"/>
+        </route>
+        <route id="obtieneSemilla">
+            <from id="obtieneSemillaFrom" uri="direct:obtieneSemilla"/>
+            <doTry id="obtieneSemillaTry">
+                <setBody id="obtieneSemillaSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="obtieneSemillaMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.parametrosenrolamiento.wsdl"/>
+                </marshal>
+                <convertBodyTo id="obtieneSemillaConvertBodyToString" type="java.lang.String"/>
+                <bean id="obtieneSemillaUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <log id="_log2" message="body1: ${body}"/>
+                <to id="obtieneSemillaToXSLTrama" uri="xslt://etc/xsl/request/IOC7361_obtieneSemillaRequest.xsl"/>
+                <log id="obtieneSemillaTrama" message="Trama generada = \n\n\n |${body}|"/>
+                <to id="obtieneSemillaToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="obtieneSemillaTramaResponse" message="Trama recibida = ${body}"/>
+                <transform id="obtieneSemillaTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="obtieneSemillaToXSLSOAP" uri="xslt://etc/xsl/response/IOC7361_obtieneSemillaResponse.xsl?saxon=true"/>
+                <unmarshal id="obtieneSemillaUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.parametrosenrolamiento.wsdl"/>
+                </unmarshal>
+                <doCatch id="obtieneSemillaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="obtieneSemillaCodError" propertyName="codigoError">
+                        <simple>501</simple>
+                    </setProperty>
+                    <setHeader headerName="entra_fault" id="_headEntraFaultObtieneSemilla">
+                        <simple>0</simple>
+                    </setHeader>
+                    <to id="toObtieneSemillaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <when id="_when1">
+                    <simple>${headers.entra_fault} == 0</simple>
+                    <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </when>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,739 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+           xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+           xmlns:http="http://cxf.apache.org/transports/http/configuration"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+                             placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+                             persistent-id="wstokenizaciontarjeta" placeholder-prefix="[{"
+                             placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+                             persistent-id="globalDb2" placeholder-prefix="[["
+                             placeholder-suffix="]]" update-strategy="reload"/>
+
+    <!--MQ-->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Conexion DB2 -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+          destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.personas]]"/>
+        <property name="password" value="[[jdbc.db2.password.personas]]"/>
+        <property name="timeBetweenEvictionRunsMillis"
+                  value="[{jdbc.db2.timeBetweenEvictionRunsMillis.wstokenizaciontarjeta}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.wstokenizaciontarjeta}]"/>
+        <property name="minEvictableIdleTimeMillis"
+                  value="[{jdbc.db2.minEvictableIdleTimeMillis.wstokenizaciontarjeta}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.wstokenizaciontarjeta}]"/>
+    </bean>
+    <!-- Conexion SQL Server -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.wstokenizaciontarjeta}]/GES_TARJETA_CREDITO_BLOQ;charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.wstokenizaciontarjeta}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.wstokenizaciontarjeta}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.wstokenizaciontarjeta}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.wstokenizaciontarjeta}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.wstokenizaciontarjeta}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.wstokenizaciontarjeta}]"/>
+    </bean>
+    <!--Servicio SOAP public-->
+    <camelcxf:cxfEndpoint address="/tokenizacion/WSTarjeta"
+                          id="endpointWSTarjeta"
+                          serviceClass="cl.coopeuch.integracion.tokenizacion.tarjeta.wsdl.WSTarjetaSOAPPortType"
+                          wsdlURL="etc/wsdl/WSTarjeta.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <!--Servicio REST public -->
+    <camelcxf:rsServer address="/tokenizacion/RSTarjeta" id="endpointRSTarjeta" serviceClass="cl.coopeuch.integracion.tokenizacion.tarjeta.wsdl.WSTarjetaSOAPPortType">    
+    	<camelcxf:providers>            
+			<ref component-id="jsonProviderFuse"/>
+        </camelcxf:providers>
+    </camelcxf:rsServer>
+
+    <!-- *********** Clientes REST ***********-->
+    <!--renewOnline-->
+    <camelcxf:rsClient id="apiRenewCardOnline"
+                       address="[{apigateway.renewOnline.endpoint}]"
+                       loggingFeatureEnabled="true"
+                       serviceClass="cl.coopeuch.integracion.tokenizacion.tarjeta.client.api.renewcardonline.RenewCardOnline">
+        <camelcxf:properties>
+            <entry key="supportUnwrapped" value="true"/>
+        </camelcxf:properties>
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <!--ciclo de vida Thales-->
+    <camelcxf:rsClient address="[{apigateway.ciclodevida.endpoint}]" id="servicioCicloDeVida"
+                       loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <!--rstokenizacionutil-->
+    <camelcxf:rsClient address="[{rstokenizacionutil.obtenercardid.endpoint}]" id="endpointRSUtil"
+                       loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProviderFuse"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="dropRootElement" value="true"/>
+    </bean>
+    
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProviderFuse">
+    	<property name="serializeAsArray" value="true"/>
+    	<property name="arrayKeys">
+    		<list>
+    			<value>resultadoNovedades</value>
+    			<value>detalleError</value>
+    		</list>
+    	</property>
+    	<property name="ignoreEmptyArrayValues" value="true"/>
+    </bean>
+
+    <bean class="cl.coopeuch.integracion.tokenizacion.tarjeta.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="cl.coopeuch.integracion.tokenizacion.tarjeta.util.RouteExcepcion" id="beanRouteExcepcionFacade"/>
+	<bean class="cl.coopeuch.integracion.tokenizacion.tarjeta.util.Aggregator" id="aggregator"/>
+
+    <camelContext id="servicio-tokenizacion-tarjeta" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="json" library="Jackson"/>
+            <json id="apiRenewCardOnlineResponse" library="Jackson"
+                  unmarshalTypeName="cl.coopeuch.integracion.tokenizacion.tarjeta.client.api.renewcardonline.RenewCardOnlineResponse"/>
+        </dataFormats>
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSTarjeta"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSTarjeta"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>$simple{body.get(0)}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionRenovarTarjeta">
+                        <simple>${header.operationName} == 'renovarTarjeta'</simple>
+                        <to id="toRenovarTarjeta" uri="direct:renovarTarjeta"/>
+                    </when>
+                    <when id="inicioWhenOperacionCambiarEstatus">
+                        <simple>${header.operationName} == 'cambiarEstatus'</simple>
+                        <to id="toCambiarEstatus" uri="direct:cambiarEstatus"/>
+                    </when>
+                    <when id="inicioWhenOperacionrenovarCardId">
+                        <simple>${header.operationName} == 'renovarCardId'</simple>
+                        <to id="torenovarCardId" uri="direct:renovarCardId"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarNovedades">
+                        <simple>${header.operationName} == 'consultarNovedades'</simple>
+                        <to id="toConsultarNovedades" uri="direct:consultarNovedades"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                                exceptionType="java.lang.Exception"
+                                id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="renovarTarjeta">
+            <from id="renovarTarjetaFrom" uri="direct:renovarTarjeta"/>
+            <doTry id="renovarTarjetaFromTry">
+                <removeHeaders id="removeHeadersRenovarTarjeta" pattern="*"/>
+                <setProperty id="setPropertyRenovarTarjetaUserId" propertyName="userId">
+                    <xpath resultType="String">//userId</xpath>
+                </setProperty>
+                <setProperty id="setPropertyRenovarTarjetaCanalLlamada" propertyName="canalLlamada">
+                    <xpath resultType="String">//canalLlamada</xpath>
+                </setProperty>
+                <setProperty id="setPropertyRenovarTarjetaPan" propertyName="pan">
+                    <xpath resultType="String">//pan</xpath>
+                </setProperty>
+                <setProperty id="setPropertyRenovarTarjetaTipoProceso" propertyName="tipoProcesoProp">
+                    <xpath resultType="String">//tipoProceso</xpath>
+                </setProperty>
+                <setProperty id="setPropertyRenovarTarjetaTipoIntegracion" propertyName="tipoIntegracionProp">
+                    <xpath resultType="String">//tipoIntegracion</xpath>
+                </setProperty>
+                <bean id="beanValidaRenovarTarjetaRequest" method="validaRenovarTarjetaRequest" ref="beanRouteFacade"/>
+                <choice id="inicioChoiceRenovarTarjeta">
+                	<when id="whenRenovarTarjetaBatch">
+                		<simple>${property.tipoIntegracionProp} == "B"</simple>
+                		<wireTap id="consultarRenovarTarjetaBatchWireTap" uri="direct:procesarRenovarTarjetaBatch"/>
+						<bean id="consultarRenovarTarjetaBatchResponse" method="renovarTarjetaBatchResponse" ref="beanRouteFacade"/>
+                	</when>
+                	<when id="whenRenovarTarjetaOnline">
+                		<simple>${property.tipoIntegracionProp} == "O"</simple>
+                		<to id="toConsultarRenovarTarjetaByPanOnline" uri="direct:consultarRenovarTarjetaByPan"/>
+                		<to id="toEnviarRenovarTarjetaOnline" uri="direct:enviarRenovarTarjeta"/>
+                		<to id="toBifurcacionRespuestaRenovarTarjetaOnline" uri="direct:bifurcacionRespuestaRenovarTarjeta"/>
+                	</when>
+                </choice>
+                <doCatch id="validaRenovarTarjetaDoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <log id="_log_validaRenovarTarjeta" loggingLevel="ERROR" message="Traza de error RenovarTarjeta: ${exception}"/>
+                    <setProperty id="validaRenovarTarjetaCodigoError" propertyName="codigoError">
+                        <constant>424</constant>
+                    </setProperty>
+                    <to id="validaRenovarTarjetaToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="renovarTarjetaFromDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log_renovarTarjeta" loggingLevel="ERROR" message="Traza de error RenovarTarjeta: ${exception}"/>
+                    <setProperty id="renovarTarjetaFromCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="renovarTarjetaFromToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+
+        <route id="procesarRenovarTarjetaBatch">
+            <from id="procesarRenovarTarjetaBatchFrom" uri="direct:procesarRenovarTarjetaBatch"/>
+            <doTry id="procesarRenovarTarjetaBatchTry">
+            <choice id="inicioChoiceProcesarRenovarTarjetaBatch">
+                <when id="whenProcesarRenovarTarjetaBatchIsReemision">
+                    <simple>${exchangeProperty.tipoProcesoProp} == '1'</simple>
+                    <setProperty id="setPropertyProcesarRenovarTarjetaBatchTipoProcesoReemision" propertyName="tipoProcesoXWIOCProp">
+            	        <constant>X</constant>
+                	</setProperty>
+                </when>
+                <when id="whenProcesarRenovarTarjetaBatchIsRenovacion">
+                    <simple>${exchangeProperty.tipoProcesoProp} == '2'</simple>
+                    <setProperty id="setPropertyProcesarRenovarTarjetaBatchTipoProcesoRenovacion" propertyName="tipoProcesoXWIOCProp">
+                    	<constant>W</constant>
+                	</setProperty>
+                </when>
+            </choice>
+            <to id="responsePA_RENOVARTARJETABATCH-to" uri="sql-stored:classpath:etc/sql/PA_SEL_WSTOKENIZACIONTARJETA_RENOVARTARJETA_BATCH_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responsePA_RENOVARTARJETABATCH"/>
+            <bean id="procesarConsultarRenovarTarjetaBatch" method="procesaConsultaRenovarTarjetaBatch" ref="beanRouteFacade"/>
+			<split id="procesarRenovarTarjetaBatchSplit" parallelProcessing="true" strategyRef="aggregator">
+   				<simple>${body}</simple>
+   				<setProperty id="setPropertyRenovarTarjetaPanBatch" propertyName="pan">
+                    <simple>${body}</simple>
+                </setProperty>
+       			<to id="toConsultarRenovarTarjetaByPanBatch" uri="direct:consultarRenovarTarjetaByPan"/>
+ 	        	<to id="toEnviarRenovarTarjetaBatch" uri="direct:enviarRenovarTarjeta"/>
+                <to id="toBifurcacionRespuestaRenovarTarjetaBatch" uri="direct:bifurcacionRespuestaRenovarTarjeta"/>
+       		</split>
+       			 <doCatch id="consultarRenovarTarjetaBatch495DoCatchIllegalArgument">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <log id="_log_consultarRenovarTarjetaBatch495" loggingLevel="ERROR" message="Traza de error RenovarTarjeta: ${exception}"/>
+                    <setProperty id="consultarRenovarTarjetaBatch495CodigoErrorIllegalArgument" propertyName="codigoError">
+                        <constant>495</constant>
+                    </setProperty>
+                    <to id="consultarRenovarTarjetaBatch495DoCatchIllegalArgumentToExcepcion" uri="direct:excepcion"/>
+                    <stop id="consultarRenovarTarjetaBatch495DoCatchIllegalArgumentStop"/>
+                </doCatch>
+                <doCatch id="consultarRenovarTarjetaBatchDoCatchIllegalArgument">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <log id="_log_consultarRenovarTarjetaBatch" loggingLevel="ERROR" message="Traza de error RenovarTarjeta: ${exception}"/>
+                    <setProperty id="consultarRenovarTarjetaBatchCodigoErrorIllegalArgument" propertyName="codigoError">
+                        <constant>424</constant>
+                    </setProperty>
+                    <to id="consultarRenovarTarjetaBatchDoCatchIllegalArgumentToExcepcion" uri="direct:excepcion"/>
+                    <stop id="consultarRenovarTarjetaBatchDoCatchIllegalArgumentStop"/>
+                </doCatch>
+                <doCatch id="doCatchExceptioConsultarRenovarTarjetaBatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log_consultarRenovarTarjetaBatch500" loggingLevel="ERROR" message="Traza de error RenovarTarjeta: ${exception}"/>
+                    <setProperty id="consultarRenovarTarjetaBatchCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toConsultarRenovarTarjetaBatchExcepcion" uri="direct:excepcion"/>
+                    <stop id="doCatchExceptioConsultarRenovarTarjetaBatchStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="consultarRenovarTarjetaByPan">
+            <from id="consultarRenovarTarjetaFrom" uri="direct:consultarRenovarTarjetaByPan"/>
+            <doTry id="consultarRenovarTarjetaByPanTry">
+                <choice id="inicioChoiceConsultarRenovarTarjetaByPan">
+                    <when id="whenconsultarRenovarTarjetaByPanIsReemision">
+                        <simple>${exchangeProperty.tipoProcesoProp} == '1'</simple>
+                        <setProperty id="setPropertyRenovarTarjetaTipoProcesoReemision" propertyName="tipoProcesoXWIOCProp">
+                            <constant>X</constant>
+                        </setProperty>
+                    </when>
+                    <when id="whenconsultarRenovarTarjetaByPanIsRenovacion">
+                        <simple>${exchangeProperty.tipoProcesoProp} == '2'</simple>
+                        <setProperty id="setPropertyRenovarTarjetaTipoProcesoRenovacion" propertyName="tipoProcesoXWIOCProp">
+                            <constant>W</constant>
+                        </setProperty>
+                    </when>
+                </choice>
+                <to id="responsePA_RENOVARTARJETA-to" uri="sql-stored:classpath:etc/sql/PA_SEL_WSTOKENIZACIONTARJETA_RENOVARTARJETA_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responsePA_RENOVARTARJETA"/>
+                <bean id="procesarConsultarRenovarTarjetaByPan" method="procesaConsultaRenovarTarjetaByPan"
+                      ref="beanRouteFacade"/>
+                <setProperty id="consultarRenovarTarjetaByPanCardIdAntiguoProp" propertyName="cardIdAntiguoProp">
+                    <simple>${body.oldCardId}</simple>
+                </setProperty>
+                <setProperty id="consultarRenovarTarjetaByPanCardIdNuevoProp" propertyName="cardIdNuevoProp">
+                    <simple>${body.newCardId}</simple>
+                </setProperty>
+                <doCatch id="consultarRenovarTarjetaByPanDoCatchIllegalArgument">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <log id="_log_consultarRenovarTarjetaByPan" loggingLevel="ERROR" message="Traza de error RenovarTarjeta: ${exception}"/>
+                    <setProperty id="consultarRenovarTarjetaByPanCodigoErrorIllegalArgument" propertyName="codigoError">
+                        <constant>424</constant>
+                    </setProperty>
+                    <to id="consultarRenovarTarjetaByPanDoCatchIllegalArgumentToExcepcion" uri="direct:excepcion"/>
+                    <stop id="consultarRenovarTarjetaByPanDoCatchIllegalArgumentStop"/>
+                </doCatch>
+                <doCatch id="doCatchExceptioConsultarRenovarTarjetaByPan">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log_consultarRenovarTarjetaByPan500" loggingLevel="ERROR" message="Traza de error RenovarTarjeta: ${exception}"/>
+                    <setProperty id="consultarRenovarTarjetaByPanCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toConsultarRenovarTarjetaByPanExcepcion" uri="direct:excepcion"/>
+                    <stop id="doCatchExceptioConsultarRenovarTarjetaByPanStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="enviarRenovarTarjeta">
+            <from id="enviarRenovarTarjetaFrom" uri="direct:enviarRenovarTarjeta"/>
+            <doTry id="enviarRenovarTarjetaTry">
+                <removeHeaders id="removeHeadersEnviarRenovarTarjeta" pattern="*"/>
+                <bean id="prepararEnviarRenovarTarjeta" method="prepararEnvioAPIRenewCardOnline"
+                      ref="beanRouteFacade"/>
+                <setHeader headerName="CamelHttpPath" id="enviarRenovarTarjetaSetPath">
+                    <simple>{{apigateway.renewOnline.path}}</simple>
+                </setHeader>
+                <setHeader headerName="CamelHttpMethod" id="enviarRenovarTarjetaSetHeaderCamelHttpMethod">
+                    <constant>POST</constant>
+                </setHeader>
+                <setHeader headerName="Content-Type" id="enviarRenovarTarjetaSetContentType">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="x-api-key" id="setHeaderXApiKeyRenovarTarjetaApi">
+                    <simple>{{apigateway.ciclodevida.xapikey}}</simple>
+                </setHeader>
+                <to id="restEndpointEnviarRenovarTarjeta"
+                    uri="cxfrs://bean://apiRenewCardOnline?exchangePattern=InOut"/>
+                <unmarshal id="enviarRenovarTarjetaTokenUnmarshal" ref="apiRenewCardOnlineResponse"/>
+                <setProperty id="enviarRenovarTarjetaCodeHttp" propertyName="enviarRenovarTarjetaCodeHttpProp">
+                    <simple>${header.CamelHttpResponseCode}</simple>
+                </setProperty>
+                <setProperty id="enviarRenovarTarjetaResponse" propertyName="enviarRenovarTarjetaResponseProp">
+                    <simple>${body}</simple>
+                </setProperty>
+                <doCatch id="doCatchExceptionAPIRenewCardOnline">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log_APIRenewCardOnline" loggingLevel="ERROR" message="Traza de error RenovarTarjeta: ${exception}"/>
+                    <setProperty id="APIRenewCardOnlineCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="APIRenewCardOnlineExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="bifurcacionRespuestaRenovarTarjeta">
+            <from id="bifurcacionRespuestaRenovarTarjetaFrom" uri="direct:bifurcacionRespuestaRenovarTarjeta"/>
+            <doTry id="bifurcacionRespuestaRenovarTarjetaTry">
+                <choice id="bifurcacionRespuestaRenovarTarjetaChoice">
+                    <when id="bifurcacionRespuestaRenovarTarjetaChoiceOK">
+                        <simple>${exchangeProperty.enviarRenovarTarjetaCodeHttpProp} == 200</simple>
+                        <bean id="renovarTarjetaUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                        <setBody>
+                            <simple>${exchangeProperty.requestEntrada}</simple>
+                        </setBody>
+                        <convertBodyTo id="bifurcacionRespuestaRenovarTarjetaBodyToString" type="java.lang.String"/>
+                        <to id="bifurcacionRespuestaRenovarTarjetaXSLT"
+                            uri="xslt://etc/xsl/request/IOC654002I_renovarTarjeta.xsl"/>
+                        <to id="activeMQ-bifurcacionRenovarTarjeta"
+                            uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                        <transform id="renovarTarjetaTransformBody">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="renovarTarjetaToXSLSOAP"
+                            uri="xslt://etc/xsl/response/IOC654002O_renovarTarjeta.xsl?saxon=true"/>
+                        <unmarshal id="renovarTarjetaUnmarshal">
+                            <jaxb contextPath="cl.coopeuch.integracion.tokenizacion.tarjeta.wsdl" encoding="UTF-8"/>
+                        </unmarshal>
+                    </when>
+                    <otherwise id="bifurcacionRespuestaRenovarTarjetaChoiceOtherwise">
+                        <log message="Respuesta NOK"></log>
+                    </otherwise>
+                </choice>
+                <doCatch id="doCatchExceptioBifurcacionRespuestaRenovarTarjeta">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log_BifurcacionRespuestaRenovarTarjeta" loggingLevel="ERROR" message="Traza de error RenovarTarjeta: ${exception}"/>
+                    <setProperty id="bifurcacionRespuestaRenovarTarjetaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toBifurcacionRespuestaRenovarTarjetaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cambiarEstatus">
+            <from id="renovarTarjetaFrom" uri="direct:cambiarEstatus"/>
+            <doTry id="cambiarEstatusTry">
+                <removeHeaders id="removeHeadersCambiarEstatus" pattern="*"/>
+                <setProperty id="setPropertyCambiarEstatusPan" propertyName="panProp">
+                    <xpath resultType="String">//pan</xpath>
+                </setProperty>
+                <setProperty id="setPropertyCambiarEstatusEstatus" propertyName="estatusProp">
+                    <xpath resultType="String">//estatus</xpath>
+                </setProperty>
+                <setProperty id="setPropertyCambiarEstatusUser" propertyName="userIdProp">
+                    <xpath resultType="String">//userId</xpath>
+                </setProperty>
+                <setProperty id="setPropertyCambiarEstatusCanalLlamada" propertyName="canalLlamadaProp">
+                    <xpath resultType="String">//canalLlamada</xpath>
+                </setProperty>
+                <bean id="beanValidarRequestCambiarEstatus" method="validarRequestCambiarEstatus"
+                      ref="beanRouteFacade"/>
+                <bean id="beanValidaCambiarEstatus" method="validarCodigoEstatus" ref="beanRouteFacade"/>
+                <to id="toObtenerCardIdByPan" uri="direct:obtenerCardIdByPan"/>
+                <to id="toCicloDeVida" uri="direct:cicloDeVida"/>
+                <to id="toBifurcacionCambiarEstatus" uri="direct:bifurcacionCambiarEstatus"/>
+                <doCatch id="cambiarEstatusTryDoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="cambiarEstatusCodigoError" propertyName="codigoError">
+                        <constant>424</constant>
+                    </setProperty>
+                    <to id="cambiarEstatusToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="cambiarEstatusDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="cambiarEstatusCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="cambiarEstatusToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cicloDeVida">
+            <from id="cicloDeVidaFrom" uri="direct:cicloDeVida"/>
+            <doTry id="cicloDeVidaTry">
+                <choice id="cicloDeVidaChoice">
+                    <when id="cicloDeVidaSuspend">
+                        <simple>${exchangeProperty.estatusProp} == 'S'</simple>
+                        <bean id="cicloDeVidaSuspendRequest" method="cicloDeVidaSuspendRequest" ref="beanRouteFacade"/>
+                        <setProperty id="cicloDeVidaPathSuspend" propertyName="restHttpPathCicloDeVidaApiProp">
+                            <simple>{{apigateway.ciclodevida.path.suspend}}</simple>
+                        </setProperty>
+                        <to id="cicloDeVidaToCilocDeVidaApi" uri="direct:cicloDeVidaApi"></to>
+                    </when>
+                    <when id="cicloDeVidaResume">
+                        <simple>${exchangeProperty.estatusProp} == ' '</simple>
+                        <bean id="cicloDeVidaResumeRequest" method="cicloDeVidaResumeRequest" ref="beanRouteFacade"/>
+                        <setProperty id="cicloDeVidaPathResume" propertyName="restHttpPathCicloDeVidaApiProp">
+                            <simple>{{apigateway.ciclodevida.path.resume}}</simple>
+                        </setProperty>
+                        <to id="cicloDeVidaResumeToCilocDeVidaApi" uri="direct:cicloDeVidaApi"></to>
+                    </when>
+                    <when id="cicloDeVidaDelete">
+                        <simple>${exchangeProperty.estatusProp} == 'D'</simple>
+                        <bean id="cicloDeVidaDeleteRequest" method="cicloDeVidaDeleteRequest" ref="beanRouteFacade"/>
+                        <setProperty id="cicloDeVidaPathDelete" propertyName="restHttpPathCicloDeVidaApiProp">
+                            <simple>{{apigateway.ciclodevida.path.delete}}</simple>
+                        </setProperty>
+                        <to id="cicloDeVidaDeleteToCilocDeVidaApi" uri="direct:cicloDeVidaApi"></to>
+                    </when>
+                    <otherwise id="cicloDeVidaChoiceOtherwise">
+                        <throwException
+                                exceptionType="java.lang.IllegalArgumentException"
+                                id="throwExceptionCicloDeVidaChoiceOtherwise"
+                                message="Estado ${exchangeProperty.estatusProp} no aplica para ciclo de vida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="doCatchIllegalArgumentExceptionCicloDeVida">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="cicloDeVidaIllegalArgumentExceptionError" propertyName="codigoError">
+                        <constant>424</constant>
+                    </setProperty>
+                    <to id="cicloDeVidaIllegalArgumentException" uri="direct:excepcion"/>
+                    <stop id="cicloDeVidaIllegalArgumentExceptionStop"/>
+                </doCatch>
+                <doCatch id="doCatchExceptionCicloDeVida">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="cicloDeVidaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="cicloDeVidaExcepcion" uri="direct:excepcion"/>
+                    <stop id="cicloDeVidaExcepcionErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="bifurcacionCambiarEstatus">
+            <from id="bifurcacionCambiarEstatusFrom" uri="direct:bifurcacionCambiarEstatus"/>
+            <doTry id="bifurcacionCambiarEstatusTry">
+                <choice id="bifurcacionCambiarEstatusChoice">
+                    <when id="bifurcacionCambiarEstatusChoiceOK">
+                        <simple>${exchangeProperty.cicloDeVidaCodeHttpProp} == 200</simple>
+                        <bean id="bifurcacionCambiarEstatusUUID" method="crearJMSCorrelationId24"
+                              ref="beanRouteFacade"/>
+                        <setBody>
+                            <simple>${exchangeProperty.requestEntrada}</simple>
+                        </setBody>
+                        <convertBodyTo id="bifurcacionCambiarEstatusBodyToString" type="java.lang.String"/>
+                        <to id="bifurcacionCambiarEstatusXSLT"
+                            uri="xslt://etc/xsl/request/IOC654001I_cambiarEstatus.xsl"/>
+                        <to id="activeMQ-bifurcacionCambiarEstatus"
+                            uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                        <transform id="cambiarEstatusTransformBody">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="cambiarEstatusToXSLSOAP"
+                            uri="xslt://etc/xsl/response/IOC654001O_cambiarEstatus.xsl?saxon=true"/>
+                        <unmarshal id="cambiarEstatusUnmarshal">
+                            <jaxb contextPath="cl.coopeuch.integracion.tokenizacion.tarjeta.wsdl" encoding="UTF-8"/>
+                        </unmarshal>
+                    </when>
+                    <otherwise id="bifurcacionCambiarEstatusOtherwise">
+                        <log message="Respuesta NOK"></log>
+                    </otherwise>
+                </choice>
+                <doCatch id="doCatchExceptioBifurcacionCambiarEstatus">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="bifurcacionCambiarEstatusCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toBifurcacionCambiarEstatusExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!--EndPoints Apis/Servicios-->
+        <route id="obtenerCardIdByPan">
+            <from id="obtenerCardIdByPanFrom" uri="direct:obtenerCardIdByPan"/>
+            <doTry id="obtenerCardIdByPanTry">
+                <bean id="obtenerCardIdByPanRequest" method="obtenerCardIdRequest" ref="beanRouteFacade"/>
+                <setHeader headerName="Content-Type" id="setHeaderContentTypeObtenerCardIdByPan">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="Exchange.HTTP_METHOD" id="setHeaderMethodObtenerCardIdByPan">
+                    <constant>POST</constant>
+                </setHeader>
+                <to id="obtenerCardIdByPanTo"
+                    uri="cxfrs:bean:endpointRSUtil?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <choice id="obtenerCardIdByPanChoice">
+                    <when id="obtenerCardIdByPanError">
+                        <simple>${header.CamelHttpResponseCode} > '299'</simple>
+                        <throwException
+                                exceptionType="java.lang.IllegalArgumentException"
+                                id="throwExceptionObtenerCardIdByPanError"
+                                message="servicio WSUtil genero un inconveniente"/>
+                    </when>
+                    <when id="obtenerCardIdByPanOK">
+                        <simple>${header.CamelHttpResponseCode} == '200'</simple>
+                        <convertBodyTo id="obtenerCardIdByPanConvertTo" type="java.lang.String"/>
+                        <bean id="obtenerCardIdByPanResponse" method="obtenerCardIdResponse" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="obtenerCardIdByPanOtherwise">
+                        <log message="No aplica la respuesta para obtener el CardId"></log>
+                    </otherwise>
+                </choice>
+                <doCatch id="doCatchIllegalArgumentExceptionObtenerCardIdByPan">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="obtenerCardIdByPanCodigoIllegalArgumentExceptionError" propertyName="codigoError">
+                        <constant>419</constant>
+                    </setProperty>
+                    <to id="obtenerCardIdByPanIllegalArgumentException" uri="direct:excepcion"/>
+                    <stop id="obtenerCardIdByPanIllegalArgumentExceptionStop"/>
+                </doCatch>
+                <doCatch id="doCatchExceptionObtenerCardIdByPan">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="obtenerCardIdByPanCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="obtenerCardIdByPanExcepcion" uri="direct:excepcion"/>
+                    <stop id="obtenerCardIdByPanErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cicloDeVidaApi">
+            <from id="cicloDeVidaApiFrom" uri="direct:cicloDeVidaApi"/>
+            <doTry id="cicloDeVidaApiTry">
+                <setHeader headerName="CamelHttpPath" id="setHeaderCamelHttpPathCicloDeVidaApi">
+                    <simple>${exchangeProperty.restHttpPathCicloDeVidaApiProp}</simple>
+                </setHeader>
+                <setHeader headerName="Content-Type" id="setHeaderContentTypeCicloDeVidaApi">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="x-api-key" id="setHeaderXApiKeyCicloDeVidaApi">
+                    <simple>{{apigateway.ciclodevida.xapikey}}</simple>
+                </setHeader>
+                <to id="cicloDeVidaApiToRest"
+                    uri="cxfrs:bean:servicioCicloDeVida?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <choice id="cicloDeVidaApiChoice">
+                    <when id="cicloDeVidaApiError">
+                        <simple>${header.CamelHttpResponseCode} > '299'</simple>
+                        <throwException
+                                exceptionType="java.lang.IllegalArgumentException"
+                                id="throwExceptioncicloDeVidaApiError"
+                                message="api ciclo de vida Thales genero un inconveniente"/>
+                    </when>
+                    <when id="cicloDeVidaApiApiOK">
+                        <simple>${header.CamelHttpResponseCode} range '200..299'</simple>
+                        <setProperty id="cicloDeVidaHttpCode" propertyName="cicloDeVidaCodeHttpProp">
+                            <simple>${header.CamelHttpResponseCode}</simple>
+                        </setProperty>
+                    </when>
+                    <otherwise id="cicloDeVidaApiOtherwise">
+                        <log message="No aplica la respuesta para ciclo de vida Api"></log>
+                    </otherwise>
+                </choice>
+                <convertBodyTo id="cicloDeVidaApiConvertTo" type="java.lang.String"/>
+                <doCatch id="doCatchIllegalArgumentExceptionCicloDeVidaApi">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="cicloDeVidaApiCodigoIllegalArgumentExceptionError" propertyName="codigoError">
+                        <constant>419</constant>
+                    </setProperty>
+                    <to id="cicloDeVidaApiIllegalArgumentException" uri="direct:excepcion"/>
+                    <stop id="cicloDeVidaApiIllegalArgumentExceptionStop"/>
+                </doCatch>
+                <doCatch id="doCatchExceptionCicloDeVidaApi">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="cicloDeVidaApiCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="cicloDeVidaApiExcepcion" uri="direct:excepcion"/>
+                    <stop id="cicloDeVidaApiExcepcionErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <!-- Operacion ***renovarCardId*** -->        
+        <route id="renovarCardId">
+            <from id="renovarCardIdFrom" uri="direct:renovarCardId"/>
+            <doTry id="renovarCardIdDoTry">            
+                <marshal id="renovarCardIdMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tokenizacion.tarjeta.wsdl"/>
+                </marshal>
+                <convertBodyTo id="renovarCardIdConvertBodyToString" type="java.lang.String"/>				
+                            
+                <bean id="renovarCardIdUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>                    
+                <to id="renovarCardIdToXSLTrama" uri="xslt://etc/xsl/request/IOC655001I_renovarCardId.xsl"/>                               
+                <to id="renovarCardIdToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>              
+                <transform id="renovarCardIdTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>                
+                <to id="renovarCardIdToXSLSOAP" uri="xslt://etc/xsl/response/IOC655001O_renovarCardId.xsl?saxon=true"/>               
+                <unmarshal id="renovarCardIdUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tokenizacion.tarjeta.wsdl" encoding="UTF-8"/>
+                </unmarshal>
+                
+                <!-- Excepciones **renovarCardId** -->                               
+                <doCatch id="renovarCardIdAMQDoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="renovarCardIdAMQCodigoError" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="renovarCardIdAMQTo" uri="direct:excepcion"/>
+                </doCatch>
+                
+                <doCatch id="renovarCardIdExceptionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="renovarCardIdExceptionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="renovarCardIdExcepcionTo" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route> 
+        
+        <route id="consultarNovedades">
+            <from id="consultarNovedadesFrom" uri="direct:consultarNovedades"/>
+            <doTry id="consultarNovedadesTry">
+            	<setProperty id="setPropertyconsultarNovedadesEstado" propertyName="estado">
+                    <xpath resultType="String">//estado</xpath>
+                </setProperty>
+                <bean id="beanValidaConsultarNovedades" method="validaConsultarNovedades" ref="beanRouteFacade"/>
+                <to id="consultarNovedades-to" uri="sql-stored:classpath:etc/sql/PA_SEL_WSTOKENIZACIONTARJETA_CONSULTARNOVEDADES_WS.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responsePA_CONSULTARNOVEDADES"/>
+                <bean id="responseConsultarNovedades"
+                    method="responseConsultarNovedades" ref="beanRouteFacade"/> 
+                <doCatch id="ValidaConsultarNovedadesDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="ValidaConsultarNovedadesToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="ResponseConsultarNovedadesDoCatch">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <to id="ResponseConsultarNovedadesToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                 <doCatch id="consultarNovedadesSQLDoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty id="codigoErrorConsultarNovedadesSQL" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <to id="excepcionToConsultarNovedadesSQL" uri="direct:excepcion"/>
+                </doCatch>    
+                <doCatch id="consultarNovedadesDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarNovedadesCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="consultarNovedadesToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route> 
+        
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <wireTap id="excepcionSendColaError" uri="direct:envioColaError"/>
+                <bean id="excepcionBeanExcepcion" method="excepcionCrear" ref="beanRouteExcepcionFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR"
+                         message="Ha ocurrido un error en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="envioColaError">
+            <from id="envioColaErrorFrom" uri="direct:envioColaError"/>
+            <doTry id="envioColaErrorTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteExcepcionFacade"/>
+                <marshal id="envioColaErrorMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="envioColaErrorConvertTo" type="java.lang.String"/>
+                <!--<to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&exchangePattern=InOnly"/>-->
+                <doCatch id="envioColaErrorDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="envioColaErrorLog" loggingLevel="ERROR"
+                         message="Ha ocurrido un error en la ejecucion del servicio: Request: ${body} Error: ${exception}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

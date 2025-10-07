@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Configures the Camel Context -->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.mediospago.util.RouteFacade" id="beanRouteFacade"/>
+    <cxf:cxfEndpoint address="/WSMediosDePago" id="WSMediosPagoEndpoint"
+        serviceClass="cl.coopeuch.integracion.mediospago.wsdl.MediosPagoPortType" wsdlURL="wsdl/WSMediosPago.wsdl"/>
+    <cxf:rsServer address="/RSMediosDePago" id="endpointRSMediosDePago"
+        loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.mediospago.wsdl.MediosPagoPortType"/>
+    <camelContext id="servicio-medios-pago" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:endpointRSMediosDePago"/>
+            <to id="restToConsultar" uri="direct:inicio"/>
+        </route>
+        <route id="soap-inicio">
+            <from id="inicioFormServicio" uri="cxf:bean:WSMediosPagoEndpoint"/>
+            <to id="SoapToConsultar" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="emitirTCFrom" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionEmitirTC">
+                        <simple>${header.operationName} == 'emitirTC'</simple>
+                        <to id="emitirTCTo" uri="direct:emitirTC"/>
+                    </when>
+                    <when id="inicioWhenOperacionEmitirCV">
+                        <simple>${header.operationName} == 'emitirCV'</simple>
+                        <to id="emitirCVTo" uri="direct:emitirCV"/>
+                    </when>
+                    <when id="inicioWhenOperacionActualizarCupoTC">
+                        <simple>${header.operationName} == 'actualizarCupoTC'</simple>
+                        <to id="actualizarCupoTCTo" uri="direct:actualizarCupoTC"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="emitirTC">
+            <from id="emitirTCFrom" uri="direct:emitirTC"/>
+            <doTry id="emitirTCTry">
+                <marshal id="emitirTCMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.mediospago.wsdl"/>
+                </marshal>
+                <convertBodyTo id="emitirTCConvertBodyToString" type="java.lang.String"/>
+                <bean id="emitirTCUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="emitirTCToXSLTrama" uri="xslt://transformations/in/xml2tramaIOC600001I_emitirTC.xsl"/>
+                <log id="emitirTCTrama" loggingLevel="TRACE" message="Trama generada = ${body}"/>
+                <to id="emitirTCToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="emitirTCTramaResponse" loggingLevel="TRACE" message="Trama recibida = ${body}"/>
+                <transform id="emitirTCTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="emitirTCToXSLSOAP" uri="xslt://transformations/out/trama2xmlIOC600001O_emitirTC.xsl?saxon=true"/>
+                <unmarshal id="emitirTCUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.mediospago.wsdl"/>
+                </unmarshal>
+                <doCatch id="emitirDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="emitirCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="emitirToExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="emitirTCDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="emitirTCCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="emitirTCToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="emitirCV">
+            <from id="emitirCVFrom" uri="direct:emitirCV"/>
+            <doTry id="emitirCVTry">
+                <marshal id="emitirCVMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.mediospago.wsdl"/>
+                </marshal>
+                <convertBodyTo id="emitirCVConvertBodyToString" type="java.lang.String"/>
+                <bean id="emitirCVUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="emitirCVToXSLTrama" uri="xslt://transformations/in/xml2tramaIOC600002I_emitirCV.xsl"/>
+                <log id="emitirCVTrama" loggingLevel="TRACE" message="Trama generada = ${body}"/>
+                <to id="emitirCVToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="emitirCVTramaResponse" loggingLevel="TRACE" message="Trama recibida = ${body}"/>
+                <transform id="emitirCVTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="emitirCVToXSLSOAP" uri="xslt://transformations/out/trama2xmlIOC600001O_emitirCV.xsl?saxon=true"/>
+                <unmarshal id="emitirCVUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.mediospago.wsdl"/>
+                </unmarshal>
+                <doCatch id="emitirCVDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="emitirCVCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="emitirCVToExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="emitirCVDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="emitirCVCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="emitirCVToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="actualizarCupoTC">
+            <from id="actualizarCupoTCFrom" uri="direct:actualizarCupoTC"/>
+            <doTry id="actualizarCupoTCTry">
+                <marshal id="actualizarCupoTCMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.mediospago.wsdl"/>
+                </marshal>
+                <convertBodyTo id="actualizarCupoTCConvertBodyToString" type="java.lang.String"/>
+                <bean id="actualizarCupoTCUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="actualizarCupoTCToXSLTrama" uri="xslt://transformations/in/xml2tramaIOC600003I_actualizarCupoTC.xsl"/>
+                <log id="actualizarCupoTCTrama" loggingLevel="TRACE" message="Trama generada = ${body}"/>
+                <to id="actualizarCupoTCToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="actualizarCupoTCTramaResponse"
+                    loggingLevel="TRACE" message="Trama recibida = ${body}"/>
+                <transform id="actualizarCupoTCTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="actualizarCupoTCToXSLSOAP" uri="xslt://transformations/out/trama2xmlIOC600001O_actualizarCupoTC.xsl?saxon=true"/>
+                <unmarshal id="actualizarCupoTCUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.mediospago.wsdl"/>
+                </unmarshal>
+                <doCatch id="actualizarCupoDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="actualizarCupoCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="actualizarCupoToExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="actualizarCupoTCDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="actualizarCupoTCCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="actualizarCupoTCToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

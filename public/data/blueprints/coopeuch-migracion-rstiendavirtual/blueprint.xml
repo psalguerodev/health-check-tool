@@ -1,0 +1,590 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder
+        id="property-placeholder-1b26a059-b99e-4a9b-a146-1803244ae348"
+        persistent-id="serviceProperties" update-strategy="reload"/>
+    <!-- Configure CXF endpoint -->
+    <cxf:cxfEndpoint address="/ServicioTiendaVirtual"
+        id="tiendaVirtualEndpoint"
+        serviceClass="cl.coopeuch.core.tiendavirtual.serviciotiendavirtual.TiendaVirtualPortType" wsdlURL="wsdl/ServicioTiendaVirtual.wsdl"/>
+    <!-- Configure Active MQ connection factory -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Configure JDBC connection -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSource">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="${jdbc.sybase.url.tiendavirtual}/CreditosConsumo;charset=iso_1"/>
+        <property name="username" value="${jdbc.sybase.username.tiendavirtual}"/>
+        <property name="password" value="${jdbc.sybase.password.tiendavirtual}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="${jdbc.sybase.timeBetweenEvictionRunsMillis.tiendavirtual}"/>
+        <property name="numTestsPerEvictionRun" value="${jdbc.sybase.numTestsPerEvictionRun.tiendavirtual}"/>
+        <property name="minEvictableIdleTimeMillis" value="${jdbc.sybase.minEvictableIdleTimeMillis.tiendavirtual}"/>
+        <property name="maxActive" value="${jdbc.sybase.maxActive.tiendavirtual}"/>
+    </bean>
+    <!-- Local Beans -->
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_updStockCampProdIBS">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_updStockCampProdIBS"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="CodCampana"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="CodProducto"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Cantidad"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="TipoOperacion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="IdProducto"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="IdEvaluacion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_selproductofinIBS">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_selproductofinIBS"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="CodCampana"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="CodProducto"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_selCampProductoIBS">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_selCampProductoIBS"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="CodOficina"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="RutSocio"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="CodConvenio"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="IFecProceso"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_delProductosFin">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_delProductosFin"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdEvaluacion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_updDetalleProdFinIBS">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_updDetalleProdFinIBS"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="CodCampana2"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="CodProducto2"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="IdEvaluacion2"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Valor2"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="RutIngreso2"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="FeProceso2"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_updProdFinanciadoIBS">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_updProdFinanciadoIBS"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdEvaluacion2"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="MontoFinanciado2"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumProductos2"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="DireccionEnvio"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="IdComuna2"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="IdRegion2"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="CodigoPostal2"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Telefono"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Celular"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="EmailContacto"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Observacion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="RutIngreso2"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="FeProceso2"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <camelContext id="servicio-tienda-virtual-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml id="jack" prettyPrint="true"/>
+        </dataFormats>
+        <route id="cx-RuteoOperaciones">
+            <from id="tiendaVirtualEndpointListener" uri="cxf:bean:tiendaVirtualEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaactualizaStock">
+                        <simple>${body} contains 'actualizaStock'</simple>
+                        <to id="actualizaStockValidator" uri="validator:xsd/soapActualizaStock.xsd"/>
+                        <to id="actualizaStockTo" uri="direct:actualizaStock"/>
+                    </when>
+                    <when id="rutaconsultaProductoCampana">
+                        <simple>${body} contains 'consultaProductoCampana'</simple>
+                        <to id="consultaProductoCampanaValidator" uri="validator:xsd/soapConsultaProductoCampana.xsd"/>
+                        <to id="consultaProductoCampanaTo" uri="direct:consultaProductoCampana"/>
+                    </when>
+                    <when id="rutaconsultaProductos">
+                        <simple>${body} contains 'consultaProductos'</simple>
+                        <to id="consultaProductosValidator" uri="validator:xsd/soapConsultaProductos.xsd"/>
+                        <to id="consultaProductosTo" uri="direct:consultaProductos"/>
+                    </when>
+                    <when id="rutaeliminaProductoFinanciado">
+                        <simple>${body} contains 'eliminaProductoFinanciado'</simple>
+                        <to id="eliminaProductoFinanciadoValidator" uri="validator:xsd/soapEliminaProductoFinanciado.xsd"/>
+                        <to id="eliminaProductoFinanciadoTo" uri="direct:eliminaProductoFinanciado"/>
+                    </when>
+                    <when id="rutagrabaDetalleProductoFinanciado">
+                        <simple>${body} contains 'grabaDetalleProductoFinanciado'</simple>
+                        <to id="grabaDetalleProductoFinanciadoValidator" uri="validator:xsd/soapGrabaDetalleProductoFinanciado.xsd"/>
+                        <to id="grabaDetalleProductoFinanciadoTo" uri="direct:grabaDetalleProductoFinanciado"/>
+                    </when>
+                    <when id="rutagrabaProductoFinanciado">
+                        <simple>${body} contains 'grabaProductoFinanciado'</simple>
+                        <to id="grabaProductoFinanciadoValidator" uri="validator:xsd/soapGrabaProductoFinanc.xsd"/>
+                        <to id="grabaProductoFinanciadoTo" uri="direct:grabaProductoFinanciado"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <route id="actualizaStock">
+            <from id="actualizaStockFrom" uri="direct:actualizaStock"/>
+            <doTry id="actualizaStockTry">
+                <setHeader headerName="CodCampana" id="actualizaStockHeaderCodCampana">
+                    <xpath resultType="java.lang.String">//codCampana/text()</xpath>
+                </setHeader>
+                <setHeader headerName="CodProducto" id="actualizaStockHeaderCodProducto">
+                    <xpath resultType="java.lang.String">//codProducto/text()</xpath>
+                </setHeader>
+                <setHeader headerName="Cantidad" id="actualizaStockHeaderCantidad">
+                    <xpath resultType="java.lang.String">//cantidad/text()</xpath>
+                </setHeader>
+                <setHeader headerName="TipoOperacion" id="actualizaStockHeaderTipoOperacion">
+                    <xpath resultType="java.lang.String">//tipoOperacion/text()</xpath>
+                </setHeader>
+                <setHeader headerName="IdProducto" id="actualizaStockHeaderIdProducto">
+                    <xpath resultType="java.lang.String">//idProducto/text()</xpath>
+                </setHeader>
+                <setHeader headerName="IdEvaluacion" id="actualizaStockHeaderIdEvaluacion">
+                    <xpath resultType="java.lang.String">//idEvaluacion/text()</xpath>
+                </setHeader>
+                <to id="pa_updStockCampProdIBS" uri="bean:pa_updStockCampProdIBS"/>
+                <marshal id="actualizaStockResultset2xml" ref="jack"/>
+                <convertBodyTo id="actualizaStockConvertBodyTo" type="java.lang.String"/>
+                <transform id="actualizaStockTransform">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <to id="actualizaStockXml2xml" uri="xslt://transformations/out/resultset2xml_actualizaStock.xsl?saxon=true"/>
+                <doCatch id="actualizaStockCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="actualizaStockRestoreBody" method="restoreBody"/>
+                    <setBody id="actualizaStockSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="actualizaStockFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="actualizaStockSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="actualizaStockFinally"/>
+            </doTry>
+        </route>
+        <route id="consultaProductoCampana">
+            <from id="consultaProductoCampanaFrom" uri="direct:consultaProductoCampana"/>
+            <doTry id="consultaProductoCampanaTry">
+                <setHeader headerName="CodCampana" id="consultaProductoHeaderCodCampana">
+                    <xpath resultType="java.lang.String">//codCampana/text()</xpath>
+                </setHeader>
+                <setHeader headerName="CodProducto" id="consultaProductoHeaderCodProducto">
+                    <xpath resultType="java.lang.String">//codProducto/text()</xpath>
+                </setHeader>
+                <to id="pa_selproductofinIBS" uri="bean:pa_selproductofinIBS"/>
+                <marshal id="consultaProductoCampanaResultset2xml" ref="jack"/>
+                <convertBodyTo id="consultaProductoCampanaConvertBodyTo" type="java.lang.String"/>
+                <transform id="consultaProductoCampanaTransform">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <to id="consultaProductoCampanaXml2xml" uri="xslt://transformations/out/resultset2xml_consultaProductoCampana.xsl?saxon=true"/>
+                <doCatch id="consultaProductoCampanaCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="consultaProductoCampanaRestoreBody" method="restoreBody"/>
+                    <setBody id="consultaProductoCampanaSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultaProductoCampanaFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="consultaProductoCampanaSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultaProductoCampanaFinally"/>
+            </doTry>
+        </route>
+        <route id="consultaProductos">
+            <from id="consultaProductosFrom" uri="direct:consultaProductos"/>
+            <doTry id="consultaProductosTry">
+            <setHeader headerName="CodOficina" id="consultaProductosHeaderCodOficina">
+                <xpath resultType="java.lang.String">//codOficina/text()</xpath>
+            </setHeader>
+            <setHeader headerName="RutSocio" id="consultaProductosHeaderRutSocio">
+                <xpath resultType="java.lang.String">//rutSocio/text()</xpath>
+            </setHeader>
+            <setHeader headerName="CodConvenio" id="consultaProductosHeaderCodConvenio">
+                <xpath resultType="java.lang.String">//codConvenio/text()</xpath>
+            </setHeader>
+            <setHeader headerName="IFecProceso" id="consultaProductosHeaderIFecProceso">
+                <xpath resultType="java.lang.String">//iFecProceso/text()</xpath>
+            </setHeader>
+            <to id="pa_selCampProductoIBS" uri="bean:pa_selCampProductoIBS"/>
+            <marshal id="consultaProductosResultset2xml" ref="jack"/>
+            <convertBodyTo id="consultaProductosConvertBodyTo" type="java.lang.String"/>
+            <transform id="consultaProductosTransform">
+                <simple>${in.body.replaceAll('#','')}</simple>
+            </transform>
+<!--             <log id="_log1" message="\n\n########### Body\n\n${body}"/> -->
+            <to id="consultaProductosXml2xml" uri="xslt://transformations/out/resultset2xml_consultaProductos.xsl?saxon=true"/>
+                <doCatch id="consultaProductosCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="consultaProductosRestoreBody" method="restoreBody"/>
+                    <setBody id="consultaProductosSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultaProductosFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="consultaProductosSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultaProductosFinally"/>
+            </doTry>
+        </route>
+        <route id="eliminaProductoFinanciado">
+            <from id="eliminaProductoFinanciadoFrom" uri="direct:eliminaProductoFinanciado"/>
+            <doTry id="eliminaProductoFinanciadoTry">
+                <setHeader headerName="IdEvaluacion" id="eliminaProductoFinanciadoHeader">
+                    <xpath resultType="java.lang.String">//idEvaluacion/text()</xpath>
+                </setHeader>
+                <to id="pa_delProductosFin" uri="bean:pa_delProductosFin"/>
+                <marshal id="eliminaProductoFinanciadoResultset2xml" ref="jack"/>
+                <convertBodyTo
+                    id="eliminaProductoFinanciadoConvertBodyTo2" type="java.lang.String"/>
+                <transform id="eliminaProductoFinanciadoTransform1">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <to id="eliminaProductoFinanciadoXml2xml" uri="xslt://transformations/out/resultset2xml_eliminaProductoFinanciado.xsl?saxon=true"/>
+                <doCatch id="eliminaProductoFinanciadoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="eliminaProductoFinanciadoRestoreBody" method="restoreBody"/>
+                    <setBody id="eliminaProductoFinanciadoSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="eliminaProductoFinanciadoFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="eliminaProductoFinanciadoSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="eliminaProductoFinanciadoFinally"/>
+            </doTry>
+        </route>
+        <route id="grabaDetalleProductoFinanciado">
+            <from id="grabaDetalleProductoFinanciadoFrom" uri="direct:grabaDetalleProductoFinanciado"/>
+            <doTry id="grabaDetalleProductoFinanciadoTry">
+                <setHeader headerName="CodCampana2" id="grabaDetalleProductoFinanciadoHeaderCodCampana2">
+                    <xpath resultType="java.lang.String">//codCampana/text()</xpath>
+                </setHeader>
+                <setHeader headerName="CodProducto2" id="grabaDetalleProductoFinanciadoHeaderCodProducto2">
+                    <xpath resultType="java.lang.String">//codProducto/text()</xpath>
+                </setHeader>
+                <setHeader headerName="IdEvaluacion2" id="grabaDetalleProductoFinanciadoHeaderIdEvaluacion2">
+                    <xpath resultType="java.lang.String">//idEvaluacion/text()</xpath>
+                </setHeader>
+                <setHeader headerName="Valor2" id="grabaDetalleProductoFinanciadoHeaderValor2">
+                    <xpath resultType="java.lang.String">//valor/text()</xpath>
+                </setHeader>
+                <setHeader headerName="RutIngreso2" id="grabaDetalleProductoFinanciadoHeaderRutIngreso2">
+                    <xpath resultType="java.lang.String">//rutIngreso/text()</xpath>
+                </setHeader>
+                <setHeader headerName="FeProceso2" id="grabaDetalleProductoFinanciadoHeaderFeProceso2">
+                    <xpath resultType="java.lang.String">//feProceso/text()</xpath>
+                </setHeader>
+                <to id="pa_updDetalleProdFinIBS" uri="bean:pa_updDetalleProdFinIBS"/>
+                <marshal
+                    id="grabaDetalleProductoFinanciadoResultset2xml" ref="jack"/>
+                <convertBodyTo
+                    id="grabaDetalleProductoFinanciadoConvertBodyTo" type="java.lang.String"/>
+                <transform id="grabaDetalleProductoFinanciadoTransform">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <to id="grabaDetalleProductoFinanciadoXml2xml" uri="xslt://transformations/out/resultset2xml_grabaDetalleProductoFinanciado.xsl?saxon=true"/>
+                <doCatch id="grabaDetalleProductoFinanciadoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="grabaDetalleProductoFinanciadoRestoreBody" method="restoreBody"/>
+                    <setBody id="grabaDetalleProductoFinanciadoSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="grabaDetalleProductoFinanciadoFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="grabaDetalleProductoFinanciadoSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="grabaDetalleProductoFinanciadoFinally"/>
+            </doTry>
+        </route>
+        <route id="grabaProductoFinanciado">
+            <from id="grabaProductoFinanciadoFrom" uri="direct:grabaProductoFinanciado"/>
+            <doTry id="grabaProductoFinanciadoTry">
+                <setHeader headerName="IdEvaluacion2" id="grabaProductoFinanciadoHeaderIdEvaluacion2">
+                    <xpath resultType="java.lang.String">//idEvaluacion/text()</xpath>
+                </setHeader>
+                <setHeader headerName="MontoFinanciado2" id="grabaProductoFinanciadoHeaderMontoFinanciado2">
+                    <xpath resultType="java.lang.String">//montoFinanciado/text()</xpath>
+                </setHeader>
+                <setHeader headerName="NumProductos2" id="grabaProductoFinanciadoHeaderNumProductos2">
+                    <xpath resultType="java.lang.String">//numProductos/text()</xpath>
+                </setHeader>
+                <setHeader headerName="DireccionEnvio" id="grabaProductoFinanciadoHeaderDireccionEnvio">
+                    <xpath resultType="java.lang.String">//direccionEnvio/text()</xpath>
+                </setHeader>
+                <setHeader headerName="IdComuna2" id="grabaProductoFinanciadoHeaderIdComuna2">
+                    <xpath resultType="java.lang.String">//idComuna/text()</xpath>
+                </setHeader>
+                <setHeader headerName="IdRegion2" id="grabaProductoFinanciadoHeaderIdRegion2">
+                    <xpath resultType="java.lang.String">//idRegion/text()</xpath>
+                </setHeader>
+                <setHeader headerName="CodigoPostal2" id="grabaProductoFinanciadoHeaderCodigoPostal2">
+                    <xpath resultType="java.lang.String">//codigoPostal/text()</xpath>
+                </setHeader>
+                <setHeader headerName="Telefono" id="grabaProductoFinanciadoHeaderTelefono">
+                    <xpath resultType="java.lang.String">//telefono/text()</xpath>
+                </setHeader>
+                <setHeader headerName="Celular" id="grabaProductoFinanciadoHeaderCelular">
+                    <xpath resultType="java.lang.String">//celular/text()</xpath>
+                </setHeader>
+                <setHeader headerName="EmailContacto" id="grabaProductoFinanciadoHeaderEmailContacto">
+                    <xpath resultType="java.lang.String">//emailContacto/text()</xpath>
+                </setHeader>
+                <setHeader headerName="Observacion" id="grabaProductoFinanciadoHeaderObservacion">
+                    <xpath resultType="java.lang.String">//observacion/text()</xpath>
+                </setHeader>
+                <setHeader headerName="RutIngreso2" id="grabaProductoFinanciadoHeaderRutIngreso2">
+                    <xpath resultType="java.lang.String">//rutIngreso/text()</xpath>
+                </setHeader>
+                <setHeader headerName="FeProceso2" id="grabaProductoFinanciadoHeaderFeProceso2">
+                    <xpath resultType="java.lang.String">//feProceso/text()</xpath>
+                </setHeader>
+                <to id="pa_updProdFinanciadoIBS" uri="bean:pa_updProdFinanciadoIBS"/>
+                <marshal id="grabaProductoFinanciadoResultset2xml" ref="jack"/>
+                <convertBodyTo id="grabaProductoFinanciadoConvertBodyTo" type="java.lang.String"/>
+                <transform id="grabaProductoFinanciadoransform">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <to id="grabaProductoFinanciadoXml2xml" uri="xslt://transformations/out/resultset2xml_grabaProductoFinanciado.xsl?saxon=true"/>
+                <doCatch id="grabaProductoFinanciadoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="grabaProductoFinanciadoRestoreBody" method="restoreBody"/>
+                    <setBody id="grabaProductoFinanciadoSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="grabaProductoFinanciadoFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="grabaProductoFinanciadoSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="grabaProductoFinanciadoFinally"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

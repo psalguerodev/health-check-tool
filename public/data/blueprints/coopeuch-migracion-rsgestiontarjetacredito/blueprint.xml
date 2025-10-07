@@ -1,0 +1,414 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsgestiontarjetacredito" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.tarea.gestiontarjetacredito.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSGestionTarjetaCredito"
+        id="endpointWSGestionTarjetaCredito"
+        serviceClass="cl.coopeuch.integracion.tarea.wsdl.WSGestionTarjetaCreditoSOAPPortType" wsdlURL="etc/wsdl/WSGestionTarjetaCredito.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsClient
+        address="[{endpoint.servicioresumensinacofi.resumen}]"
+        id="endpointServicioResumenSinacofiResumen" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient address="[{endpoint.motorriesgo.evaluartc}]"
+        id="endpointMotorRiesgoEvaluarTC" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <camelcxf:rsServer address="/RSGestionTarjetaCredito"
+        id="endpointRSGestionTarjetaCredito" serviceClass="cl.coopeuch.integracion.tarea.wsdl.WSGestionTarjetaCreditoSOAPPortType">
+        <camelcxf:providers>
+            <bean
+                class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProviderRSServer">
+                <property name="ignoreNamespaces" value="true"/>
+                <property name="serializeAsArray" value="true"/>
+                <property name="arrayKeys">
+                    <list>
+                        <value>documento</value>
+                        <value>resp</value>
+                        <value>var</value>
+                        <value>detalleError</value>
+                    </list>
+                </property>
+                <property name="ignoreEmptyArrayValues" value="true"/>
+            </bean>
+        </camelcxf:providers>
+    </camelcxf:rsServer>
+    <http-conf:conduit name="*.http-conduit">
+        <http-conf:client ConnectionTimeout="15000" ReceiveTimeout="15000"/>
+    </http-conf:conduit>
+    <camelContext id="gestiontarjetacredito" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSGestionTarjetaCredito"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSGestionTarjetaCredito"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <bean id="validarDatosOperacionBean"
+                    method="validarDatosOperacion" ref="beanRouteFacade"/>
+                <choice id="validaErrorChoice">
+                    <when id="validaErrorWhen">
+                        <simple>${exchangeProperty.ERROR} == ''</simple>
+                        <choice id="inicioChoiceOperacion">
+                            <when id="validaRutWhen">
+                                <simple>${exchangeProperty.valida_rut} == 'Correcto' &amp;&amp; ${exchangeProperty.valida_rut_empleador} == 'Correcto'</simple>
+                                <choice id="validaRutChoice">
+                                    <when id="inicioWhenOperacionCrear">
+                                    <simple>${header.operationName} == 'crear'</simple>
+                                    <to id="toCrear" uri="direct:crear"/>
+                                    <!--                                     <to id="toCrear" uri="direct:trazabilidadSolicitudTC"/> -->
+                                    </when>
+                                    <when id="inicioWhenOperacionEvaluar">
+                                    <simple>${header.operationName} == 'evaluar'</simple>
+                                    <to id="toEvaluar" uri="direct:evaluar"/>
+                                    </when>
+                                    <otherwise id="inicioOtherwise">
+                                    <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="otherwiseError_400">
+                                <setProperty id="inicioCodigoError" propertyName="codigoError">
+                                    <constant>400</constant>
+                                </setProperty>
+                                <throwException
+                                    exceptionType="java.lang.UnsupportedOperationException"
+                                    id="throwExceptionOperacionInvalida_400" message="El RUT ingresado no es valido."/>
+                                <stop id="_stop"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="otherwiseError_300">
+                        <setProperty id="codigoErrorDatos" propertyName="codigoError">
+                            <constant>300</constant>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.UnsupportedOperationException"
+                            id="throwExceptionOperacionInvalida_300" message="Falta completar datos de entrada"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch-UnsupportedOperationException">
+                    <exception>java.lang.UnsupportedOperationException</exception>
+                    <to
+                        id="toInicioExcepcion-UnsupportedOperationException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="crear">
+            <from id="crearFrom" uri="direct:crear"/>
+            <to id="toConsultarSinacofiCrear" uri="direct:consultarSinacofi"/>
+            <to id="toCrearSolicitudTC" uri="direct:crearSolicitudTC"/>
+        </route>
+        <route id="crearSolicitudTC">
+            <from id="crearSolicitudTCFrom" uri="direct:crearSolicitudTC"/>
+            <doTry id="crearSolicitudTCTry">
+                <bean id="crearSolicitudTCRequestBean"
+                    method="requestCrearSolicitudTC" ref="beanRouteFacade"/>
+                <marshal id="crearSolicitudTCMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tarea.wsdl.resumensinacofi"/>
+                </marshal>
+                <convertBodyTo id="crearSolicitudTCConvertBodyToString" type="java.lang.String"/>
+                <log id="_log1" loggingLevel="INFO" message="requestEntrada: ${exchangeProperty.requestEntrada}"/>
+                <log id="_log2" loggingLevel="INFO" message="Body: ${body}"/>
+                <bean id="crearSolicitudTCUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="crearSolicitudTCToXSLTrama" uri="xslt://etc/xsl/request/IOC040201I_crear.xsl"/>
+                <log id="crearSolicitudTCTrama" message="Trama generada = ${body}"/>
+                <to id="crearSolicitudTCToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="crearSolicitudTCTramaResponse" message="Trama recibida = ${body}"/>
+                <transform id="crearSolicitudTCTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="crearSolicitudTCToXSLSOAP" uri="xslt://etc/xsl/response/IOC040201O_crear.xsl?saxon=true"/>
+                <choice id="validaRespuestaCrearTCChoice">
+                    <when id="validaRespuestaCrearTCWhen">
+                        <xpath>//estado/text() = 'A'</xpath>
+                        <setProperty id="setNumeroSolicitud" propertyName="numeroSolicitud">
+                            <xpath>//numeroSolicitud/text()</xpath>
+                        </setProperty>
+                        <to id="toTrazabilidadEvaluacion" uri="direct:trazabilidadEvaluacion"/>
+                        <to id="toTrazabilidadSolicitudTC" uri="direct:trazabilidadSolicitudTC"/>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <unmarshal id="crearSolicitudTCUnmarshal">
+                            <jaxb contextPath="cl.coopeuch.integracion.tarea.wsdl"/>
+                        </unmarshal>
+                    </otherwise>
+                </choice>
+                <doCatch id="crearSolicitudTCDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="crearSolicitudTCCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="toCrearSolicitudTCExcepcionAMQ" uri="direct:excepcion"/>
+                    <stop id="stopCrearSolicitudTCAMQ"/>
+                </doCatch>
+                <doCatch id="crearSolicitudTCDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="crearSolicitudTCCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="crearSolicitudTCToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopCrearSolicitudTC"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarSinacofi">
+            <from id="consultarSinacofiFrom" uri="direct:consultarSinacofi"/>
+            <doTry id="consultarSinacofiTry">
+                <bean id="consultarResumenSinacofiRequestBean"
+                    method="requestConsultarResumenSinacofi" ref="beanRouteFacade"/>
+                <marshal id="marshalConsultarResumenSinacofiRequest">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo
+                    id="convertConsultarResumenSinacofiRequest" type="java.lang.String"/>
+                <log id="logConsultarResumenSinacofiRequest"
+                    loggingLevel="INFO" message="Mensaje Entrada: ${body}"/>
+                <to id="consultarResumenSinacofi-To" uri="cxfrs:bean:endpointServicioResumenSinacofiResumen?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <unmarshal id="unmarshalConsultarResumenSinacofiResponse">
+                    <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tarea.wsdl.resumensinacofi.ResumenAntecedentesComercialesResponse"/>
+                </unmarshal>
+                <log id="logConsultarResumenSinacofi_2"
+                    loggingLevel="INFO" message="Salida Mensaje: ${body}"/>
+                <doCatch id="consultarSinacofiDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarSinacofiCodigoError" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty
+                        id="consultarSinacofiDescripcionWSExterno" propertyName="descripcionWSExterno">
+                        <constant>WSResumenSinacofi/resumenAntecedentesComerciales</constant>
+                    </setProperty>
+                    <to id="consultarSinacofiToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopConsultarSinacofi"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="evaluar">
+            <from id="consultarFrom" uri="direct:evaluar"/>
+            <to id="toConsultarSinacofiEvaluar" uri="direct:consultarSinacofi"/>
+            <to id="toEvaluarTC" uri="direct:evaluarTC"/>
+        </route>
+        <route id="evaluarTC">
+            <!--             <log id="logEvaluarTCResponse" loggingLevel="INFO" message="Salida Mensaje: ${body}"/> -->            
+            <from id="evaluarTCFrom" uri="direct:evaluarTC"/>
+            <doTry id="evaluarTCTry">            
+	            <bean id="evaluarTCRequestBean" method="requestEvaluarTC" ref="beanRouteFacade"/>
+	            <log id="logEvaluarTCRequest" loggingLevel="INFO" message="Mensaje Entrada: ${body}"/>
+	            <to id="evaluarTC-To" uri="cxfrs:bean:endpointMotorRiesgoEvaluarTC?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+	            <bean id="evaluarTCRemoveBean" method="removeEvaluarTC" ref="beanRouteFacade"/>
+	            <convertBodyTo id="convertEvaluarTC" type="java.lang.String"/>
+	            <unmarshal id="unmarshalEvaluarTCResponse">
+	                <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tarea.wsdl.motorriesgo.EvaluarTCResponse"/>
+	            </unmarshal>
+	            <bean id="responseEvaluarTCBean" method="responseEvaluarTC" ref="beanRouteFacade"/>
+	            <doCatch id="evaluarTCDoCatch">
+	                <exception>java.lang.Exception</exception>
+	                <setProperty id="evaluarTCCodigoError" propertyName="codigoError">
+	                    <constant>503</constant>
+	                </setProperty>
+	                <setProperty id="evaluarTCDescripcionWSInterno" propertyName="descripcionWSInterno">
+	                    <constant>WSMotorRiesgo/evaluarTC</constant>
+	                </setProperty>
+	                <to id="evaluarTCToExcepcion" uri="direct:excepcion"/>
+	                <stop id="stopEvaluarTC"/>
+	            </doCatch>
+	        </doTry>
+        </route>
+        <route id="trazabilidadSolicitudTC">
+            <from id="trazabilidadSolicitudTCFrom" uri="direct:trazabilidadSolicitudTC"/>
+            <doTry id="trazabilidadSolicitudTCTry">
+                <setBody id="_setBody1">
+                    <simple>${exchangeProperty.requestEntrada}</simple>
+                </setBody>
+                <convertBodyTo id="_convertBodyTo1" type="cl.coopeuch.integracion.tarea.wsdl.CrearRequest"/>
+                <marshal id="_marshal1">
+                    <jaxb
+                        contextPath="cl.coopeuch.integracion.tarea.wsdl"
+                        fragment="true" partClass="cl.coopeuch.integracion.tarea.wsdl.CrearRequest"/>
+                </marshal>
+                <log id="_log3" loggingLevel="INFO" message="Body: ${body}"/>
+                <bean id="trazabilidadSolicitudTCUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="trazabilidadSolicitudTCToXSLTrama" uri="xslt://etc/xsl/request/IOC040203I_trazabilidad.xsl"/>
+                <log id="trazabilidadSolicitudTCTrama" message="Trama generada = ${body}"/>
+                <to id="trazabilidadSolicitudTCToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="trazabilidadSolicitudTCTramaResponse" message="Trama recibida = ${body}"/>
+                <transform id="trazabilidadSolicitudTCTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="trazabilidadSolicitudTCToXSLSOAP" uri="xslt://etc/xsl/response/IOC040203O_trazabilidad.xsl?saxon=true"/>
+                <unmarshal id="trazabilidadSolicitudTCUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tarea.wsdl"/>
+                </unmarshal>
+                <doCatch id="trazabilidadSolicitudTCDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty
+                        id="trazabilidadSolicitudTCCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="toTrazabilidadSolicitudTCExcepcionAMQ" uri="direct:excepcion"/>
+                    <stop id="stopTrazabilidadSolicitudTCAMQ"/>
+                </doCatch>
+                <doCatch id="trazabilidadSolicitudTCDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="trazabilidadSolicitudTCCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="trazabilidadSolicitudTCToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopTrazabilidadSolicitudTC"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="idTrazabilidadEvaluacion">
+            <from id="trazabilidadEvaluacionFrom" uri="direct:trazabilidadEvaluacion"/>
+            <doTry id="trazabilidadEvaluacionTry">
+                <setProperty id="guardarBody" propertyName="exchangeBody">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="tipoBussinesObject" propertyName="BussinesObject">
+                    <constant>TC</constant>
+                </setProperty>
+                <setProperty id="tipoCanal" propertyName="canal">
+                    <simple>${exchangeProperty.canalSolicitud}</simple>
+                </setProperty>
+                <setProperty id="tipoIdSol" propertyName="idSol">
+                    <simple>${exchangeProperty.numeroSolicitud}</simple>
+                </setProperty>
+                <setProperty id="tipoIdSolicitud" propertyName="idSolicitud">
+                    <simple>${exchangeProperty.numeroSolicitud}</simple>
+                </setProperty>
+                <setHeader headerName="step" id="setHeaderStepTCE2">
+                    <constant>E2</constant>
+                </setHeader>
+                <log id="logNumeroSolicitud" loggingLevel="INFO" message="Numero Solicitud Trazabilidad Evaluacion: ${exchangeProperty.numeroSolicitud}"/>
+                <setBody id="restaurarRequestEvaluarCoopStrategyTC">
+                    <simple>${exchangeProperty.bodyRequestEvaluarCoopStrategyTC}</simple>
+                </setBody>
+                <to id="toGrabarColaAlmacenDeDatosTCE2" uri="direct:colaAlmacenDeDatos"/>
+                <log id="logTCE2" loggingLevel="INFO" message="Trazabilidad Entrada E2 OK"/>
+                <setHeader headerName="step" id="setHeaderstepTCS2">
+                    <constant>S2</constant>
+                </setHeader>
+                <setBody id="restaurarResponseEvaluarCoopStrategyTC">
+                    <simple>${exchangeProperty.bodyResponseEvaluarCoopStrategyTC}</simple>
+                </setBody>
+                <to id="toGrabarColaAlmacenDeDatosTCS2" uri="direct:colaAlmacenDeDatos"/>
+                <log id="logTCS2" loggingLevel="INFO" message="Trazabilidad Salida S2 OK"/>
+                <setBody id="restaurarBody">
+                    <simple>${exchangeProperty.exchangeBody}</simple>
+                </setBody>
+                <doCatch id="trazabilidadEvaluacionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="trazabilidadEvaluacionCodigoError" propertyName="codigoError">
+                        <constant>511</constant>
+                    </setProperty>
+                    <to id="trazabilidadEvaluacionToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopTrazabilidadEvaluacion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- ruta encargada de inyectar mensajes en cola de almacen de datos -->
+        <route id="colaAlmacenDeDatos">
+            <from id="fromGrabarColaAlmacenDeDatos" uri="direct:colaAlmacenDeDatos"/>
+            <doTry id="_doTry1">
+                <choice id="_choice1">
+                    <when id="_when1">
+                        <simple>${header.step} in 'E1,E2'</simple>
+                        <to id="toeliminarNamespacesE1y2" uri="xslt://etc/xsl/transformations/eliminarNamespaces.xsl?saxon=true"/>
+                        <to id="toXml2Xml_AlmacenE1" uri="xslt://etc/xsl/AlmacenDatos/Xml2Xml_AlmacenE.xsl?saxon=true"/>
+                    </when>
+                    <when id="_when2">
+                        <simple>${header.step} in 'S1,S2'</simple>
+                        <to id="toeliminarTagS1y2" uri="xslt://etc/xsl/transformations/eliminarTagXsi.xsl?saxon=true"/>
+                        <to id="toeliminarNamespacesS1y2" uri="xslt://etc/xsl/transformations/eliminarNamespaces.xsl?saxon=true"/>
+                        <to id="toXml2Xml_AlmacenS1" uri="xslt://etc/xsl/AlmacenDatos/Xml2Xml_AlmacenS.xsl?saxon=true"/>
+                    </when>
+                </choice>
+                <to id="colaAlmacenDeDatosTO" uri="beanAMQ:{{amq.queue.AlmacenDatos.in}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <doCatch id="errorAlmacenCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="colaAlmacenDeDatosCodigoError" propertyName="codigoError">
+                        <constant>510</constant>
+                    </setProperty>
+                    <setProperty
+                        id="colaAlmacenDeDatosDescripcionAlmacen" propertyName="descripcionAlmacen">
+                        <constant>AlmacenDeDatos</constant>
+                    </setProperty>
+                    <to id="colaAlmacenDeDatosToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopColaAlmacenDeDatos"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

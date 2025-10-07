@@ -1,0 +1,392 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyWSDAP" persistent-id="wsdap"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.entidad.wsdap.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSDAP" id="endpointWSDAP"
+        serviceClass="cl.coopeuch.integracion.wsdap.wsdl.WSDAPSOAPPortType" wsdlURL="etc/wsdl/WSDAP.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSDAP" id="WSDAPREST"
+        loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.wsdap.wsdl.WSDAPSOAPPortType"/>
+    <camelContext id="servicio-dap" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:WSDAPREST"/>
+            <to id="restToConsultar" uri="direct:inicio"/>
+        </route>
+        <route id="soap-inicio">
+            <from id="inicioSoapServicio" uri="cxf:bean:endpointWSDAP"/>
+            <to id="SoapToConsultar" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionSimular">
+                        <simple>${header.operationName} == 'simular'</simple>
+                        <to id="toSimular" uri="direct:simular"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="toConsultar" uri="direct:consultar"/>
+                    </when>
+                    <when id="inicioWhenOperacionInvertir">
+                        <simple>${header.operationName} == 'invertir'</simple>
+                        <to id="toInvertir" uri="direct:invertir"/>
+                    </when>
+                    <when id="inicioWhenOperacionInvertir">
+                        <simple>${header.operationName} == 'consultarLista'</simple>
+                        <to id="toInvertir" uri="direct:consultarLista"/>
+                    </when>
+                    <when id="inicioWhenOperacionLiquidar">
+                        <simple>${header.operationName} == 'liquidar'</simple>
+                        <to id="toLiquidar" uri="direct:liquidar"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarSimulacion">
+                        <simple>${header.operationName} == 'consultarSimulacion'</simple>
+                        <to id="toConsultarSimulacion" uri="direct:consultarSimulacion"/>
+                    </when>
+                    <when id="inicioWhenOperacionInvertirSimulacion">
+                        <simple>${header.operationName} == 'invertirSimulacion'</simple>
+                        <to id="toConsultarSimulacion" uri="direct:invertirSimulacion"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="inicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultar">
+            <from id="consultarFrom" uri="direct:consultar"/>
+            <doTry id="consultarTry">
+                <setBody id="consultarSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="consultarMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsdap.wsdl"/>
+                </marshal>
+                <convertBodyTo id="consultarConvertBodyToString" type="java.lang.String"/>
+                <bean id="consultarUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultarToXSLTrama" uri="xslt://etc/xsl/request/IOC016001I_consultar.xsl"/>
+                <log id="consultarTrama" loggingLevel="INFO" message="Trama generada = ${body}"/>
+                <to id="consultarToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="consultarTramaResponse" loggingLevel="INFO" message="Trama recibida = ${body}"/>
+                <transform id="consultarTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarToXSLSOAP" uri="xslt://etc/xsl/response/IOC016001O_consultar.xsl?saxon=true"/>
+                <unmarshal id="_unmarshal2">
+                    <jaxb
+                        contextPath="cl.coopeuch.integracion.wsdap.wsdl" encoding="UTF-8"/>
+                </unmarshal>
+                <removeHeaders id="consultar_removeHeaders_JMS" pattern="JMS*"/>
+                <removeHeaders id="consultar_removeHeaders_Transfer" pattern="Transfer*"/>
+                <setProperty id="consultar_HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="consultar_CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="consultar_CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="consultar_CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <doCatch id="consultarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="consultarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="simular">
+            <from id="simularFrom" uri="direct:simular"/>
+            <doTry id="crearTry">
+                <setBody id="crearSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <setProperty id="rutCliente" propertyName="rutCliente">
+                    <simple>$simple{body.rutCliente}</simple>
+                </setProperty>
+                <setProperty id="userid" propertyName="userid">
+                    <simple>$simple{body.userid}</simple>
+                </setProperty>
+                <marshal id="crearMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsdap.wsdl"/>
+                </marshal>
+                <convertBodyTo id="crearConvertBodyToString" type="java.lang.String"/>
+                <bean id="crearUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="crearToXSLTrama" uri="xslt://etc/xsl/request/IOC760001I_simular.xsl"/>
+                <log id="crearTrama" loggingLevel="INFO" message="Trama generada = ${body}"/>
+                <to id="crearToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="crearTramaResponse" loggingLevel="INFO" message="Trama recibida = ${body}"/>
+                <transform id="crearTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="crearToXSLSOAP" uri="xslt://etc/xsl/response/IOC760001O_simular.xsl?saxon=true"/>
+                <choice id="choiceSimularOk">
+                    <when id="whenSimularOk">
+                        <simple>${body} contains 'IOC760001O'</simple>
+                        <setProperty id="salidaServicio" propertyName="salidaServicio">
+                            <simple>${body}</simple>
+                        </setProperty>
+                        <bean id="formatearValores"
+                            method="formatearValores" ref="beanRouteFacade"/>
+                    </when>
+                </choice>
+                <unmarshal id="_unmarshal1">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsdap.wsdl"/>
+                </unmarshal>
+                <doCatch id="crearDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toCrearExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="invertir">
+            <from id="invertirFrom" uri="direct:invertir"/>
+            <doTry id="invertirTry">
+                <setBody id="inverit-SetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <setProperty id="rutCliente-invertir" propertyName="rutCliente">
+                    <simple>$simple{body.rutCliente}</simple>
+                </setProperty>
+                <marshal id="invertirMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsdap.wsdl"/>
+                </marshal>
+                <convertBodyTo id="invertirConvertBodyToString" type="java.lang.String"/>
+                <bean id="invertirUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="invertirToXSLTrama" uri="xslt://etc/xsl/request/IOC761001I_invertir.xsl"/>
+                <log id="invertirTrama" loggingLevel="INFO" message="Trama generada = ${body}"/>
+                <to id="invertirToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="invertirTramaResponse" loggingLevel="INFO" message="Trama recibida = ${body}"/>
+                <transform id="invertirTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="invertirToXSLSOAP" uri="xslt://etc/xsl/response/IOC761001O_invertir.xsl?saxon=true"/>
+                <unmarshal id="invertir_unmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsdap.wsdl"/>
+                </unmarshal>
+                <doCatch id="invertirDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="invertirToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarLista">
+            <from id="consultarListaFrom" uri="direct:consultarLista"/>
+            <doTry id="consultarListaTry">
+                <setBody id="consultarListaSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <setProperty id="rutCliente-consultarLista" propertyName="rutCliente">
+                    <simple>$simple{body.rutCliente}</simple>
+                </setProperty>
+                <marshal id="consultarListaMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsdap.wsdl"/>
+                </marshal>
+                <convertBodyTo id="consultarListaConvertBodyToString" type="java.lang.String"/>
+                <bean id="consultarListaUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultarListaToXSLTrama" uri="xslt://etc/xsl/request/IOC074701I_consultarLista.xsl"/>
+                <log id="consultarListaTrama" loggingLevel="INFO" message="Trama generada = ${body}"/>
+                <to id="consultarListaToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="consultarListaTramaResponse"
+                    loggingLevel="INFO" message="Trama recibida = ${body}"/>
+                <transform id="consultarListaTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarListaToXSLSOAP" uri="xslt://etc/xsl/response/IOC074701O_consultarLista.xsl?saxon=true"/>
+                <log id="_log1" message="salida: ${body}"/>
+                <choice id="consultarLista-Choice">
+                    <when id="consultarLista-When">
+                        <simple>${body} contains 'IOC747001O'</simple>
+                        <bean id="consultarListaResponse"
+                            method="limpiarSalida" ref="beanRouteFacade"/>
+                    </when>
+                </choice>
+                <unmarshal id="_unmarshal3">
+                    <jaxb
+                        contextPath="cl.coopeuch.integracion.wsdap.wsdl" encoding="UTF-8"/>
+                </unmarshal>
+                <removeHeaders id="consultarLista_removeHeaders_JMS" pattern="JMS*"/>
+                <removeHeaders
+                    id="consultarLista_removeHeaders_Transfer" pattern="Transfer*"/>
+                <setProperty id="consultarLista_HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="consultarLista_CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="consultarLista_CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="consultarLista_CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <doCatch id="consultarListaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="consultarListaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="liquidar">
+            <from id="liquidarFrom" uri="direct:liquidar"/>
+            <doTry id="liquidarTry">
+                <setBody id="liquidar-SetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="liquidarMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsdap.wsdl"/>
+                </marshal>
+                <convertBodyTo id="liquidarConvertBodyToString" type="java.lang.String"/>
+                <bean id="liquidarUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="liquidarToXSLTrama" uri="xslt://etc/xsl/request/IOC762001I_liquidar.xsl"/>
+                <log id="liquidarTrama" loggingLevel="INFO" message="Trama generada = ${body}"/>
+                <to id="liquidarToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="liquidarTramaResponse" loggingLevel="INFO" message="Trama recibida = ${body}"/>
+                <transform id="liquidarTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="liquidarToXSLSOAP" uri="xslt://etc/xsl/response/IOC762001O_liquidar.xsl?saxon=true"/>
+                <unmarshal id="liquidar_unmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsdap.wsdl"/>
+                </unmarshal>
+                <doCatch id="liquidarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="liquidarToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarSimulacion">
+            <from id="consultarSimulacionFrom" uri="direct:consultarSimulacion"/>
+            <doTry id="consultarSimulacionTry">
+                <setBody id="consultarSimulacionSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="consultarSimulacionMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsdap.wsdl"/>
+                </marshal>
+                <convertBodyTo
+                    id="consultarSimulacionConvertBodyToString" type="java.lang.String"/>
+                <bean id="consultarSimulacionUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultarSimulacionToXSLTrama" uri="xslt://etc/xsl/request/IOC764001I_consultarSimulacion.xsl"/>
+                <log id="consultarSimulacionTrama" loggingLevel="INFO" message="Trama generada = ${body}"/>
+                <to id="consultarSimulacionToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="consultarSimulacionTramaResponse"
+                    loggingLevel="INFO" message="Trama recibida = ${body}"/>
+                <transform id="consultarSimulacionTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarSimulacionToXSLSOAP" uri="xslt://etc/xsl/response/IOC076401O_consultarSimulacion.xsl?saxon=true"/>
+                <log id="consultarSimulacionTramaResponse"
+                    loggingLevel="INFO" message="Trama recibida = ${body}"/>
+                <unmarshal id="_unmarshal4">
+                    <jaxb
+                        contextPath="cl.coopeuch.integracion.wsdap.wsdl" encoding="UTF-8"/>
+                </unmarshal>
+                <removeHeaders
+                    id="consultarSimulacion_removeHeaders_JMS" pattern="JMS*"/>
+                <removeHeaders
+                    id="consultarSimulacion_removeHeaders_Transfer" pattern="Transfer*"/>
+                <setProperty
+                    id="consultarSimulacion_HTTP_CHARACTER_ENCODING" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="consultarSimulacion_CONTENT_TYPE" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="consultarSimulacion_CONTENT_ENCODING" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="consultarSimulacion_CHARSET_NAME" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <doCatch id="consultarSimulacionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="consultarSimulacionExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="invertirSimulacion">
+            <from id="invertirSimulacionFrom" uri="direct:invertirSimulacion"/>
+            <doTry id="invertirSimulacionTry">
+                <setBody id="invertirSimulacionSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="invertirSimulacionMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsdap.wsdl"/>
+                </marshal>
+                <convertBodyTo
+                    id="invertirSimulacionConvertBodyToString" type="java.lang.String"/>
+                <bean id="invertirSimulacionUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="invertirSimulacionToXSLTrama" uri="xslt://etc/xsl/request/IOC767002I_invertirSimulacion.xsl"/>
+                <log id="invertirSimulacionTrama" loggingLevel="INFO" message="Trama generada = ${body}"/>
+                <to id="invertirSimulacionToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="invertirSimulacionTramaResponse"
+                    loggingLevel="INFO" message="Trama recibida = ${body}"/>
+                <transform id="invertirSimulacionTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="invertirSimulacionToXSLSOAP" uri="xslt://etc/xsl/response/IOC767001O_invertirSimular.xsl?saxon=true"/>
+                <unmarshal id="invertirSimulacionUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsdap.wsdl"/>
+                </unmarshal>
+                <doCatch id="invertirSimulacionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="invertirSimulacionToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

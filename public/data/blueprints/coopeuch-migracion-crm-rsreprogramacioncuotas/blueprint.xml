@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.0.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsreprogramacioncuotascrm"
+        placeholder-prefix="[{" placeholder-suffix="}]"/>
+    <bean class="cl.coopeuch.integracion.utilidad.util.RouteFacade" id="beanRouteFacade"/>
+    <!--Servicios -->
+    <cxf:cxfEndpoint address="/crm/WSReprogramacionCuotas"
+        id="fromWsReprogramacionCuotasSoap" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.crm.wsreprogramacioncuotas.WSReprogramacionCuotasSoap" wsdlURL="etc/wsdl/WSReprogramacionCuotas.asmx.wsdl"/>
+    <cxf:rsServer address="/crm/RSReprogramacionCuotas"
+        id="fromWsReprogramacionCuotasRest" loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.utilidad.rest.ReprogramacionCuotasCRMRest"/>
+    <!--Cliente proxy-->
+    <cxf:cxfEndpoint
+        address="[{crm.proxy.reprogramacioncuotas.endpoint}]"
+        id="toEndpointWsReprogramacionCuotas"
+        loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.crm.wsreprogramacioncuotas.WSReprogramacionCuotasSoap" wsdlURL="etc/wsdl/WSReprogramacionCuotas.asmx.wsdl"/>
+    <camelContext id="servicio-crm-reprogramacion-cuotas" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="soap-inicio" streamCache="true">
+            <from id="reprogramacionCuotasFrom" uri="cxf:bean:fromWsReprogramacionCuotasSoap?dataFormat=RAW"/>
+            <removeHeaders id="reprogramacionCuotasRemoveHeaders" pattern="CamelHttp*"/>
+            <to id="reprogramacionCuotasTo" uri="cxf:bean:toEndpointWsReprogramacionCuotas?dataFormat=RAW"/>
+        </route>
+        <route id="rest-inicio" streamCache="true">
+            <from id="inicioRestFrom" uri="cxfrs:bean:fromWsReprogramacionCuotasRest"/>
+            <choice id="fromOperation">
+                <when id="whenActualizarPoderEspecial">
+                    <simple>${header.operationName} == 'actualizarPoderEspecial'</simple>
+                    <unmarshal id="unmarshalActualizarPoderEspecial">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wsreprogramacioncuotas.ActualizarPoderEspecial"/>
+                    </unmarshal>
+                    <bean id="actualizarPoderEspecialRequest"
+                        method="actualizarPoderEspecialRest" ref="beanRouteFacade"/>
+                    <to id="actualizarPoderEspecialTo" uri="cxf:bean:toEndpointWsReprogramacionCuotas"/>
+                    <marshal id="marshalActualizarPoderEspecialResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wsreprogramacioncuotas.ActualizarPoderEspecialResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenConsultarReprogramaciones">
+                    <simple>${header.operationName} == 'consultarReprogramaciones'</simple>
+                    <unmarshal id="unmarshalConsultarReprogramaciones">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wsreprogramacioncuotas.ConsultarReprogramaciones"/>
+                    </unmarshal>
+                    <bean id="consultarReprogramacionesRequest"
+                        method="consultarReprogramacionesRest" ref="beanRouteFacade"/>
+                    <to id="consultarReprogramacionesTo" uri="cxf:bean:toEndpointWsReprogramacionCuotas"/>
+                    <marshal id="marshalConsultarReprogramacionesResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wsreprogramacioncuotas.ConsultarReprogramacionesResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenConsultarSolicitudReprogramacion">
+                    <simple>${header.operationName} == 'consultarSolicitudReprogramacion'</simple>
+                    <unmarshal id="unmarshalConsultarSolicitudReprogramacion">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wsreprogramacioncuotas.ConsultarSolicitudReprogramacion"/>
+                    </unmarshal>
+                    <bean id="consultarSolicitudReprogramacionRequest"
+                        method="consultarSolicitudReprogramacionRest" ref="beanRouteFacade"/>
+                    <to id="consultarSolicitudReprogramacionTo" uri="cxf:bean:toEndpointWsReprogramacionCuotas"/>
+                    <marshal id="marshalConsultarSolicitudReprogramacionResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wsreprogramacioncuotas.ConsultarSolicitudReprogramacionResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenCrearSolicitud">
+                    <simple>${header.operationName} == 'crearSolicitud'</simple>
+                    <unmarshal id="unmarshalCrearSolicitud">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wsreprogramacioncuotas.CrearSolicitud"/>
+                    </unmarshal>
+                    <bean id="crearSolicitudRequest"
+                        method="crearSolicitudRest" ref="beanRouteFacade"/>
+                    <to id="crearSolicitudTo" uri="cxf:bean:toEndpointWsReprogramacionCuotas"/>
+                    <marshal id="marshalCrearSolicitudResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wsreprogramacioncuotas.CrearSolicitudResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+    </camelContext>
+</blueprint>

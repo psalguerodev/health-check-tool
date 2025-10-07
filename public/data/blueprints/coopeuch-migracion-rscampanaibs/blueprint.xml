@@ -1,0 +1,368 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Configures the Camel Context -->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2" persistent-id="globalDb2"
+        placeholder-prefix="[[" placeholder-suffix="]]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyCampanaIBS" persistent-id="wscampanaibs"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Property Placeholder -->
+    
+    <bean class="cl.coopeuch.core.campanaibs.interceptor.ErrorExcepcionInterceptor" id="ErrorExcepcionInterceptor"/>
+    <bean class="cl.coopeuch.core.campanaibs.interceptor.ErrorExcepcionInterceptorSoap" id="ErrorExcepcionInterceptorSOAP"/>
+    
+    <cxf:cxfEndpoint address="/ServicioCampanaIBS"
+        id="ServicioCampanaIBSEndpoint"
+        serviceClass="cl.coopeuch.core.campanaibs.campanaibs.CampanaIBSPortType" wsdlURL="wsdl/ServicioCampanaIBS.wsdl">
+        <cxf:inInterceptors>
+        	<ref component-id="ErrorExcepcionInterceptorSOAP"/>
+    	</cxf:inInterceptors>
+    </cxf:cxfEndpoint>	
+    <cxf:rsServer address="/RSCampanaIBS" id="CampanaIBSRest" serviceClass="cl.coopeuch.integracion.campanaibs.rest.CampanaIBSRest">
+        <cxf:inInterceptors>
+        	<ref component-id="ErrorExcepcionInterceptor"/>
+    	</cxf:inInterceptors>
+     </cxf:rsServer>
+    <cxf:rsClient address="[{wsLogPlataformas.endpoint}]" 
+		id="endpointLogPlataformas"	
+		loggingFeatureEnabled="true" /> 
+    <!-- Conexion AMQ -->
+    <bean class="cl.coopeuch.integracion.util.RouteFacade" id="routeFacade"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+          destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.creditos]]"/>
+        <property name="password" value="[[jdbc.db2.password.creditos]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive}]"/>
+    </bean>
+    <camelContext id="servicio-campanaibs" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="_routeJMS">
+            <from id="_fromJMS" uri="beanAMQ:queue:{{colas.servicio.campanaibs.in.temp}}?preserveMessageQos=true"/>
+            <to id="_toJMS" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-InicioREST">
+            <from id="inicioFrom-REST" uri="cxfrs:bean:CampanaIBSRest"/>
+            <log message="(((${header.operationName})))"/>
+            <bean method="validarHeaderHost" ref="routeFacade"/>
+            <choice id="inicioChoiceOperacion-REST">
+                <when id="inicioWhenOperacionConsultar-REST">
+                    <simple>${header.operationName} == 'obtenerDatosCampana'</simple>
+                    <unmarshal id="consultar_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.campanaibs.soap.ObtenerDatosCampana"/>
+                    </unmarshal>
+                    <bean id="consultar_bean6"
+                        method="obtenerCampanaRequestRest" ref="routeFacade"/>
+                    <marshal id="consultar_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.campanaibs.soap"/>
+                    </marshal>
+                    <to id="_to7" uri="direct:inicio"/>
+                    <unmarshal id="consultar_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.campanaibs.soap"/>
+                    </unmarshal>
+                    <bean id="consultar_bean7"
+                        method="obtenerCampanaResponseRest" ref="routeFacade"/>
+                    <marshal id="consultar_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.campanaibs.soap.DatosCampanaResponse"/>
+                    </marshal>
+                </when>
+                <when>
+                    <simple>${header.operationName} == 'upsertIndicadores'</simple>
+                    <setBody>
+	                    <simple>$simple{body.get(0)}</simple>
+	                </setBody>
+	                <setProperty propertyName="tipoServicio">
+							<simple>REST</simple>
+						</setProperty>
+	                <bean method="validacionUpsertRequest" ref="routeFacade"/>
+	                 <choice>
+	                 	<when>
+	                 		<simple>${property.errorValidacion} == 'true'</simple>
+	                 		<unmarshal>
+			                    <jaxb contextPath="cl.coopeuch.core.campanaibs"/>
+			                </unmarshal>
+	                 		<stop/>
+	                 	</when>
+	                 </choice>
+                    <to uri="direct:upsertIndicadores"/>
+                    <unmarshal>
+	                    <jaxb contextPath="cl.coopeuch.core.campanaibs"/>
+	                </unmarshal>
+                </when>
+                <when>
+                    <simple>${header.operationName} == 'eliminarIndicadores'</simple>
+                    <setBody>
+	                    <simple>$simple{body.get(0)}</simple>
+	                </setBody>
+                    <to uri="direct:eliminarIndicadores"/>
+                    <unmarshal>
+	                    <jaxb contextPath="cl.coopeuch.core.campanaibs"/>
+	                </unmarshal>
+                </when>
+            </choice>
+        </route>
+        <route id="cx-RuteoOperaciones">
+            <from id="inicioFrom" uri="cxf:bean:ServicioCampanaIBSEndpoint?DataFormat=MESSAGE"/>
+            <to id="_toInicioWSDL" uri="direct:inicio"/>
+        </route>
+        <route>
+        	<from id="jms-from" uri="beanAMQ:queue:{{colas.servicio.campanaibs.in.temp}}?preserveMessageQos=true"/>
+        	<to id="jms-to" uri="direct:inicio"/>
+        </route>
+        <!-- Ruta que invoca operaciones del servicio web -->
+        <route id="cxf-RuteoOperaciones" xmlns:cam="http://campanaIBS.core.coopeuch.cl">
+            <from id="ServicioCampanaIBSEndpointListener" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">              
+				<setProperty propertyName="rut_log">
+		           	<simple>19</simple>
+		        </setProperty>        	                   
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="createJMSCorrelationId" method="createJMSCorrelationId24"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaObtenerDatosCampana">
+                        <simple>${body} contains 'obtenerDatosCampana'</simple>
+			            <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+		                    <simple>obtenerDatosCampana</simple>
+		                </setProperty>                        
+                        <setProperty propertyName="rut_log">
+				           	<xpath resultType="String">normalize-space(//rutCliente)</xpath>
+				        </setProperty>  
+                        <to id="obtenerDatosCampanaTo" uri="direct:obtenerDatosCampana"/>
+                    </when>
+                    <when id="rutaActualizarIndicadores">
+                        <simple>${body} contains 'upsertIndicadores'</simple>
+			            <setProperty propertyName="tipoRequest">
+		                    <simple>upsertIndicadores</simple>
+		                </setProperty>
+		                <setHeader headerName="operationName">
+		                	<simple>upsertIndicadores</simple>
+		                </setHeader>   
+		                <bean method="validarHeaderHost" ref="routeFacade"/>                     
+                        <setProperty propertyName="rut_log">
+				           	<xpath resultType="String">normalize-space(//rut)</xpath>
+				        </setProperty>  
+				        <setBody>
+						  <xpath resultType="org.w3c.dom.Node">//*[local-name()='upsertIndicadoresRequest']</xpath>
+						</setBody>
+						<setProperty propertyName="tipoServicio">
+							<simple>SOAP</simple>
+						</setProperty>
+						<bean method="validacionUpsertRequest" ref="routeFacade"/>
+		                 <choice>
+		                 	<when>
+		                 		<simple>${property.errorValidacion} == 'true'</simple>
+		                 		<unmarshal>
+				                    <jaxb contextPath="cl.coopeuch.core.campanaibs"/>
+				                </unmarshal>
+		                 		<stop/>
+		                 	</when>
+		                 </choice>
+                        <to id="obtenerDatosCampanaTo" uri="direct:upsertIndicadores"/>
+                    </when>
+                    <when id="rutaEliminarIndicadores">
+                        <simple>${body} contains 'eliminarIndicadores'</simple>
+			            <setProperty propertyName="tipoRequest">
+		                    <simple>eliminarIndicadores</simple>
+		                </setProperty>                        
+                        <setProperty propertyName="rut_log">
+				           	<xpath resultType="String">normalize-space(//rut)</xpath>
+				        </setProperty>  
+				        <setHeader headerName="operationName">
+		                	<simple>eliminarIndicadores</simple>
+		                </setHeader> 
+				        <bean method="validarHeaderHost" ref="routeFacade"/>
+				        <setBody>
+						  <xpath resultType="org.w3c.dom.Node">//cam:eliminarIndicadoresRequest</xpath>			  
+						</setBody>
+                        <to id="obtenerDatosCampanaTo" uri="direct:eliminarIndicadores"/>
+                    </when>
+                    <otherwise id="_otherwise1"/>
+                </choice>
+                <doCatch id="ruteoOperacioneShemaValidationException">
+                	<exception>org.apache.camel.processor.validation.SchemaValidationException</exception>
+                	<exception>org.apache.camel.ValidationException</exception>
+                	<exception>org.apache.camel.TypeConversionException</exception>
+                	<transform>
+               			<simple>${property.CamelExceptionCaught}</simple>
+            		</transform>
+		            <transform>
+		               <simple>${bodyAs(String)}</simple>
+		            </transform>            		
+                	<bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="ruteoOperacioneShemaValidationExceptionRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacioneShemaValidationExceptionSetBodyError">
+                        <simple>ERROR ServicioCampanaIBS:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <wireTap id="wireTap-excepcionToLogPlataformas" uri="direct:wsLogPlataformasGuardar"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="ruteoOperacioneShemaValidationExceptionBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <!-- Ruta que consume cola MQ IBS y retorna datos de Campañas IBS registradas -->
+        <route id="obtenerDatosCampana">
+            <from id="obtenerDatosCampanaFrom" uri="direct:obtenerDatosCampana"/>
+            <doTry id="obtenerDatosCampanaTry">
+                <setProperty id="_setProperty1" propertyName="formato">
+                    <simple>IOC034001I</simple>
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="userId">
+                    <xpath resultType="String">substring(//userID, 0, 11)</xpath>
+                </setProperty>
+                <setProperty id="_setProperty3" propertyName="banco">
+                    <simple>01</simple>
+                </setProperty>
+                <setProperty id="_setProperty4" propertyName="transaccion">
+                    <simple>1087</simple>
+                </setProperty>
+                <setProperty id="_setProperty5" propertyName="canal">
+                    <simple>0005</simple>
+                </setProperty>
+                <setProperty id="_setProperty6" propertyName="operacion">
+                    <simple>0000</simple>
+                </setProperty>
+                <setProperty id="_setProperty7" propertyName="rut">
+                    <xpath resultType="String">substring(//rutCliente, 0, 11)</xpath>
+                </setProperty>                
+                <setProperty id="_setProperty8" propertyName="cliente">
+                    <xpath resultType="Integer">//numeroCliente</xpath>
+                </setProperty>
+                <setProperty id="_setProperty9" propertyName="tipoCampana">
+                    <xpath resultType="String">substring(//tipoCampana, 0, 11)</xpath>
+                </setProperty>
+                <setProperty id="_setProperty10" propertyName="tipoEvaluacion">
+                    <xpath resultType="String">substring(//tipoEvaluacion, 0, 11)</xpath>
+                </setProperty>
+
+				<to id="consultar-To" uri="sql-stored:classpath:sql/PA_SEL_CAMPANAIBS_OBTENERCAMPANAS_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseObtenerDatosCampana"/>
+                <bean id="validarObtenerDatosCampanaBean"
+                    method="validarObtenerDatosCampana" ref="routeFacade"/>
+                <to id="consultarXml" uri="xslt://transformations/out/xmlOut_obtenerDatosCampana.xsl?saxon=true"/>
+              
+                <doCatch id="obtenerDatosCampanaCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="obtenerDatosCampanaRestoreBody" method="restoreBody"/>
+                    <setBody id="obtenerDatosCampanaSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>                    
+                    <wireTap id="wireTap-obtenerDatosCampanaToLogPlataformas" uri="direct:wsLogPlataformasGuardar"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="obtenerDatosCampanaSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="obtenerDatosCampanaFinally"/>
+            </doTry>
+        </route>
+        
+        
+        <route id="upsertIndicadores" >
+            <from id="upsertIndicadoresFrom" uri="direct:upsertIndicadores"/>
+            <doTry id="upsertIndicadoresTry">
+            	<log message="((${body})${body.getClass()})"/>
+				<convertBodyTo type="java.lang.String" />
+				
+                <bean method="crearJMSCorrelationId24" ref="routeFacade" />
+                <to uri="xslt://transformations/in/IOC034101I_upsertIndicadores.xsl" />
+				<log id="upsertIndicadoresTrama" message="Trama generada = (${body})"/>
+                <to id="upsertIndicadoresToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="upsertIndicadoresTramaResponse" message="Trama recibida = (${body})"/>
+                <transform id="upsertIndicadoresTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <log message="Trama recibida = (${body})"/>
+                <to id="upsertIndicadoresToXSLSOAP" uri="xslt://transformations/out/IOC034101O_actualizarIndicadores.xsl?saxon=true"/>
+                <doCatch id="upsertIndicadoresCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="upsertIndicadoresRestoreBody" method="restoreBody"/>
+                    <setBody id="upsertIndicadoresSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>                    
+<!--                     <wireTap id="wireTap-actualizarIndicadoresToLogPlataformas" uri="direct:wsLogPlataformasGuardar"/> -->
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="upsertIndicadoresSetBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="eliminarIndicadores" >
+            <from id="eliminarIndicadoresFrom" uri="direct:eliminarIndicadores"/>
+            <doTry id="eliminarIndicadoresTry">
+				<convertBodyTo type="java.lang.String" />
+                <bean method="crearJMSCorrelationId24" ref="routeFacade" />
+                <to uri="xslt://transformations/in/IOC034101I_eliminarIndicadores.xsl" />
+				<log id="eliminarIndicadoresTrama" message="Trama generada = (${body})"/>
+                <to id="eliminarIndicadoresToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="eliminarIndicadoresTramaResponse" message="Trama recibida = (${body})"/>
+                <transform id="eliminarIndicadoresTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <log message="Trama recibida = (${body})"/>
+                <to id="eliminarIndicadoresToXSLSOAP" uri="xslt://transformations/out/IOC034101O_eliminarIndicadores.xsl?saxon=true"/>
+				              
+                <doCatch id="eliminarIndicadoresCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="eliminarIndicadoresRestoreBody" method="restoreBody"/>
+                    <setBody id="eliminarIndicadoresSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>                    
+<!--                     <wireTap id="wireTap-actualizarIndicadoresToLogPlataformas" uri="direct:wsLogPlataformasGuardar"/> -->
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="eliminarIndicadoresSetBodyError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="wsLogPlataformasGuardar">
+        	<from id="wsLogPlataformasGuardar-From" uri="direct:wsLogPlataformasGuardar"/>        	
+        	<doTry id="wsLogPlataformasGuardar-doTry">
+        		<setProperty propertyName="nivelLog">
+        			<simple>ERRO</simple>
+        		</setProperty>
+        		<bean id="wsLogPlataformasGuardar-Bean" ref="routeFacade" method="guardarLogRequest"/>
+        		<to id="wsLogPlataformasGuardar-To" uri="cxfrs:bean:endpointLogPlataformas"/>
+        		<doCatch id="wsLogPlataformasGuardar-doCatch">
+        			<exception>java.lang.Exception</exception>
+        			<setBody>
+        				<simple>ERROR-logPlataformas: ${exception}-${body}</simple>
+        			</setBody>
+        			<log message="${body}"/>
+        		</doCatch>
+        	</doTry>
+        </route>        
+    </camelContext>
+</blueprint>

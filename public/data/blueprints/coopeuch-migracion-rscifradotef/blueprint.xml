@@ -1,0 +1,305 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+           xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+           xmlns:http="http://cxf.apache.org/transports/http/configuration"
+           xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+                             placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+                             persistent-id="wscifradotef" placeholder-prefix="[{"
+                             placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+
+    <!--Servidores-->
+    <camelcxf:cxfEndpoint address="/WSCifradoTEF"
+                          id="cifradoTEFSOAP"
+                          serviceClass="cl.coopeuch.integracion.wscifradotef.wsdl.WSCifradoTEFSOAPPortType"
+                          loggingFeatureEnabled="true"
+                          wsdlURL="etc/wsdl/public/WSCifradoTef.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSCifradoTEF"
+                       id="cifradoTEFREST" loggingFeatureEnabled="true"
+                       serviceClass="cl.coopeuch.integracion.wscifradotef.wsdl.WSCifradoTEFSOAPPortType"/>
+
+    <!--Clientes-->
+    <camelcxf:cxfEndpoint
+            address="[{wsautenticacioninterna.endpoint}]"
+            id="endpointWSAutenticacioninterna" loggingFeatureEnabled="true"
+            serviceClass="cl.coopeuch.integracion.wscifradotef.wsdl.client.wsautenticacioninterna.WSAutenticacionInternaSOAPPortType"
+            wsdlURL="etc/wsdl/client/WSAutenticacionInterna.wsdl"/>
+
+    <camelcxf:rsClient id="endpointRestSwitchApi"
+                       address="[{switch.api.endpoint}]"
+                       loggingFeatureEnabled="true"
+                       serviceClass="cl.coopeuch.integracion.wscifradotef.wsdl.client.apiswitch.SwitchApi">
+        <camelcxf:properties>
+            <entry key="supportUnwrapped" value="true"/>
+        </camelcxf:properties>
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="dropRootElement" value="true"/>
+    </bean>
+    <http-conf:conduit name="*.http-conduit">
+        <http-conf:client ConnectionTimeout="3000"
+                          ReceiveTimeout="3000"/>
+    </http-conf:conduit>
+
+    <bean class="cl.coopeuch.integracion.wscifradotef.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="cl.coopeuch.integracion.wscifradotef.util.RouteExcepcionFacade" id="beanRouteExcepcionFacade"/>
+
+    <camelContext id="servicio-cifradoTEF" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="conectarSwitchApiGenerarMACResponse" library="Jackson"
+                  unmarshalTypeName="cl.coopeuch.integracion.wscifradotef.wsdl.client.apiswitch.MacGenerateResponse"/>
+            <json id="conectarSwitchApiValidarMACResponse" library="Jackson"
+                  unmarshalTypeName="cl.coopeuch.integracion.wscifradotef.wsdl.client.apiswitch.MacValidateResponse"/>
+        </dataFormats>
+        <route id="soap-inicio">
+            <from id="inicioSoapFrom" uri="cxf:bean:cifradoTEFSOAP"/>
+            <to id="soapToInicio" uri="direct:inicioCifradoTEF"/>
+        </route>
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:cifradoTEFREST"/>
+            <to id="restToInicio" uri="direct:inicioCifradoTEF"/>
+        </route>
+        <route id="cxf-Inicio">
+            <from id="inicioFromServicio" uri="direct:inicioCifradoTEF"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setProperty id="inicioSetCodigoErrorDefault" propertyName="codigoError">
+                    <constant>0</constant>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionGenerarMAC">
+                        <simple>${header.operationName} == 'generarMAC'</simple>
+                        <to id="toGenerarMAC" uri="direct:generarMAC"/>
+                    </when>
+                    <when id="inicioWhenOperacionValidarMAC">
+                        <simple>${header.operationName} == 'validarMAC'</simple>
+                        <to id="toValidarMAC" uri="direct:validarMAC"/>
+                    </when>
+                    <otherwise id="otherwiseOperacion">
+                        <throwException
+                                exceptionType="java.lang.Exception"
+                                id="throwExceptionOperacionInvalida" message="La operacion request es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="_to5" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generarMAC">
+            <from id="generarMACFrom" uri="direct:generarMAC"/>
+            <doTry id="generarMACTry">
+                <to id="toGenerarMACValidacionToken" uri="direct:validacionTokenAutenticacionInterna"/>
+                <bean id="wsGenerarMACRequestBean"
+                      method="transformGenerarMACRequest"
+                      ref="beanRouteFacade"/>
+                <setProperty id="restPathRecibeCodigo" propertyName="restHttpPath">
+                    <constant>MAC_GENERATE</constant>
+                </setProperty>
+                <to id="toGenerarMACApiSwtich" uri="direct:conectarSwitchApi"></to>
+                <unmarshal id="generarMACUnmarshal" ref="conectarSwitchApiGenerarMACResponse"/>
+                <bean id="wsGenerarMACRequestBean" method="transformGenerarMACResponseToResponse"
+                      ref="beanRouteFacade"/>
+                <doCatch id="validacionTokenDoCatch">
+                    <exception>cl.coopeuch.integracion.wscifradotef.excepcion.AutenticacionExcepcion</exception>
+                    <to id="validacionTokenToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="validacionTokenErrorStop"/>
+                </doCatch>
+                <doCatch id="generarMACDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="generarMACCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="generarMACToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="generarMACErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validarMAC">
+            <from id="validarMACFrom" uri="direct:validarMAC"/>
+            <doTry id="validarMACTry">
+                <to id="toValidarMACValidacionToken" uri="direct:validacionTokenAutenticacionInterna"/>
+                <bean id="wsValidarMACRequestBean"
+                      method="transformValidarMACRequest"
+                      ref="beanRouteFacade"/>
+                <setProperty id="restPathValidarMAC" propertyName="restHttpPath">
+                    <constant>MAC_VALIDATE</constant>
+                </setProperty>
+                <to id="toValidarMACApiSwtich" uri="direct:conectarSwitchApi"></to>
+                <unmarshal id="validarMACUnmarshal" ref="conectarSwitchApiValidarMACResponse"/>
+                <bean id="wsValidarMACRequestBean" method="transformValidarMACResponseToResponse"
+                      ref="beanRouteFacade"/>
+                <doCatch id="validarMACDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="validarMACCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="validarMACToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="validarMACErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validacionTokenAutenticacionInterna">
+            <from id="validacionTokenAutenticacionInternaFrom" uri="direct:validacionTokenAutenticacionInterna"/>
+            <doTry id="validacionTokenAutenticacionInternaTry">
+                <setProperty id="inicioSetRequestToken" propertyName="requestToken">
+                    <simple>${body[0].token}</simple>
+                </setProperty>
+                <setProperty id="inicioSetRequestCanal" propertyName="requestCanal">
+                    <simple>${body[0].canalLlamada}</simple>
+                </setProperty>
+                <setProperty id="inicioSetRequestUserId" propertyName="requestUserId">
+                    <simple>${body[0].userId}</simple>
+                </setProperty>
+                <bean id="wsAutenticacionInternaRequestBean"
+                      method="transformConsultarTokenRequest"
+                      ref="beanRouteFacade"/>
+                <setProperty id="soapOperationConsultarToken" propertyName="soapOperation">
+                    <constant>consultarToken</constant>
+                </setProperty>
+                <to id="toWSAuntenticacionInternaConsultar" uri="direct:conectarAutenticacionInterna"/>
+                <choice id="auntenticacionInternaChoice">
+                    <when id="whenAuntenticacionInternaExpiradoChoice">
+                        <simple>${body[0].error} == null and ${body[0].estado} != 'Vigente'</simple>
+                        <throwException
+                                exceptionType="cl.coopeuch.integracion.wscifradotef.excepcion.AutenticacionExcepcion"
+                                id="throwExpiradoExceptionAuntenticacionInternaChoice"
+                                message="Token Expirado"/>
+                    </when>
+                    <otherwise id="otherWiseAuntenticacionInternaChoice">
+                        <throwException
+                                exceptionType="cl.coopeuch.integracion.wscifradotef.excepcion.AutenticacionExcepcion"
+                                id="throwExceptionAuntenticacionInternaChoice"
+                                message="${body[0].error.errores.detalleError[0].descripcion}"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="validacionTokenAutenticacionInternaErrorDoCatch">
+                    <exception>cl.coopeuch.integracion.wscifradotef.excepcion.AutenticacionExcepcion</exception>
+                    <setProperty id="validacionTokenAutenticacionInternaErrorCodigoError" propertyName="codigoError">
+                        <constant>401</constant>
+                    </setProperty>
+                    <to id="validacionTokenAutenticacionInternaToResponseErrorExcepcion" uri="direct:excepcion"/>
+                    <stop id="validacionTokenAutenticacionInternaErrorErrorStop"/>
+                </doCatch>
+                <doCatch id="validacionTokenAutenticacionInternaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="validacionTokenAutenticacionInternaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="validacionTokenAutenticacionInternaToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="validacionTokenAutenticacionInternaErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!--Conectores-->
+        <route id="conectarAutenticacionInterna">
+            <from id="conectarAutenticacionInternaFrom" uri="direct:conectarAutenticacionInterna"/>
+            <doTry id="conectarAutenticacionInternaTry">
+                <removeHeaders id="wsRemoveHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="autenticacionInternaSetHeaderOperationName">
+                    <simple>${exchangeProperty.soapOperation}</simple>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="autenticacionInternaSetHeaderoperationNamespace">
+                    <constant>http://integracion.coopeuch.cl/WSAutenticacionInterna/</constant>
+                </setHeader>
+                <to id="soapEndpointAutenticacionInterna"
+                    uri="cxf:bean:endpointWSAutenticacioninterna?continuationTimeout=5000"/>
+                <doCatch id="conectarAutenticacionInternaDoCatchTimeOut">
+                    <exception>java.net.SocketTimeoutException</exception>
+                    <setProperty id="conectarAutenticacionInternaPropertyCodigo" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to id="conectarAutenticacionInternaToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarAutenticacionInternaErrorStop"/>
+                </doCatch>
+                <doCatch id="conectarAutenticacionInternaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="conectarAutenticacionInternaPropertyCodigo" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="conectarAutenticacionInternaToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarAutenticacionInternaErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="conectarSwitchApi">
+            <from id="conectarSwitchApiFrom" uri="direct:conectarSwitchApi"/>
+            <doTry id="conectarSwitchApiTry">
+                <removeHeaders id="wsconectarSwitchApi" pattern="*"/>
+                <setHeader headerName="CamelHttpPath" id="conectarSwitchApiSetPath">
+                    <simple>${exchangeProperty.restHttpPath}</simple>
+                </setHeader>
+                <setHeader headerName="Content-Type" id="conectarSwitchApiSetContentType">
+                    <constant>application/json</constant>
+                </setHeader>
+                <to id="restEndpointConectarSwitchApi"
+                    uri="cxfrs://bean://endpointRestSwitchApi?throwExceptionOnFailure=false"/>
+                <convertBodyTo id="conectarSwitchApiConvertTo" type="java.lang.String"/>
+                <doCatch id="conectarSwitchApiDoCatchTimeOut">
+                    <exception>java.net.SocketTimeoutException</exception>
+                    <setProperty id="conectarSwitchApiPropertyCodigo" propertyName="codigoError">
+                        <constant>504</constant>
+                    </setProperty>
+                    <to id="conectarSwitchApiToResponseExcepcion" uri="direct:excepcion"/>
+                    <stop id="conectarSwitchApiErrorStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <wireTap id="excepcionSendColaError" uri="direct:envioColaError"/>
+                <bean id="excepcionBeanExcepcion" method="procesaExcepcion" ref="beanRouteExcepcionFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR"
+                         message="Ha ocurrido un error en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="envioColaError">
+            <from id="envioColaErrorFrom" uri="direct:envioColaError"/>
+            <doTry id="envioColaErrorTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteExcepcionFacade"/>
+                <marshal id="envioColaErrorMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="envioColaErrorConvertTo" type="java.lang.String"/>
+                <to id="envioColaErrorToAmqFault"
+                    uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <doCatch id="envioColaErrorDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="envioColaErrorLog" loggingLevel="ERROR"
+                         message="Ha ocurrido un error en la ejecucion del servicio: Request: ${body} Error: ${exception}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal" persistent-id="wsofertasociowf"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[[" placeholder-suffix="]]"
+        update-strategy="reload" />
+    <bean id="noErrorHandler" class="org.apache.camel.builder.NoErrorHandlerBuilder"/>    
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+
+    <bean class="org.slf4j.LoggerFactory" factory-method="getLogger" id="rh1">
+        <argument index="0" value="rh1"/>
+    </bean>
+     <bean class="cl.coopeuch.integracion.wsofertasociowf.util.RouteExcepcion" id="respuestaErrorProcessor"/>
+     <bean class="cl.coopeuch.integracion.wsofertasociowf.util.RouteFacade" id="beanRouteFacade"/>
+     <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <bean
+        class="cl.coopeuch.integracion.wsofertasociowf.exceptions.ErrorExcepcionInterceptor" id="ErrorExcepcionInterceptor"/>
+    <camelcxf:rsServer address="/WSOfertasSocioWF" id="restApiEnpointOfertaSocio" serviceClass="cl.coopeuch.integracion.wsofertasociowf.service.OperacionesService">
+        <camelcxf:extensionMappings>
+            <entry key="json" value="application/json"/>
+        </camelcxf:extensionMappings>
+        <camelcxf:providers>
+            <bean class="com.fasterxml.jackson.jaxrs.json.JacksonJsonProvider"/>
+            <bean class="cl.coopeuch.integracion.wsofertasociowf.util.Filter"/>
+        </camelcxf:providers>
+        <camelcxf:outInterceptors>
+            <ref component-id="ErrorExcepcionInterceptor"/>
+        </camelcxf:outInterceptors>
+    </camelcxf:rsServer>
+
+   
+    <camelContext id="SERVICIO-WSOFERTASOCIO" streamCache="false"
+        xmlns="http://camel.apache.org/schema/blueprint">
+        <threadPoolProfile defaultProfile="true" id="changedProfile"
+            maxQueueSize="100" poolSize="1"/>
+        <dataFormats>
+            <json id="serializer" library="Jackson" prettyPrint="true"/>
+        </dataFormats>
+        <redeliveryPolicyProfile id="redeliveryPolicy"
+        maximumRedeliveries="2"
+        redeliveryDelay="1000" allowRedeliveryWhileStopping="false"
+        retryAttemptedLogLevel="INFO" />   
+        <onException id="CustomExceptionHandling" redeliveryPolicyRef="redeliveryPolicy" useOriginalMessage="true">
+            <exception>cl.coopeuch.integracion.wsofertasociowf.exceptions.GeneralExcepcion</exception>
+            <handled>
+                <constant>true</constant>
+            </handled>
+            <log loggerRef="rh1" loggingLevel="ERROR" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.message}"/>
+            <log loggerRef="rh1" loggingLevel="DEBUG" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.stacktrace}"/>            
+            <setProperty propertyName="codigohttp">
+                 <simple>500</simple>
+            </setProperty>
+            <setProperty propertyName="codigo">
+                <simple>500</simple>
+            </setProperty>
+            <setProperty propertyName="descripcion">
+                <simple> ${exception.message}</simple>
+            </setProperty>
+            <setProperty propertyName="codigoTimeout">
+                 <simple>500</simple>
+            </setProperty>
+            <setProperty propertyName="descripcionTimeout">
+                <simple>${exception.message}</simple>
+            </setProperty>
+             <wireTap id="respuestaError" uri="direct:excepcion"/>
+            <bean method="process" ref="respuestaErrorProcessor"/>
+            <stop/>
+        </onException>  
+        <onException id="CustomExceptionHandling" redeliveryPolicyRef="redeliveryPolicy" useOriginalMessage="true">
+            <exception>java.lang.Exception</exception>
+            <handled>
+                <constant>true</constant>
+            </handled>
+            <log loggerRef="rh1" loggingLevel="ERROR" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.message}"/>
+            <log loggerRef="rh1" loggingLevel="DEBUG" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.stacktrace}"/>            
+            <setProperty propertyName="codigohttp">
+                 <simple>500</simple>
+            </setProperty>
+            <setProperty propertyName="codigo">
+                <simple>500</simple>
+            </setProperty>
+            <setProperty propertyName="descripcion">
+                <simple> ${exception.message}</simple>
+            </setProperty>
+            <setProperty propertyName="codigoTimeout">
+                 <simple>500</simple>
+            </setProperty>
+            <setProperty propertyName="descripcionTimeout">
+                <simple>${exception.message}</simple>
+            </setProperty>
+             <wireTap id="respuestaError" uri="direct:excepcion"/>
+            <bean method="process" ref="respuestaErrorProcessor"/>
+            <stop/>
+        </onException> 
+        
+        <route id="ROUTE-PRINCIPAL-WSOFERTASOCIO">
+            <from id="restInicioo" uri="cxfrs:bean:restApiEnpointOfertaSocio?bindingStyle=SimpleConsumer"/>
+            <setProperty propertyName="operacion">
+                <simple resultType="String">${header.operationName}</simple>
+            </setProperty>
+            <toD uri="direct:${header.operationName}"/>
+        </route>
+        
+        
+        <route id="WsConsultarCampana" streamCache="true" errorHandlerRef="noErrorHandler">
+            <from  uri="direct:consultarCampana"/>  
+           		<marshal>
+            		<json library="Jackson"/>
+            	</marshal>
+            	<setProperty propertyName="userId"><jsonpath resultType="String">$.consultarCampanaRequest.userId</jsonpath></setProperty>
+            	<setProperty propertyName="canalLlamada"><jsonpath resultType="String">$.consultarCampanaRequest.canalLlamada</jsonpath></setProperty>
+            	<setProperty propertyName="token"><jsonpath resultType="String">$.consultarCampanaRequest.token</jsonpath></setProperty>
+            	<setProperty propertyName="rut"><jsonpath resultType="String">$.consultarCampanaRequest.rut</jsonpath></setProperty>
+            	<bean id="autenticacionRequest" ref="beanRouteFacade" method="autenticacionRequest"/>
+            	<marshal>
+            		<json library="Jackson"/>
+            	</marshal>
+            	<removeHeaders pattern="CamelHttp*"/>
+	           <setHeader headerName="Content-Type">
+	               <constant>application/json</constant>
+	           </setHeader>    
+	           <setHeader headerName="CamelHttpMethod">
+	               <constant>POST</constant>
+	           </setHeader>
+            	<toD uri="http4://{{coopeuch.wsofertasocio.consultarToken}}?httpClient.connectTimeout=10000&amp;bridgeEndpoint=true&amp;throwExceptionOnFailure=false"/>
+<!-- 	            <log message="(((${body})))"/> -->
+				<setProperty propertyName="estadoRequest"><jsonpath>$.consultarTokenResponse.</jsonpath></setProperty>
+            	
+	            <unmarshal>
+            		<json library="Jackson"/>
+            	</unmarshal>
+<!--             	<convertBodyTo type="String"/> -->
+            	
+            	<convertBodyTo type="String"/>
+            	<choice>
+            		<when>
+            			<simple>${body} contains 'errores'</simple>
+            			<log message="====(((${body})))"/>
+            				<throwException exceptionType="cl.coopeuch.integracion.wsofertasociowf.exceptions.GeneralExcepcion" message="Error de autenticacion"/>
+            			<stop/>
+            		</when>
+            		<otherwise>
+            			<setBody><simple>${property.estadoRequest}</simple></setBody>
+            			<marshal>
+            				<json library="Jackson"/>
+            			</marshal>
+            			<setProperty propertyName="estado"><jsonpath resultType="String">$.estado</jsonpath></setProperty>
+            			<log message="(((${property.estado})))"/>
+            			<choice>
+            				<when>
+            					<simple>${property.estado} == 'Vigente'</simple>
+            					<bean id="listarCampanasConsumoRequest" ref="beanRouteFacade" method="listarCampanasConsumoRequest"/>
+            					<marshal>
+				            		<json library="Jackson"/>
+				            	</marshal>
+				            	<removeHeaders pattern="CamelHttp*"/>
+					            <setHeader headerName="Content-Type">
+					               <constant>application/json</constant>
+					            </setHeader>    
+					            <setHeader headerName="CamelHttpMethod">
+					               <constant>POST</constant>
+					            </setHeader>
+					            <toD uri="http4://{{coopeuch.wsofertasocio.creditoListo}}?httpClient.connectTimeout=10000&amp;bridgeEndpoint=true&amp;throwExceptionOnFailure=false"/>
+					            <setProperty propertyName="consultarCampanaResponse"><jsonpath>$..contcampana.ContactoCampana[0]</jsonpath></setProperty>
+            					<log message="=======${property.consultarCampanaResponse}"/>
+            					<bean id="consultarCampanaResponse" ref="beanRouteFacade" method="consultarCampanaResponse"/>
+            				</when>
+            				<otherwise>
+            					<throwException exceptionType="cl.coopeuch.integracion.wsofertasociowf.exceptions.GeneralExcepcion" message="El token a expirado"/>
+            				</otherwise>
+            			</choice>
+            		</otherwise>
+            	</choice>
+			<stop/>
+        </route>
+        
+
+		<route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>            
+             <bean id="beanRouteFacade" method="excepcionAmq" ref="beanRouteFacade"/>
+             <setProperty propertyName="Connection">
+            	<constant>0</constant>
+             </setProperty>
+             <marshal id="excepcionMarshalJson">
+                 <json library="Jackson"/>
+             </marshal>
+             <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>             
+             <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>  
+        </route>
+        
+    </camelContext>
+</blueprint>

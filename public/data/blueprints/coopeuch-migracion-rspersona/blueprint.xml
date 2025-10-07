@@ -1,0 +1,869 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyWsPersona"
+        persistent-id="wspersona" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2" persistent-id="globalDb2"
+                             placeholder-prefix="[[" placeholder-suffix="]]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioPersona"
+        id="servicioPersonaEndpoint"
+        serviceClass="cl.coopeuch.core.persona.serviciopersona.PersonaPortType" wsdlURL="wsdl/ServicioPersona.wsdl"/>
+    <cxf:rsServer address="/RSPersona" id="personaRest" serviceClass="cl.coopeuch.core.service.rest.PersonaRest"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSource">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sybase.url.persona}]/Coopeuch;charset=iso_1"/>
+        <property name="username" value="[{jdbc.sybase.username.persona}]"/>
+        <property name="password" value="[{jdbc.sybase.password.persona}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sybase.timeBetweenEvictionRunsMillis.persona}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sybase.numTestsPerEvictionRun.persona}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sybase.minEvictableIdleTimeMillis.persona}]"/>
+        <property name="maxActive" value="[{jdbc.sybase.maxActive.persona}]"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.personas]]"/>
+        <property name="password" value="[[jdbc.db2.password.personas]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.persona}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.persona}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.persona}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.persona}]"/>
+    </bean>
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_selIndEnvioEmail">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_selIndEnvioEmail"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_actualizaEstadoEnvio">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_actualizaEstadoEnvio"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="IndEnvio"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_insertaEstadoEnvio">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_insertaEstadoEnvio"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="IndEnvio"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.other.aggregatorBody" id="agregadorBody"/>
+    <bean class="cl.coopeuch.util.other.aggregatorHeader" id="agregadorHeader"/>
+    <bean class="cl.coopeuch.util.RouteFacade" id="routeFacade"/>
+    <camelContext id="servicio-persona-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml id="jack" prettyPrint="true"/>
+        </dataFormats>
+        <route id="_routeRest">
+            <from id="_fromRest" uri="cxfrs:bean:personaRest"/>
+            <choice id="_choice4">
+                <when id="_when5">
+                    <simple>${header.operationName} == 'actualizarDatos'</simple>
+                    <unmarshal id="_unmarshal5">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.DatosActualizarDatos"/>
+                    </unmarshal>
+                    <bean id="_bean6"
+                        method="actualizarDatosRequestRest" ref="routeFacade"/>
+                    <marshal id="_marshal5">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </marshal>
+                    <to id="_to7" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </unmarshal>
+                    <bean id="_bean7"
+                        method="actualizarDatosResponseRest" ref="routeFacade"/>
+                    <marshal id="_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.RespuestaActualizarDatos"/>
+                    </marshal>
+                </when>
+                <when id="_when6">
+                    <simple>${header.operationName} == 'actualizarDireccion'</simple>
+                    <unmarshal id="_unmarshal7">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.DatosActualizarDireccion"/>
+                    </unmarshal>
+                    <bean id="_bean8"
+                        method="actualizarDireccionRequestRest" ref="routeFacade"/>
+                    <marshal id="_marshal7">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </marshal>
+                    <to id="_to8" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal8">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </unmarshal>
+                    <bean id="_bean9"
+                        method="actualizarDireccionResponseRest" ref="routeFacade"/>
+                    <marshal id="_marshal8">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.ResultadoActualizarDireccion"/>
+                    </marshal>
+                </when>
+                <when id="_when7">
+                    <simple>${header.operationName} == 'autorizarUsoInformacion'</simple>
+                    <unmarshal id="_unmarshal9">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.EntradaAutorizaInformacion"/>
+                    </unmarshal>
+                    <bean id="_bean10"
+                        method="autorizarUsoInformacionRequestRest" ref="routeFacade"/>
+                    <marshal id="_marshal9">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </marshal>
+                    <to id="_to9" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal10">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </unmarshal>
+                    <bean id="_bean11"
+                        method="autorizarUsoInformacionResponseRest" ref="routeFacade"/>
+                    <marshal id="_marshal10">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.ResultadoAutorizaInformacion"/>
+                    </marshal>
+                </when>
+                <when id="_when8">
+                    <simple>${header.operationName} == 'consultarAutorizacionInformacion'</simple>
+                    <unmarshal id="_unmarshal11">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.EntradaConsultarAutorizacionInformacion"/>
+                    </unmarshal>
+                    <bean id="_bean12"
+                        method="consultarAutorizacionInformacionRequestRest" ref="routeFacade"/>
+                    <marshal id="_marshal11">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </marshal>
+                    <to id="_to10" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal12">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </unmarshal>
+                    <bean id="_bean13"
+                        method="consultarAutorizacionInformacionResponseRest" ref="routeFacade"/>
+                    <marshal id="_marshal12">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.ResultadoConsultarAutorizacionInformacion"/>
+                    </marshal>
+                </when>
+                <when id="_when9">
+                    <simple>${header.operationName} == 'indicadorEnvioEmail'</simple>
+                    <unmarshal id="_unmarshal13">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.DatosEntradaEnvioCorresp"/>
+                    </unmarshal>
+                    <bean id="_bean14"
+                        method="indicadorEnvioEmailRequestRest" ref="routeFacade"/>
+                    <marshal id="_marshal13">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </marshal>
+                    <to id="_to11" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal14">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </unmarshal>
+                    <bean id="_bean15"
+                        method="indicadorEnvioEmailResponseRest" ref="routeFacade"/>
+                    <marshal id="_marshal14">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.ResultadoEnviaCorrespEmail"/>
+                    </marshal>
+                </when>
+                <when id="_when3">
+                    <simple>${header.operationName} == 'traerDatosBasicos'</simple>
+                    <unmarshal id="_unmarshal2">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.DatosConsultaEntrada"/>
+                    </unmarshal>
+                    <bean id="_bean3"
+                        method="traerDatosBasicosRequestRest" ref="routeFacade"/>
+                    <marshal id="_marshal1">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </marshal>
+                    <to id="_toInicioRest" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal1">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </unmarshal>
+                    <bean id="_bean4"
+                        method="traerDatosBasicosResponseRest" ref="routeFacade"/>
+                    <marshal id="_marshal2">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.DatosBasicos"/>
+                    </marshal>
+                </when>
+                <when id="_when4">
+                    <simple>${header.operationName} == 'traerDatosBasicosYDir'</simple>
+                    <unmarshal id="_unmarshal3">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.DatosConsultaEntradaDireccion"/>
+                    </unmarshal>
+                    <bean id="_bean3"
+                        method="traerDatosBasicosYDirRequestRest" ref="routeFacade"/>
+                    <marshal id="_marshal3">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </marshal>
+                    <to id="_to6" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal4">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </unmarshal>
+                    <bean id="_bean5"
+                        method="traerDatosBasicosYDirResponseRest" ref="routeFacade"/>
+                    <marshal id="_marshal4">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.ResultadoConsultaDatosBasicosYDireccion"/>
+                    </marshal>
+                </when>
+                <when id="_when10">
+                    <simple>${header.operationName} == 'traerDatosBasicosRefBancarias'</simple>
+                    <unmarshal id="_unmarshal15">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.DatosConsultaEntrada"/>
+                    </unmarshal>
+                    <bean id="_bean16"
+                        method="traerDatosBasicosRefBancariasRequestRest" ref="routeFacade"/>
+                    <marshal id="_marshal15">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </marshal>
+                    <to id="_to12" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal16">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </unmarshal>
+                    <bean id="_bean17"
+                        method="traerDatosBasicosRefBancariasResponseRest" ref="routeFacade"/>
+                    <marshal id="_marshal16">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.ResultadoConsultaDatosBasicosRefBancarias"/>
+                    </marshal>
+                </when>
+                <when id="_when11">
+                    <simple>${header.operationName} == 'traerDatosBasicosDG'</simple>
+                    <unmarshal id="_unmarshal17">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.DatosConsultaEntrada"/>
+                    </unmarshal>
+                    <bean id="_bean18"
+                        method="traerDatosBasicosDGRequestRest" ref="routeFacade"/>
+                    <marshal id="_marshal17">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </marshal>
+                    <to id="_to13" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal18">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </unmarshal>
+                    <bean id="_bean19"
+                        method="traerDatosBasicosDGResponseRest" ref="routeFacade"/>
+                    <marshal id="_marshal18">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.DatosBasicosDG"/>
+                    </marshal>
+                </when>
+                <when id="_when12">
+                    <simple>${header.operationName} == 'traerDireccion'</simple>
+                    <unmarshal id="_unmarshal19">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.DatosConsultaEntradaDireccion"/>
+                    </unmarshal>
+                    <bean id="_bean20"
+                        method="traerDireccionRequestRest" ref="routeFacade"/>
+                    <marshal id="_marshal19">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </marshal>
+                    <to id="_to14" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal20">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </unmarshal>
+                    <bean id="_bean21"
+                        method="traerDireccionResponseRest" ref="routeFacade"/>
+                    <marshal id="_marshal20">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.ResultadoConsultaDirecciones"/>
+                    </marshal>
+                </when>
+                <when id="_when13">
+                    <simple>${header.operationName} == 'traerReferenciasBancarias'</simple>
+                    <unmarshal id="_unmarshal21">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.DatosConsultaEntrada"/>
+                    </unmarshal>
+                    <bean id="_bean22"
+                        method="traerReferenciasBancariasRequestRest" ref="routeFacade"/>
+                    <marshal id="_marshal21">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </marshal>
+                    <to id="_to15" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal22">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </unmarshal>
+                    <bean id="_bean23"
+                        method="traerReferenciasBancariasResponseRest" ref="routeFacade"/>
+                    <marshal id="_marshal22">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.ResultadoConsultaReferenciasBancarias"/>
+                    </marshal>
+                </when>
+                <when id="_when14">
+                    <simple>${header.operationName} == 'traerRepresentanteLegal'</simple>
+                    <unmarshal id="_unmarshal23">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.DatosConsultaEntrada"/>
+                    </unmarshal>
+                    <bean id="_bean24"
+                        method="traerRepresentanteLegalRequestRest" ref="routeFacade"/>
+                    <marshal id="_marshal23">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </marshal>
+                    <to id="_to16" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal24">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </unmarshal>
+                    <bean id="_bean25"
+                        method="traerRepresentanteLegalResponseRest" ref="routeFacade"/>
+                    <marshal id="_marshal24">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.ResultadoConsultaRepresentateLegal"/>
+                    </marshal>
+                </when>
+                <when id="_when15">
+                    <simple>${header.operationName} == 'traerTodasLasDirecciones'</simple>
+                    <unmarshal id="_unmarshal25">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.DatosConsultaEntrada"/>
+                    </unmarshal>
+                    <bean id="_bean26"
+                        method="traerTodasLasDireccionesRequestRest" ref="routeFacade"/>
+                    <marshal id="_marshal25">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </marshal>
+                    <to id="_to17" uri="direct:inicio"/>
+                    <unmarshal id="_unmarshal26">
+                        <jaxb contextPath="cl.coopeuch.core.persona.soap"/>
+                    </unmarshal>
+                    <bean id="_bean27"
+                        method="traerTodasLasDireccionesResponseRest" ref="routeFacade"/>
+                    <marshal id="_marshal26">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.persona.soap.ResultadoConsultaDirecciones"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <route id="cx-RuteoOperaciones">
+            <from id="servicioPersonaEndpointListener" uri="cxf:bean:servicioPersonaEndpoint?DataFormat=MESSAGE"/>
+            <to id="_toInicioWSDL" uri="direct:inicio"/>
+        </route>
+        <route id="_routeCola">
+            <from id="_fromCola" uri="AMQ:queue:{{colas.servicio.persona.in.temp}}?preserveMessageQos=true"/>
+            <to id="_toInicioColas" uri="direct:inicio"/>
+        </route>
+        <route id="_routeInicial">
+            <from id="_fromInicial" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutatraerDatosBasicosYDir">
+                        <simple>${body} contains 'traerDatosBasicosYDir'</simple>
+                        <to id="traerDatosBasicosYDirValidator" uri="validator:xsd/soapPersona.xsd"/>
+                        <to id="traerDatosBasicosYDirTo" uri="direct:traerDatosBasicosYDir"/>
+                    </when>
+                    <when id="rutatraerDatosBasicosRefBancarias">
+                        <simple>${body} contains 'traerDatosBasicosRefBancarias'</simple>
+                        <to id="traerDatosBasicosRefBancariasValidator" uri="validator:xsd/soapPersona.xsd"/>
+                        <to id="traerDatosBasicosRefBancariasTo" uri="direct:traerDatosBasicosRefBancarias"/>
+                    </when>
+                    <when id="rutaactualizarDatos">
+                        <simple>${body} contains 'actualizarDatos'</simple>
+                        <to id="actualizarDatosValidator" uri="validator:xsd/soapPersona.xsd"/>
+                        <to id="actualizarDatosTo" uri="direct:actualizarDatos"/>
+                    </when>
+                    <when id="rutaactualizarDireccion">
+                        <simple>${body} contains 'actualizarDireccion'</simple>
+                        <to id="actualizarDireccionValidator" uri="validator:xsd/soapPersona.xsd"/>
+                        <to id="actualizarDireccionTo" uri="direct:actualizarDireccion"/>
+                    </when>
+                    <when id="rutaindicadorEnvioEmail">
+                        <simple>${body} contains 'indicadorEnvioEmail'</simple>
+                        <to id="indicadorEnvioEmailValidator" uri="validator:xsd/soapPersona.xsd"/>
+                        <to id="indicadorEnvioEmailTo" uri="direct:indicadorEnvioEmail"/>
+                    </when>
+                    <when id="rutatraerDatosBasicosDG">
+                        <simple>${body} contains 'traerDatosBasicosDG'</simple>
+                        <to id="traerDatosBasicosDGValidator" uri="validator:xsd/soapPersona.xsd"/>
+                        <to id="traerDatosBasicosDGTo" uri="direct:traerDatosBasicosDG"/>
+                    </when>
+                    <when id="rutatraerDatosBasicos">
+                        <simple>${body} contains 'traerDatosBasicos'</simple>
+                        <to id="traerDatosBasicosValidator" uri="validator:xsd/soapPersona.xsd"/>
+                        <to id="traerDatosBasicosTo" uri="direct:traerDatosBasicos"/>
+                    </when>
+                    <when id="rutatraerDireccion">
+                        <simple>${body} contains 'traerDireccion'</simple>
+                        <to id="traerDireccionValidator" uri="validator:xsd/soapPersona.xsd"/>
+                        <to id="traerDireccionTo" uri="direct:traerDireccion"/>
+                    </when>
+                    <when id="rutatraerReferenciasBancarias">
+                        <simple>${body} contains 'traerReferenciasBancarias'</simple>
+                        <to id="traerReferenciasBancariasValidator" uri="validator:xsd/soapPersona.xsd"/>
+                        <to id="traerReferenciasBancariasTo" uri="direct:traerReferenciasBancarias"/>
+                    </when>
+                    <when id="rutatraerRepresentanteLegal">
+                        <simple>${body} contains 'traerRepresentanteLegal'</simple>
+                        <to id="traerRepresentanteLegalValidator" uri="validator:xsd/soapPersona.xsd"/>
+                        <to id="traerRepresentanteLegalTo" uri="direct:traerRepresentanteLegal"/>
+                    </when>
+                    <when id="rutatraerTodasLasDirecciones">
+                        <simple>${body} contains 'traerTodasLasDirecciones'</simple>
+                        <to id="traerTodasLasDireccionesValidator" uri="validator:xsd/soapPersona.xsd"/>
+                        <to id="traerTodasLasDireccionesTo" uri="direct:traerTodasLasDirecciones"/>
+                    </when>
+                    <when id="rutaautorizarUsoInformacion">
+                        <simple>${body} contains 'autorizarUsoInformacion'</simple>
+                        <to id="autorizarUsoInformacionValidator" uri="validator:xsd/soapPersona.xsd"/>
+                        <to id="autorizarUsoInformacionTo" uri="direct:autorizarUsoInformacion"/>
+                    </when>
+                    <when id="rutaconsultarMarcaUsoInformacion">
+                        <simple>${body} contains 'consultarAutorizacionInformacion'</simple>
+                        <!-- <to  uri="validator:xsd/soapPersona.xsd"/> -->
+                        <to id="_to1" uri="direct:consultarMarcaUsoInformacion"/>
+                    </when>
+                    <otherwise id="_otherwise1"/>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <route id="actualizarDatos">
+            <from id="actualizarDatosFrom" uri="direct:actualizarDatos"/>
+            <doTry id="actualizarDatosTry">
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="_beanCreaID1" method="createJMSCorrelationId24"/>
+                <to id="actualizarDatosXml2trama" uri="xslt://transformations/in/xml2tramaIOC000702I_actualizarDatos.xsl"/>
+                <to id="activemq-actualizarDatos" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="actualizarDatosTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="actualizarDatosTrama2xml" uri="xslt://transformations/out/trama2xmlIOC000702O_actualizarDatos.xsl?saxon=true"/>
+                <doCatch id="actualizarDatosCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="actualizarDatosRestoreBody" method="restoreBody"/>
+                    <setBody id="actualizarDatosSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="actualizarDatosFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="actualizarDatosBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="actualizarDatosFinally"/>
+            </doTry>
+        </route>
+        <route id="actualizarDireccion">
+            <from id="actualizarDireccionFrom" uri="direct:actualizarDireccion"/>
+            <doTry id="actualizarDireccionTry">
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="_beanCreaID2" method="createJMSCorrelationId24"/>
+                <to id="actualizarDireccionXml2trama" uri="xslt://transformations/in/xml2tramaIOC000502I_actualizarDireccion.xsl"/>
+                <to id="activeMQ-actualizarDireccion" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="actualizarDireccionTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="actualizarDireccionTrama2xml" uri="xslt://transformations/out/trama2xmlIOC000502O_actualizarDireccion.xsl?saxon=true"/>
+                <doCatch id="actualizarDireccionCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="actualizarDireccionRestoreBody" method="restoreBody"/>
+                    <setBody id="actualizarDireccionSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="actualizarDireccionFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="actualizarDireccionBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="actualizarDireccionFinally"/>
+            </doTry>
+        </route>
+        <route id="indicadorEnvioEmail">
+            <!--             <doTry id="indicadorEnvioEmailTry"> -->
+            <from id="indicadorEnvioEmailFrom" uri="direct:indicadorEnvioEmail"/>
+            <setHeader headerName="Rut" id="indicadorEnvioEmailHeaderRut">
+                <xpath resultType="java.lang.String">//rut</xpath>
+            </setHeader>
+            <setHeader headerName="UserId" id="indicadorEnvioEmailHeaderUserId">
+                <xpath resultType="java.lang.String">//userId</xpath>
+            </setHeader>
+            <setHeader headerName="IndEnvio" id="indicadorEnvioEmailHeaderIndEnvioEmail">
+                <xpath resultType="java.lang.String">//indEnvioEmail</xpath>
+            </setHeader>
+            <choice id="_choice2">
+                <when id="_when1">
+                    <simple>${headers.Rut} == ''</simple>
+                    <setHeader headerName="Rut" id="indicadorEnvioEmailHeaderRut">
+                        <constant>0</constant>
+                    </setHeader>
+                </when>
+            </choice>
+            <choice id="_choice3">
+                <when id="_when2">
+                    <simple>${headers.indEnvio} == 'N' or ${headers.indEnvio} == 'S'</simple>
+                    <to id="pa_selIndEnvioEmail" uri="bean:pa_selIndEnvioEmail"/>
+                    <marshal id="indicadorEnvioEmailMarshal11" ref="jack"/>
+                    <convertBodyTo
+                        id="indicadorEnvioEmailConvertBodyTo1" type="java.lang.String"/>
+                    <transform id="indicadorEnvioEmailTransform1">
+                        <simple>${in.body.replaceAll('#','')}</simple>
+                    </transform>
+                    <setHeader headerName="IndEnvio1" id="indicadorEnvioEmailHeaderIndEnvio1">
+                        <xpath resultType="java.lang.String">//IndEnvio</xpath>
+                    </setHeader>
+                    <choice id="_choice1">
+                        <when id="indicadorEnvioEmailWhen1">
+                            <simple>${headers.IndEnvio1} == 'N' or ${headers.IndEnvio1} == 'S'</simple>
+                            <to id="pa_actualizaEstadoEnvioN" uri="bean:pa_actualizaEstadoEnvio"/>
+                        </when>
+                        <otherwise id="indicadorEnvioEmailOtherwise">
+                            <to id="pa_insertaEstadoEnvio" uri="bean:pa_insertaEstadoEnvio"/>
+                        </otherwise>
+                    </choice>
+                </when>
+                <otherwise id="_otherwise2"/>
+            </choice>
+            <to id="pa_selIndEnvioEmail" uri="bean:pa_selIndEnvioEmail"/>
+            <marshal id="indicadorEnvioEmailMarshal4" ref="jack"/>
+            <convertBodyTo id="indicadorEnvioEmailBodyTo4" type="java.lang.String"/>
+            <transform id="indicadorEnvioEmailTransform2">
+                <simple>${in.body.replaceAll('#','')}</simple>
+            </transform>
+            <setHeader headerName="IndEnvio2" id="indicadorEnvioEmailHeaderIndEnvio2">
+                <xpath resultType="java.lang.String">//IndEnvio</xpath>
+            </setHeader>
+            <to id="indicadorEnvioEmail2xml" uri="xslt://transformations/out/resultset2xml_indicadorEnvioMail.xsl?saxon=true"/>
+        </route>
+        <route id="traerDatosBasicosDG">
+            <from id="traerDatosBasicosDGFrom" uri="direct:traerDatosBasicosDG"/>
+            <doTry id="traerDatosBasicosDGTry">
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="_beanCreaID3" method="createJMSCorrelationId24"/>
+                <to id="traerDatosBasicosDGXml2trama" uri="xslt://transformations/in/xml2tramaIOC000701_traerDatosBasicosDG.xsl"/>
+                <to id="activemq-traerDatosBasicosDG" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="traerDatosBasicosDGTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="traerDatosBasicosDGTrama2xml" uri="xslt://transformations/out/trama2xmlIOC000701_traerDatosBasicosDG.xsl?saxon=true"/>
+                <doCatch id="traerDatosBasicosDGCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerDatosBasicosDGRestoreBody" method="restoreBody"/>
+                    <setBody id="traerDatosBasicosDGSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerDatosBasicosDGFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="traerDatosBasicosDGBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerDatosBasicosDGFinally"/>
+            </doTry>
+        </route>
+        <route id="traerDatosBasicos">
+            <from id="traerDatosBasicosFrom" uri="direct:traerDatosBasicos"/>
+            <doTry id="traerDatosBasicosTry">
+                <setProperty id="_setProperty1" propertyName="rut">
+                    <xpath resultType="String">//rut</xpath>
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="codCliente">
+                    <xpath resultType="Integer">//codigoCliente</xpath>
+                </setProperty>
+                <to id="traerDatosBasicos-To" uri="sql-stored:classpath:sql/PA_SEL_DATOSBASICOS_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseTraerDatosBasicos"/>
+                <bean id="validarDatosBasicosBean"
+                    method="validarDatosBasicos" ref="routeFacade"/>
+                <to id="traerDatosBasicosTrama2xml" uri="xslt://transformations/out/xmlOut_traerDatosBasicos.xsl?saxon=true"/>
+                <doCatch id="traerDatosBasicosCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerDatosBasicosRestoreBody" method="restoreBody"/>
+                    <setBody id="traerDatosBasicosSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerDatosBasicosFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="traerDatosBasicosBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerDatosBasicosFinally"/>
+            </doTry>
+        </route>
+        <route id="traerDireccion">
+            <from id="traerDireccionFrom" uri="direct:traerDireccion"/>
+            <doTry id="traerDireccionTry">
+                <setHeader headerName="tipoDireccion" id="traerDireccionHeaderTipoDireccion">
+                    <xpath resultType="java.lang.String">//tipoDireccion/text()</xpath>
+                </setHeader>
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="_beanCreaID5" method="createJMSCorrelationId24"/>
+                <to id="traerDireccionXml2trama" uri="xslt://transformations/in/xml2tramaIOC000501_traerDireccion.xsl"/>
+                <enrich id="traerDireccionEnrich" strategyRef="agregadorHeader">
+                    <constant>AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false</constant>
+                </enrich>
+                <transform id="traerDireccionTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="traerDireccionTrama2xml" uri="xslt://transformations/out/trama2xmlIOC000501_traerDireccion.xsl?saxon=true"/>
+                <doCatch id="traerDireccionCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerDireccionRestoreBody" method="restoreBody"/>
+                    <setBody id="traerDireccionSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerDireccionFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="traerDireccionBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerDireccionFinally"/>
+            </doTry>
+        </route>
+        <route id="traerReferenciasBancarias">
+            <from id="traerReferenciasBancariasFrom" uri="direct:traerReferenciasBancarias"/>
+            <doTry id="traerReferenciasBancariasTry">
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="_beanCreaID6" method="createJMSCorrelationId24"/>
+                <to id="traerReferenciasBancariasXml2trama" uri="xslt://transformations/in/xml2tramaIOC000601_traerReferenciasBancarias.xsl"/>
+                <to id="activeMQ-traerReferenciasBancarias" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="traerReferenciasBancariasTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="traerReferenciasBancariasTrama2xml" uri="xslt://transformations/out/trama2xmlIOC000601_traerReferenciasBancarias.xsl?saxon=true"/>
+                <doCatch id="traerReferenciasBancariasCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerReferenciasBancariasRestoreBody" method="restoreBody"/>
+                    <setBody id="traerReferenciasBancariasSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerReferenciasBancariasFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="traerReferenciasBancariasBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerReferenciasBancariasFinally"/>
+            </doTry>
+        </route>
+        <route id="traerRepresentanteLegal">
+            <from id="traerRepresentanteLegalFrom" uri="direct:traerRepresentanteLegal"/>
+            <doTry id="traerRepresentanteLegalTry">
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="_beanCreaID7" method="createJMSCorrelationId24"/>
+                <to id="traerRepresentanteLegalXml2trama" uri="xslt://transformations/in/xml2tramaIOC000401_traerRepresentanteLegal.xsl"/>
+                <to id="activeMQ-traerRepresentanteLegal" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="traerRepresentanteLegalTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="traerRepresentanteLegalTrama2xml" uri="xslt://transformations/out/trama2xmlIOC000401_traerRepresentanteLegal.xsl?saxon=true"/>
+                <doCatch id="traerRepresentanteLegalCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerRepresentanteLegalRestoreBody" method="restoreBody"/>
+                    <setBody id="traerRepresentanteLegalSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerRepresentanteLegalFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="traerRepresentanteLegalBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerRepresentanteLegalFinally"/>
+            </doTry>
+        </route>
+        <route id="traerTodasLasDirecciones">
+            <from id="traerTodasLasDireccionesFrom" uri="direct:traerTodasLasDirecciones"/>
+            <doTry id="traerTodasLasDireccionesTry">
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="_beanCreaID8" method="createJMSCorrelationId24"/>
+                <to id="traerTodasLasDireccionesXml2trama" uri="xslt://transformations/in/xml2tramaIOC000501_traerTodasLasDirecciones.xsl"/>
+                <to id="activeMQ-traerTodasLasDirecciones" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="traerTodasLasDireccionesTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="traerTodasLasDireccionesTrama2xml" uri="xslt://transformations/out/trama2xmlIOC000501_traerTodasLasDirecciones.xsl?saxon=true"/>
+                <doCatch id="traerTodasLasDireccionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerTodasLasDireccionesRestoreBody" method="restoreBody"/>
+                    <setBody id="traerTodasLasDireccionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerTodasLasDireccionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="traerTodasLasDireccionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerTodasLasDireccionesFinally"/>
+            </doTry>
+        </route>
+        <route id="traerDatosBasicosRefBancarias">
+            <from id="traerDatosBasicosRefBancariasFrom" uri="direct:traerDatosBasicosRefBancarias"/>
+            <doTry id="traerDatosBasicosRefBancariasTry">
+                <multicast id="traerDatosBasicosRefBancariasMulticast"
+                    parallelProcessing="true" strategyRef="agregadorBody">
+                    <to id="multicastTraerReferenciasBancariasTo" uri="direct:traerReferenciasBancarias"/>
+                    <to id="multicastTraerDatosBasicosTo" uri="direct:traerDatosBasicos"/>
+                </multicast>
+                <to id="traerDatosBasicosRefBancariasXml2xml" uri="xslt://transformations/out/agregacion2xml_traerDatosBasicosRefBancarias.xsl?saxon=true"/>
+                <doCatch id="traerDatosBasicosRefBancariasCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerDatosBasicosRefBancariasRestoreBody" method="restoreBody"/>
+                    <setBody id="traerDatosBasicosRefBancariasSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerDatosBasicosRefBancariasFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="traerDatosBasicosRefBancariasBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerDatosBasicosRefBancariasFinally"/>
+            </doTry>
+        </route>
+        <route id="traerDatosBasicosYDir">
+            <from id="traerDatosBasicosYDirFrom" uri="direct:traerDatosBasicosYDir"/>
+            <doTry id="traerDatosBasicosYDirTry">
+                <multicast id="traerDatosBasicosYDirMulticast"
+                    parallelProcessing="true" strategyRef="agregadorBody">
+                    <to id="multicastTraerDatosBasicoTo" uri="direct:traerDatosBasicos"/>
+                    <to id="multicastTraerDireccionTo" uri="direct:traerDireccion"/>
+                </multicast>
+                <to id="traerDatosBasicosYDirXml2xml" uri="xslt://transformations/out/agregacion2xml_traerDatosBasicosYDir.xsl?saxon=true"/>
+                <doCatch id="traerDatosBasicosYDirCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerDatosBasicosYDirRestoreBody" method="restoreBody"/>
+                    <setBody id="traerDatosBasicosYDirSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerDatosBasicosYDirFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="traerDatosBasicosYDirBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerDatosBasicosYDirFinally"/>
+            </doTry>
+        </route>
+        <route id="autorizarUsoInformacion">
+            <from id="autorizarUsoInformacionFrom" uri="direct:autorizarUsoInformacion"/>
+            <doTry id="autorizarUsoInformacionTry">
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="_beanCreaID9" method="createJMSCorrelationId24"/>
+                <to id="autorizarUsoInformacionXml2trama" uri="xslt://transformations/in/xml2tramaIOC715001I_autorizarUsoInformacion.xsl"/>
+                <to id="activeMQ-autorizarUsoInformacion" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="autorizarUsoInformacionTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="autorizarUsoInformacionTrama2xml" uri="xslt://transformations/out/trama2xmlIOC715001O_autorizarUsoInformacion.xsl?saxon=true"/>
+                <doCatch id="autorizarUsoInformacionCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="autorizarUsoInformacionRestoreBody" method="restoreBody"/>
+                    <setBody id="autorizarUsoInformacionSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="autorizarUsoInformacionFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="autorizarUsoInformacionBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="autorizarUsoInformacionFinally"/>
+            </doTry>
+        </route>
+        <route id="consultarMarcaUsoInformacion">
+            <from id="_from1" uri="direct:consultarMarcaUsoInformacion"/>
+            <doTry id="_doTry1">
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="_beanCreaID10" method="createJMSCorrelationId24"/>
+                <to id="_to2" uri="xslt://transformations/in/xml2tramaIOC715001I_consultarMarcaUsoInformacion.xsl"/>
+                <to id="_to3" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="_transform1">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="_to4" uri="xslt://transformations/out/trama2xmlIOC715001O_consultarMarcaUsoInformacion.xsl?saxon=true"/>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="_bean1" method="restoreBody"/>
+                    <setBody id="_setBody1">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="_to5" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="_bean2" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="_doFinally1"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

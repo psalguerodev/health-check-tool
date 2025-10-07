@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder
+        id="property-placeholder-c50bc687-246b-4dd0-b2e8-25e6c3ccfe2b"
+        persistent-id="serviceProperties" update-strategy="reload"/>
+    <!-- Local Beans -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Configure IBM WebSphere MQ connection factory -->
+    <bean class="com.ibm.mq.jms.MQConnectionFactory" id="websphereConnectionFactory">
+        <property name="transportType" value="1"/>
+        <property name="hostName" value="${ibm.mq.host}"/>
+        <property name="port" value="${ibm.mq.port}"/>
+        <property name="queueManager" value="${ibm.qm.name}"/>
+        <property name="useConnectionPooling" value="true"/>
+        <property name="channel" value="${ibm.qm.channel}"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="websphereConfig">
+        <property name="connectionFactory" ref="websphereConnectionFactory"/>
+        <property name="concurrentConsumers" value="${ibm.mq.concurrentConsumers.mosaq}"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsComponent" id="websphere">
+        <property name="configuration" ref="websphereConfig"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="${jdbc.sqlserver.url.segurosmosaq}/seguros;charset=iso_1"/>
+        <property name="username" value="${jdbc.sqlserver.username.segurosmosaq}"/>
+        <property name="password" value="${jdbc.sqlserver.password.segurosmosaq}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="${jdbc.sqlserver.timeBetweenEvictionRunsMillis.segurosmosaq}"/>
+        <property name="numTestsPerEvictionRun" value="${jdbc.sqlserver.numTestsPerEvictionRun.segurosmosaq}"/>
+        <property name="minEvictableIdleTimeMillis" value="${jdbc.sqlserver.minEvictableIdleTimeMillis.segurosmosaq}"/>
+        <property name="maxActive" value="${jdbc.sqlserver.maxActive.segurosmosaq}"/>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="Consulta_Denuncias_Seguros_Rut">
+        <argument ref="dataSourceSqlServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="Consulta_Denuncias_Seguros_Rut"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <camelContext id="servicio-seguros-mosaq" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml disableFeatures="WRITE_DATES_AS_TIMESTAMPS"
+                id="jack" prettyPrint="true"/>
+        </dataFormats>
+        <!--    Entrada principal del servicio desde una cola IBM -->
+        <route id="consultaDenunciasSeguros">
+            <from id="consultaDenunciasSegurosFrom" uri="websphere:queue:{{ibm.queueMosaq.in}}"/>
+            <doTry id="consultaDenunciasSegurosTry">
+                <convertBodyTo id="consultaDenunciasSegurosBodyTo1" type="java.lang.String"/>
+                <setHeader headerName="Rut" id="consultaDenunciasSegurosHeaderRut">
+                    <simple>${body.trim()}</simple>
+                </setHeader>
+                <setHeader headerName="validaRut" id="consultaDenunciaSegurosValidaRut">
+                    <method beanType="cl.coopeuch.util.bean.Rut"
+                        id="validaRut" method="validaRut(${headers.Rut})"/>
+                </setHeader>
+                <choice id="creaUsuarioValidaRutResultado">
+                    <when id="creaUsuarioRutValido">
+                        <simple>${headers.validaRut} == 'Correcto'</simple>
+                        <to id="consultaDenunciasSegurosRut" uri="bean:Consulta_Denuncias_Seguros_Rut"/>
+                        <marshal id="_marshal1" ref="jack"/>
+                        <convertBodyTo
+                            id="consultaDenunciasSegurosBodyTo2" type="java.lang.String"/>
+                        <to
+                            id="resultset2trama_consultaDenunciasSegurosResultset2trama" uri="xslt://transformations/out/resultset2tramaESG010505_consultaDenunciasSeguros.xsl?saxon=true"/>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <transform id="servicioMinvuTransform">
+                            <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="errorRut" uri="xslt://transformations/error/errorRut.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="consultaDenunciasSegurosCatch">
+                    <exception>java.lang.Exception</exception>
+                    <transform id="servicioMinvuTransform1">
+                        <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                    </transform>
+                    <to id="errorRut1" uri="xslt://transformations/error/errorRut.xsl?saxon=true"/>
+                    <to id="consultaDenunciasSegurosFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

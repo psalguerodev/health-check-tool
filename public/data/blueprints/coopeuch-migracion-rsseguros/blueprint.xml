@@ -1,0 +1,455 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Configures the Camel Context -->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsseguros" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioSeguros"
+        id="servicioSegurosEndpoint" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.core.seguros.Seguros" wsdlURL="wsdl/ServicioSeguros.wsdl"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.personas]]"/>
+        <property name="password" value="[[jdbc.db2.password.personas]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.seguros}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.seguros}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.seguros}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.seguros}]"/>
+    </bean>
+    <bean class="cl.coopeuch.util.transformation.ValidaBeneficiarios" id="validaBeneficiariosBean"/>
+    <bean class="cl.coopeuch.util.RouteFacade" id="routeFacade"/>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <cxf:rsServer address="/RSSeguro" id="seguroRest" serviceClass="cl.coopeuch.core.seguros.service.rest.SeguroRest"/>
+    <camelContext id="servicio-seguros-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicioCXFSOAP">
+            <from id="servicioSegurosEndpointListener" uri="cxf:bean:servicioSegurosEndpoint?DataFormat=MESSAGE"/>
+            <to id="_to1" uri="direct:inicio"/>
+        </route>
+        <route id="inicioCXFRS">
+            <from id="_from2" uri="cxfrs:bean:seguroRest"/>
+            <doTry id="_doTry1">
+                <choice id="_choice1">
+                    <when id="_when1">
+                        <simple>${header.operationName} == 'modificarEstado'</simple>
+                        <unmarshal id="_unmarshal1">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.seguros.soap.ModificarEstados"/>
+                        </unmarshal>
+                        <bean id="_bean1"
+                            method="modificarEstadoRequest" ref="routeFacade"/>
+                        <marshal id="_marshal1">
+                            <jaxb contextPath="cl.coopeuch.core.seguros.soap"/>
+                        </marshal>
+                        <to id="_to2" uri="direct:inicio"/>
+                        <unmarshal id="_unmarshal2">
+                            <jaxb contextPath="cl.coopeuch.core.seguros.soap"/>
+                        </unmarshal>
+                        <bean id="_bean2"
+                            method="modificarEstadoResponse" ref="routeFacade"/>
+                        <marshal id="_marshal2">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.seguros.soap.ResultadoModificarEstado"/>
+                        </marshal>
+                    </when>
+                    <when id="_when2">
+                        <simple>${header.operationName} == 'registrarDatosSeguro23'</simple>
+                        <unmarshal id="_unmarshal3">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.seguros.soap.RegistrarSeguro23Request"/>
+                        </unmarshal>
+                        <bean id="_bean3"
+                            method="registrarDatosSeguro23Request" ref="routeFacade"/>
+                        <marshal id="_marshal3">
+                            <jaxb contextPath="cl.coopeuch.core.seguros.soap"/>
+                        </marshal>
+                        <to id="_to3" uri="direct:inicio"/>
+                        <unmarshal id="_unmarshal4">
+                            <jaxb contextPath="cl.coopeuch.core.seguros.soap"/>
+                        </unmarshal>
+                        <bean id="_bean4"
+                            method="registrarDatosSeguro23Response" ref="routeFacade"/>
+                        <marshal id="_marshal4">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.seguros.soap.RegistrarSeguro23Response"/>
+                        </marshal>
+                    </when>
+                    <when id="_when3">
+                        <simple>${header.operationName} == 'traerDetalleParaSeguro'</simple>
+                        <unmarshal id="_unmarshal5">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.seguros.soap.ConsultaSeguro"/>
+                        </unmarshal>
+                        <bean id="_bean5"
+                            method="traerDetalleParaSeguroRequest" ref="routeFacade"/>
+                        <marshal id="_marshal5">
+                            <jaxb contextPath="cl.coopeuch.core.seguros.soap"/>
+                        </marshal>
+                        <to id="_to4" uri="direct:inicio"/>
+                        <unmarshal id="_unmarshal6">
+                            <jaxb contextPath="cl.coopeuch.core.seguros.soap"/>
+                        </unmarshal>
+                        <bean id="_bean6"
+                            method="traerDetalleParaSeguroResponse" ref="routeFacade"/>
+                        <marshal id="_marshal6">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.seguros.soap.DatosSeguro"/>
+                        </marshal>
+                    </when>
+                    <when id="_when5">
+                        <simple>${header.operationName} == 'traerListaSegurosProducto'</simple>
+                        <unmarshal id="_unmarshal87">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.seguros.soap.ConsultaSeguroProducto"/>
+                        </unmarshal>
+                        <bean id="_bean8"
+                            method="traerListaSegurosProductoRequest" ref="routeFacade"/>
+                        <marshal id="_marshal8">
+                            <jaxb contextPath="cl.coopeuch.core.seguros.soap"/>
+                        </marshal>
+                        <to id="_to6" uri="direct:inicio"/>
+                        <unmarshal id="_unmarshal9">
+                            <jaxb contextPath="cl.coopeuch.core.seguros.soap"/>
+                        </unmarshal>
+                        <bean id="_bean9"
+                            method="traerListaSegurosProductoResponse" ref="routeFacade"/>
+                        <marshal id="_marshal9">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.seguros.soap.SegurosProducto"/>
+                        </marshal>
+                    </when>
+                    <when id="_when4">
+                        <simple>${header.operationName} == 'traerListaSeguros'</simple>
+                        <unmarshal id="_unmarshal7">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.seguros.soap.ConsultaSeguro"/>
+                        </unmarshal>
+                        <bean id="_bean7"
+                            method="traerListaSegurosRequest" ref="routeFacade"/>
+                        <marshal id="_marshal7">
+                            <jaxb contextPath="cl.coopeuch.core.seguros.soap"/>
+                        </marshal>
+                        <to id="_to5" uri="direct:inicio"/>
+                        <unmarshal id="_unmarshal8">
+                            <jaxb contextPath="cl.coopeuch.core.seguros.soap"/>
+                        </unmarshal>
+                        <bean id="_bean8"
+                            method="traerListaSegurosResponse" ref="routeFacade"/>
+                        <marshal id="_marshal8">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.seguros.soap.SegurosCliente"/>
+                        </marshal>
+                    </when>
+                    <when id="_when11">
+                        <simple>${header.operationName} == 'consultarCondicionesSeguros'</simple>
+                        <unmarshal id="_unmarshal13">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.seguros.soap.ConsultarCondicionesSegurosRequest"/>
+                        </unmarshal>
+                        <bean id="_bean17"
+                            method="consultarCondicionesSeguroVidaRequestRest" ref="routeFacade"/>
+                        <marshal id="_marshal16">
+                            <jaxb contextPath="cl.coopeuch.core.seguros.soap"/>
+                        </marshal>
+                        <to id="_to7" uri="direct:inicio"/>
+                        <unmarshal id="_unmarshal14">
+                            <jaxb contextPath="cl.coopeuch.core.seguros.soap"/>
+                        </unmarshal>
+                        <bean id="_bean18"
+                            method="consultarCondicionesSeguroVidaResponseRest" ref="routeFacade"/>
+                        <marshal id="_marshal17">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.core.seguros.soap.ConsultarCondicionesSegurosResponse"/>
+                        </marshal>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="ruteoOperacionesRestoreBody1" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError1">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault1" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="_bean9" method="setBodyErrorJson"/>
+                    <unmarshal id="_unmarshal9">
+                        <jaxb contextPath="cl.coopeuch.core.seguros.soap"/>
+                    </unmarshal>
+                    <choice id="_choice2">
+                        <when id="_when8">
+                            <simple>${header.operationName} == 'traerListaSegurosProducto'</simple>
+                            <bean id="_bean14"
+                                method="traerListaSegurosProductoResponse" ref="routeFacade"/>
+                            <marshal id="_marshal13">
+                                <json include="NON_NULL"
+                                    library="Jackson" unmarshalTypeName="cl.coopeuch.core.seguros.soap.SegurosProducto"/>
+                            </marshal>
+                        </when>
+                        <when id="_when5">
+                            <simple>${header.operationName} == 'traerListaSeguros'</simple>
+                            <bean id="_bean10"
+                                method="traerListaSegurosResponse" ref="routeFacade"/>
+                            <marshal id="_marshal9">
+                                <json include="NON_NULL"
+                                    library="Jackson" unmarshalTypeName="cl.coopeuch.core.seguros.soap.SegurosCliente"/>
+                            </marshal>
+                        </when>
+                        <when id="_when6">
+                            <simple>${header.operationName} == 'traerDetalleParaSeguro'</simple>
+                            <bean id="_bean11"
+                                method="traerDetalleParaSeguroResponse" ref="routeFacade"/>
+                            <marshal id="_marshal10">
+                                <json include="NON_NULL"
+                                    library="Jackson" unmarshalTypeName="cl.coopeuch.core.seguros.soap.DatosSeguro"/>
+                            </marshal>
+                        </when>
+                        <when id="_when7">
+                            <simple>${header.operationName} == 'registrarDatosSeguro23'</simple>
+                            <bean id="_bean12"
+                                method="registrarDatosSeguro23Response" ref="routeFacade"/>
+                            <marshal id="_marshal11">
+                                <json include="NON_NULL"
+                                    library="Jackson" unmarshalTypeName="cl.coopeuch.core.seguros.soap.RegistrarSeguro23Response"/>
+                            </marshal>
+                        </when>
+                        <when id="_when1">
+                            <simple>${header.operationName} == 'modificarEstado'</simple>
+                            <bean id="_bean13"
+                                method="modificarEstadoResponse" ref="routeFacade"/>
+                            <marshal id="_marshal12">
+                                <json include="NON_NULL"
+                                    library="Jackson" unmarshalTypeName="cl.coopeuch.core.seguros.soap.ResultadoModificarEstado"/>
+                            </marshal>
+                        </when>
+                    </choice>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cxf-RuteoOperaciones">
+            <from id="inicio" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="createJMSCorrelationId" method="createJMSCorrelationId24"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaTraerListaSegurosProducto">
+                        <simple>${body} contains 'traerListaSegurosProducto'</simple>
+                        <to id="traerListaSegurosProductoValidator" uri="validator:xsd/soapLista.xsd"/>
+                        <to id="traerListaSegurosProductoTo" uri="direct:traerListaSegurosProducto"/>
+                    </when>
+                    <when id="rutaTraerDetalleParaSeguro">
+                        <simple>${body} contains 'traerDetalleParaSeguro'</simple>
+                        <to id="traerDetalleParaSeguroValidator" uri="validator:xsd/soapDetalle.xsd"/>
+                        <to id="traerDetalleParaSeguroTo" uri="direct:traerDetalleParaSeguro"/>
+                    </when>
+                    <when id="rutaTraerListaSeguros">
+                        <simple>${body} contains 'traerListaSeguros'</simple>
+                        <to id="traerListaSegurosValidator" uri="validator:xsd/soapLista.xsd"/>
+                        <to id="traerListaSegurosTo" uri="direct:traerListaSeguros"/>
+                    </when>
+                    <when id="rutaMofificarEstado">
+                        <simple>${body} contains 'modificarEstado'</simple>
+                        <to id="modificarEstadoValidator" uri="validator:xsd/soapModificarEstado.xsd"/>
+                        <to id="modificarEstadoTo" uri="direct:modificarEstado"/>
+                    </when>
+                    <when id="rutaRegistrarDatosSeguro23">
+                        <simple>${body} contains 'registrarDatosSeguro23'</simple>
+                        <to id="registrarDatosSeguro23Validator" uri="validator:xsd/soapRegistrarDatosSeguro23.xsd"/>
+                        <to id="registrarDatosSeguro23To" uri="direct:registrarDatosSeguro23"/>
+                    </when>
+                    <when id="_when9">
+                        <simple>${body} contains 'consultarCondicionesSeguros'</simple>
+                        <to id="consultarCondicionesSegurosTo" uri="direct:consultarCondicionesSeguros"/>
+                    </when>
+                    <otherwise id="_otherwise1"/>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <route id="routeConsultarCondicionesSeguroVida">
+            <from id="fromConsultarCondicionesSeguroVida" uri="direct:consultarCondicionesSeguros"/>
+            <unmarshal id="_unmarshal10">
+                <jaxb contextPath="cl.coopeuch.core.seguros.soap"/>
+            </unmarshal>
+            <bean id="transformarEntradatoIOC7710"
+                method="generarTramaConsultarCondicionesSeguroVida" ref="routeFacade"/>
+            <marshal id="_marshal14">
+                <bindy
+                    classType="cl.coopeuch.core.seguros.modelo.IOC771001I" type="Fixed"/>
+            </marshal>
+            <log id="_log1" message="Entrada: ${body}"/>
+            <to id="consultarCondicionesSegurosToAmq" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+            <log id="_log2" message="Salida: |${body}|"/>
+            <choice id="_choice3">
+                <when id="_when10">
+                    <simple>${body} contains 'ECNLERR'</simple>
+                    <unmarshal id="_unmarshal11">
+                        <bindy
+                            classType="cl.coopeuch.core.seguros.modelo.IOCERROR" type="Fixed"/>
+                    </unmarshal>
+                    <bean id="_bean15" method="transformarSalidaError" ref="routeFacade"/>
+                </when>
+                <otherwise id="_otherwise2">
+                    <unmarshal id="_unmarshal12">
+                        <bindy
+                            classType="cl.coopeuch.core.seguros.modelo.IOC771001O" type="Fixed"/>
+                    </unmarshal>
+                    <bean id="_bean16" method="transformarSalidaIOC7710" ref="routeFacade"/>
+                </otherwise>
+            </choice>
+            <marshal id="_marshal15">
+                <jaxb contextPath="cl.coopeuch.core.seguros.soap"/>
+            </marshal>
+        </route>
+        <route id="traerDetalleParaSeguro">
+            <from id="traerDetalleParaSeguroFrom" uri="direct:traerDetalleParaSeguro"/>
+            <doTry id="traerDetalleParaSeguroTry">
+                <to id="traerDetalleParaSeguroXml2trama" uri="xslt://transformations/in/xml2tramaIOC011002I_traerDetalleParaSeguro.xsl"/>
+                <to id="activemq-traerDetalleParaSeguro" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="traerDetalleParaSeguroTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="traerDetalleParaSeguroTrama2xml" uri="xslt://transformations/out/trama2xmlIOC011002O_traerDetalleParaSeguro.xsl?saxon=true"/>
+                <doCatch id="traerDetalleParaSeguroCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerDetalleParaSeguroRestoreBody" method="restoreBody"/>
+                    <setBody id="traerDetalleParaSeguroSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerDetalleParaSeguroFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="traerDetalleParaSeguroSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerDetalleParaSeguroFinally"/>
+            </doTry>
+        </route>
+        <route id="traerListaSeguros">
+            <from id="traerListaSegurosFrom" uri="direct:traerListaSeguros"/>
+            <doTry id="traerListaSegurosTry">
+                <to id="traerListaSegurosXml2trama" uri="xslt://transformations/in/xml2tramaIOC011001I_traerListaSeguros.xsl"/>
+                <to id="activeMQ-traerListaSeguros" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="traerListaSegurosTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="traerListaSegurosTrama2xml" uri="xslt://transformations/out/trama2xmlIOC011001O_traerListaSeguros.xsl?saxon=true"/>
+                <doCatch id="traerListaSegurosCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerListaSegurosRestoreBody" method="restoreBody"/>
+                    <setBody id="traerListaSegurosSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerListaSegurosFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="traerListaSegurosSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerListaSegurosFinally"/>
+            </doTry>
+        </route>
+        <route id="modificarEstado">
+            <from id="modificarEstadoFrom" uri="direct:modificarEstado"/>
+            <doTry id="modificarEstadoTry">
+                <to id="modificarEstadoXml2trama" uri="xslt://transformations/in/xml2tramaIOC716001I_modificarEstado.xsl"/>
+                <to id="activeMQ-modificarEstado" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="modificarEstadoTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="modificarEstadoTrama2xml" uri="xslt://transformations/out/trama2xmlIOC716001O_modificarEstado.xsl?saxon=true"/>
+                <doCatch id="modificarEstadoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="modificarEstadoRestoreBody" method="restoreBody"/>
+                    <setBody id="modificarEstadoSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="modificarEstadoFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="modificarEstadoSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="modificarEstadoFinally"/>
+            </doTry>
+        </route>
+        <route id="registrarDatosSeguro23">
+            <from id="registrarDatosSeguro23From" uri="direct:registrarDatosSeguro23"/>
+            <doTry id="registrarDatosSeguro23Try">
+                <to id="registrarDatosSeguro23Xml2trama" uri="xslt://transformations/in/xml2tramaIOC723001I_registrarDatosSeguro23.xsl"/>
+                <bean id="beanValidaBeneficiarios" method="validaTrama" ref="validaBeneficiariosBean"/>
+                <to id="activeMQ-registrarDatosSeguro23" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="registrarDatosSeguro23Transform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="registrarDatosSeguro23Trama2xml" uri="xslt://transformations/out/trama2xmlIOC723001O_registrarDatosSeguro.xsl?saxon=true"/>
+                <doCatch id="registrarDatosSeguro23Catch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="registrarDatosSeguro23RestoreBody" method="restoreBody"/>
+                    <setBody id="registrarDatosSeguro23SetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="registrarDatosSeguro23Fault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="registrarDatosSeguro23SetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="registrarDatosSeguro23Finally"/>
+            </doTry>
+        </route>
+        <route id="traerListaSegurosProducto">
+            <from id="traerListaSegurosProductoFrom" uri="direct:traerListaSegurosProducto"/>
+            <doTry id="traerListaSegurosProductoTry">
+                <setProperty id="_setProperty1" propertyName="userId">
+                    <xpath resultType="String">substring(//userId, 0, 11)</xpath>
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="canalLlamada">
+                    <xpath resultType="String">substring(//canalLlamada, 0, 5)</xpath>
+                </setProperty>
+                <setProperty id="_setProperty3" propertyName="codProd">
+                    <xpath resultType="String">substring(//codigoProducto, 0, 5)</xpath>
+                </setProperty>
+                <to id="traerListaSegurosProducto-To" uri="sql-stored:classpath:sql/PA_SEL_SEGUROS_TRAERLISTASEGUROSPRODUCTO_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseListaSegurosProd"/>
+                <bean id="traerListaSegurosProductoBean"
+                    method="validarListaSegurosProd" ref="routeFacade"/>
+                <removeHeaders id="traerListaSegurosProducto-rmHeaders" pattern="*"/>
+                <to id="traerListaSegurosProductoXmlOutPa" uri="xslt://transformations/out/xmlOut_Pa_traerListaSegurosProducto.xsl?saxon=true"/>
+                <doCatch id="traerListaSegurosProductoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="traerListaSegurosProductoRestoreBody" method="restoreBody"/>
+                    <setBody id="traerListaSegurosProductoSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="traerListaSegurosProductoFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="traerListaSegurosProductoSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="traerListaSegurosProductoFinally"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,372 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+                             placeholder-prefix="{[" placeholder-suffix="]}"
+                             update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+                             persistent-id="wsdatosgeograficos" placeholder-prefix="[{"
+                             placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2" persistent-id="globalDb2" 
+                             placeholder-prefix="[[" placeholder-suffix="]]"
+                             update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+          destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.creditos]]"/>
+        <property name="password" value="[[jdbc.db2.password.creditos]]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.datosgeograficos}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.datosgeograficos}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.datosgeograficos}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.datosgeograficos}]"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.datosgeograficos.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSDatosGeograficos"
+        id="endpointWSDatosGeograficos"
+        serviceClass="cl.coopeuch.integracion.datosgeograficos.wsdl.WSDatosGeograficosSOAPPortType" wsdlURL="etc/wsdl/WSDatosGeograficos.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSDatosGeograficos"
+        id="endpointRSDatosGeograficos" serviceClass="cl.coopeuch.integracion.datosgeograficos.wsdl.WSDatosGeograficosSOAPPortType"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <camelContext id="servicio-datosgeograficos" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSDatosGeograficos"/>
+            <to id="soapToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSDatosGeograficos"/>
+            <to id="restToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:iniciows"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsultaComunas">
+                        <simple>${header.operationName} == 'consultaComunas'</simple>
+                        <to id="toConsultaComunas" uri="direct:consultaComunas"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultaRegiones">
+                        <simple>${header.operationName} == 'consultaRegiones'</simple>
+                        <to id="toConsultaRegiones" uri="direct:consultaRegiones"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultaProvincias">
+                        <simple>${header.operationName} == 'consultaProvincias'</simple>
+                        <to id="toConsultaProvincias" uri="direct:consultaProvincias"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultaCiudades">
+                        <simple>${header.operationName} == 'consultaCiudades'</simple>
+                        <to id="toConsultaCiudades" uri="direct:consultaCiudades"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultaPaises">
+                        <simple>${header.operationName} == 'consultaPaises'</simple>
+                        <to id="toConsultaPaises" uri="direct:consultaPaises"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultaRegionComunas">
+                        <simple>${header.operationName} == 'consultaRegionComunas'</simple>
+                        <to id="toConsultaRegionComunas" uri="direct:consultaRegionComunas"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultaComunas">
+            <from id="consultaComunasFrom" uri="direct:consultaComunas"/>
+            <doTry id="consultaComunasTry">
+                <setBody id="consultaComunasSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="consultaComunasMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.datosgeograficos.wsdl"/>
+                </marshal>
+                <convertBodyTo id="consultaComunasConvertBodyToString" type="java.lang.String"/>
+                <to id="consultaComunasToXSLTrama" uri="xslt://etc/xsl/request/IOC759001I_consultaComunas.xsl"/>
+                <log id="consultaComunasTrama" loggingLevel="TRACE" message="\n\nTrama generada = ${body}"/>
+                <bean id="consultaComunasUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultaComunasToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="consultaComunasTramaResponse"
+                    loggingLevel="TRACE" message="\n\nTrama recibida = ${body}"/>
+                <transform id="consultaComunasTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultaComunasToXSLSOAP" uri="xslt://etc/xsl/response/IOC759001O_consultaComunas.xsl?saxon=true"/>
+                <unmarshal id="consultaComunasUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.datosgeograficos.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultaComunasDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="consultaComunasCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="toConsultarComunasExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultaComunasDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="buscarCodigoErrorComunas" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="consultaComunasToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultaRegiones">
+            <from id="consultaRegionesFrom" uri="direct:consultaRegiones"/>
+            <doTry id="consultaRegionesTry">
+                <setBody id="consultaRegionesSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="consultaRegionesMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.datosgeograficos.wsdl"/>
+                </marshal>
+                <convertBodyTo id="consultaRegionesConvertBodyToString" type="java.lang.String"/>
+                <bean id="consultaRegionesUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultaRegionesToXSLTrama" uri="xslt://etc/xsl/request/IOC759001I_consultaRegiones.xsl"/>
+                <log id="consultaRegionesTrama" loggingLevel="TRACE" message="\n\nTrama generada = ${body}"/>
+                <to id="consultaRegionesToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="consultaRegionesTramaResponse"
+                    loggingLevel="TRACE" message="\n\nTrama recibida = ${body}"/>
+                <transform id="consultaRegionesTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultaRegionesToXSLSOAP" uri="xslt://etc/xsl/response/IOC759001O_consultaRegiones.xsl?saxon=true"/>
+                <unmarshal id="consultaRegionesUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.datosgeograficos.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultaRegionesDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="consultaRegionesCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="toConsultarRegionesExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultaRegionesDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="buscarCodigoErrorRegiones" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="consultaRegionesToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultaProvincias">
+            <from id="consultaProvinciasFrom" uri="direct:consultaProvincias"/>
+            <doTry id="consultaProvinciasTry">
+                <setBody id="consultaProvinciasSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="consultaProvinciasMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.datosgeograficos.wsdl"/>
+                </marshal>
+                <convertBodyTo
+                    id="consultaProvinciasConvertBodyToString" type="java.lang.String"/>
+                <bean id="consultaProvinciasUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultaProvinciasToXSLTrama" uri="xslt://etc/xsl/request/IOC759001I_consultaProvincias.xsl"/>
+                <log id="consultaProvinciasTrama" loggingLevel="TRACE" message="Trama generada = ${body}"/>
+                <to id="consultaProvinciasToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="consultaProvinciasTramaResponse"
+                    loggingLevel="TRACE" message="Trama recibida = ${body}"/>
+                <transform id="consultaProvinciasTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultaProvinciasToXSLSOAP" uri="xslt://etc/xsl/response/IOC759001O_consultaProvincias.xsl?saxon=true"/>
+                <unmarshal id="consultaProvinciasUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.datosgeograficos.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultaProvinciasDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="consultaProvinciasCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="toConsultarProvinciasExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultaProvinciasDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="buscarCodigoErrorProvincias" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="consultaProvinciasToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultaCiudades">
+            <from id="consultaCiudadesFrom" uri="direct:consultaCiudades"/>
+            <doTry id="consultaCiudadesTry">
+                <setBody id="consultaCiudadesSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="consultaCiudadesMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.datosgeograficos.wsdl"/>
+                </marshal>
+                <convertBodyTo id="consultaCiudadesConvertBodyToString" type="java.lang.String"/>
+                <bean id="consultaCiudadesUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultaCiudadesToXSLTrama" uri="xslt://etc/xsl/request/IOC759001I_consultaCiudades.xsl"/>
+                <log id="consultaCiudadesTrama" loggingLevel="TRACE" message="Trama generada = ${body}"/>
+                <to id="consultaCiudadesToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="consultaCiudadesTramaResponse"
+                    loggingLevel="TRACE" message="Trama recibida = ${body}"/>
+                <transform id="consultaCiudadesTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultaCiudadesToXSLSOAP" uri="xslt://etc/xsl/response/IOC759001O_consultaCiudades.xsl?saxon=true"/>
+                <unmarshal id="consultaCiudadesUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.datosgeograficos.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultaCiudadesDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="consultaCiudadesCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="toConsultaCiudadesExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultaCiudadesDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="buscarCodigoErrorCiudades" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="consultaCiudadesToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultaPaises">
+            <from id="consultaPaisesFrom" uri="direct:consultaPaises"/>
+            <doTry id="consultaPaisesTry">
+                <setBody id="consultaPaisesSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="consultaPaisesMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.datosgeograficos.wsdl"/>
+                </marshal>
+                <convertBodyTo id="consultaPaisesConvertBodyToString" type="java.lang.String"/>
+                <bean id="consultaPaisesUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultaPaisesToXSLTrama" uri="xslt://etc/xsl/request/IOC758001I_consultaPaises.xsl"/>
+                <log id="consultaPaisesTrama" loggingLevel="TRACE" message="Trama generada = ${body}"/>
+                <to id="consultaPaisesToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="consultaPaisesTramaResponse"
+                    loggingLevel="TRACE" message="Trama recibida = ${body}"/>
+                <transform id="consultaPaisesTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultaPaisesToXSLSOAP" uri="xslt://etc/xsl/response/IOC758001O_consultaPaises.xsl?saxon=true"/>
+                <unmarshal id="consultaPaisesUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.datosgeograficos.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultaPaisesDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="consultaPaisesCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="toConsultarPaisesExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultaPaisesDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="buscarCodigoErrorPaises" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="consultaPaisesToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultaRegionComunas">
+            <from id="consultaRegionComunasFrom" uri="direct:consultaRegionComunas"/>
+            <doTry id="consultaRegionComunasTry"> 
+                <setBody id="consultaRegionComunasSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <setProperty id="setPropertyUserId" propertyName="userId">
+                    <xpath resultType="String">//userId</xpath>
+                </setProperty>
+                <setProperty id="setPropertyCanalLlamada" propertyName="canalLlamada">
+                    <xpath resultType="String">//canalLlamada</xpath>
+                </setProperty>
+                <setProperty id="setPropertyIdRegion" propertyName="idRegion">
+                    <xpath resultType="String">//idRegion</xpath>
+                </setProperty>
+                <setProperty id="setPropertyNombreRegion" propertyName="nombreRegion">
+                    <xpath resultType="String">//nombreRegion</xpath>
+                </setProperty>
+                <marshal id="consultaRegionComunasMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.datosgeograficos.wsdl"/>
+                </marshal>
+                <convertBodyTo
+                    id="consultaRegionComunasConvertBodyToString" type="java.lang.String"/>
+                <to id="consultaRegionComunas-To" uri="sql-stored:classpath:etc/sql/PA_SEL_REGIONCOMUNAS_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responsePAConsultaRegionComunas"/>
+                <bean id="validarConsultaRegionComunasBean"
+                    method="validarConsultaRegionComunas" ref="beanRouteFacade"/>
+                <unmarshal id="consultaRegionComunasUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.datosgeograficos.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultaRegionComunasDoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty
+                        id="consultaRegionComunasCodigoError" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <to id="toConsultarRegionComunasExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultaRegionComunasDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="buscarCodigoErrorRegionComunas" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="consultaRegionComunasToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionBuscar" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

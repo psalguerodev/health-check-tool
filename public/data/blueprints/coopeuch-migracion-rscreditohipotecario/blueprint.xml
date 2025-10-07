@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyCreditoHipotecario"
+        persistent-id="wscreditohipotecario" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioCreditoHipotecario"
+        id="servicioCreditoHipotecarioEndpoint"
+        serviceClass="cl.coopeuch.integracion.creditohipotecario.wsdl.CreditoHipotecarioPortType" wsdlURL="etc/wsdl/ServicioCreditoHipotecario.wsdl"/>
+    <cxf:rsServer address="/RSCreditoHipotecario"
+                  id="endpointRSCreditoHipotecario" serviceClass="cl.coopeuch.integracion.creditohipotecario.service.rest.CreditoHipotecarioRest"/>
+    <bean
+        class="cl.coopeuch.integracion.creditohipotecario.wsdl.CreditoHipotecarioSOAPImpl" id="servicioCreditoHipotecarioImpl"/>
+    <bean
+        class="cl.coopeuch.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <camelContext id="servicio-credito-hipotecario-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cx-RuteoOperaciones-inicio">
+            <from id="serviciotarjetadecreditoEndpoint" uri="cxf:bean:servicioCreditoHipotecarioEndpoint?DataFormat=MESSAGE"/>
+            <to id="_toInicioWSDL" uri="direct:inicio"/>
+        </route>
+        <route id="_routeCola">
+            <from id="_fromCola" uri="AMQ:queue:{{colas.servicio.credito.hipotecario.in.temp}}?preserveMessageQos=true"/>
+            <bean id="crearUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+            <to id="_toInicioColas" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-rest">
+        <from id="fromRest" uri="cxfrs:bean:endpointRSCreditoHipotecario"/>
+            <setProperty id="_setProperty1" propertyName="request">
+                <simple>${body}</simple>
+            </setProperty>
+            <doTry id="_doTry1">
+                <choice id="fromOperation">
+                    <when id="_when1">
+                        <simple>${header.operationName} == 'consultaPlanPagoCreditoHipotecario'</simple>
+                        <setProperty propertyName="operacion">
+                            <simple>consultaPlanPagoCreditoHipotecario</simple>
+                        </setProperty>
+                        <unmarshal id="_unmarshal1">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.creditohipotecario.wsdl.ConsultaPlanPagoCredito"/>
+                        </unmarshal>
+                        <bean id="_bean1"
+                              method="consultaPlanPagoCreditoHipotecarioRequest" ref="beanRouteFacade"/>
+                        <to id="_to1" uri="direct:inicio"/>
+                        <bean id="_bean2"
+                              method="consultaPlanPagoCreditoHipotecarioResponse" ref="beanRouteFacade"/>
+                        <choice id="_choice1">
+                            <when id="_when4">
+                                <simple>${property.ErrorPlanPago} != 'OK'</simple>
+                                <marshal id="_marshal1">
+                                    <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.creditohipotecario.wsdl.ConsultaPlanPagoCreditoHipotecarioResponse"/>
+                                </marshal>
+                            </when>
+                        </choice>
+                    </when>
+                    <when id="_when2">
+                        <simple>${header.operationName} == 'consultaDatosCreditoHipotecario'</simple>
+                        <setProperty propertyName="operacion">
+                            <simple>consultaDatosCreditoHipotecario</simple>
+                        </setProperty>
+                        <unmarshal id="_unmarshal3">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.creditohipotecario.wsdl.ConsultaDatosCredito"/>
+                        </unmarshal>
+                        <bean id="_bean3"
+                              method="consultaDatosCreditoHipotecarioRequest" ref="beanRouteFacade"/>
+                        <to id="_to2" uri="direct:inicio"/>
+                        <bean id="_bean4"
+                              method="consultaDatosCreditoHipotecarioResponse" ref="beanRouteFacade"/>
+                    </when>
+                    <when id="_when3">
+                        <simple>${header.operationName} == 'pagoCreditoHipotecario'</simple>
+                        <setProperty propertyName="operacion">
+                            <simple>pagoCreditoHipotecario</simple>
+                        </setProperty>
+                        <unmarshal id="_unmarshal4">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.creditohipotecario.wsdl.PagoCredito"/>
+                        </unmarshal>
+                        <bean id="_bean5"
+                              method="pagoCreditoHipotecarioRequest" ref="beanRouteFacade"/>
+                        <to id="_to3" uri="direct:inicio"/>
+                        <bean id="_bean6"
+                              method="pagoCreditoHipotecarioResponse" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                                exceptionType="java.lang.Exception"
+                                id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                          id="ruteoOperacionesRestoreBodyRest" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyErrorRest">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFaultRest" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                          id="ruteoOperacionesBodyErrorRest" method="setBodyError"/>
+                    <choice id="exception-choice">
+                        <when id="exception-when1">
+                            <simple>${header.operationName} == 'consultaDatosCreditoHipotecario'</simple>
+                            <bean id="_bean1_exc"
+                                  method="consultaDatosCreditoHipotecarioResponse" ref="beanRouteFacade"/>
+                        </when>
+                        <when id="exception-when2">
+                            <simple>${header.operationName} == 'consultaPlanPagoCreditoHipotecario'</simple>
+                            <bean id="_bean1_exc"
+                                  method="consultaPlanPagoCreditoHipotecarioResponse" ref="beanRouteFacade"/>
+                        </when>
+                    </choice>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cxf-RuteoOperaciones">
+            <from id="servicioCreditoHipotecarioEndpointListener" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="createJMSCorrelationId" method="createJMSCorrelationId24"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaConsultaDatosCreditoHipotecario">
+                        <simple>${body} contains 'consultaDatosCreditoHipotecario'</simple>
+                        <to
+                            id="consultaDatosCreditoHipotecarioValidator" uri="validator:etc/xsd/soapConsulta.xsd"/>
+                        <to id="consultaDatosCreditoHipotecarioTo" uri="direct:consultaDatosCreditoHipotecario"/>
+                    </when>
+                    <when id="rutaConsultaPlanPagoCreditoHipotecario">
+                        <simple>${body} contains 'consultaPlanPagoCreditoHipotecario'</simple>
+                        <to
+                            id="consultaPlanPagoCreditoHipotecarioValidator" uri="validator:etc/xsd/soapConsultaPlan.xsd"/>
+                        <to id="consultaPlanPagoCreditoHipotecarioTo" uri="direct:consultaPlanPagoCreditoHipotecario"/>
+                    </when>
+                    <when id="rutaPagoCreditoHipotecario">
+                        <simple>${body} contains 'pagoCreditoHipotecario'</simple>
+                        <to id="pagoCreditoHipotecarioValidator" uri="validator:etc/xsd/soapPago.xsd"/>
+                        <to id="pagoCreditoHipotecarioTo" uri="direct:pagoCreditoHipotecario"/>
+                    </when>
+                    <otherwise id="_otherwise1"/>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <route id="consultaDatosCreditoHipotecario">
+            <from id="consultarDatosFrom" uri="direct:consultaDatosCreditoHipotecario"/>
+            <doTry id="consultarDatosTry">
+                <to id="consultarDatosXml2trama" uri="xslt://etc/xsl/request/xml2tramaIOC097001I_consultaDatos.xsl"/>
+                <to id="activemq-consultarDatos" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="consultarDatosTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarDatosTrama2xml" uri="xslt://etc/xsl/response/trama2xmlIOC097001O_consultaDatos.xsl?saxon=true"/>
+                <doCatch id="consultarDatosCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="consultarDatosRestoreBody" method="restoreBody"/>
+                    <setBody id="consultarDatosSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarDatosFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="consultarDatosSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultarDatosFinally"/>
+            </doTry>
+        </route>
+        <route id="consultaPlanPagoCreditoHipotecario">
+            <from id="consultarPlanPagoFrom" uri="direct:consultaPlanPagoCreditoHipotecario"/>
+            <doTry id="consultarPlanPagoTry">
+                <to id="consultarPlanPagoXml2trama" uri="xslt://etc/xsl/request/xml2tramaIOC097002I_consultaPlanPago.xsl"/>
+                <to id="activemq-consultarPlanPago" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="consultarPlanPagoTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarPlanPagoTrama2xml" uri="xslt://etc/xsl/response/trama2xmlIOC097002O_consultaPlanPago.xsl?saxon=true"/>
+                <doCatch id="consultarPlanPagoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="consultarPlanPagoRestoreBody" method="restoreBody"/>
+                    <setBody id="consultarPlanPagoSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarPlanPagoFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="consultarPlanPagoSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultarPlanPagoFinally"/>
+            </doTry>
+        </route>
+        <route id="pagoCreditoHipotecario">
+            <from id="pagoCreditoHipotecarioFrom" uri="direct:pagoCreditoHipotecario"/>
+            <doTry id="pagoCreditoTry">
+                <to id="pagoCreditoXml2trama" uri="xslt://etc/xsl/request/xml2tramaIOC097003I_pagoCredito.xsl"/>
+                <log id="_log1" message="trama: ${body}"/>
+                <to id="activemq-pagoCredito" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="consultarpagoCreditoTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="pagoCreditoTrama2xml" uri="xslt://etc/xsl/response/trama2xmlIOC097003O_pagoCredito.xsl?saxon=true"/>
+                <doCatch id="pagoCreditoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="pagoCreditoRestoreBody" method="restoreBody"/>
+                    <setBody id="pagoCreditoSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="pagoCreditoFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="pagoCreditoSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="pagoCreditoFinally"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

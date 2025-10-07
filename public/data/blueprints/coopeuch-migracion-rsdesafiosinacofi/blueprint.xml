@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:https="http://cxf.apache.org/transports/http/configuration"
+    xmlns:sec="http://cxf.apache.org/configuration/security"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder persistent-id="wsdesafiosinacofi"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="cl.coopeuch.integracion.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <cxf:cxfEndpoint address="/WSDesafioSinacofi"
+        id="endpointWSDesafioSinacofi"
+        serviceClass="cl.coopeuch.integracion.wsdl.desafio.sinacofi.WSDesafioSinacofiSOAPPortType" wsdlURL="etc/wsdl/WSDesafioSinacofi.wsdl"/>
+    <cxf:rsServer address="/RSDesafioSinacofi"
+        id="endpointRSDesafioSinacofi" serviceClass="cl.coopeuch.integracion.wsdl.desafio.sinacofi.WSDesafioSinacofiSOAPPortType"/>
+    <cxf:rsClient
+        address="[{preguntasdesafio.servicio.sinacofi.validar.endpoint}]"
+        id="servicioSinacofiValidarEndpoint" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="false"/>
+        </cxf:properties>
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <cxf:rsClient
+        address="[{preguntasdesafio.servicio.sinacofi.generar.endpoint}]"
+        id="servicioSinacofiGenerarEndpoint" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="false"/>
+        </cxf:properties>
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <https:conduit name="*.http-conduit">
+        <https:tlsClientParameters>
+            <sec:keyManagers keyPassword="[{servicio.sinacofi.certificado.pfx.clave}]">
+                <sec:keyStore
+                    file="[{servicio.sinacofi.certificado.pfx.path}]"
+                    password="[{servicio.sinacofi.certificado.pfx.clave}]" type="JKS"/>
+            </sec:keyManagers>
+        </https:tlsClientParameters>
+        <https:client AutoRedirect="true" Connection="Keep-Alive"/>
+    </https:conduit>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <camelContext id="servicio-desafio-sinacofi" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="autenticacionSinacofiJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.dto.in.AutenticarIn"/>
+            <json id="tokenSinacofiJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.dto.out.Tokens"/>
+            <json id="GenerarDesafioRequestJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.dto.in.GenerarDesafioIn"/>
+            <json id="GenerarDesafioResponseJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.dto.out.generar.GenerarDesafioRootOut"/>
+            <json id="ValidarDesafioRequestJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.dto.in.ValidarDesafioIn"/>
+            <json id="validarDesafioResponseJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.dto.out.validar.ValidarDesafioRootOut"/>
+        </dataFormats>
+        <!-- Ruta de entrada -->
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSDesafioSinacofi"/>
+            <to id="soapToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSDesafioSinacofi"/>
+            <to id="restToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="iniciows">
+            <from id="iniciows" uri="direct:iniciows"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setProperty id="setPropertyOperacion" propertyName="operacion">
+                    <simple>${header.operationName}</simple>
+                </setProperty>
+                <toD id="soapInicioToOperacionName" uri="direct:${header.operationName}"/>
+                <removeHeaders id="soapInicioRemoveHeaders" pattern="*"/>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="autenticarSinacofi_route">
+            <from id="_from1" uri="direct:authSinacofi"/>
+            <setProperty id="_setProperty1" propertyName="cuerpo">
+                <simple>${body}</simple>
+            </setProperty>
+            <removeHeaders id="_removeHeaders1" pattern="*"/>
+            <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader1">
+                <constant>application/json</constant>
+            </setHeader>
+            <setHeader headerName="client_id" id="_setHeader2">
+                <simple>{{servicio.sinacofi.autenticar.clientid}}</simple>
+            </setHeader>
+            <setHeader headerName="client_secret" id="_setHeader3">
+                <simple>{{servicio.sinacofi.autenticar.clientsecret}}</simple>
+            </setHeader>
+            <bean id="_bean1" method="autenticarRequest" ref="beanRouteFacade"/>
+            <marshal id="_marshal1" ref="autenticacionSinacofiJson"/>
+            <to id="_to1" uri="{{servicio.sinacofi.autenticar.endpoint}}"/>
+            <unmarshal id="_unmarshal1" ref="tokenSinacofiJson"/>
+            <setProperty id="_setProperty2" propertyName="auth">
+                <simple>${body.token_type} ${body.access_token}</simple>
+            </setProperty>
+            <log id="_log1" message="${property.auth}"/>
+            <setBody id="_setBody1">
+                <simple>${property.cuerpo}</simple>
+            </setBody>
+        </route>
+        <!-- Ruta para el metodo validar en sinacofi -->
+        <route id="validar">
+            <from id="fromValidar" uri="direct:validar"/>
+            <doTry id="doTryValidar">
+                <to id="_to3" uri="direct:authSinacofi"/>
+                <removeHeaders id="_removeHeaders3" pattern="*"/>
+                <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader7">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="CamelHttpMethod" id="_setHeader8">
+                    <constant>POST</constant>
+                </setHeader>
+                <setHeader headerName="Authorization" id="_setHeader9">
+                    <simple>${property.auth}</simple>
+                </setHeader>
+                <setHeader headerName="Exchange.HTTP_PATH" id="_setHeader10">
+                    <simple>${body.get(0).consulta.idChallenge}/respuestas</simple>
+                </setHeader>
+                <bean id="beanTransformarSinacofiValidar"
+                    method="transformarSinacofiValidar" ref="beanRouteFacade"/>
+                <marshal id="_marshal3" ref="ValidarDesafioRequestJson"/>
+                <convertBodyTo id="_convertBodyTo2" type="String"/>
+                <to id="validarToServicioSinacofi" uri="cxfrs://bean://servicioSinacofiValidarEndpoint"/>
+                <unmarshal id="_unmarshal3" ref="validarDesafioResponseJson"/>
+                <choice id="_choice2">
+                    <when id="_when1">
+                        <simple>${body.success} == false</simple>
+                        <setHeader headerName="codigoError" id="_setHeader11">
+                            <simple>${body.errors[0].errorCode}</simple>
+                        </setHeader>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException1" message="Error de sinacofi"/>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <bean
+                            id="beanTransformarSinacofiValidarResponse"
+                            method="sinacofiValidarResponse" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="doCatchValidar">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toExceptionValidar" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!--         Ruta para el metodo generar en sinacofi -->
+        <route id="generar">
+            <from id="fromGenerar" uri="direct:generar"/>
+            <doTry id="doTryGenerar">
+                <to id="_to2" uri="direct:authSinacofi"/>
+                <removeHeaders id="_removeHeaders2" pattern="*"/>
+                <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader4">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="CamelHttpMethod" id="_setHeader6">
+                    <constant>POST</constant>
+                </setHeader>
+                <setHeader headerName="Authorization" id="_setHeader5">
+                    <simple>${property.auth}</simple>
+                </setHeader>
+                <bean id="beanSinacofiGenerarRequest"
+                    method="sinacofiGenerarRequest" ref="beanRouteFacade"/>
+                <marshal id="_marshal2" ref="GenerarDesafioRequestJson"/>
+                <convertBodyTo id="_convertBodyTo1" type="String"/>
+                <to id="toGenerarServicioSinacofi" uri="cxfrs://bean://servicioSinacofiGenerarEndpoint"/>
+                <unmarshal id="_unmarshal2" ref="GenerarDesafioResponseJson"/>
+                <choice id="_choice1">
+                    <when id="whenGenerarCodigo">
+                        <simple>${body.success} == false</simple>
+                        <setHeader headerName="codigoError" id="_setHeader12">
+                            <simple>${body.errors[0].errorCode}</simple>
+                        </setHeader>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionGenerarCodigo" message="Error de sinacofi"/>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <bean id="beanSinacofiGenerarResponse"
+                            method="sinacofiGenerarResponse" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="doCatchGenerar">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toExceptionGenerar" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- ruta que captura errores del servicio -->
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

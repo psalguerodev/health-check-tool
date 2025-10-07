@@ -1,0 +1,632 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+        
+     <cm:property-placeholder id="propertyGlobal2" persistent-id="globalDb2"
+        placeholder-prefix="{" placeholder-suffix="}" update-strategy="reload"/>     
+        
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <cm:property-placeholder id="wscalculadora"
+        persistent-id="wscalculadora" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean
+        class="cl.coopeuch.integracion.serviciocalculadora.util.RouteFacade" id="beanRouteFacade"/>
+    <bean
+        class="cl.coopeuch.integracion.serviciocalculadora.util.ErrorExcepcionInterceptor" id="ErrorExcepcionInterceptor"/>
+    <bean
+        class="cl.coopeuch.integracion.serviciocalculadora.util.MyAggregationStrategy" id="myAggregationStrategy"/>
+    <bean
+        class="cl.coopeuch.integracion.serviciocalculadora.util.AggregationStrateLista" id="myAggregationStrategylista"/>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="{jdbc.db2.url.servicio}"/>
+        <property name="username" value="{jdbc.db2.username.creditos}"/>
+        <property name="password" value="{jdbc.db2.password.creditos}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.wscalculadora}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.wscalculadora}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.wscalculadora}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.wscalculadora}]"/>
+    </bean>
+    <bean class="org.slf4j.LoggerFactory" factory-method="getLogger" id="rh1">
+        <argument index="0" value="rh1"/>
+    </bean>
+    <camelcxf:cxfEndpoint address="/WSCalculadora"
+        id="endpointWSCalculadora"
+        serviceClass="cl.coopeuch.integracion.serviciocalculadora.wsdl.WSCalculadoraSOAPPortType" wsdlURL="etc/wsdl/WSCalculadora.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSCalculadora" id="calculadoraRest" serviceClass="cl.coopeuch.integracion.serviciocalculadora.client.WsCalculadoraOperaciones">
+        <camelcxf:extensionMappings>
+            <entry key="json" value="application/json"/>
+        </camelcxf:extensionMappings>
+        <camelcxf:providers>
+            <bean class="com.fasterxml.jackson.jaxrs.json.JacksonJsonProvider"/>
+        </camelcxf:providers>
+        <camelcxf:outInterceptors>
+            <ref component-id="ErrorExcepcionInterceptor"/>
+        </camelcxf:outInterceptors>
+    </camelcxf:rsServer>
+    <camelContext id="serviciocalculadora" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <xmljson id="xmljsonList"/>
+            <json id="serializer" library="Jackson" prettyPrint="true"/>
+            <xmljson id="xmljson"/>
+            <xmljson arrayName="tes" elementName="list"
+                expandableProperties="false" forceTopLevelObject="true"
+                id="xmljsonWithOptions" removeNamespacePrefixes="true"
+                rootName="test" skipNamespaces="true" trimSpaces="true"/>
+        </dataFormats>
+        <redeliveryPolicyProfile id="redeliveryPolicy"
+            logRetryAttempted="true" maximumRedeliveries="0"
+            redeliveryDelay="10" retriesExhaustedLogLevel="WARN"/>
+        <onException redeliveryPolicyRef="redeliveryPolicy">
+            <exception>java.lang.IllegalStateException</exception>
+            <exception>org.apache.camel.ValidationException</exception>
+            <exception>java.lang.Exception</exception>
+            <handled>
+                <constant>true</constant>
+            </handled>
+            <log loggerRef="rh1" loggingLevel="ERROR" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS}} || ${exception.message}"/>
+            <log loggerRef="rh1" loggingLevel="DEBUG" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.stacktrace}"/>
+            <setProperty propertyName="exceptionMessage">
+                <simple>${exception.message}</simple>
+            </setProperty>
+            <setProperty propertyName="exceptionstacktrace">
+                <simple>${exception.stacktrace}</simple>
+            </setProperty>
+            <setProperty propertyName="schema">
+                <simple>Error en la validacion de los datos</simple>
+            </setProperty>
+            <setProperty propertyName="operacion">
+                <simple>consultarRut</simple>
+            </setProperty>
+            <setProperty propertyName="schema">
+                <simple>Error en la validacion de los datos</simple>
+            </setProperty>
+            <setBody>
+                <simple>${property.request}</simple>
+            </setBody>
+            <to uri="direct:excepcion"/>
+            <stop/>
+        </onException>
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSCalculadora"/>
+            <setHeader headerName="soapinicio" id="_setHeader4">
+                <simple>soapinicio</simple>
+            </setHeader>
+            <choice id="inicioChoiceOperacion">
+                <when id="_when6">
+                    <simple>${header.operationName} == 'consultarRut'</simple>
+                    <to id="_to2" uri="direct:iniciorest"/>
+                </when>
+                <when id="_when7">
+                    <simple>${header.operationName} == 'consultarC1'</simple>
+                    <to id="_to2" uri="direct:consultarc1"/>
+                </when>
+                <when id="_when8">
+                    <simple>${header.operationName} == 'consultarC2'</simple>
+                    <to id="_to3" uri="direct:consultarc2"/>
+                </when>
+            </choice>
+        </route>
+        <route id="cxf-rest">
+            <from id="fromRest" uri="cxfrs:bean:calculadoraRest?bindingStyle=SimpleConsumer"/>
+            <setHeader headerName="restincio" id="_setHeader2">
+                <simple>restincio</simple>
+            </setHeader>
+            <choice id="_choice6">
+                <when id="_when9">
+                    <simple>${header.operationName} == 'consultarC1'</simple>
+                    <to id="_to7" uri="direct:consultarc1"/>
+                </when>
+                <when id="_when10">
+                    <simple>${header.operationName} == 'consultarC2'</simple>
+                    <to id="_to11" uri="direct:consultarc2"/>
+                </when>
+                <otherwise id="_otherwise4">
+                    <to id="_to12" uri="direct:iniciorest"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="_route2">
+            <from id="_from3" uri="direct:consultarc1"/>
+            <doTry id="_doTry1">
+                <setProperty id="_setProperty10" propertyName="request">
+                    <simple>${body}</simple>
+                </setProperty>
+                <marshal id="_marshal5" ref="serializer"/>
+                <unmarshal id="_unmarshal2" ref="xmljsonList"/>
+                <setHeader headerName="canalLlamada" id="_setHeader3">
+                    <xpath resultType="String">//*[name() = 'canalLlamada']</xpath>
+                </setHeader>
+                <setHeader headerName="userId" id="_setHeader7">
+                    <xpath resultType="String">//*[name() = 'userId']</xpath>
+                </setHeader>
+                <setHeader headerName="idPauta" id="_setHeader8">
+                    <xpath resultType="Integer">//*[name() = 'idPauta']</xpath>
+                </setHeader>
+                <setHeader headerName="fecha" id="_setHeader9">
+                    <xpath resultType="String">//*[name() = 'fecha']</xpath>
+                </setHeader>
+                <setHeader headerName="codConvenio" id="_setHeader10">
+                    <xpath resultType="String">//*[name() = 'codConvenio']</xpath>
+                </setHeader>
+                <setHeader headerName="numeroSolicitud" id="_setHeader11">
+                    <xpath resultType="Integer">//*[name() = 'numeroSolicitud']</xpath>
+                </setHeader>
+                <setHeader headerName="nombreEmpresa" id="_setHeader12">
+                    <xpath resultType="String">//*[name() = 'nombreEmpresa']</xpath>
+                </setHeader>
+                <bean
+                    beanType="cl.coopeuch.integracion.serviciocalculadora.util.RouteFacade"
+                    id="_bean3" method="validarConsultarC1"/>
+                <log id="_log2" message="!!!!!!!!!!!! ${headers.idPauta}, VARCHAR ${headers.dia}, VARCHAR ${headers.mes}, VARCHAR ${headers.an}, VARCHAR ${headers.codConvenio}, VARCHAR ${headers.numeroSolicitud}, VARCHAR ${headers.nombreEmpresa}"/>
+                <choice id="_choice7">
+                    <when id="_when11">
+                        <simple>${headers.validacion}</simple>
+                        <setProperty id="_setProperty11" propertyName="exceptionMessage">
+                            <simple resultType="String">${headers.validacion}</simple>
+                        </setProperty>
+                        <setProperty id="_setProperty12" propertyName="codereponse">
+                            <simple resultType="Integer">420</simple>
+                        </setProperty>
+                        <to id="_to13" uri="direct:excepcion"/>
+                        <stop id="_stop4"/>
+                    </when>
+                </choice>
+                <choice id="_choice8">
+                    <when id="_when12">
+                        <simple>${headers.restincio}</simple>
+                        <to id="_to14" uri="sql-stored:classpath:etc/sql/PA_SEL_CONSULTARC1_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=listarPaResponse"/>
+                        <setBody id="_setBody1">
+                            <simple>${headers.listarPaResponse}</simple>
+                        </setBody>
+                        <setProperty id="_setProperty13" propertyName="consulta">
+                            <simple>${body.get('#result-set-1').get(0).get('Numerosolicitud')}</simple>
+                        </setProperty>
+                        <bean id="procesoConsultarResponse"
+                            method="procesoCrearResponse" ref="beanRouteFacade"/>
+                        <marshal id="_marshal6">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.serviciocalculadora.wsdl.ConsultarC1Response"/>
+                        </marshal>
+                        <stop id="_stop5"/>
+                    </when>
+                    <otherwise id="_otherwise5">
+                        <to id="_to15" uri="sql-stored:classpath:etc/sql/PA_SEL_CONSULTARC1_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=listarPaResponse"/>
+                        <setBody id="_setBody3">
+                            <simple>${headers.listarPaResponse}</simple>
+                        </setBody>
+                        <setProperty id="_setProperty14" propertyName="consulta">
+                            <simple>${body.get('#result-set-1').get(0).get('Numerosolicitud')}</simple>
+                        </setProperty>
+                        <bean id="procesoConsultarResponse"
+                            method="procesoCrearResponse" ref="beanRouteFacade"/>
+                        <stop id="_stop6"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch1">
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty id="_setProperty15" propertyName="codereponse">
+                        <simple resultType="Integer">437</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty16" propertyName="exceptionMessage">
+                        <simple resultType="String">${exception.message}</simple>
+                    </setProperty>
+                    <to id="_to16" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty17" propertyName="codereponse">
+                        <simple resultType="Integer">437</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty18" propertyName="exceptionMessage">
+                        <simple resultType="String">La consulta no arrojo resultados</simple>
+                    </setProperty>
+                    <to id="_to17" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route3">
+            <from id="_from4" uri="direct:consultarc2"/>
+            <doTry id="_doTry2">
+                <setProperty id="_setProperty19" propertyName="request">
+                    <simple>${body}</simple>
+                </setProperty>
+                <marshal id="_marshal7" ref="serializer"/>
+                <unmarshal id="_unmarshal3" ref="xmljsonList"/>
+                <setHeader headerName="canalLlamada" id="_setHeader13">
+                    <xpath resultType="String">//*[name() = 'canalLlamada']</xpath>
+                </setHeader>
+                <setHeader headerName="userId" id="_setHeader14">
+                    <xpath resultType="String">//*[name() = 'userId']</xpath>
+                </setHeader>
+                <setHeader headerName="codAmbito" id="_setHeader15">
+                    <xpath resultType="Integer">//*[name() = 'codAmbito']</xpath>
+                </setHeader>
+                <setHeader headerName="idPauta" id="_setHeader16">
+                    <xpath resultType="Integer">//*[name() = 'idPauta']</xpath>
+                </setHeader>
+                <setHeader headerName="fecha" id="_setHeader17">
+                    <xpath resultType="String">//*[name() = 'fecha']</xpath>
+                </setHeader>
+                <setHeader headerName="codConvenio" id="_setHeader18">
+                    <xpath resultType="String">//*[name() = 'codConvenio']</xpath>
+                </setHeader>
+                <setHeader headerName="numeroSolicitud" id="_setHeader19">
+                    <xpath resultType="Integer">//*[name() = 'numeroSolicitud']</xpath>
+                </setHeader>
+                <setHeader headerName="sectorRegla" id="_setHeader20">
+                    <xpath resultType="String">//*[name() = 'sectorRegla']</xpath>
+                </setHeader>
+                <setHeader headerName="codTipoDescuento" id="_setHeader21">
+                    <xpath resultType="Integer">//*[name() = 'codTipoDescuento']</xpath>
+                </setHeader>
+                <setHeader headerName="porcentajeDescuento" id="_setHeader22">
+                    <xpath resultType="Integer">//*[name() = 'porcentajeDescuento']</xpath>
+                </setHeader>
+                <bean
+                    beanType="cl.coopeuch.integracion.serviciocalculadora.util.RouteFacade"
+                    id="_bean4" method="validarIngresoConsultarC2"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.serviciocalculadora.util.RouteFacade"
+                    id="_bean5" method="validarConsultarCPRI2"/>
+                <choice id="_choice9">
+                    <when id="_when13">
+                        <simple>${headers.validacion}</simple>
+                        <setProperty id="_setProperty20" propertyName="exceptionMessage">
+                            <simple resultType="String">${headers.validacion}</simple>
+                        </setProperty>
+                        <setProperty id="_setProperty21" propertyName="codereponse">
+                            <simple resultType="Integer">500</simple>
+                        </setProperty>
+                        <to id="_to18" uri="direct:excepcion"/>
+                        <stop id="_stop7"/>
+                    </when>
+                </choice>
+                <choice id="_choice10">
+                    <when id="_when14">
+                        <simple>${headers.restincio}</simple>
+                        <log id="_log3" loggerRef="rh1"
+                            loggingLevel="ERROR" message=" VARCHAR ${header.codAmbito},VARCHAR ${header.idPauta},VARCHAR ${header.dia},VARCHAR ${header.mes},VARCHAR ${header.an},VARCHAR ${header.codConvenio},VARCHAR ${header.numeroSolicitud},VARCHAR ${header.sectorRegla},VARCHAR ${header.codTipoDescuento},VARCHAR ${header.codTipoDescuento2},VARCHAR ${header.porcentajeDescuento},VARCHAR ${header.nombEmp}"/>
+                        <to id="_to19" uri="sql-stored:classpath:etc/sql/PA_SEL_CONSULTARC2_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=listarPaResponsec2"/>
+                        <setBody id="_setBody4">
+                            <simple>${headers.listarPaResponsec2}</simple>
+                        </setBody>
+                        <setProperty id="_setProperty22" propertyName="consulta">
+                            <simple>${body.get('#result-set-1').get(0).get('sectorRegla')}</simple>
+                        </setProperty>
+                        <bean id="_bean6"
+                            method="procesoCrearResponseConsultarc2" ref="beanRouteFacade"/>
+                        <marshal id="_marshal4">
+                            <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.serviciocalculadora.wsdl.ConsultarC2Response"/>
+                        </marshal>
+                    </when>
+                    <otherwise id="_otherwise6">
+                        <to id="_to20" uri="sql-stored:classpath:etc/sql/PA_SEL_CONSULTARC2_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=listarPaResponsec2"/>
+                        <setBody id="_setBody5">
+                            <simple>${headers.listarPaResponsec2}</simple>
+                        </setBody>
+                        <setProperty id="_setProperty23" propertyName="consulta">
+                            <simple>${body.get('#result-set-1').get(0).get('sectorRegla')}</simple>
+                        </setProperty>
+                        <bean id="_bean7"
+                            method="procesoCrearResponseConsultarc2" ref="beanRouteFacade"/>
+                        <stop id="_stop8"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch3">
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty id="_setProperty24" propertyName="codereponse">
+                        <simple resultType="Integer">437</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty25" propertyName="exceptionMessage">
+                        <simple resultType="String">${exception.message}</simple>
+                    </setProperty>
+                    <to id="_to21" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="_doCatch4">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty26" propertyName="codereponse">
+                        <simple resultType="Integer">437</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty27" propertyName="exceptionMessage">
+                        <simple resultType="String">La consulta no arrojo resultados</simple>
+                    </setProperty>
+                    <to id="toConsultarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route1">
+            <from id="_from1" uri="direct:iniciorest"/>
+            <setProperty id="_setProperty1" propertyName="request">
+                <simple>${body}</simple>
+            </setProperty>
+            <to id="_to4" uri="bean-validator://x"/>
+            <setHeader headerName="rest" id="_setHeader1">
+                <simple>rest</simple>
+            </setHeader>
+            <marshal id="_marshal1" ref="serializer"/>
+            <split id="_split1" strategyRef="myAggregationStrategy">
+                <jsonpath>$..*.*</jsonpath>
+                <setHeader headerName="contadorsplit" id="_setHeader6">
+                    <simple>${headers.CamelSplitSize}</simple>
+                </setHeader>
+            </split>
+            <choice id="_choice3">
+                <when id="_when2">
+                    <simple>${headers.contador} &gt;= 65</simple>
+                    <transform id="_transform6">
+                        <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                    </transform>
+                    <to id="_to8" uri="xslt://transformations/out/maxCantidad.xsl?saxon=true"/>
+                    <marshal id="_marshal3">
+                        <xmljson forceTopLevelObject="true"/>
+                    </marshal>
+                    <stop id="_stop1"/>
+                </when>
+                <otherwise id="_otherwise3">
+                    <log id="_log6" loggerRef="rh1" message="!!!!!  Incio proceso  rest ${body}"/>
+                </otherwise>
+            </choice>
+            <setBody id="_setBody6">
+                <simple>${property.request}</simple>
+            </setBody>
+            <marshal id="_marshal1" ref="serializer"/>
+            <unmarshal id="_unmarshal1" ref="xmljsonWithOptions"/>
+            <to id="_to1" uri="direct:consultarRut"/>
+            <choice id="_choice2">
+                <when id="_when3">
+                    <simple>${body} contains 'ECNLERR'</simple>
+                    <convertBodyTo id="_convertBodyTo1" type="String"/>
+                    <marshal id="_marshal2">
+                        <xmljson forceTopLevelObject="true"
+                            removeNamespacePrefixes="true"
+                            skipNamespaces="true" trimSpaces="true"/>
+                    </marshal>
+                    <convertBodyTo id="_convertBodyTo2" type="String"/>
+                    <transform id="_transform3">
+                        <simple>${body.replace('[]', '""listadoico""')}</simple>
+                    </transform>
+                    <transform id="_transform4">
+                        <simple>${body.replace('listadoico', '')}</simple>
+                    </transform>
+                </when>
+                <otherwise id="_otherwise1">
+                    <log id="_log4" loggerRef="rh1" loggingLevel="ERROR" message="!!!!!!!!!!!!!!  Trama  Enviados a la jms!!!!!!!! ${body} "/>
+                    <marshal id="_marshal3">
+                        <xmljson forceTopLevelObject="true"/>
+                    </marshal>
+                    <log id="_log5" loggerRef="rh1" loggingLevel="ERROR" message="!!!!!!!!!!!!!!  Trama  Enviados a la jms!!!!!!!! ${body} "/>
+                    <convertBodyTo id="_convertBodyTo2" type="String"/>
+                    <transform id="_transform3">
+                        <simple>${body.replace('[]', '""listadoico""')}</simple>
+                    </transform>
+                    <transform id="_transform4">
+                        <simple>${body.replace('listadoico', '')}</simple>
+                    </transform>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="crear">
+            <from id="crearFrom" uri="direct:consultarRut"/>
+            <setHeader headerName="userId" id="_setHeader23">
+                <xpath resultType="String">//*[name() = 'userId']</xpath>
+            </setHeader>
+            <setHeader headerName="canalLlamada" id="_setHeader24">
+                <xpath resultType="String">//*[name() = 'canalLlamada']</xpath>
+            </setHeader>
+            <bean
+                beanType="cl.coopeuch.integracion.serviciocalculadora.util.RouteFacade"
+                id="_bean8" method="validarIngreso"/>
+            <choice id="_choice12">
+                <when id="_when15">
+                    <simple>${headers.validacion}</simple>
+                    <bean id="_bean9" method="validarIngresoError" ref="beanRouteFacade"/>
+                    <stop id="_stop9"/>
+                </when>
+            </choice>
+            <setBody id="_setBody7">
+                <xpath>//*[name() = 'codigosCliente']</xpath>
+            </setBody>
+            <choice id="_choice13">
+                <when id="_when16">
+                    <simple>${headers.soapinicio}</simple>
+                    <split id="_split3" strategyRef="myAggregationStrategylista">
+                        <xpath>//*[name() = 'codigosCliente']</xpath>
+                        <setHeader headerName="fechaDepuracion" id="_setHeader25">
+                            <xpath resultType="String">//codigosCliente//list/fechaDepuracion
+					</xpath>
+                        </setHeader>
+                        <setHeader headerName="codigo" id="_setHeader26">
+                            <xpath resultType="String">//codigosCliente//list/codigo</xpath>
+                        </setHeader>
+                        <bean
+                            beanType="cl.coopeuch.integracion.serviciocalculadora.util.RouteFacade"
+                            id="_bean10" method="validarIngresoLista"/>
+                    </split>
+                </when>
+            </choice>
+            <choice id="_choice14">
+                <when id="_when17">
+                    <simple>${headers.validacion}</simple>
+                    <bean id="_bean11" method="validarIngresoError" ref="beanRouteFacade"/>
+                    <stop id="_stop10"/>
+                </when>
+            </choice>
+            <transform id="_transform2">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <choice id="_choice1">
+                <when id="_when1">
+                    <simple>${headers.soapinicio}</simple>
+                    <to id="_to5" uri="xslt://transformations/in/procesarlista.xsl"/>
+                    <setHeader headerName="info" id="_setHeader5">
+                        <xpath resultType="String">/info</xpath>
+                    </setHeader>
+                </when>
+                <otherwise id="_otherwise2">
+                    <to id="_to6" uri="xslt://transformations/in/procesarlistarest.xsl"/>
+                    <setHeader headerName="info" id="_setHeader5">
+                        <xpath resultType="String">/info</xpath>
+                    </setHeader>
+                </otherwise>
+            </choice>
+            <setBody id="_setBody2">
+                <simple>IOC008501I${headers.userId}    01122000050001${headers.canalLlamada}${headers.info}</simple>
+            </setBody>
+            <bean id="crearUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+            <choice id="_choice4">
+                <when id="_when4">
+                    <simple>${headers.soapinicio}</simple>
+                    <to id="_to22" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                    <transform id="_transform5">
+                        <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                    </transform>
+                    <log id="_log1" loggerRef="rh1" loggingLevel="ERROR" message="!!!!!!!!!!!!!!  Trama !!!!!!!! ${body} "/>
+                    <to id="_to10" uri="xslt://transformations/out/rest_IOC86.xsl?saxon=true"/>
+                    <setProperty id="_setProperty5" propertyName="formato">
+                        <xpath resultType="String">//consultarRutResponse//formato</xpath>
+                    </setProperty>
+                    <split id="_split2">
+                        <xpath>//consultarRutResponse//Listado</xpath>
+                        <setProperty id="_setProperty6" propertyName="rut">
+                            <xpath resultType="String">//Listado//rut</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty7" propertyName="codCliente">
+                            <xpath resultType="String">//Listado//codCliente</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty8" propertyName="nombre">
+                            <xpath resultType="String">//Listado//nombre</xpath>
+                        </setProperty>
+                        <setProperty id="_setProperty9" propertyName="nombreEmpresa">
+                            <xpath resultType="String">//Listado//nombreEmpresa</xpath>
+                        </setProperty>
+                        <bean
+                            beanType="cl.coopeuch.integracion.serviciocalculadora.util.RouteFacade"
+                            id="_bean1" method="crearResponse"/>
+                    </split>
+                    <bean
+                        beanType="cl.coopeuch.integracion.serviciocalculadora.util.RouteFacade"
+                        id="_bean2" method="crear"/>
+                    <stop id="_stop2"/>
+                </when>
+            </choice>
+            <to id="crearToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+            <transform id="_transform5">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <log id="_log7" loggerRef="rh1" loggingLevel="ERROR" message="!!!!!!!!!!!!!!  Trama  Salidad a la jms!!!!!!!! ${body} "/>
+            <to id="_to9" uri="xslt://transformations/out/rest_IOC86.xsl?saxon=true"/>
+        </route>
+        <route id="ErrorTraza">
+            <from id="_from2" uri="direct:excepcion"/>
+            <choice id="_choice11">
+                <when id="_when22">
+                    <simple>${exception.stacktrace} contains 'Validation failed for'
+					</simple>
+                    <setProperty id="_setProperty2" propertyName="codereponse">
+                        <simple resultType="Integer">423</simple>
+                    </setProperty>
+                </when>
+                <when id="_when23">
+                    <simple>${exception.stacktrace} contains 'Could not get JDBC
+						Connection'</simple>
+                    <setProperty id="_setProperty3" propertyName="codereponse">
+                        <simple resultType="Integer">505</simple>
+                    </setProperty>
+                </when>
+                <when id="_when24">
+                    <simple>${exception.stacktrace} contains 'START_ELEMENT or
+						END_ELEMENT'</simple>
+                    <setProperty id="_setProperty4" propertyName="codereponse">
+                        <simple resultType="Integer">500</simple>
+                    </setProperty>
+                </when>
+                <when id="_when26">
+                    <simple>${exception.stacktrace} contains 'jms'</simple>
+                    <setProperty id="_setProperty4" propertyName="codereponse">
+                        <simple resultType="Integer">501</simple>
+                    </setProperty>
+                </when>
+            </choice>
+            <choice id="_choice5">
+                <when id="_when5">
+                    <simple>${header.soapinicio}</simple>
+                    <doTry id="excepcionTry">
+                        <bean id="beanExceptionAmq"
+                            method="excepcionAmq" ref="beanRouteFacade"/>
+                        <marshal id="excepcionMarshalJson">
+                            <json library="Jackson"/>
+                        </marshal>
+                        <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                        <!-- 						<to id="excepcionToAmqFault" -->
+                        <!-- 							uri="beanAMQ:{{amq.queue.fault}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut" /> -->
+                        <bean id="excepcionBeanExcepcion"
+                            method="excepcionCrear" ref="beanRouteFacade"/>
+                        <stop id="_stop11"/>
+                        <doCatch id="excepcionDoCatch">
+                            <exception>java.lang.Exception</exception>
+                            <setBody id="exceptionFinalSetBodyError">
+                                <simple>${exception}, Body -&gt; ${body}</simple>
+                            </setBody>
+                            <log id="excepcionLog" loggerRef="rh1"
+                                loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                        </doCatch>
+                    </doTry>
+                    <stop id="_stop3" inheritErrorHandler="true"/>
+                </when>
+            </choice>
+            <setBody id="_setBody10">
+                <simple>${property.request}</simple>
+            </setBody>
+            <marshal id="_marshal23">
+                <json library="Jackson" prettyPrint="true" useList="true"/>
+            </marshal>
+            <convertBodyTo id="_convertBodyTo6" type="String"/>
+            <log id="_log11" loggerRef="rh1" message="!!!!!!!!!!!!!!!!!   Captura  Rest body ${body} ********* ${header.operationName}"/>
+            <bean
+                beanType="cl.coopeuch.integracion.serviciocalculadora.util.RouteFacade"
+                id="_bean12" method="excepcionAmq"/>
+            <bean id="excepcionBeanExcepcion" method="excepcionCrear" ref="beanRouteFacade"/>
+            <choice id="_choice15">
+                <when id="_when18">
+                    <simple>${header.operationName} == 'consultarC1'</simple>
+                    <marshal id="_marshal8">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.serviciocalculadora.wsdl.ConsultarC1Response"/>
+                    </marshal>
+                    <stop id="_stop12"/>
+                </when>
+                <when id="_when19">
+                    <simple>${header.operationName} == 'consultarC2'</simple>
+                    <marshal id="_marshal9">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.serviciocalculadora.wsdl.ConsultarC2Response"/>
+                    </marshal>
+                    <stop id="_stop13"/>
+                </when>
+                <when id="_when20">
+                    <simple>${header.operationName} == 'consultarRut'</simple>
+                    <marshal id="_marshal10">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.serviciocalculadora.wsdl.ConsultarRutResponse"/>
+                    </marshal>
+                    <stop id="_stop14"/>
+                </when>
+            </choice>
+            <to id="ruteoOperacionesFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+            <stop id="_stop21" inheritErrorHandler="true"/>
+            <log id="_log13" loggerRef="rh1" message="!!!!!!!!!!!!!!! Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,1001 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:jaxws="http://cxf.apache.org/blueprint/jaxws"
+    xmlns:p="http://cxf.apache.org/policy"
+    xmlns:rb="http://www.redbanc.cl/osb/services/cardstatus"
+    xmlns:sec="http://cxf.apache.org/configuration/security"
+    xmlns:wsp="http://www.w3.org/ns/ws-policy"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Servicio ON OFF tarjeta de debito -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wstarjetadebito" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.tarjetadebito.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSTarjetaDebito"
+        id="endpointWsTarjetaDebito"
+        serviceClass="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito.WSTarjetaDebitoSOAPPortType" wsdlURL="etc/wsdl/WSTarjetaDebito.wsdl"/>
+    <camelcxf:cxfEndpoint
+        address="[{tarjeta.debito.servicio.persona.endpoint}]"
+        id="endpointServicioPersona"
+        serviceClass="cl.coopeuch.integracion.tarjetadebito.wsdl.serviciopersona.PersonaPortType" wsdlURL="etc/wsdl/ServicioPersona.wsdl"/>
+    <camelcxf:rsClient address="[{rsnotificaciones.enviar.endpoint}]"
+        id="endpointRsNotificaciones" loggingFeatureEnabled="true">
+        <camelcxf:properties>
+            <entry key="throwExceptionOnFailure" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:rsClient>
+    <jaxws:client address="[{tarjeta.debito.endpoint.redbanc}]"
+        endpointName="rb:CardStatusSOAP" id="wscliente"
+        serviceClass="cl.coopeuch.integracion.tarjetadebito.wsdl.cardstatus.CardStatusPortType"
+        serviceName="rb:CardStatus"
+        wsdlLocation="etc/wsdl/redbanc/CardStatus_PS_1.wsdl"
+        xmlns:e="http://service.jaxws.cxf.apache.org/endpoint" xmlns:s="http://service.jaxws.cxf.apache.org/service">
+        <jaxws:inInterceptors>
+            <bean class="org.apache.cxf.interceptor.LoggingInInterceptor"/>
+        </jaxws:inInterceptors>
+        <jaxws:outInterceptors>
+            <bean class="org.apache.cxf.interceptor.LoggingOutInterceptor"/>
+        </jaxws:outInterceptors>
+        <jaxws:properties>
+            <entry key="ws-security.timestamp.timeToLive" value="100"/>
+            <entry key="ws-security.signature.properties" value="signature.properties"/>
+            <entry key="ws-security.encryption.properties" value="encryption.properties"/>
+        </jaxws:properties>
+        <jaxws:features>
+            <bean class="org.apache.cxf.ext.logging.LoggingFeature"/>
+            <p:policies>
+                <wsp:PolicyReference URI="classpath:policy.xml"/>
+            </p:policies>
+        </jaxws:features>
+    </jaxws:client>
+    <http:conduit name="{http://www.redbanc.cl/osb/services/cardstatus}CardStatusSOAP.http-conduit">
+        <http:tlsClientParameters>
+            <sec:trustManagers>
+                <sec:keyStore
+                    file="[{tarjeta.debito.jks.https.redbanc}]"
+                    password="[{tarjeta.debito.jks.https.password}]" type="JKS"/>
+            </sec:trustManagers>
+            <sec:cipherSuitesFilter>
+                <sec:include>.*_WITH_DES_.*</sec:include>
+                <sec:include>.*_WITH_3DES_.*</sec:include>
+                <sec:exclude>.*_WITH_NULL_.*</sec:exclude>
+                <sec:exclude>.*_DH_anon_.*</sec:exclude>
+            </sec:cipherSuitesFilter>
+        </http:tlsClientParameters>
+    </http:conduit>
+    <camelcxf:rsServer address="/RSTarjetaDebito"
+        id="endpointRSTarjetaDebito" serviceClass="cl.coopeuch.integracion.tarjetadebito.util.WSTarjetaDebitoRest">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsServer>
+    <camelcxf:rsClient address="[{endpoint.login.clai}]"
+        id="endpointLoginClai" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient address="[{endpoint.createaccount.clai}]"
+        id="endpointCreateAccountClai" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient address="[{endpoint.createcard.clai}]"
+        id="endpointCreateCardClai" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <camelContext id="servicio-tarjeta-debito" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSTarjetaDebito"/>
+            <doTry id="restTry">
+                <setProperty id="_setProperty1" propertyName="isRest">
+                    <simple>OK</simple>
+                </setProperty>
+                <choice id="choiceRest">
+                    <when id="restWhenOperacionEmitir">
+                        <simple>${header.operationName} == 'emitir'</simple>
+                        <setProperty id="emitirSetTipoRequestRest" propertyName="tipoOperacion">
+                            <constant>EmitirRequest</constant>
+                        </setProperty>
+                        <setBody id="emitirRestSetBodyRest">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <bean id="emitirArmarRequest"
+                            method="requestEmitirRest" ref="beanRouteFacade"/>
+                        <to id="EmitirToRest" uri="direct:emitir"/>
+                    </when>
+                    <when id="restWhenOperacionActivarIBS">
+                        <simple>${header.operationName} == 'activarIBS'</simple>
+                        <setProperty id="activarIBSSetTipoRequestRest" propertyName="tipoOperacion">
+                            <constant>ActivarIBSRequest</constant>
+                        </setProperty>
+                        <setBody id="activarIBSSetBodyRest">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <bean id="activarIBSArmarRequest"
+                            method="requestActivarIBSRest" ref="beanRouteFacade"/>
+                        <to id="activarIBSToRest" uri="direct:activarIBS"/>
+                    </when>
+                    <when id="restWhenOperacionBloquearIBS">
+                        <simple>${header.operationName} == 'bloquearIBS'</simple>
+                        <setProperty id="bloquearIBSSetTipoRequestRest" propertyName="tipoOperacion">
+                            <constant>BloquarIBSRequest</constant>
+                        </setProperty>
+                        <setBody id="bloquearIBSSetBodyRest">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <bean id="bloquearIBSArmarRequest"
+                            method="requestBloquearIBSRest" ref="beanRouteFacade"/>
+                        <to id="bloquearIBSToRest" uri="direct:bloquearIBS"/>
+                    </when>
+                    <when id="restWhenOperacionActivar">
+                        <simple>${header.operationName} == 'activar'</simple>
+                        <log id="_log1" loggingLevel="INFO" message="body activar : ${body}"/>
+                        <setProperty id="actd_setBody0_1" propertyName="body0">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setProperty>
+                        <setProperty id="activarSetTipoRequestRest" propertyName="tipoOperacion">
+                            <constant>ActivarRequest</constant>
+                        </setProperty>
+                        <doTry id="restBeanTry">
+                            <bean id="activarArmarRequest"
+                                method="requestActivarRest" ref="beanRouteFacade"/>
+                            <doCatch id="restActivacionEnLinea-UnsupportedOperationException">
+                                <exception>java.lang.UnsupportedOperationException</exception>
+                                <to
+                                    id="toRestActivacionEnLinea-UnsupportedOperationException" uri="direct:excepcion"/>
+                                <stop id="stopRestBeanTry"/>
+                            </doCatch>
+                        </doTry>
+                        <choice id="actd_choiceActivarRest">
+                            <when id="actd_whenActivarRest">
+                                <simple>${body.request.canal} == 'ACTD' || ${body.request.canal} == 'EIBS'</simple>
+                                <log id="_log3" loggingLevel="INFO" message="canal: ${body.request.canal}"/>
+                                <convertBodyTo id="_convertBodyTo2" type="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito.ActivarRequest"/>
+                                <setProperty id="actd_setRequest" propertyName="requestEntrada">
+                                    <simple>${body}</simple>
+                                </setProperty>
+                                <to id="toActivacionEnLineaRest" uri="direct:activacionEnLinea"/>
+                            </when>
+                            <otherwise id="_otherwiseActivarRest">
+                                <log id="_log5" loggingLevel="INFO" message="canal != ACTD o EIBS"/>
+                                <to id="activarToRest" uri="direct:activar"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <when id="restWhenOperacionAsociarTcooIBS">
+                        <simple>${header.operationName} == 'asociarTcooIbs'</simple>
+                        <setProperty
+                            id="asociarTcooIbsSetTipoRequestRest" propertyName="tipoOperacion">
+                            <constant>AsociarTcooIbsRequest</constant>
+                        </setProperty>
+                        <setBody id="asociarTcooIbsSetBodyRest">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <bean id="asociarTcooIbsArmarRequest"
+                            method="requestAsociarTcooIbsRest" ref="beanRouteFacade"/>
+                        <to id="asociarTcooIbsToRest" uri="direct:asociarTcooIbs"/>
+                    </when>
+                    <when id="restWhenOperacionEncender">
+                        <simple>${header.operationName} == 'encender'</simple>
+                        <setProperty id="encenderSetTipoRequestRest" propertyName="tipoOperacion">
+                            <constant>EncenderRequest</constant>
+                        </setProperty>
+                        <setProperty id="inicioOperacionEncenderRest" propertyName="tipoOperacion">
+                            <simple>00</simple>
+                        </setProperty>
+                        <setBody id="encenderSetBodyRest">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <bean id="encenderArmarRequest"
+                            method="requestEncenderRest" ref="beanRouteFacade"/>
+                        <to id="toEncenderSetPropertiesRest" uri="direct:setProperties"/>
+                        <to id="encenderToRest" uri="direct:encender"/>
+                    </when>
+                    <when id="restWhenOperacionApagar">
+                        <simple>${header.operationName} == 'apagar'</simple>
+                        <setProperty id="apagarSetTipoRequestRest" propertyName="tipoOperacion">
+                            <constant>ApagarRequest</constant>
+                        </setProperty>
+                        <setProperty id="inicioOperacionApagarRest" propertyName="tipoOperacion">
+                            <simple>33</simple>
+                        </setProperty>
+                        <setBody id="apagarSetBodyRest">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <bean id="apagarArmarRequest"
+                            method="requestApagarRest" ref="beanRouteFacade"/>
+                        <to id="toApagarSetPropertiesRest" uri="direct:setProperties"/>
+                        <to id="apagarToRest" uri="direct:apagar"/>
+                    </when>
+                    <when id="restWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <setProperty id="consultarSetTipoRequestRest" propertyName="tipoOperacion">
+                            <constant>ConsultarRequest</constant>
+                        </setProperty>
+                        <setProperty id="inicioOperacionConsultarRest" propertyName="tipoOperacion">
+                            <simple>cc</simple>
+                        </setProperty>
+                        <setBody id="consultarSetBodyRest">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <bean id="consultarArmarRequest"
+                            method="requestConsultarRest" ref="beanRouteFacade"/>
+                        <to id="toConsultarSetPropertiesRest" uri="direct:setProperties"/>
+                        <to id="consultarToRest" uri="direct:consultar"/>
+                    </when>
+                    <otherwise id="inicioOtherwiseRest">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalidaRest" message="La operacion solicitada no se encuentra operativa"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="restDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="restError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="restToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="cxf:bean:endpointWsTarjetaDebito"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetPropertyRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionApagar">
+                        <simple>${header.operationName} == 'apagar'</simple>
+                        <setProperty id="inicioOperacionApagar" propertyName="tipoOperacion">
+                            <simple>33</simple>
+                        </setProperty>
+                        <to id="toApagarSetProperties" uri="direct:setProperties"/>
+                        <to id="toApagar" uri="direct:apagar"/>
+                    </when>
+                    <when id="inicioWhenOperacionBloquear">
+                        <simple>${header.operationName} == 'bloquear'</simple>
+                        <setProperty id="inicioOperacionBloquear" propertyName="tipoOperacion">
+                            <simple>bb</simple>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion bloquear no esta permitida"/>
+                    </when>
+                    <when id="inicioWhenOperacionEncender">
+                        <simple>${header.operationName} == 'encender'</simple>
+                        <setProperty id="inicioOperacionEncender" propertyName="tipoOperacion">
+                            <simple>00</simple>
+                        </setProperty>
+                        <to id="toEncenderSetProperties" uri="direct:setProperties"/>
+                        <to id="toEncender" uri="direct:encender"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <setProperty id="inicioOperacionConsultar" propertyName="tipoOperacion">
+                            <simple>cc</simple>
+                        </setProperty>
+                        <to id="toConsultarSetProperties" uri="direct:setProperties"/>
+                        <to id="toConsultar" uri="direct:consultar"/>
+                    </when>
+                    <when id="inicioWhenOperacionActivar">
+                        <simple>${header.operationName} == 'activar'</simple>
+                        <setProperty id="actd_setBody0_3" propertyName="body0">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setProperty>
+                        <setProperty id="inicioSetTipoRequestActivar" propertyName="tipoOperacion">
+                            <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                        </setProperty>
+                        <setBody id="activarSetBody">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <choice id="_choiceActivarSoap">
+                            <when id="_whenActivarSoap">
+                                <simple>${body.request.canal} == 'ACTD' || ${body.request.canal} == 'EIBS'</simple>
+                                <log id="_log6" loggingLevel="INFO" message="canal: ${body.request.canal}"/>
+                                <setProperty id="_setProperty2" propertyName="requestEntrada">
+                                    <simple>${body}</simple>
+                                </setProperty>
+                                <to id="toActivacionEnLineaSoap" uri="direct:activacionEnLinea"/>
+                            </when>
+                            <otherwise id="_otherwiseActivarSoap">
+                                <log id="_log7" loggingLevel="INFO" message="canal != ACTD o EIBS"/>
+                                <to id="toActivar" uri="direct:activar"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <when id="inicioWhenOperacionAsociarTcooIbs">
+                        <simple>${header.operationName} == 'asociarTcooIbs'</simple>
+                        <setProperty
+                            id="inicioSetTipoRequestAsociarTcooIbs" propertyName="tipoOperacion">
+                            <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                        </setProperty>
+                        <setBody id="asociarTcooIbsSetBody">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <to id="toAsociarTcooIbs" uri="direct:asociarTcooIbs"/>
+                    </when>
+                    <when id="inicioWhenOperacionEmitir">
+                        <simple>${header.operationName} == 'emitir'</simple>
+                        <setProperty id="inicioSetTipoRequestEmitir" propertyName="tipoOperacion">
+                            <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                        </setProperty>
+                        <setBody id="emitirSetBody">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <to id="toEmitir" uri="direct:emitir"/>
+                    </when>
+                    <when id="inicioWhenOperacionActivarIBS">
+                        <simple>${header.operationName} == 'activarIBS'</simple>
+                        <setProperty id="inicioSetTipoRequestActivarIBS" propertyName="tipoOperacion">
+                            <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                        </setProperty>
+                        <setBody id="ActivarIBSSetBody">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <to id="toEmitir" uri="direct:activarIBS"/>
+                    </when>
+                    <when id="inicioWhenOperacionBloquearIBS">
+                        <simple>${header.operationName} == 'bloquearIBS'</simple>
+                        <setProperty
+                            id="inicioSetTipoRequestBloquearIBS" propertyName="tipoOperacion">
+                            <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                        </setProperty>
+                        <setBody id="bloquearIBSSetBody">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <to id="toEmitir" uri="direct:bloquearIBS"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="apagar">
+            <from id="apagarfrom" uri="direct:apagar"/>
+            <doTry id="apagarTry">
+                <bean id="apagarBeanRequest" method="requestGenerico" ref="beanRouteFacade"/>
+                <choice id="apagarChoiceRequest">
+                    <when id="apagarResponseWhen">
+                        <simple>$simple{header.resultado} == 'OK'</simple>
+                        <bean id="beanWSRedbancApagar"
+                            method="offCardStatus" ref="wscliente"/>
+                        <bean id="apagarBeanResponse"
+                            method="responseGenerico" ref="beanRouteFacade"/>
+                        <choice id="apagarChoice">
+                            <when id="apagarWhen">
+                                <simple>$simple{body.response.codigo} != 2</simple>
+                                <to id="toApagarIOC" uri="direct:apagarEncender"/>
+                            </when>
+                        </choice>
+                    </when>
+                </choice>
+                <doCatch id="apagarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toApagarIOC" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="encender">
+            <from id="encenderfrom" uri="direct:encender"/>
+            <doTry id="encenderTry">
+                <bean id="encenderBeanRequest" method="requestGenerico" ref="beanRouteFacade"/>
+                <choice id="encenderChoiceRequest">
+                    <when id="responseWhen">
+                        <simple>$simple{header.resultado} == 'OK'</simple>
+                        <bean id="beanWSRedbancEncender"
+                            method="onCardStatus" ref="wscliente"/>
+                        <bean id="encenderBeanResponse"
+                            method="responseGenerico" ref="beanRouteFacade"/>
+                        <choice id="encenderChoice">
+                            <when id="encenderWhen">
+                                <simple>$simple{body.response.codigo} != 2</simple>
+                                <to id="toEncenderIOC" uri="direct:apagarEncender"/>
+                            </when>
+                        </choice>
+                    </when>
+                </choice>
+                <doCatch id="encenderDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toEncenderIOCEliminar" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="apagarEncenderIoc">
+            <from id="apagarEncenderIocFrom" uri="direct:apagarEncender"/>
+            <doTry id="apagarEncenderIocTry">
+                <setHeader headerName="requestUser" id="headerUser">
+                    <simple>${exchangeProperty.usuario}</simple>
+                </setHeader>
+                <setHeader headerName="requestCanalLlamada" id="headerCanalLlamada">
+                    <simple>${exchangeProperty.canalLamada}</simple>
+                </setHeader>
+                <setHeader headerName="requestAccion" id="headerAccion">
+                    <simple>${exchangeProperty.tipoOperacion}</simple>
+                </setHeader>
+                <setHeader headerName="requestPan" id="headerPan">
+                    <simple>${exchangeProperty.pan}</simple>
+                </setHeader>
+                <transform id="apagarEncenderIocTransform">
+                    <simple>&lt;trama&gt;vacio&lt;/trama&gt;</simple>
+                </transform>
+                <convertBodyTo id="apagarEncenderConvert" type="java.lang.String"/>
+                <bean id="apagarEncenderIocBeanRouteFacadeUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="apagarEncenderIocToXSLTrama" uri="xslt://etc/xslt/request/IOC7080I.xsl"/>
+                <to id="apagarEncenderIocToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="apagarEncenderIocTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <choice id="apagarEncenderToObjectChoice">
+                    <when id="objectApagarWhen">
+                        <simple>${exchangeProperty.tipoOperacion} == '33'</simple>
+                        <to id="apagarEncenderIocToXSLSOAPA" uri="xslt://etc/xslt/response/IOC7080O_apagar.xsl?saxon=true"/>
+                        <convertBodyTo
+                            id="apagarEncenderIocConvertBodyToApagar" type="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito.ApagarResponse"/>
+                    </when>
+                    <when id="objectEncenderWhen">
+                        <simple>${exchangeProperty.tipoOperacion} == '00'</simple>
+                        <to id="apagarEncenderIocToXSLSOAPE" uri="xslt://etc/xslt/response/IOC7080O_encender.xsl?saxon=true"/>
+                        <convertBodyTo
+                            id="apagarEncenderIocConvertBodyToEncender" type="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito.EncenderResponse"/>
+                    </when>
+                </choice>
+                <choice id="apagarEncenderIocChoice">
+                    <when id="mailWhen">
+                        <simple>$simple{body.response} != null</simple>
+                        <setProperty id="apagarEncenderBody" propertyName="bodyResponse">
+                            <simple>${body}</simple>
+                        </setProperty>
+                        <to id="toApagarEncenderIocPersona" uri="direct:servicioPersona"/>
+                    </when>
+                </choice>
+                <doCatch id="ApagarEncenderIocDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toApagarEncenderIocExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultar">
+            <!--             <doTry id="consultarTry"> -->
+            <from id="consultarfrom" uri="direct:consultar"/>
+            <bean id="consultarBeanRequest" method="requestConsultar" ref="beanRouteFacade"/>
+            <bean id="beanWSRedbanc" method="checkCardStatus" ref="wscliente"/>
+            <bean id="consultarBeanResponse" method="responseConsultar" ref="beanRouteFacade"/>
+            <!--                 <doCatch id="consultarDoCatch"> -->
+            <!--                     <exception>java.lang.Exception</exception> -->
+            <!--                     <to id="toConsultarExcepcion" uri="direct:excepcion"/> -->
+            <!--                 </doCatch> -->
+            <!--             </doTry> -->
+        </route>
+        <route id="servicioPersona">
+            <from id="servicioPersonafrom" uri="direct:servicioPersona"/>
+            <doTry id="servicioPersonaTry">
+                <removeHeaders id="servicioPersonaRemoveHeaders" pattern="*"/>
+                <setProperty id="servicioPersonaSetPropertyUserId" propertyName="userIdServicePersona">
+                    <simple>{{tarjeta.debito.servicio.persona.userid}}</simple>
+                </setProperty>
+                <setHeader headerName="operationName" id="servicioPersonaSetHeaderOpName">
+                    <constant>traerDatosBasicos</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="servicioPersonaSetHeaderSoapAction">
+                    <constant>persona.core.coopeuch.cl/serviciopersona/traerDatosBasicos</constant>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="servicioPersonaSetHeaderOpNamespace">
+                    <constant>persona.core.coopeuch.cl/serviciopersona</constant>
+                </setHeader>
+                <bean id="servicioPersonaRequestBean"
+                    method="requestServicioPersona" ref="beanRouteFacade"/>
+                <to id="servicioPersonaTo" uri="cxf:bean:endpointServicioPersona"/>
+                <bean id="servicioPersonaResponseBean"
+                    method="responseServicioPersona" ref="beanRouteFacade"/>
+                <choice id="servicioPersonaChoice">
+                    <when id="servicioPersonaWhen">
+                        <simple>${exchangeProperty.correoElectronico} != ""</simple>
+                        <to id="envioEmailTo" uri="direct:envioMail"/>
+                    </when>
+                </choice>
+                <doCatch id="responseServicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toResponseServicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="envioEmail">
+            <from id="envioEmailfrom" uri="direct:envioMail"/>
+            <doTry id="envioEmailTry">
+                <removeHeaders id="envioEmailRemoveHeaders" pattern="*"/>
+                <setProperty id="envioEmailSetPropertyEndpoint" propertyName="endpointMail">
+                    <simple>{{tarjeta.debito.servicio.mail.endpoint}}</simple>
+                </setProperty>
+                <setProperty id="envioEmailSetPropertyFrom" propertyName="fromEmail">
+                    <simple>{{tarjeta.debito.servicio.mail.from}}</simple>
+                </setProperty>
+                <setProperty id="envioEmailSetPropertySubjectH" propertyName="subjectHabEmail">
+                    <simple>{{tarjeta.debito.servicio.mail.subject.habilitacion}}</simple>
+                </setProperty>
+                <setProperty id="envioEmailSetPropertySubjectD" propertyName="subjectDesEmail">
+                    <simple>{{tarjeta.debito.servicio.mail.subject.deshabilitacion}}</simple>
+                </setProperty>
+                <setProperty id="envioEmailSetPropertyPlantillaH" propertyName="plantillaHabEmail">
+                    <simple>{{tarjeta.debito.servicio.mail.plantilla.habilitacion}}</simple>
+                </setProperty>
+                <setProperty id="envioEmailSetPropertyPlantillaD" propertyName="plantillaDesEmail">
+                    <simple>{{tarjeta.debito.servicio.mail.plantilla.deshabilitacion}}</simple>
+                </setProperty>
+                <bean id="envioMailBeanResponse"
+                    method="requestServicioMail" ref="beanRouteFacade"/>
+                <to id="envioMailEnvioMailTo" uri="direct:enviarRsNotificaciones"/>
+                <bean id="envioMailBeanResponse"
+                    method="responseServicioMail" ref="beanRouteFacade"/>
+                <doCatch id="envioEmailDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toEnvioEmailExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="enviarRsNotificacionesRoute">
+            <from id="enviarRsNotificacionesFrom" uri="direct:enviarRsNotificaciones"/>
+            <log id="enviarRsNotificacionesLogEntrada" message="\nWSTarjetaDebito: Entrada a enviarRsNotificacionesRoute"/>
+            <convertBodyTo id="envioEmailConvertToString" type="java.lang.String"/>
+            <setBody id="envioEmailSetBodyEntradaXSLT">
+                <xpath>//entrada</xpath>
+            </setBody>
+            <bean id="requestNotificacion" method="requestNotificacion" ref="beanRouteFacade"/>
+            <to id="envioNotificacion" uri="cxfrs://bean://endpointRsNotificaciones"/>
+            <log id="enviarRsNotificacionesLogSalida" message="\nWSTarjetaDebito: Salida enviarRsNotificacionesRoute"/>
+        </route>
+        <route id="activar">
+            <from id="activarFrom" uri="direct:activar"/>
+            <doTry id="activarTry">
+                <marshal id="activarMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito"/>
+                </marshal>
+                <convertBodyTo id="activarConvertBodyToString" type="java.lang.String"/>
+                <bean id="activarBeanRouteFacadeUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="activarToXSLTrama" uri="xslt://etc/xslt/request/IOC708001I_activar.xsl"/>
+                <to id="activarToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="activarTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="activarTramaXml" uri="xslt://etc/xslt/response/IOC708001O_activar.xsl?saxon=true"/>
+                <convertBodyTo id="activarConvertBodyTo" type="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito.ActivarResponse"/>
+                <doCatch id="activarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toActivarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="asociarTcooIbs">
+            <from id="asociarTcooIbsFrom" uri="direct:asociarTcooIbs"/>
+            <doTry id="asociarTcooIbsTry">
+                <marshal id="asociarTcooIbsMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito"/>
+                </marshal>
+                <convertBodyTo id="asociarTcooIbsConvertBodyToString" type="java.lang.String"/>
+                <bean id="asociarTcooIbsBeanRouteFacadeUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="asociarTcooIbsToXSLTrama" uri="xslt://etc/xslt/request/IOC708002I_asociarTcooIbs.xsl"/>
+                <to id="asociarTcooIbsToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="asociarTcooIbsTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="asociarTcooIbsTramaXml" uri="xslt://etc/xslt/response/IOC708002O_asociarTcooIbs.xsl?saxon=true"/>
+                <convertBodyTo id="asociarTcooIbsConvertBodyTo" type="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito.AsociarTcooIbsResponse"/>
+                <doCatch id="asociarTcooIbsDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toAsociarTcooIbsExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="emitir">
+            <from id="emitirFrom" uri="direct:emitir"/>
+            <doTry id="emitirTry">
+                <marshal id="emitirMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito"/>
+                </marshal>
+                <convertBodyTo id="emitirConvertBodyToString" type="java.lang.String"/>
+                <bean id="emitirUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="emitirToXSLTrama" uri="xslt://etc/xslt/request/IOC754001I_emitir.xsl"/>
+                <log id="emitirTrama" loggingLevel="TRACE" message="Trama generada = ${body}"/>
+                <to id="emitirToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="emitirTramaResponse" loggingLevel="TRACE" message="Trama recibida = ${body}"/>
+                <transform id="emitirTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="emitirToXSLSOAP" uri="xslt://etc/xslt/response/IOC754001O_emitir.xsl?saxon=true"/>
+                <unmarshal id="emitirUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito"/>
+                </unmarshal>
+                <doCatch id="emitirDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="emitirCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="emitirToExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="emitirDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="emitirCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="emitirToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="activarIBS">
+            <from id="activarIBSFrom" uri="direct:activarIBS"/>
+            <doTry id="activarIBSTry">
+                <marshal id="activarIBSMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito"/>
+                </marshal>
+                <convertBodyTo id="activarIBSConvertBodyToString" type="java.lang.String"/>
+                <bean id="activarIBSUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="activarIBSToXSLTrama" uri="xslt://etc/xslt/request/IOC708003I_activarIBS.xsl"/>
+                <log id="activarIBSTrama" loggingLevel="TRACE" message="Trama generada = ${body}"/>
+                <to id="activarIBSToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="activarIBSTramaResponse" loggingLevel="TRACE" message="Trama recibida = ${body}"/>
+                <transform id="activarIBSTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="activarIBSToXSLSOAP" uri="xslt://etc/xslt/response/IOC754001O_activarIBS.xsl?saxon=true"/>
+                <unmarshal id="activarIBSUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito"/>
+                </unmarshal>
+                <doCatch id="activarIBSDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="activarIBSCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="activarIBSToExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="activarIBSDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="activarIBSCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="activarIBSToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="bloquearIBS">
+            <from id="bloquearIBSFrom" uri="direct:bloquearIBS"/>
+            <doTry id="bloquearIBSTry">
+                <marshal id="bloquearIBSMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito"/>
+                </marshal>
+                <convertBodyTo id="bloquearIBSConvertBodyToString" type="java.lang.String"/>
+                <bean id="bloquearIBSUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="bloquearIBSToXSLTrama" uri="xslt://etc/xslt/request/IOC708003I_bloquearIBS.xsl"/>
+                <log id="bloquearIBSTrama" loggingLevel="INFO" message="Trama generada = ${body}"/>
+                <to id="bloquearIBSToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="bloquearIBSTramaResponse" loggingLevel="INFO" message="Trama recibida = |${body}|"/>
+                <transform id="bloquearIBSTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="bloquearIBSToXSLSOAP" uri="xslt://etc/xslt/response/IOC754001O_bloquearIBS.xsl?saxon=true"/>
+                <unmarshal id="bloquearIBSUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito"/>
+                </unmarshal>
+                <doCatch id="bloquearIBSDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="bloquearIBSCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="bloquearIBSToExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="bloquearIBSDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="bloquearIBSCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="bloquearIBSToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="setProperties">
+            <from id="setPropertiesFrom" uri="direct:setProperties"/>
+            <doTry id="setPropertiesTry">
+                <setProperty id="inicioSetPropertyFi" propertyName="fi">
+                    <simple>{{tarjeta.debito.redbanc.request.fi}}</simple>
+                </setProperty>
+                <setProperty id="inicioSetPropertyAbaBranch" propertyName="abaBranch">
+                    <simple>{{tarjeta.debito.redbanc.request.abaBranch}}</simple>
+                </setProperty>
+                <setProperty id="inicioSetPropertyAccountType" propertyName="accountType">
+                    <simple>{{tarjeta.debito.redbanc.request.accountType}}</simple>
+                </setProperty>
+                <setProperty id="inicioSetPropertyChannel" propertyName="channel">
+                    <simple>{{tarjeta.debito.redbanc.request.channel}}</simple>
+                </setProperty>
+                <choice id="_choice1">
+                    <when id="_when1">
+                        <simple>${property.isRest} == 'OK'</simple>
+                        <setProperty id="inicioSetPropertyCanalLlamada" propertyName="canalLamada">
+                            <simple>${body.request.canal}</simple>
+                        </setProperty>
+                        <setProperty id="inicioSetPropertyUsuario" propertyName="usuario">
+                            <simple>$simple{body.request.usuario}</simple>
+                        </setProperty>
+                        <setProperty id="inicioSetPropertyRut" propertyName="rut">
+                            <simple>$simple{body.request.rut}</simple>
+                        </setProperty>
+                        <setProperty id="inicioSetPropertyPan" propertyName="pan">
+                            <simple>$simple{body.request.pan}</simple>
+                        </setProperty>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <setProperty id="inicioSetPropertyCanalLlamada" propertyName="canalLamada">
+                            <simple>${body.get(0).request.canal}</simple>
+                        </setProperty>
+                        <setProperty id="inicioSetPropertyUsuario" propertyName="usuario">
+                            <simple>$simple{body.get(0).request.usuario}</simple>
+                        </setProperty>
+                        <setProperty id="inicioSetPropertyRut" propertyName="rut">
+                            <simple>$simple{body.get(0).request.rut}</simple>
+                        </setProperty>
+                        <setProperty id="inicioSetPropertyPan" propertyName="pan">
+                            <simple>$simple{body.get(0).request.pan}</simple>
+                        </setProperty>
+                    </otherwise>
+                </choice>
+                <doCatch id="setPropertiesDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="setPropertiesExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="activacionEnLinea">
+            <from id="activacionEnLineaFrom" uri="direct:activacionEnLinea"/>
+            <doTry id="activacionEnLineaTry">
+                <bean id="validarAccionBean"
+                    method="validarActivacionEnLinea" ref="beanRouteFacade"/>
+                <to id="toObtenerTokenOAuth2Clai" uri="direct:obtenerTokenOAuth2Clai"/>
+                <choice id="_choiceAccionActivacion">
+                    <when id="_whenAccionActivacion">
+                        <simple>${exchangeProperty.accion} == '10'</simple>
+                        <log id="_log8" loggingLevel="INFO" message="accion activacion : ${exchangeProperty.accion}"/>
+                        <to id="toCreateAccountClai" uri="direct:createAccountClai"/>
+                    </when>
+                </choice>
+                <to id="toCreateCardClai" uri="direct:createCardClai"/>
+                <to id="toActivarEnLineaIBS" uri="direct:activarEnLineaIBS"/>
+                <doCatch id="ActivacionEnLinea-UnsupportedOperationException">
+                    <exception>java.lang.UnsupportedOperationException</exception>
+                    <to
+                        id="toActivacionEnLinea-UnsupportedOperationException" uri="direct:excepcion"/>
+                    <stop id="stopActivacionEnLinea"/>
+                </doCatch>
+                <doCatch id="activacionEnLineaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="activacionEnLineaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="activacionEnLineaToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="obtenerTokenOAuth2Clai">
+            <from id="obtenerTokenAccesoClaiFrom" uri="direct:obtenerTokenOAuth2Clai"/>
+            <doTry id="obtenerTokenOAuth2Try">
+                <bean id="obtenerTokenOAuth2Bean"
+                    method="requestObtenerTokenOAuth2" ref="beanRouteFacade"/>
+                <log id="logObtenerTokenOAuth2Request"
+                    loggingLevel="INFO" message="Mensaje Entrada: ${body}"/>
+                <to id="obtenerTokenOAuth2-To" uri="cxfrs:bean:endpointLoginClai?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <convertBodyTo id="convertObtenerLoginOAuth2" type="java.lang.String"/>
+                <unmarshal id="unmarshalObtenerLoginOAuth2Response">
+                    <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.rs.clai.AuthLoginResponse"/>
+                </unmarshal>
+                <bean id="responseObtenerTokenOAuth2ClaiBean"
+                    method="responseObtenerTokenOAuth2Clai" ref="beanRouteFacade"/>
+                <doCatch id="obtenerTokenOAuth2Clai-UnsupportedOperationException">
+                    <exception>java.lang.UnsupportedOperationException</exception>
+                    <to
+                        id="toObtenerTokenOAuth2Clai-UnsupportedOperationException" uri="direct:excepcion"/>
+                    <stop id="stopObtenerTokenOAuth2Clai_1"/>
+                </doCatch>
+                <doCatch id="obtenerTokenOAuth2ClaiDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="obtenerTokenOAuth2ClaiCodigoError" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="obtenerTokenOAuth2DescripcionWS" propertyName="descripcionWS">
+                        <constant>/api/account-manager-bff/v1/auth/login</constant>
+                    </setProperty>
+                    <to id="obtenerTokenOAuth2ClaiToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopObtenerTokenOAuth2Clai_2"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="createAccountClai">
+            <from id="createAccountClaiFrom" uri="direct:createAccountClai"/>
+            <doTry id="createAccountClaiTry">
+                <bean id="createAccountClaiBean"
+                    method="requestCreateAccountClai" ref="beanRouteFacade"/>
+                <log id="logCreateAccountClaiRequest"
+                    loggingLevel="INFO" message="Mensaje Entrada: ${body}"/>
+                <to id="createAccountClai-To" uri="cxfrs:bean:endpointCreateAccountClai?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <convertBodyTo id="convertcreateAccountClai" type="java.lang.String"/>
+                <unmarshal id="unmarshalCreateAccountClaiResponse">
+                    <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.rs.clai.AccountResponse"/>
+                </unmarshal>
+                <bean id="responseCreateAccountClaiBean"
+                    method="responseCreateAccountClai" ref="beanRouteFacade"/>
+                <doCatch id="createAccountClai-UnsupportedOperationException">
+                    <exception>java.lang.UnsupportedOperationException</exception>
+                    <to
+                        id="toCreateAccountClai-UnsupportedOperationException" uri="direct:excepcion"/>
+                    <stop id="stopCreateAccountClaiClai_1"/>
+                </doCatch>
+                <doCatch id="createAccountClaiDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="createAccountClaiCodigoError" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="createAccountClaiDescripcionWS" propertyName="descripcionWS">
+                        <constant>/api/account-manager-bff/v1/proxy/account</constant>
+                    </setProperty>
+                    <to id="createAccountClaiToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopCreateAccountClai_2"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="createCardClai">
+            <from id="createCardClaiFrom" uri="direct:createCardClai"/>
+            <doTry id="createCardClaiTry">
+                <bean id="createCardClaiBean"
+                    method="requestCreateCardClai" ref="beanRouteFacade"/>
+                <log id="logCreateCardClaiRequest" loggingLevel="INFO" message="Mensaje Entrada: ${body}"/>
+                <to id="createCardClai-To" uri="cxfrs:bean:endpointCreateCardClai?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <convertBodyTo id="convertcreateCardClai" type="java.lang.String"/>
+                <unmarshal id="unmarshalCreateCardClaiResponse">
+                    <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.rs.clai.CardResponse"/>
+                </unmarshal>
+                <bean id="responseCreateCardClaiBean"
+                    method="responseCreateCardClai" ref="beanRouteFacade"/>
+                <doCatch id="createCardClai-UnsupportedOperationException">
+                    <exception>java.lang.UnsupportedOperationException</exception>
+                    <to
+                        id="toCreateCardClai-UnsupportedOperationException" uri="direct:excepcion"/>
+                    <stop id="stopCreateCardClai_1"/>
+                </doCatch>
+                <doCatch id="createCardClaiDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="createCardClaiCodigoError" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="ccreateCardClaiDescripcionWS" propertyName="descripcionWS">
+                        <constant>/api/account-manager-bff/v1/proxy/card</constant>
+                    </setProperty>
+                    <to id="createCardClaiToExcepcion" uri="direct:excepcion"/>
+                    <stop id="stopCreateCardClai_2"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="activarEnLineaIBS">
+            <from id="activarEnLineaIBSFrom" uri="direct:activarEnLineaIBS"/>
+            <doTry id="activarEnLineaIBSTry">
+                <setBody id="setBodyActivarRequest">
+                    <simple>${exchangeProperty.requestEntrada}</simple>
+                </setBody>
+                <choice id="validarActivarEnLineaIBSChoice">
+                    <when id="validarActivarEnLineaIBSWhen">
+                        <simple>${body.request.canal} == 'EIBS'</simple>
+                        <log id="_log2" loggingLevel="INFO" message="No activar en IBS - canal: ${body.request.canal}"/>
+                        <bean id="responseActivarResponse"
+                            method="responseActivarResponse" ref="beanRouteFacade"/>
+                        <bean id="responseActivacionEnLineaBeanEIBS"
+                            method="responseActivacionEnLinea" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="validarActivarEnLineaIBSOtherwise">
+                        <log id="_log4" loggingLevel="INFO" message="Si activar en IBS - canal: ${body.request.canal}"/>
+                        <convertBodyTo
+                            id="activarEnLineaIBSConvertBodyToString" type="java.lang.String"/>
+                        <removeHeaders
+                            id="removeHeadersActivarEnLineaIBS" pattern="*"/>
+                        <bean id="activarEnLineaIBSBeanRouteFacadeUUID"
+                            method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                        <to id="activarEnLineaIBSToXSLTrama" uri="xslt://etc/xslt/request/IOC708001I_activar.xsl"/>
+                        <log id="activarEnLineaIBSTrama"
+                            loggingLevel="INFO" message="Trama generada = ${body}"/>
+                        <to id="activarEnLineaIBSToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                        <log id="activarEnLineaIBSTramaResponse"
+                            loggingLevel="INFO" message="Trama recibida = ${body}"/>
+                        <transform id="activarEnLineaIBSTransform">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="activarEnLineaIBSTramaXml" uri="xslt://etc/xslt/response/IOC708001O_activar.xsl?saxon=true"/>
+                        <choice id="validaErrorAMQChoice">
+                            <when id="validaErrorAMQWhen">
+                                <simple>${body} contains 'ECNLERR'</simple>
+                                <unmarshal id="responseActivarEnLineaIBSUnmarshal">
+                                    <jaxb
+                                    contextPath="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito"
+                                    fragment="true" partClass="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito.ActivarResponse"/>
+                                </unmarshal>
+                                <stop id="stopValidarErrorAMQ"/>
+                            </when>
+                            <when id="validaErrorAMQWhen_2">
+                                <simple>${body} contains 'pan'</simple>
+                                <convertBodyTo id="_convertBodyTo1" type="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito.ActivarResponse"/>
+                                <bean id="responseActivacionEnLineaBean"
+                                    method="responseActivacionEnLinea" ref="beanRouteFacade"/>
+                            </when>
+                            <otherwise id="otherwiseSinErrorAMQ">
+                                <unmarshal id="responseActivarEnLineaIBSUnmarshal_3">
+                                    <jaxb
+                                    contextPath="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito"
+                                    fragment="true" partClass="cl.coopeuch.integracion.tarjetadebito.wsdl.wstarjetadebito.ActivarResponse"/>
+                                </unmarshal>
+                                <stop id="stopValidarErrorAMQ_3"/>
+                            </otherwise>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <doCatch id="activarEnLineaIBSDoCatchAMQ">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="activarEnLineaIBSCodigoErrorAMQ" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="activarEnLineaIBSToExcepcionAMQ" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="activarEnLineaIBSDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="activarEnLineaIBSCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toActivarEnLineaIBSExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="generarExcepcion" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

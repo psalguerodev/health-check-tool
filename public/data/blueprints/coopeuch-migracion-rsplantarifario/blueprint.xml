@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+    xsi:schemaLocation="
+    http://www.osgi.org/xmlns/blueprint/v1.0.0 
+    https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd
+    http://camel.apache.org/schema/blueprint/cxf 
+    http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd  
+    http://camel.apache.org/schema/blueprint 
+    http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsplantarifario" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>        
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.plantarifario.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSPlanTarifario"
+        id="endpointWSPlanTarifario" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.plantarifario.wsdl.WSPlanTarifarioSOAPPortType" wsdlURL="etc/wsdl/WSPlanTarifario.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSPlanTarifario"
+        id="endpointRSPlanTarifario" serviceClass="cl.coopeuch.integracion.plantarifario.wsdl.WSPlanTarifarioSOAPPortType"/>
+    <camelcxf:rsClient address="[{wsLogPlataformas.endpoint}]" 
+		id="endpointLogPlataformas"	
+		loggingFeatureEnabled="true" />         
+    <camelContext id="servicio-plan-tarifario" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSPlanTarifario"/> 
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>          
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSPlanTarifario"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetOperationName" propertyName="operationName">
+                    <simple>$simple{header.operationName}</simple>
+                </setProperty>
+            	<setProperty propertyName="rut_log">
+		           	<simple>00000000</simple>
+		        </setProperty> 	      
+	            <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>${header.operationName}</simple>
+                </setProperty> 			                  
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionPlanSocio">
+                        <simple>${header.operationName} == 'planSocio'</simple>
+                        <to id="toPlanSocio" uri="direct:planSocio"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="toConsultar" uri="direct:consultar"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarDetalleCV">
+                        <simple>${header.operationName} == 'consultarDetalleCV'</simple>
+                        <to id="toConsultarDetalleCV" uri="direct:consultarDetalleCV"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>              
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="planSocio">
+            <from id="planSocioFrom" uri="direct:planSocio"/>
+            <doTry id="planSocioTry">
+                <setBody id="planSocioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+	            <setProperty propertyName="rut_log">
+	                <simple>${body.rutSocio}</simple>
+	            </setProperty>                
+                <marshal id="planSocioMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.plantarifario.wsdl"/>
+                </marshal>
+                <convertBodyTo id="planSocioConvertBodyToString" type="java.lang.String"/>
+                <bean id="planSocioUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="planSocioToXSLTrama" uri="xslt://etc/xsl/request/IOC748001I_planSocio.xsl"/>
+                <bean id="planSocioTramaEntrada"
+                    method="rellenaTramaEntrada" ref="beanRouteFacade"/>
+                <log id="planSocioTramaRequest" loggingLevel="TRACE" message="trama generada: ${body}"/>
+                <to id="planSocioToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="planSocioTramaResponse" loggingLevel="TRACE" message="trama recibida: ${body}"/>
+                <transform id="planSocioTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="planSocioToXSLSOAP" uri="xslt://etc/xsl/response/IOC748001O_planSocio.xsl?saxon=true"/>
+                <removeHeaders id="planSocioRemoveJMS" pattern="JMS*"/>
+                <unmarshal id="planSocioUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.plantarifario.wsdl"/>
+                </unmarshal>
+                <doCatch id="planSocioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="planSocioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>  
+        <route id="consultar">
+            <from id="consultarFrom" uri="direct:consultar"/>
+            <doTry id="consultarTry">
+                <setBody id="consultarSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="consultarMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.plantarifario.wsdl"/>
+                </marshal>
+                <convertBodyTo id="consultarConvertBodyToString" type="java.lang.String"/>
+                <bean id="consultarUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultarToXSLTrama" uri="xslt://etc/xsl/request/IOC756002I_consultar.xsl"/>
+                <log id="consultarTramaRequest" loggingLevel="TRACE" message="trama generada: ${body}"/>
+                <to id="consultarToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="consultarTramaResponse" loggingLevel="TRACE" message="trama recibida: ${body}"/>
+                <transform id="consultarTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarToXSLSOAP" uri="xslt://etc/xsl/response/IOC756002O_consultar.xsl?saxon=true"/>
+                <removeHeaders id="consultarRemoveJMS" pattern="JMS*"/>
+                <unmarshal id="consultarUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.plantarifario.wsdl"/>
+                </unmarshal>
+				<doCatch id="consultarShemaValidationException">
+               	<exception>org.apache.camel.processor.validation.SchemaValidationException</exception>
+               	<exception>org.apache.camel.ValidationException</exception>
+               	<exception>org.apache.camel.TypeConversionException</exception>
+               	<transform>
+              			<simple>${property.CamelExceptionCaught}</simple>
+           		</transform>
+	            <transform>
+	               <simple>${bodyAs(String)}</simple>
+	            </transform>    
+	            <setProperty propertyName="exceptionBody">
+	            	<simple>${body}</simple>
+	            </setProperty>        		
+                   <setBody id="consultarShemaValidationExceptionSetBodyError">
+                       <simple>ERROR ServicioConstanciaPrepago-Inicio-soap: -Excepcion: ${property.exceptionBody}\n-BodyOrigen: ${body}</simple>
+                   </setBody>
+                   <to id="consultarToExcepcion-1" uri="direct:excepcion"/>  
+                </doCatch>              
+                <doCatch id="consultarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="consultarToExcepcion-2" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+         <route id="consultarDetalleCV">
+            <from id="consultarDetalleCVFrom" uri="direct:consultarDetalleCV"/>
+            <doTry id="consultarDetalleCVTry">
+                <setBody id="consultarDetalleCVSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+	            <setProperty propertyName="rut_log">
+	                <simple>${body.rutSocio}</simple>
+	            </setProperty>                
+                <marshal id="consultarDetalleCVMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.plantarifario.wsdl"/>
+                </marshal>
+                <convertBodyTo id="consultarDetalleCVConvertBodyToString" type="java.lang.String"/>
+                <bean id="consultarDetalleCVUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultarDetalleCVToXSLTrama" uri="xslt://etc/xsl/request/IOC756001I_consultarDetalleCV.xsl"/>
+                <log id="consultarDetalleCVTramaRequest" loggingLevel="TRACE" message="trama generada: ${body}"/>
+                <to id="consultarDetalleCVToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="consultarDetalleCVTramaResponse" loggingLevel="TRACE" message="trama recibida: ${body}"/>
+                <transform id="consultarDetalleCVTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarDetalleCVToXSLSOAP" uri="xslt://etc/xsl/response/IOC756001O_consultarDetalleCV.xsl?saxon=true"/>
+                <removeHeaders id="consultarDetalleCVRemoveJMS" pattern="JMS*"/>
+                <unmarshal id="consultarDetalleCVUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.plantarifario.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultarDetalleCVDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="consultarDetalleCVToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route> 
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <log id="logException" message="${exception}"/>
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <wireTap id="wireTap-excepcionToLogPlataformas" uri="direct:wsLogPlataformasGuardar"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="wsLogPlataformasGuardar">
+        	<from id="wsLogPlataformasGuardar-From" uri="direct:wsLogPlataformasGuardar"/>        	
+        	<doTry id="wsLogPlataformasGuardar-doTry">
+        		<setProperty propertyName="nivelLog">
+        			<simple>ERRO</simple>
+        		</setProperty>
+        		<bean id="wsLogPlataformasGuardar-Bean" ref="beanRouteFacade" method="guardarLogRequest"/>
+        		<to id="wsLogPlataformasGuardar-To" uri="cxfrs:bean:endpointLogPlataformas"/>
+        		<doCatch id="wsLogPlataformasGuardar-doCatch">
+        			<exception>java.lang.Exception</exception>
+        			<setBody>
+        				<simple>ERROR-logPlataformas: ${exception}-${body}</simple>
+        			</setBody>
+        			<log message="${body}"/>
+        		</doCatch>
+        	</doTry>
+        </route>        
+    </camelContext>
+</blueprint>

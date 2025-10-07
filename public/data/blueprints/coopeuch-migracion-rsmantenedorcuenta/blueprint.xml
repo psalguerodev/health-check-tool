@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- JBoss, Home of Professional Open Source Copyright 2014, Red Hat, Inc.
+    and/or its affiliates, and individual contributors by the @authors tag. See
+    the copyright.txt in the distribution for a full listing of individual contributors.
+    Licensed under the Apache License, Version 2.0 (the "License"); you may not
+    use this file except in compliance with the License. You may obtain a copy
+    of the License at http://www.apache.org/licenses/LICENSE-2.0 Unless required
+    by applicable law or agreed to in writing, software distributed under the
+    License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS
+    OF ANY KIND, either express or implied. See the License for the specific
+    language governing permissions and limitations under the License. -->
+<!-- Configures the Camel Context -->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="variablesGlobales"
+        persistent-id="global" placeholder-prefix="{["
+        placeholder-suffix="]}" update-strategy="reload"/>
+	<cxf:cxfEndpoint address="/ServicioMantenedorCuenta"
+        id="servicioCuentaSocioEndpoint"
+        serviceClass="cl.coopeuch.core.mantenedorcuentasocio.mantenedorcuentasocio.MantenedorCuentaSocioPortType" wsdlURL="wsdl/ServicioMantenedorCuenta.wsdl"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <camelContext id="servicio-mantenedor-cuentasocio-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cx-RuteoOperaciones">
+            <from id="servicioCuentaSocioEndpointListener" uri="cxf:bean:servicioCuentaSocioEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <bean
+                    beanType="cl.coopeuch.util.jms.CreateCorrelationId"
+                    id="createJMSCorrelationId" method="createJMSCorrelationId24"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaconsultaBancos">
+                        <simple>${body} contains 'consultaBancos'</simple>
+                        <to id="consultaBancosValidator" uri="validator:xsd/soapConsultaBancos.xsd"/>
+                        <to id="consultaBancosTo" uri="direct:consultaBancos"/>
+                    </when>
+                    <when id="rutaconsultaCuentaSocio">
+                        <simple>${body} contains 'consultaCuentaSocio'</simple>
+                        <to id="consultaCuentaSocioValidator" uri="validator:xsd/soapConsultaCuentaSocio.xsd"/>
+                        <to id="consultaCuentaSocioTo" uri="direct:consultaCuentaSocio"/>
+                    </when>
+                    <when id="rutaactualizaCuentaSocio">
+                        <simple>${body} contains 'actualizaCuentaSocio'</simple>
+                        <to id="actualizaCuentaSocioValidator" uri="validator:xsd/soapActualizaCuentaSocio.xsd"/>
+                        <to id="actualizaCuentaSocioTo" uri="direct:actualizaCuentaSocio"/>
+                    </when>
+                    <otherwise id="_otherwise1"/>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <route id="consultaBancos">
+            <from id="consultaBancosFrom" uri="direct:consultaBancos"/>
+            <doTry id="consultaBancosTry">
+                <to id="consultaBancosXml2trama" uri="xslt://transformations/in/xml2tramaIOC005301I_consultaBancos.xsl"/>
+                <to id="activeMQ-consultaBancos" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="consultaBancosTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultaBancosTrama2xml" uri="xslt://transformations/out/trama2xmlIOC005301O_consultaBancos.xsl?saxon=true"/>
+                <doCatch id="consultaBancosCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="consultaBancosRestoreBody" method="restoreBody"/>
+                    <setBody id="consultaBancosSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultaBancosFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="consultaBancosSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultaBancosFinally"/>
+            </doTry>
+        </route>
+        <route id="consultaCuentaSocio">
+            <from id="consultaCuentaSocioFrom" uri="direct:consultaCuentaSocio"/>
+            <doTry id="consultaCuentaSocioTry">
+                <to id="consultaCuentaSocioXml2trama" uri="xslt://transformations/in/xml2tramaIOC005401I_consultaCuentaSocio.xsl"/>
+                <to id="activeMQ-consultaCuentaSocio" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="consultaCuentaSocioTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultaCuentaSocioTrama2xml" uri="xslt://transformations/out/trama2xmlIOC005401O_consultaCuentaSocio.xsl?saxon=true"/>
+                <doCatch id="consultaCuentaSocioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="consultaCuentaSocioRestoreBody" method="restoreBody"/>
+                    <setBody id="consultaCuentaSocioSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultaCuentaSocioFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="consultaCuentaSocioSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultaCuentaSocioFinally"/>
+            </doTry>
+        </route>
+        <route id="actualizaCuentaSocio">
+            <from id="actualizaCuentaSocioFrom" uri="direct:actualizaCuentaSocio"/>
+            <doTry id="actualizaCuentaSocioTry">
+                <to id="actualizaCuentaSocioXml2trama" uri="xslt://transformations/in/xml2tramaIOC005201I_actualizaCuentaSocio.xsl"/>
+                <to id="activeMQ-actualizaCuentaSocio" uri="AMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="actualizaCuentaSocioTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="actualizaCuentaSocioTrama2xml" uri="xslt://transformations/out/trama2xmlIOC005201O_actualizaCuentaSocio.xsl?saxon=true"/>
+                <doCatch id="actualizaCuentaSocioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="actualizaCuentaSocioRestoreBody" method="restoreBody"/>
+                    <setBody id="actualizaCuentaSocioSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="actualizaCuentaSocioFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="actualizaCuentaSocioSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="actualizaCuentaSocioFinally"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

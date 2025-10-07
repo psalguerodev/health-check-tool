@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+	xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+	xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+	<!-- Property Placeholder -->
+	<cm:property-placeholder id="property-placeholder"
+		persistent-id="wsmonitorprevired" update-strategy="reload" />
+	<!-- Configure CXF endpoint -->
+	<cxf:cxfEndpoint address="/MonitorPrevired"
+		id="servicioMonitorPreviredEndpoint" serviceClass="_40._139._48._206.axis.services.monitorprevired.CWSMensajeriaXML"
+		wsdlURL="wsdl/TocMonitorPrevired.wsdl" />
+	<bean class="org.apache.commons.dbcp.BasicDataSource"
+		destroy-method="close" id="dataSourceSQLServer">
+		<property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver" />
+		<property name="url"
+			value="${jdbc.sqlserver.url.creditolisto}/creditos;charset=iso_1" />
+		<property name="username" value="${jdbc.sqlserver.username.creditolisto}" />
+		<property name="password" value="${jdbc.sqlserver.password.creditolisto}" />
+		<property name="timeBetweenEvictionRunsMillis"
+			value="${jdbc.sqlserver.timeBetweenEvictionRunsMillis.creditolisto}" />
+		<property name="numTestsPerEvictionRun"
+			value="${jdbc.sqlserver.numTestsPerEvictionRun.creditolisto}" />
+		<property name="minEvictableIdleTimeMillis"
+			value="${jdbc.sqlserver.minEvictableIdleTimeMillis.creditolisto}" />
+		<property name="maxActive" value="${jdbc.sqlserver.maxActive.creditolisto}" />
+	</bean>
+	<bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_insXmlPrevired">
+		<argument ref="dataSourceSQLServer" />
+		<argument value="java.sql.Types" />
+		<argument value="dbo.pa_insXmlPrevired" />
+		<argument value="false" />
+		<argument>
+			<list>
+				<map>
+					<entry key="name" value="Xml" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="varchar" />
+				</map>
+				<map>
+					<entry key="name" value="Rut" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="Integer" />
+				</map>
+				<map>
+					<entry key="name" value="resultSet" />
+					<entry key="mode" value="out" />
+					<entry key="type" value="ResultSet" />
+				</map>
+			</list>
+		</argument>
+	</bean>
+	<bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_selXMLCotiPrevired">
+		<argument ref="dataSourceSQLServer" />
+		<argument value="java.sql.Types" />
+		<argument value="dbo.pa_selXMLCotiPrevired" />
+		<argument value="false" />
+		<argument>
+			<list>
+				<map>
+					<entry key="name" value="Rut" />
+					<entry key="mode" value="in" />
+					<entry key="type" value="Integer" />
+				</map>
+				<map>
+					<entry key="name" value="resultSet" />
+					<entry key="mode" value="out" />
+					<entry key="type" value="ResultSet" />
+				</map>
+			</list>
+		</argument>
+	</bean>
+	<camelContext id="_context1"
+		xmlns="http://camel.apache.org/schema/blueprint">
+		<dataFormats>
+			<jacksonxml enableFeatures="WRITE_DATES_AS_TIMESTAMPS,WRITE_DATES_WITH_ZONE_ID"
+				id="jack" prettyPrint="true" />
+		</dataFormats>
+		<!-- Ruta de inicio del servicio -->
+		<route id="cxf-MonitorPrevired">
+			<from id="servicioMonitorPreviredEndpointListener"
+				uri="cxf:bean:servicioMonitorPreviredEndpoint?DataFormat=MESSAGE" />
+			<to id="_to4" uri="direct:inicio" />
+		</route>
+		<!-- Esta ruta obtiene las liquidaciones del usuario que se este consultando -->
+		<route id="_route2">
+			<from id="_from2" uri="direct:inicio" />
+			<convertBodyTo id="ruteoOperacionesMonitorPreviredBodyTo"
+				type="java.lang.String" />
+			<to id="monitorPreviredXml2XmlCDATA" uri="xslt://transformations/in/getCDATA.xsl?saxon=true" />
+			<choice id="_choice1">
+				<when id="_when1">
+					<simple>${body} contains 'tipo="CCX"'</simple>
+					<choice id="_choice2">
+						<when id="_when2">
+							<simple>${body} contains 'institucion'</simple>
+							<setHeader headerName="Institucion"
+								id="monitorPreviredHeaderInstitucion">
+								<xpath resultType="java.lang.String">/peticion/peticionservicio[@tipo='CCX']/parametro[@nombre='institucion']/@valor</xpath>
+							</setHeader>
+							<setProperty id="institucion-CCX" propertyName="institucion">
+								<simple>SI</simple>
+							</setProperty>
+						</when>
+					</choice>
+					<setHeader headerName="Rut" id="monitorPreviredHeaderRut">
+						<xpath resultType="java.lang.String">substring-before(/peticion/peticionservicio[@tipo='CCX']/parametro[@nombre='rut']/@valor,'-')</xpath>
+					</setHeader>
+					<setHeader headerName="RutDv" id="monitorPreviredHeaderRut">
+						<xpath resultType="java.lang.String">/peticion/peticionservicio[@tipo='CCX']/parametro[@nombre='rut']/@valor</xpath>
+					</setHeader>
+					<setHeader headerName="CodigoAutorizacion"
+						id="monitorPreviredHeaderCodigoAutorizacion">
+						<xpath resultType="java.lang.String">/peticion/peticionservicio[@tipo='CCX']/parametro[@nombre='codautoriza']/@valor</xpath>
+					</setHeader>
+					<setProperty id="autorizacion-CCA" propertyName="autorizacion">
+						<simple>CCX</simple>
+					</setProperty>
+				</when>
+				<otherwise id="_otherwise1">
+					<setHeader headerName="Rut" id="monitorPreviredHeaderRut-CCA">
+						<xpath resultType="java.lang.String">substring-before(/peticion/peticionservicio[@tipo='CCA']/parametro[@nombre='rut']/@valor,'-')</xpath>
+					</setHeader>
+					<setHeader headerName="RutDv" id="monitorPreviredHeaderRut-CCA">
+						<xpath resultType="java.lang.String">/peticion/peticionservicio[@tipo='CCA']/parametro[@nombre='rut']/@valor</xpath>
+					</setHeader>
+					<setHeader headerName="CodigoAutorizacion"
+						id="monitorPreviredHeaderCodigoAutorizacion-CCA">
+						<xpath resultType="java.lang.String">/peticion/peticionservicio[@tipo='CCA']/parametro[@nombre='codigo']/@valor</xpath>
+					</setHeader>
+					<setHeader headerName="cantidadPeriodo"
+						id="monitorPreviredHeaderCantidadPeriodo-CCA">
+						<xpath resultType="java.lang.String">/peticion/peticionservicio[@tipo='CCA']/parametro[@nombre='tipoServicio']/@valor</xpath>
+					</setHeader>
+					<setProperty id="autorizacion-CCA" propertyName="autorizacion">
+						<simple>CCA</simple>
+					</setProperty>
+				</otherwise>
+			</choice>
+			<setHeader headerName="Usuario" id="monitorPreviredHeaderUsuario">
+				<xpath resultType="java.lang.String">/peticion/peticionservicio[@tipo='AUT']/parametro[@nombre='usuario']/@valor</xpath>
+			</setHeader>
+			<setHeader headerName="Password" id="monitorPreviredHeaderPassword">
+				<xpath resultType="java.lang.String">/peticion/peticionservicio[@tipo='AUT']/parametro[@nombre='password']/@valor</xpath>
+			</setHeader>
+			<setHeader headerName="codError" id="monitorPreviredSinError">
+				<constant>0</constant>
+			</setHeader>
+			<to id="pa_selXMLCotiPrevired" uri="bean:dbo.pa_selXMLCotiPrevired" />
+			<marshal id="_marshal1" ref="jack" />
+			<convertBodyTo id="_convertBodyTo1" type="java.lang.String" />
+			<choice id="sinErrorSelXMLCotiPreviRed">
+				<when id="conXML">
+					<xpath resultType="String">/LinkedHashMap/*</xpath>
+					<bean beanType="cl.coopeuch.util.Cadena" id="_bean1" method="reemplaza" />
+					<to id="monitorPrevired2Xml"
+						uri="xslt://transformations/mid/xml2xmlCDATA_MonitorPrevired.xsl?saxon=true" />
+				</when>
+				<otherwise id="_otherwise10">
+					<doTry id="monitorPreviRedDoTry">
+						<choice id="_choice3">
+							<when id="_when3">
+								<simple>${property.autorizacion} == 'CCX' </simple>
+								<choice id="_choice4">
+									<when id="_when4">
+										<simple>${property.institucion} == 'SI' </simple>
+										<to id="_to-xml2xmlCDATA_Previred_InstitucionEW"
+											uri="xslt://transformations/mid/xml2xmlCDATA_Previred_InstitucionEW.xsl?saxon=true" />
+										<log id="_log1"
+											message="\n\n I:${property.institucion} XML MONITOR CCX Enrolamiento: ${body}" />
+									</when>
+									<otherwise id="_otherwise2">
+										<to id="_to-xml2xmlCDATA_Previred"
+											uri="xslt://transformations/mid/xml2xmlCDATA_Previred.xsl?saxon=true" />
+										<log id="_log2" message="\n\n XML MONITOR CCX Normal: ${body}" />
+									</otherwise>
+								</choice>
+							</when>
+							<otherwise id="_otherwise3">
+								<to id="_to-xml2xmlCDATA_Previred_CCA"
+									uri="xslt://transformations/mid/xml2xmlCDATA_Previred_CCA.xsl?saxon=true" />
+							</otherwise>
+						</choice>
+						<setHeader headerName="SOAPAction" id="_setHeader1">
+							<constant>test</constant>
+						</setHeader>
+						<to id="_to2" uri="cxf:{{endpoint.Previred.url}}?dataFormat=MESSAGE" />
+						<convertBodyTo charset="UTF-8" id="monitorPreviRedBodyTo"
+							type="java.lang.String" />
+						<transform id="_transform1">
+							<xpath>//ejecutaReturn</xpath>
+						</transform>
+						<bean beanType="cl.coopeuch.util.Cadena" id="_bean8"
+							method="reemplazaSalidaBD" />
+						<bean beanType="cl.coopeuch.util.Cuerpo" id="respaldaBody"
+							method="respalda" />
+						<choice id="_choice8">
+							<when id="_when8">
+								<xpath>//respuesta/control/@codigo = '9000'</xpath>
+								<transform id="_transform1">
+									<xpath>//respuesta</xpath>
+								</transform>
+								<setHeader headerName="Xml" id="_setHeader5">
+									<simple resultType="String">${body}</simple>
+								</setHeader>
+								<to id="dbo.pa_insXmlPreviredTo1" uri="bean:dbo.pa_insXmlPrevired" />
+							</when>
+						</choice>
+						<bean beanType="cl.coopeuch.util.Cuerpo" id="restaurarBody"
+							method="recupera" />
+						<to id="copiaMonitorPreviredRespuestaFinal"
+							uri="xslt://transformations/out/SalidaFinalMonitorPrevired.xsl?saxon=true" />
+						<doCatch id="monitorPreviRedDoCatch">
+							<exception>java.net.ConnectException</exception>
+							<exception>java.io.IOException</exception>
+							<exception>org.apache.camel.ExchangeTimedOutException</exception>
+							<setHeader headerName="codError" id="monitorPreviRedError">
+								<constant>1</constant>
+							</setHeader>
+						</doCatch>
+					</doTry>
+				</otherwise>
+			</choice>
+			<choice id="monitorPreviredRespuestaFinal">
+				<when id="monitorPreviredErrorRespuestaFinal">
+					<simple>${headers.codError} == '1'</simple>
+					<to id="monitorPreviredRespuestaFinal2Xml"
+						uri="xslt://transformations/error/monitorPreviredErrores.xsl?saxon=true" />
+				</when>
+			</choice>
+		</route>
+	</camelContext>
+</blueprint>

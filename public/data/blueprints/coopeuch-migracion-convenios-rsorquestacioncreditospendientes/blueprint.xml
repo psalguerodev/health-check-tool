@@ -1,0 +1,833 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cxf:cxfEndpoint address="/convenios/WSOrquestacionCreditosPendientes" id="servicioOrquestacionCreditosPendientesEndpoint" wsdlURL="etc/wsdl/WSOrquestacionCreditosPendientes.wsdl"/>
+     <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+
+     <bean class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close" id="dataSource">
+		<property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+		<property name="url" value="${jdbc.url.usuarioConvenio};charset=iso_1" />
+		<property name="username" value="${jdbc.username.usuarioConvenio}" />
+		<property name="password" value="${jdbc.password.usuarioConvenio}" />
+	</bean>
+
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+		<property name="dataSource" ref="dataSource" />
+	</bean>           
+
+     <cm:property-placeholder id="wSOrquestacionCreditosPendientes"
+        persistent-id="wsorquestacioncreditospendientes" update-strategy="reload"/>
+
+	<bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+		<property name="brokerURL" value="{[amq.broker.url]}" />
+		<property name="userName" value="{[amq.username]}" />
+		<property name="password" value="{[amq.password]}" />
+		<property name="usePooledConnection" value="true" />
+	</bean>
+
+    <bean class="cl.coopeuch.integracion.orquestacioncreditospendientes.util.db.ConsultarCreditoHistorico" id="call_sp_get_credito_historico">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_get_credito_historico"/>
+        <argument value="false"/>
+        <argument>
+            <list>                
+                <map>
+                    <entry key="name" value="solicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>   
+                <map>
+                    <entry key="name" value="idCreditRequest"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>  
+                <map>
+					<entry key="name" value="resultSet" />
+					<entry key="mode" value="out" />
+					<entry key="type" value="ResultSet" />
+				</map>           
+            </list>
+        </argument>
+    </bean>
+        
+   <bean class="cl.coopeuch.integracion.orquestacioncreditospendientes.util.RouteFacade" id="beanRouteFacade" />  
+
+    <camelContext id="servicio-orquestacioncreditospendientes" xmlns="http://camel.apache.org/schema/blueprint">
+        
+        <dataFormats>
+			<jacksonxml id="jacksonTransform" prettyPrint="true" />
+		</dataFormats>
+
+        <route id="cxf-inicio">
+            <from id="servicioOrquestacionCreditosPendientesEndpointListener" uri="cxf:bean:servicioOrquestacionCreditosPendientesEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="cxf-inicioTry">	
+            <convertBodyTo id="routeOperationBody" type="java.lang.String"/>
+            <bean beanType="cl.coopeuch.integracion.orquestacioncreditospendientes.util.RouteFacade" 
+            id="backupBody" method="backupBody" />	
+            <choice id="routeOperations">
+                <when id="routeOperationCreditoPendientes">
+                    <simple>${body} contains 'consultarCreditosPendientesRequest'</simple>
+                    <setProperty id="inicioSetTipoRequest1" propertyName="tipoRequest">
+                   		<simple>CreditoPendientesRequest</simple>
+                	</setProperty>
+                    <to id="toconsultarCreditosPendientes" uri="direct:consultarCreditosPendientes"/>
+                </when>
+                <when id="routeOperationAprobarVBSolicitud">
+                    <simple>${body} contains 'aprobarVBSolicitudRequest'</simple>
+                     <setProperty id="inicioSetTipoRequest2" propertyName="tipoRequest">
+                   		<simple>AprobarVBSolicitudRequest</simple>
+                	</setProperty>
+                    <to id="aprobarVBSolicitudTo" uri="direct:aprobarVBSolicitud"/>
+                </when>
+                <when id="routeOperationRechazarVBSolicitud">
+                    <simple>${body} contains 'rechazarVBSolicitudRequest'</simple>
+                     <setProperty id="inicioSetTipoRequest3" propertyName="tipoRequest">
+                   		<simple>RechazarVBSolicitudRequest</simple>
+                	</setProperty>
+                    <to id="rechazarVBSolicitudRequestTo" uri="direct:rechazarVBSolicitud"/>
+                </when>
+                <when id="consultarSolicitudRoute">
+                    <simple>${body} contains 'consultarSolicitudRequest'</simple>
+                    <setProperty id="inicioSetTipoRequest4" propertyName="tipoRequest">
+                   		<simple>ConsultarSolicitudRequest</simple>
+                	</setProperty>
+                    <to id="consultarSolicitudTo" uri="direct:consultarSolicitud"/>
+                </when>
+                <when id="_whenConsultarCreditoHistoricoRequest">
+                    <simple>${body} contains 'consultarCreditoHistoricoRequest'</simple>
+                       <setProperty id="inicioSetTipoRequest8" propertyName="tipoRequest">
+                   		<simple>consultarCreditoHistoricoRequest</simple>
+                	</setProperty>
+                    <to id="toDetalleCreditoHistorico" uri="direct:consultarCreditoHistoricoOperation"/>
+                </when>
+            </choice>
+             <doCatch id="cxf-inicioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="cxf-inicioPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="cxfinicioExcepcion" uri="direct:excepcion"/>
+             </doCatch>
+            </doTry>
+        </route>
+       
+        <route id="consultarCreditosPendientes">
+            <from id="consultarCreditosPendientesFrom" uri="direct:consultarCreditosPendientes"/>
+            <doTry id="consultarCreditosPendientesTry">            	
+                <setProperty propertyName="requestUserid" id="userid1">
+                    <xpath resultType="String">//userId</xpath>
+                </setProperty>            
+                <setProperty propertyName="requestCanalLlamada" id="canal1">
+                    <xpath resultType="String">//canal</xpath>
+                </setProperty>
+                <setProperty propertyName="requestNroSolicitud" id="nroSolicitudCp">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setProperty>
+                <setProperty propertyName="requestRutSocio" id="rutSocioCp">
+                    <xpath resultType="String">//rutSocio</xpath>
+                </setProperty>
+                <setProperty propertyName="requestCodConvIni" id="codConvIniCp">
+                    <xpath resultType="String">//codConvIni</xpath>
+                </setProperty>
+                <setProperty propertyName="requestSolCredIni" id="solCredIniCp">
+                    <xpath resultType="String">//solCredIni</xpath>
+                </setProperty>
+                <setProperty propertyName="requestConConvFin" id="conConvFinCp">
+                    <xpath resultType="String">//conConvFin</xpath>
+                </setProperty>
+                <setProperty propertyName="requestSolCredFin" id="solCredFinCp">
+                    <xpath resultType="String">//solCredFin</xpath>
+                </setProperty>
+                <setProperty propertyName="requestLinDespleg" id="linDesplegCp">
+                    <xpath resultType="String">//cantidadMeses</xpath>
+                </setProperty>
+                <setProperty propertyName="requestFlgPaginar" id="flgPaginarCp">
+                    <xpath resultType="String">//flgPaginar</xpath>
+                </setProperty>                                                                                                                
+                 <log id="approveLogCCP1" loggingLevel="INFO" message="consultar Creditos Pendientes - WSSolicitudCreditoVB - Request" />
+                <to id="getCreditRequestfromIBSXsl" uri="xslt://etc/xsl/request/getCreditRequestListFromIBS.xsl"/>
+                <convertBodyTo id="getCreditRequestfromIBSRequestStr" type="java.lang.String"/>
+                <to id="getCreditRequestfromIBSRequest" uri="cxf:{{endpoint.creditodetails.service}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="getCreditRequestfromIBSResponse" type="java.lang.String"/>
+                <setProperty id="pendingCreditsXml" propertyName="pendingCreditsXml">
+                    <simple>${body}</simple>
+                </setProperty>
+                <log id="approveLogCCP2" loggingLevel="INFO" message="consultar Creditos Pendientes - WSSolicitudCreditoVB - Response" />
+                              
+                <log id="approveLogCCP3" loggingLevel="INFO" message="consultar Creditos Pendientes - WSSolicitudCreditoVB - processPendingCreditList" />
+              	<setBody id="pendingCredirRequestResponseBody">
+                    <method beanType="cl.coopeuch.integracion.orquestacioncreditospendientes.util.RouteFacade" id="finalResponseProcessor" method="processPendingCreditList(${exchangeProperty.pendingCreditsXml}"/>
+                </setBody>
+                 <doCatch id="consultarCreditosPendientesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarCreditosPendientesPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="consultarCreditosPendientesExcepcion" uri="direct:excepcion"/>
+             	</doCatch>
+             	<log id="approveLogCCP4" loggingLevel="INFO" message="consultar Creditos Pendientes - FIN "/>
+            </doTry>
+        </route> 
+        
+        <route id="aprobarVBSolicitud">
+            <from id="aprobarVBSolicitudFrom" uri="direct:aprobarVBSolicitud"/>            
+            <doTry id="aprobarVBSolicitudTry">            
+            	
+                <setProperty propertyName="rut" id="rutReq1">
+                    <xpath resultType="String">//rut</xpath>
+                </setProperty>
+                <setProperty propertyName="solicitudId" id="solicitudId1">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setProperty>
+                <setProperty propertyName="solicitudName" id="solicitudName1">
+                    <xpath resultType="String">//solicitudName</xpath>
+                </setProperty>
+                <setProperty propertyName="phone" id="phone1">
+                    <xpath resultType="String">//phone</xpath>
+                </setProperty>
+                <setProperty propertyName="creditRequestId" id="creditRequestId">
+                    <xpath resultType="String">//creditRequestId</xpath>
+                </setProperty>
+                <setProperty propertyName="rutSocio" id="rutSocio1">
+                    <xpath resultType="String">//rutSocio</xpath>
+                </setProperty>
+                <setProperty propertyName="rutSocioOriginal" id="rutSocioOriginal1">
+                    <xpath resultType="String">//rutSocio</xpath>
+                </setProperty>
+                 <setProperty propertyName="userId" id="userId2">
+                    <xpath resultType="String">//userId</xpath>
+                </setProperty>
+                <setProperty propertyName="canal" id="canal2">
+                    <xpath resultType="String">//canal</xpath>
+                </setProperty>
+                 <setProperty propertyName="rutEjecutiva" id="rutEjecutiva1">
+                    <xpath resultType="String">//rutEjecutiva</xpath>
+                </setProperty>
+                <setProperty propertyName="reason" id="reason">
+                    <constant/>
+                </setProperty>
+                <setProperty propertyName="proposedAmount" id="proposedAmount">
+                    <constant/>
+                </setProperty>
+                <setProperty propertyName="observation" id="observation">
+                    <constant/>
+                </setProperty>
+                <setProperty propertyName="totalOperation" id="aprobarVB_totalOperation">
+                    <xpath resultType="String">//totalOperation</xpath>
+                </setProperty>
+                <setProperty propertyName="monto" id="aprobarVB_monto">
+                    <xpath resultType="String">//totalDiscount</xpath>
+                </setProperty>
+                <setProperty propertyName="shareValue" id="aprobarVB_shareValue">
+                    <xpath resultType="String">//shareValue</xpath>
+                </setProperty>
+                <setProperty propertyName="otherDiscounts" id="aprobarVB_otherDiscounts">
+                    <xpath resultType="String">//otherDiscounts</xpath>
+                </setProperty>
+                <setProperty propertyName="totalDiscount" id="aprobarVB_totalDiscount">
+                    <xpath resultType="String">//totalDiscount</xpath>
+                </setProperty>
+                <setProperty propertyName="nameSocio" id="aprobarVB_nameSocio">
+                    <xpath resultType="String">//nameSocio</xpath>
+                </setProperty>
+                <setProperty propertyName="nameResolutor" id="aprobarVB_nameResolutor">
+                    <xpath resultType="String">//nameResolutor</xpath>
+                </setProperty>
+                              
+              	<log id="approveLog1" loggingLevel="INFO" message="Aprobacion de credito - Request"/>
+                <to id="approveCreditRequestXmlRequest1" uri="xslt://etc/xsl/request/approveCreditRequest.xsl"/>
+                <convertBodyTo id="approveCreditRequestRequestStr2" type="java.lang.String"/>
+                
+                <to id="approveCreditRequesting1" uri="cxf:{{endpoint.creditodetails.service}}?dataFormat=MESSAGE"/>
+                
+                  
+                <convertBodyTo id="approveCreditResponseToString" type="java.lang.String"/>
+                <setProperty propertyName="approveRequestStatus" id="approveRequestStatus">
+                    <xpath resultType="String">//serviceStatus/status</xpath>
+                </setProperty>
+                <setProperty propertyName="approveRequestStatusMessage" id="approveRequestStatusMessage">
+                    <xpath resultType="String">//serviceStatus/message</xpath>
+                </setProperty>  
+               
+                <choice id="verifyIfApproved">
+                    <when id="approved">
+                    	<!--<log id="approveLog2" loggingLevel="INFO" message="Aprobacion de credito - approved"/>-->
+                        <simple>${exchangeProperty.approveRequestStatus} == 200</simple>
+                        <setProperty propertyName="creditStatus" id="creditStatus">
+                            <constant>A</constant>
+                        </setProperty>
+                        
+                        <log id="approveLog3" loggingLevel="INFO" message="Aprobacion de credito - WSSolicitudCreditoVB - Request"/>
+                        
+                        <to id="approveCreditResponseXml" uri="xslt://etc/xsl/request/registerCreditRequest.xsl"/>
+                        <convertBodyTo id="approveCreditRequestRequestStr1" type="java.lang.String"/>
+                        <to id="approveCreditRequestRegistering1" uri="cxf:{{endpoint.creditodetails.service}}?dataFormat=MESSAGE"/>
+                        <convertBodyTo id="approveCreditRegisterResponseToString" type="java.lang.String"/>
+                        <setProperty propertyName="creditRequestStatusRegisterStatus" id="creditRequestStatusRegisterStatus">
+                            <xpath resultType="String">//serviceStatus/status</xpath>
+                        </setProperty>
+                        <choice id="verifyRegisterIfApproved">
+                            <when id="approvedRegistered">                           		
+                                <simple>${exchangeProperty.creditRequestStatusRegisterStatus} == 200</simple>
+                                  <log id="approveLog4" loggingLevel="INFO" message="Aprobacion de credito - WSSolicitudCreditoVB - approvedRegistered"/>
+                                  <setProperty propertyName="rutForContact" id="rutForContact1">
+                        				 <simple>${exchangeProperty.rutEjecutiva}</simple>
+                 				  </setProperty>
+                 				  <doTry id="getContactEmailTry1">
+               				  			<log id="approveLog5" loggingLevel="INFO" message="Aprobacion de credito - WSEjecutivo - Request"/>
+		                                <to id="approveCreditExecutiveInformationRequestXml1" uri="xslt://etc/xsl/request/getContactInfo.xsl"/>
+		                                <convertBodyTo id="approveCreditExecutiveInformationStr1" type="java.lang.String"/>
+		                                <removeHeaders id="removeJmsHeader1" pattern="JMS*"/> 
+		                                <removeHeaders id="removeSoapActionHeader1" pattern="SOAPAction*" />
+		                                <to id="approveCreditExecutiveInformationResponse11" uri="cxf:{{endpoint.consultar.service}}?dataFormat=MESSAGE"/> 
+		                                <convertBodyTo id="approveCreditExecutiveInformationResponseToString1" type="java.lang.String"/>
+		                                <log id="approveLog6" loggingLevel="INFO" message="Aprobacion de credito - WSEjecutivo - getContactInfo - Request"/>
+		                                <setProperty propertyName="executiveContactInfoDto" id="executiveContactInfoDto1">
+						                  <method
+						                         beanType="cl.coopeuch.integracion.orquestacioncreditospendientes.util.RouteFacade"
+						                                id="executiveContactInfoProcessor1" method="processContactInfoResponse(${body})"/>
+						                 </setProperty>
+						                 <log id="approveLog7" loggingLevel="INFO" message="Aprobacion de credito - WSEjecutivo - getContactInfo - processContactInfoResponse"/>
+			                   		 	<doCatch id="getContactEmailCatch1">
+						                    <exception>java.lang.Exception</exception>
+						                    <log id="getContactEmailFailed1"  loggingLevel="ERROR" message="Get email id from the contact info service Failed."/>
+              						  	</doCatch>
+               						  </doTry> 
+               						  
+               					    <setProperty propertyName="useTestEmailAddress" id="useTestEmailAddress1">
+                          					  <simple>{{useTestEmailAddress}}</simple>
+                       				</setProperty>
+                       				
+                       				 <choice id="useTestEmailAddressCheck1">
+		                            	<when id="useTestEmailAddressYes1">				                            	
+			                                <simple>${exchangeProperty.useTestEmailAddress} == 'true'</simple>  
+			                                <log id="approveLog8" loggingLevel="INFO" message="Aprobacion de credito - useTestEmailAddressYes1"/>
+										  	<setProperty propertyName="executiveEmail" id="executiveEmail11">						                        
+						                        <simple>${exchangeProperty.executiveContactInfoDto.email}</simple>
+						                  	</setProperty>
+						                  	<setProperty propertyName="executiveName" id="executiveName11">
+			                       				  <simple>${exchangeProperty.executiveContactInfoDto.name}</simple>
+			                 			 	</setProperty>
+                   				         </when>
+                   				         <otherwise>
+                   				          	<setProperty propertyName="executiveEmail" id="executiveEmail12">
+			                        			<simple>${exchangeProperty.executiveContactInfoDto.email}</simple>
+			                  				</setProperty>
+                   				          	<setProperty propertyName="executiveName" id="executiveName12">
+                       				 			<simple>${exchangeProperty.executiveContactInfoDto.name}</simple>
+                 			 				</setProperty>                      				         
+                   				         </otherwise>
+                       				  </choice>
+                                
+                                 <setProperty propertyName="rutForContact" id="rutForContact2">
+                        				 <simple>${exchangeProperty.rutSocio}</simple>
+                 				  </setProperty>
+				                 <to id="approveCreditRequestEmployeeDetailsRequestXsl" uri="xslt://etc/xsl/request/getContactInfo.xsl" />
+								 <removeHeaders id="removeJmsHeader2" pattern="JMS*"/> 
+								 <removeHeaders id="removeSoapActionHeader2" pattern="SOAPAction*" />
+								 <log id="approveLog9" loggingLevel="INFO" message="Aprobacion de credito - WSEjecutivo - Request"/>
+							     <to id="approveCreditRequesttEmployeeDetailsRequest" uri="cxf:{{endpoint.consultar.service}}?dataFormat=MESSAGE"/>
+					             <convertBodyTo id="approveCreditRequesttEmployeeDetailsResponse" type="java.lang.String"/>
+					             
+					              <setProperty propertyName="employeeContactInfoDto" id="employeeContactInfoDto1">
+				                  <method
+				                         beanType="cl.coopeuch.integracion.orquestacioncreditospendientes.util.RouteFacade"
+				                                id="employeeContactInfoProcessor1" method="processContactInfoResponse(${body})"/>
+				                 </setProperty>
+				                 
+				                 <log id="approveLog10" loggingLevel="INFO" message="Aprobacion de credito - WSEjecutivo - Response"/>
+				                   
+								   <setProperty propertyName="employeeRut" id="employeeRut1">
+				                        <simple>${exchangeProperty.employeeContactInfoDto.rut}</simple>
+				                  </setProperty>
+				                   <setProperty propertyName="employeeName" id="nameEmployee1">
+				                        <simple>${exchangeProperty.employeeContactInfoDto.name}</simple>
+				                  </setProperty>
+                                <choice id="emailSendingChoice">
+                                    <when id="emailSendOnSuccess">
+                                        <simple>${exchangeProperty.executiveEmail} != null</simple>
+                                          <doTry id="sendEmailTry1">
+                                          		<log id="approveLog11" loggingLevel="INFO" message="Aprobacion de credito - WSNotificaciones - Request: ${body}"/>
+		                                        <removeHeaders id="removeSoapActionHeader3" pattern="SOAPAction*"/>
+		                                        <to id="sendAcceptRequestEmailXSL" uri="xslt://etc/xsl/request/sendApprovedCreditRequestEmail.xsl"/>		                                        
+		                                        <convertBodyTo id="sendCreateUserEmailRequestBody" type="java.lang.String"/>
+		                                        <log id="approveLog111" loggingLevel="INFO" message="Aprobacion de credito - WSNotificaciones - Request: ${body}"/>
+		                                        <to id="cxfsendAcceptCreditEmailRequest" uri="cxf:{{endpoint.notifications.service}}?dataFormat=MESSAGE"/>
+		                                        <convertBodyTo id="sendApprovedCreditEmailResponseBody" type="java.lang.String"/>
+		                                        <log id="approveLog12" loggingLevel="INFO" message="Aprobacion de credito - WSNotificaciones - Response: ${body}"/>
+		                                   <doCatch id="sendEmailCatch1">
+							                    <exception>java.lang.Exception</exception>
+							                    <log id="sendingEmaiFailed1" loggingLevel="ERROR"  message="Send Approve Credit Request Email Failed."/>
+                 						  </doCatch>
+                 						  </doTry>     
+                                    </when>
+                                    <otherwise id="emailElsePart">
+                                        <log id="approveRegFailLog" loggingLevel="ERROR" message="Request Approved Registeration failed"/>
+                                    </otherwise>
+                                </choice>
+                                
+                                <log id="approveLog13" loggingLevel="INFO" message="Aprobacion de credito - WSServicioDeAuditoria - Request"/>
+                                <to id="approveCreditoAuditRequestsXsl" uri="xslt:/etc/xsl/request/audit_aceptar_solicitud_credito_request.xsl"/>
+								<to id="toApproveCreditoAuditRequestsXsl" uri="cxf:{{endpoint.audit.service}}?dataFormat=MESSAGE"/>				 
+                                <to id="approveCreditFinalXMLResponse2" uri="xslt://etc/xsl/response/acceptedCreditRequestResponse.xsl"/>
+                                <log id="approveLog14" loggingLevel="INFO" message="Aprobacion de credito - WSServicioDeAuditoria - Response"/>
+                                 
+                            </when>
+                            <otherwise id="registeredStatusElse">
+                                <setProperty propertyName="approveRequestStatus" id="code12">
+                                    <constant>500</constant>
+                                </setProperty>
+                                <setProperty propertyName="approveRequestStatusMessage" id="status2">
+                                    <constant>Failed - register credit request</constant>
+                                </setProperty>
+                                <to id="approveCreditFinalXMLResponse1" uri="xslt://etc/xsl/response/acceptedCreditRequestResponse.xsl"/>
+                            </otherwise>
+                        </choice>
+                        
+                    </when>
+                    <otherwise id="verifyElse">
+                        <setProperty propertyName="approveRequestStatusMessage" id="code3">
+                            <constant>500</constant>
+                        </setProperty>
+                        <setProperty propertyName="responseStatusMessage" id="status3">
+                            <constant>Credit Request not approved.</constant>
+                        </setProperty>
+                    </otherwise>
+                </choice>
+                <to id="approveCreditFinalXMLResponse" uri="xslt://etc/xsl/response/acceptedCreditRequestResponse.xsl"/>
+                 <doCatch id="approveCreditCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="approveCreditPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="approveCreditExcepcion" uri="direct:excepcion"/>
+                 </doCatch>
+            </doTry>
+        </route> 
+         
+        <route id="rechazarVBSolicitud">
+            <from id="rechazarVBSolicitudFrom" uri="direct:rechazarVBSolicitud"/>
+            <doTry id="rechazarVBSolicitudTry">
+                <setProperty propertyName="rut" id="rutReq12">
+                    <xpath resultType="String">//rut</xpath>
+                </setProperty>
+                <setProperty propertyName="solicitudId" id="solicitudId2">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setProperty>
+                <setProperty propertyName="solicitudName" id="solicitudName2">
+                    <xpath resultType="String">//solicitudName</xpath>
+                </setProperty>
+                <setProperty propertyName="phone" id="phone2">
+                    <xpath resultType="String">//phone</xpath>
+                </setProperty>
+                <setProperty propertyName="creditRequestId" id="creditRequestId2">
+                    <xpath resultType="String">//creditRequestId</xpath>
+                </setProperty>
+                <setProperty propertyName="numeroSolicitudCredito" id="numeroSolicitudCredito2">
+                    <xpath resultType="String">//creditRequestId</xpath>
+                </setProperty>
+                <setProperty propertyName="rutSocio" id="rutSocio2">
+                    <xpath resultType="String">//rutSocio</xpath>
+                </setProperty>
+                <setProperty propertyName="rutSocioOriginal" id="rutSocioOriginal2">
+                    <xpath resultType="String">//rutSocio</xpath>
+                </setProperty>
+                  <setProperty propertyName="rutEjecutiva" id="rutEjecutiva2">
+                    <xpath resultType="String">//rutEjecutiva</xpath>
+                </setProperty>
+                <setProperty propertyName="reason" id="reason2">
+                    <xpath resultType="String">//reason</xpath>
+                </setProperty>
+                <setProperty propertyName="proposedAmount" id="proposedAmount2">
+                    <xpath resultType="String">//proposedAmount</xpath>
+                </setProperty>
+                <setProperty propertyName="observation" id="observation2">
+                    <xpath resultType="String">//observation</xpath>
+                </setProperty>
+                <setProperty propertyName="userId" id="userId3">
+                    <xpath resultType="String">//userId</xpath>
+                </setProperty>
+                <setProperty propertyName="canal" id="canal3">
+                    <xpath resultType="String">//canal</xpath>
+                </setProperty>
+                <setProperty propertyName="totalOperation" id="rechazarVB_totalOperation">
+                    <xpath resultType="String">//totalOperation</xpath>
+                </setProperty>
+                <setProperty propertyName="shareValue" id="rechazarVB_shareValue">
+                    <xpath resultType="String">//shareValue</xpath>
+                </setProperty>
+                <setProperty propertyName="otherDiscounts" id="rechazarVB_otherDiscounts">
+                    <xpath resultType="String">//otherDiscounts</xpath>
+                </setProperty>
+                <setProperty propertyName="totalDiscount" id="rechazarVB_totalDiscount">
+                    <xpath resultType="String">//totalDiscount</xpath>
+                </setProperty>
+                <setProperty propertyName="nameSocio" id="rechazarVB_nameSocio">
+                    <xpath resultType="String">//nameSocio</xpath>
+                </setProperty>
+                <setProperty propertyName="nameResolutor" id="rechazarVB_nameResolutor">
+                    <xpath resultType="String">//nameResolutor</xpath>
+                </setProperty>
+                 
+                <to id="rejectCreditRequestXmlRequest1" uri="xslt://etc/xsl/request/rejectCreditRequest.xsl"/>
+                <convertBodyTo id="rejectCreditRequestRequestStr" type="java.lang.String"/>
+                <to id="rejectCreditRequesting1" uri="cxf:{{endpoint.creditodetails.service}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="rejectCreditResponseToString" type="java.lang.String"/>
+                <setProperty propertyName="rejectCreditRequestStatus" id="rejectCreditRequestStatus">
+                    <xpath resultType="String">//serviceStatus/status</xpath>
+                </setProperty>
+                <setProperty propertyName="rejectCreditRequestStatusMessage" id="rejectCreditRequestStatusMessage">
+                    <xpath resultType="String">//serviceStatus/message</xpath>
+                </setProperty> 
+                
+                <choice id="verifyIfRejected">
+                    <when id="rejected">
+                        <simple>${exchangeProperty.rejectCreditRequestStatus} == 200</simple>
+                        <setProperty propertyName="creditStatus" id="creditStatus0">
+                            <constant>R</constant>
+                        </setProperty>
+                        <to id="registerCreditRequestXsl" uri="xslt://etc/xsl/request/registerCreditRequest.xsl"/>
+                        <convertBodyTo id="rejectCreditRequestRequestStr" type="java.lang.String"/>
+                        <to id="rejectCreditRequestRegistering13" uri="cxf:{{endpoint.creditodetails.service}}?dataFormat=MESSAGE"/>
+                        <convertBodyTo id="rejectCreditRegisterResponseToString" type="java.lang.String"/>
+                        <setProperty propertyName="creditRequestStatusRegisterStatus" id="creditRequestStatusRegisterStatus1">
+                            <xpath resultType="String">//serviceStatus/status</xpath>
+                        </setProperty>
+                        <choice id="verifyRegisterIfRejected">
+                            <when id="rejectedRegistered">
+                                <simple>${exchangeProperty.creditRequestStatusRegisterStatus} == 200</simple>
+                                 <setProperty propertyName="rutForContact" id="rutForContact3">
+                        				 <simple>${exchangeProperty.rutEjecutiva}</simple>
+                 				  </setProperty>
+                 				<doTry id="getRejectContactEmailTry1">
+	                                <to id="rejectedCreditExecutiveInformationRequestXml1" uri="xslt://etc/xsl/request/getContactInfo.xsl"/>
+	                                <convertBodyTo id="rejectedCreditExecutiveInformationStr1" type="java.lang.String"/>
+	                                 <removeHeaders id="removeJmsHeader3" pattern="JMS*"/> 
+	                                 <removeHeaders id="removeSoapActionHeader4" pattern="SOAPAction*" />
+	                               <to id="rejectedCreditExecutiveInformationResponse112" uri="cxf:{{endpoint.consultar.service}}?dataFormat=MESSAGE"/>
+	                                <convertBodyTo id="rejectedCreditExecutiveInformationResponseToString1" type="java.lang.String"/>
+	                                
+	                                <setProperty propertyName="executiveContactInfoDto" id="executiveContactInfoDto2">
+					                  <method
+					                         beanType="cl.coopeuch.integracion.orquestacioncreditospendientes.util.RouteFacade"
+					                                id="executiveContactInfoProcessor2" method="processContactInfoResponse(${body})"/>
+					                 </setProperty>
+		                   		 	<doCatch id="getRejectContactEmailCatch1">
+					                    <exception>java.lang.Exception</exception>
+					                    <log id="getRejectContactEmailFailed1" loggingLevel="ERROR"   message="Get reject email id from the contact info service Failed."/>
+           						  	</doCatch>
+           						 </doTry> 
+                                 <setProperty propertyName="useTestEmailAddress" id="useTestEmailAddress2">
+                          					  <simple>{{useTestEmailAddress}}</simple>
+                       				</setProperty>	  
+                       				
+                       				 <choice id="useTestEmailAddressCheck2">
+				                            <when id="useTestEmailAddressYes2">
+			                                	<simple>${exchangeProperty.useTestEmailAddress} == 'true'</simple>  
+											  	<setProperty propertyName="executiveEmail" id="executiveEmail21">
+					                        		<simple>${exchangeProperty.executiveContactInfoDto.email}</simple>				                        
+						                 	 	</setProperty>
+							                  	<setProperty propertyName="executiveName" id="executiveName21">
+			                       				  	<simple>${exchangeProperty.executiveContactInfoDto.name}</simple>
+				                 			 	</setProperty>
+                       				         </when>
+                       				         <otherwise>
+                       				          <setProperty propertyName="executiveEmail" id="executiveEmail22">
+							                        <simple>${exchangeProperty.executiveContactInfoDto.email}</simple>
+							                  </setProperty>
+                       				          <setProperty propertyName="executiveName" id="executiveName22">
+				                       				 <simple>${exchangeProperty.executiveContactInfoDto.name}</simple>
+				                 			 </setProperty>
+                       				         
+                       				         </otherwise>
+                       				  </choice>
+                                 
+				                 <to id="rejectCreditRequestEmployeeDetailsRequestXsl" uri="xslt://etc/xsl/request/getContactInfo.xsl" />
+								 <removeHeaders id="removeJmsHeader4" pattern="JMS*"/>
+								 <removeHeaders id="removeSoapActionHeader5" pattern="SOAPAction*" />
+							     <to id="rejectCreditRequestEmployeeDetailsRequest" uri="cxf:{{endpoint.consultar.service}}?dataFormat=MESSAGE"/>
+					             <convertBodyTo id="rejectCreditRequestEmployeeDetailsResponse" type="java.lang.String"/>
+					             
+					              <setProperty propertyName="employeeContactInfoDto" id="employeeContactInfoDto2">
+				                  <method
+				                         beanType="cl.coopeuch.integracion.orquestacioncreditospendientes.util.RouteFacade"
+				                                id="employeeContactInfoProcessor2" method="processContactInfoResponse(${body})"/>
+				                 </setProperty>
+				                   
+								   <setProperty propertyName="employeeRut" id="employeeRut2">
+				                        <simple>${exchangeProperty.employeeContactInfoDto.rut}</simple>
+				                  </setProperty>
+				                   <setProperty propertyName="employeeName" id="nameEmployee2">
+				                        <simple>${exchangeProperty.employeeContactInfoDto.name}</simple>
+				                  </setProperty>
+                                <choice id="emailSendingChoiceReject">
+                                    <when id="emailSendOnSuccessReject">
+                                        <simple>${exchangeProperty.executiveEmail} != ''</simple>
+                                         <doTry id="sendEmailTry2">
+	                                        <removeHeaders id="removeSoapActionHeader6" pattern="SOAPAction*"/>
+	                                        <to id="sendAcceptRequestEmailXSL1" uri="xslt://etc/xsl/request/sendRejectCreditRequestEmail.xsl"/>
+	                                        <convertBodyTo id="sendCreateUserEmailRequestBody1" type="java.lang.String"/>
+	                                        <to id="cxfsendAcceptCreditEmailRequest1" uri="cxf:{{endpoint.notifications.service}}?dataFormat=MESSAGE"/>
+	                                        <convertBodyTo id="sendApprovedCreditEmailResponseBody1" type="java.lang.String"/>
+                                         <doCatch id="sendEmailCatch2">
+							                    <exception>java.lang.Exception</exception>
+							                    <log id="sendingEmaiFailed2" message="Send Reject Credit Request Email Failed."/>
+                 						  </doCatch>
+                 						 </doTry>     
+                                    </when>
+                                    <otherwise id="emailElsePartReject">
+                                        <!-- 
+                                        <setProperty propertyName="code" id="code0131">
+                                            <constant>500</constant>
+                                        </setProperty>
+                                        <setProperty propertyName="rejectCreditRequestStatusMessage" id="status03">
+                                            <constant>Failed - register credit request. Email send failed</constant>
+                                        </setProperty> -->
+                                    </otherwise>
+                                </choice>
+                                 <to id="rejectCreditoAuditRequestsXsl" uri="xslt:/etc/xsl/request/audit_rechazar_solicitud_credito_request.xsl"/>
+								<to id="torejectCreditoAuditRequestsXsl" uri="cxf:{{endpoint.audit.service}}?dataFormat=MESSAGE"/>		
+                                <to id="rejectCreditFinalXMLResponse02" uri="xslt://etc/xsl/response/rejectedCreditRequestResponse.xsl"/>
+                            </when>
+                            <otherwise id="registeredStatusElseReject">
+                                <setProperty propertyName="code" id="code0012">
+                                    <constant>500</constant>
+                                </setProperty>
+                                <setProperty propertyName="rejectCreditRequestStatusMessage" id="status002">
+                                    <constant>Failed - register credit request</constant>
+                                </setProperty>
+                            </otherwise>
+                        </choice>
+                        <to id="rejectCreditFinalXMLResponse01" uri="xslt://etc/xsl/response/rejectedCreditRequestResponse.xsl"/>
+                    </when>
+                    <otherwise id="verifyElseReject">
+                        <setProperty propertyName="code" id="code003">
+                            <constant>500</constant>
+                        </setProperty>
+                        <setProperty propertyName="rejectCreditRequestStatusMessage" id="status003">
+                            <constant>Credit Request rejection failed.</constant>
+                        </setProperty>
+                    </otherwise>
+                </choice>
+                <to id="rejectCreditFinalXMLResponse02" uri="xslt://etc/xsl/response/rejectedCreditRequestResponse.xsl"/>
+                 <doCatch id="rejectCreditCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="rejectCreditPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="rejectCreditExcepcion" uri="direct:excepcion"/>
+                 </doCatch>
+            </doTry>
+        </route>
+		
+		<route id="consultarSolicitud">
+			<from id="consultarSolicitudFrom" uri="direct:consultarSolicitud" />
+			<doTry id="consultarSolicitudTry">
+				<setProperty propertyName="numeroSolicitudCredito" id="numeroSolicitudCredito">
+					<xpath resultType="String">//numeroSolicitudCredito</xpath>
+				</setProperty>
+			     <setProperty propertyName="solicitudId" id="requestSolicitud3">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setProperty>
+				  <setProperty propertyName="userId" id="userId4">
+                    <xpath resultType="String">//userId</xpath>
+                </setProperty>
+                <setProperty propertyName="canal" id="canal4">
+                    <xpath resultType="String">//canal</xpath>
+                </setProperty>
+				
+				<to id="getCreditrequestDetailspartARequestXsl" uri="xslt://etc/xsl/request/getCreditRequestDetailsPartA.xsl" />
+				<to id="getCreditRequestDetailsPartA" uri="cxf:{{endpoint.creditodetails.service}}?dataFormat=MESSAGE"/>
+                 <convertBodyTo id="getCreditRequestPartAResponse" type="java.lang.String"/>
+				  
+				 <setProperty propertyName="creditosDetalles" id="creditosDetalles">
+                 <method
+                         beanType="cl.coopeuch.integracion.orquestacioncreditospendientes.util.RouteFacade"
+                                id="creditrequestDetailProcessor" method="processCreditRequestDetails(${body})"/>
+                 </setProperty>
+				  
+				  <setProperty propertyName="rutForContact" id="rutForContact4">
+                        <xpath resultType="String">//rutSocio</xpath>
+                  </setProperty>
+                   <setProperty propertyName="rutSocio" id="rutSocio3">
+                  	<xpath resultType="String">//rutSocio</xpath>
+                 </setProperty>
+                  <setProperty propertyName="nombreSocio" id="nombreSocio">
+                  	<xpath resultType="String">//nombreSocio</xpath>
+                 </setProperty>
+                   <setProperty propertyName="rutEjecutivo" id="rutEjecutivo">
+                       <xpath resultType="String">//rutVendor</xpath>
+                  </setProperty>
+                   <setProperty propertyName="nameEjecutivo" id="nameEjecutivo">
+                         <xpath resultType="String">//nombreVendor</xpath>
+                  </setProperty>
+              
+                <removeHeaders
+                    id="removeJmsHeader5" pattern="JMS*"/>
+                 <to id="getEmployeeDetailsRequestXsl" uri="xslt://etc/xsl/request/getContactInfo.xsl" />
+				  <removeHeaders id="removeSoapActionHeader7" pattern="SOAPAction*" />
+			     <to id="getEmployeeDetailsRequest" uri="cxf:{{endpoint.consultar.service}}?dataFormat=MESSAGE"/>
+	             <convertBodyTo id="getEmployeeDetailsResponse" type="java.lang.String"/>
+	             
+	              <setProperty propertyName="employeeContactInfoDto" id="employeeContactInfoDto3">
+                  <method
+                         beanType="cl.coopeuch.integracion.orquestacioncreditospendientes.util.RouteFacade"
+                                id="employeeContactInfoProcessor" method="processContactInfoResponse(${body})"/>
+                 </setProperty>
+                   
+                   <setProperty propertyName="emailEmployee" id="emailEmployee">
+                        <simple>${exchangeProperty.employeeContactInfoDto.email}</simple>
+                  </setProperty>
+				 
+                 <setProperty propertyName="rutForContact" id="rutForContact5">
+                         <simple>${exchangeProperty.rutEjecutivo}</simple>
+                  </setProperty>
+                 
+                 <to id="getEjecutivoDetailsRequestXsl" uri="xslt://etc/xsl/request/getContactInfo.xsl" />
+				  <removeHeaders
+                    id="removeJmsHeader6" pattern="JMS*"/>
+				  <removeHeaders id="removeSoapActionHeader8" pattern="SOAPAction*" />
+			     <to id="getEjecutivoDetailsRequest" uri="cxf:{{endpoint.consultar.service}}?dataFormat=MESSAGE"/>
+	             <convertBodyTo id="getEjecutivoDetailsResponse" type="java.lang.String"/>
+	             
+	             <setProperty propertyName="ejecutivoContactInfoDto" id="vendorContactInfoDto">
+                  <method
+                         beanType="cl.coopeuch.integracion.orquestacioncreditospendientes.util.RouteFacade"
+                                id="vendorContactInfoProcessor" method="processContactInfoResponse(${body})"/>
+                 </setProperty>
+                 
+                   <setProperty propertyName="emailEjecutivo" id="emailEjecutivo">
+                        <xpath resultType="String">//email</xpath>
+                  </setProperty>
+
+				 <choice id="telefonoChoice">
+                      <when id="telefonoWhen">
+                         <simple trim="true">${exchangeProperty.ejecutivoContactInfoDto.phoneNumber} != null</simple>
+						 <setProperty propertyName="telefonoEjecutivo" id="telefonoEjecutivoWhen">
+		                  		<simple>{{contact.executive.phone.prefix}} ${exchangeProperty.ejecutivoContactInfoDto.phoneNumber}</simple>
+		                  </setProperty>
+		                  
+                      </when>
+                      <otherwise id="telefonoOtherwise">
+                      	<setProperty propertyName="telefonoEjecutivo" id="telefonoEjecutivoOtherwise">
+		                  		<simple> </simple>
+		                  </setProperty>
+                      </otherwise>
+                  </choice>                   
+                 
+                <removeHeaders
+                    id="remoteCall_actualizaCampanaRemoveHeaders" pattern="JMS*"/>
+                 <to id="getCreditRequestDetailsPartCXsl" uri="xslt://etc/xsl/request/getCreditRequestDetailsPartC.xsl" />
+				<to id="getCreditRequestDetailsPartC" uri="cxf:{{endpoint.creditodetails.service}}?dataFormat=MESSAGE"/>
+                 <convertBodyTo id="getCreditRequestDetailsPartCsResponse" type="java.lang.String"/>
+                 
+                  <setProperty id="creditRequestDetailsPartCProperty" propertyName="creditRequestDetailsPartCProperty">
+                  <method
+                         beanType="cl.coopeuch.integracion.orquestacioncreditospendientes.util.RouteFacade"
+                                id="creditRequestDetailsPartCProcessor" method="processCreditRequestDetailsPartCResponse(${body})"/>
+                  </setProperty>
+                 
+                 
+                  <removeHeaders
+                    id="removeHeader3" pattern="JMS*"/>
+                 <to id="getCreditRequestOtherDetailsXsl" uri="xslt://etc/xsl/request/getCreditRequestOtherDetail.xsl" />
+				  <convertBodyTo id="convertCreditRequestOtherDetail" type="java.lang.String" charset="ISO-8859-1"/>
+                 <removeHeaders id="removeSoapActionHeader9" pattern="SOAPAction*" />
+				<to id="getCreditRequestOtherDetails" uri="cxf:{{endpoint.othercreditrequestdetails.service}}?dataFormat=MESSAGE"/>
+                 <convertBodyTo id="getCreditRequestOtherDetailsResponse" type="java.lang.String" charset="ISO-8859-1"/>
+                 <setProperty propertyName="creditRequestOtherDetails" id="creditRequestOtherDetails">
+                  <method
+                         beanType="cl.coopeuch.integracion.orquestacioncreditospendientes.util.RouteFacade"
+                                id="creditRequestOtherDetailsProcessor" method="processOtherCreditRequestDetailsResponse(${body})"/>
+                 </setProperty>
+                  <setProperty id="creditRequestDetailsPartC" propertyName="creditRequestDetailsPartC">
+                    <simple>${exchangeProperty.creditRequestDetailsPartCProperty}</simple>
+                 </setProperty>
+				  
+				  <to id="consultarSolicitudResponse" uri="xslt://etc/xsl/response/consultarDatosSolicitudCreditoResponse.xsl"/>
+				  
+				   <doCatch id="consultarSolicitudCatach">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarDatosSolicitudPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="consultarDatosSolicitudExcepcion" uri="direct:excepcion"/>
+                 </doCatch>
+				  
+			</doTry>
+		</route>
+
+        <route id="consultarCreditoHistoricoOperation">        
+            <from id="consultarCreditoHistoricoFrom" uri="direct:consultarCreditoHistoricoOperation"/>
+            <doTry id="consultarCreditoHistoricoTry">                
+                <setProperty propertyName="requestSolicitudId" id="solicitudIdCCH">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setProperty>
+                <setProperty propertyName="requestRutSocio" id="idCreditRequestCCH">
+                    <xpath resultType="String">//rutSocio</xpath>
+                </setProperty>  
+                <to id="getconsultarCreditoHistoricofrom" uri="xslt://etc/xsl/request/getConsultarCreditoHistorico.xsl"/>
+                <convertBodyTo id="getConsultarCreditoHistoricoStr" type="java.lang.String"/>
+                <to id="getConsultarCreditoHistoricoRequest" uri="cxf:{{endpoint.creditodetails.service}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="getConsultarCreditoHistoricoResponse" type="java.lang.String"/>
+                <setProperty id="pendingConsultarCreditoHistoricoXml" propertyName="pendingConsultarCreditoHistoricoXml">
+                    <simple>${body}</simple>
+                </setProperty>
+                
+                <!-- utf8 --> 
+				<removeHeaders id="_removeHeaders2" pattern="JMS*"/> 
+				<setProperty id="_setProperty9" propertyName="Exchange.HTTP_CHARACTER_ENCODING"> 
+					<constant>utf-8</constant> 
+				</setProperty> 
+				<setProperty id="_setProperty10" propertyName="Exchange.CONTENT_TYPE"> 
+					<constant>text/xml;charset=utf-8</constant> 
+				</setProperty> 
+				<setProperty id="_setProperty11" propertyName="Exchange.CONTENT_ENCODING"> 
+					<constant>utf-8</constant> 
+				</setProperty> 
+				<setProperty id="_setProperty12" propertyName="Exchange.CHARSET_NAME"> 
+					<constant>utf-8</constant> 
+				</setProperty>
+                
+              	<setBody id="consultarCreditoHistoricoRequestResponseBody">
+                    <method beanType="cl.coopeuch.integracion.orquestacioncreditospendientes.util.RouteFacade" id="finalResponseProcessorCCH" method="processCreditoHistoricoList(${exchangeProperty.pendingConsultarCreditoHistoricoXml}"/>
+                </setBody>
+                 <doCatch id="consultarCreditoHistoricoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarCreditoHistoricoPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="consultarCreditoHistoricoExcepcion" uri="direct:excepcion"/>
+             	</doCatch>
+             	<log id="approveLogCCP5" loggingLevel="INFO" message="consultar Creditos Pendientes - FIN "/>
+            </doTry>
+        </route>
+		
+		<route id="excepcion">
+			<from id="excepcionfrom" uri="direct:excepcion" />
+			
+			<doTry id="excepcionTry">
+				<bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade" />
+				<marshal id="excepcionMarshalJson">
+					<json library="Jackson" />
+				</marshal>
+				<convertBodyTo id="excepcionConvertTo" type="java.lang.String" />
+				<to id="excepcionToAmqFault"
+					uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly" />
+				<bean id="excepcionBeanExcepcion" method="excepcionCrear" ref="beanRouteFacade" />
+			     
+				<doCatch id="excepcionDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setBody id="exceptionFinalSetBodyError">
+						<simple>${exception}, Body -&gt; ${body}</simple>
+					</setBody>
+					<log id="excepcionLog" loggingLevel="ERROR"
+						message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}" />
+				</doCatch>
+			</doTry>
+		</route>         
+	</camelContext>
+</blueprint>

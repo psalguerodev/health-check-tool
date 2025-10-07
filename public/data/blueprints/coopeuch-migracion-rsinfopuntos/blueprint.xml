@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="property-placeholder"
+        persistent-id="serviceProperties" update-strategy="reload"/>
+    <!-- Configure CXF endpoint -->
+    <cxf:cxfEndpoint address="/ServicioInfoPuntos"
+        id="servicioInfoPuntosEndpoint"
+        serviceClass="cl.coopeuch.core.infopuntos.infopuntos.InfoPuntosPortType" wsdlURL="wsdl/ServicioInfoPuntos.wsdl"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSybase">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="${jdbc.sybase.url.infopuntos}/Fidelizacion;charset=iso_1"/>
+        <property name="username" value="${jdbc.sybase.username.infopuntos}"/>
+        <property name="password" value="${jdbc.sybase.password.infopuntos}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="${jdbc.sybase.timeBetweenEvictionRunsMillis.infopuntos}"/>
+        <property name="numTestsPerEvictionRun" value="${jdbc.sybase.numTestsPerEvictionRun.infopuntos}"/>
+        <property name="minEvictableIdleTimeMillis" value="${jdbc.sybase.minEvictableIdleTimeMillis.infopuntos}"/>
+        <property name="maxActive" value="${jdbc.sybase.maxActive.infopuntos}"/>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="j_int_pa_selconsultaptos_agnos">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="j_int_pa_selconsultaptos_agnos"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="pa_selconsultapuntos_core">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="pa_selconsultapuntos_core"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="fedesde"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="fehasta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <camelContext id="servicio-info-puntos-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml id="jack" prettyPrint="true"/>
+        </dataFormats>
+        <route id="cx-RuteoOperaciones">
+            <from id="servicioInfoPuntosEndpointListener" uri="cxf:bean:servicioInfoPuntosEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                    id="backupBody" method="backupBody"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaconsultaPuntosAgnos">
+                        <simple>${body} contains 'consultaPuntosAgnos'</simple>
+                        <to id="consultaPuntosAgnosValidator" uri="validator:xsd/soapInfoPuntos.xsd"/>
+                        <to id="consultaPuntosAgnosTo" uri="direct:consultaPuntosAgnos"/>
+                    </when>
+                    <when id="rutaconsultaPuntosMov">
+                        <simple>${body} contains 'consultaPuntosMov'</simple>
+                        <to id="consultaPuntosMovValidator" uri="validator:xsd/soapInfoPuntos.xsd"/>
+                        <to id="consultaPuntosMovTo" uri="direct:consultaPuntosMov"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="ruteoOperacionesRestoreBody" method="restoreBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <route id="consultaPuntosAgnos">
+            <from id="consultaPuntosAgnosFrom" uri="direct:consultaPuntosAgnos"/>
+            <doTry id="consultaPuntosAgnosTry">
+                <setHeader headerName="Rut" id="consultaPuntosAgnosHeaderRut">
+                    <xpath resultType="java.lang.String">//rut/text()</xpath>
+                </setHeader>
+                <to id="j_int_pa_selconsultaptos_agnos" uri="bean:j_int_pa_selconsultaptos_agnos"/>
+                <marshal id="consultaPuntosAgnosResultset2xml" ref="jack"/>
+                <convertBodyTo id="consultaPuntosAgnosBodyTo" type="java.lang.String"/>
+                <transform id="consultaPuntosAgnosTransform1">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <transform id="consultaPuntosAgnosTransform2">
+                    <simple>${in.body.replaceAll('&lt;&gt;','&lt;SALIDA&gt;')}</simple>
+                </transform>
+                <transform id="consultaPuntosAgnosTransform3">
+                    <simple>${in.body.replaceAll('&lt;/&gt;','&lt;/SALIDA&gt;')}</simple>
+                </transform>
+                <to id="consultaPuntosAgnosXml2xml" uri="xslt://transformations/out/resultset2xml_consultaPuntosAgnos.xsl?saxon=true"/>
+                <doCatch id="consultaPuntosAgnosCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="consultaPuntosAgnosRestoreBody" method="restoreBody"/>
+                    <setBody id="consultaPuntosAgnosSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultaPuntosAgnosFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="consultaPuntosAgnosSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultaPuntosAgnosCatchFinally"/>
+            </doTry>
+        </route>
+        <route id="consultaPuntosMov">
+            <from id="consultaPuntosMovFrom" uri="direct:consultaPuntosMov"/>
+            <doTry id="consultaPuntosMovTry">
+                <setHeader headerName="Rut" id="consultaPuntosMovHeaderRut">
+                    <xpath resultType="java.lang.String">//rut/text()</xpath>
+                </setHeader>
+                <setHeader headerName="fedesde" id="consultaPuntosMovHeaderFeDesde">
+                    <xpath resultType="java.lang.String">//fechaDesde/text()</xpath>
+                </setHeader>
+                <setHeader headerName="fehasta" id="consultaPuntosMovHeaderFeHasta">
+                    <xpath resultType="java.lang.String">//fechaHasta/text()</xpath>
+                </setHeader>
+                <to id="pa_selconsultapuntos_core" uri="bean:pa_selconsultapuntos_core"/>
+                <marshal id="consultaPuntosMovResultset2xml" ref="jack"/>
+                <convertBodyTo id="consultaPuntosMovBodyTo" type="java.lang.String"/>
+                <transform id="consultaPuntosMovTransform">
+                    <simple>${in.body.replaceAll('#','')}</simple>
+                </transform>
+                <to id="consultaPuntosMovXml2xml" uri="xslt://transformations/out/resultset2xml_consultaPuntosMov.xsl?saxon=true"/>
+                <doCatch id="consultaPuntosMovCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean beanType="cl.coopeuch.util.other.BodyBackup"
+                        id="consultaPuntosMovRestoreBody" method="restoreBody"/>
+                    <setBody id="consultaPuntosMovSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultaPuntosMovFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.SetBodyError"
+                        id="consultaPuntosMovSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultaPuntosMovFinally"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

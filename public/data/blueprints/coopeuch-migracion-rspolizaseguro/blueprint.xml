@@ -1,0 +1,609 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+           xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+           xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+                             placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+                             persistent-id="wspolizaseguro" placeholder-prefix="[{"
+                             placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Conexion Base de datos -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+          destroy-method="close" id="SQLCorredoraSeguros">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{wspolizaseguros.ds.url}]/[{wspolizaseguros.ds.database}];charset=iso_1"/>
+        <property name="username" value="[{wspolizaseguros.ds.username}]"/>
+        <property name="password" value="[{wspolizaseguros.ds.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{wspolizaseguros.ds.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{wspolizaseguros.ds.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{wspolizaseguros.ds.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{wspolizaseguros.ds.maxActive}]"/>
+    </bean>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <camelcxf:rsClient
+        id="endpointWsInstanda" loggingFeatureEnabled="true"
+        password="[{wspolizaseguro.servicio.clave}]" username="[{wspolizaseguro.servicio.usuario}]">
+        <camelcxf:providers>
+            <ref component-id="jsonProviderIn"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient
+        id="endpointWsInstandaConsulta" loggingFeatureEnabled="true"
+        password="[{wspolizaseguro.servicio.clave}]" username="[{wspolizaseguro.servicio.usuario}]">
+        <camelcxf:providers>
+            <ref component-id="jsonProviderIn"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient id="endpointWsInstandaCrearSolVenta"
+                       password="[{wspolizaseguro.servicio.clave}]" username="[{wspolizaseguro.servicio.usuario}]"
+                       loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <bean class="cl.coopeuch.integracion.polizaseguro.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProviderEx"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProviderIn"/>
+    <reference id="bindy"
+               interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <camelcxf:cxfEndpoint
+        address="[{wspolizaseguro.servicio.instanda.corredorasegurocrm.endpoint}]"
+        id="endpointCorredoraSeguroCRM"
+        serviceClass="cl.coopeuch.integracion.corredora.seguro.crm.wsdl.CorredoraSeguroCRMSoap" wsdlURL="etc/wsdl/CorredoraSeguroCRM.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:cxfEndpoint address="/WSPolizaSeguro"
+                          id="endpointWSPolizaSeguro"
+                          serviceClass="cl.coopeuch.integracion.polizaseguro.wsdl.WSPolizaSeguroSOAPPortType" wsdlURL="etc/wsdl/WSPolizaSeguro.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSPolizaSeguro"
+                       id="endpointRSPolizaSeguro" serviceClass="cl.coopeuch.integracion.polizaseguro.wsdl.WSPolizaSeguroSOAPPortType">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsServer>
+    <camelcxf:rsClient
+        address="[{wspolizaseguro.firmaelectronica.token.endpoint}]"
+        id="endpointTokenFirmaElectronica" loggingFeatureEnabled="true"/>
+    <camelcxf:rsClient
+        address="[{wspolizaseguro.firmaelectronica.cardif.endpoint}]"
+        id="endpointFirmaElectronicaCardif" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient
+        address="[{wspolizaseguro.servicio.instanda.policydocuments.endpoint}]"
+        id="endpointWsInstandaDocumento" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProviderIn"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="dropRootElement" value="true"/>
+        <property name="supportUnwrapped" value="true"/>
+        <property name="serializeAsArray" value="true"/>
+        <property name="arrayKeys">
+            <list>
+                <value>DocumentInformationList</value>
+            </list>
+        </property>
+    </bean>
+    <camelContext id="servicio-poliza-seguro" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSPolizaSeguro"/>
+            <to id="soapToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSPolizaSeguro"/>
+            <to id="restToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="iniciows-route">
+            <from id="iniciows" uri="direct:iniciows"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setProperty id="siteDomainNameProp" propertyName="siteDomainName">
+                    <simple>{{wspolizaseguro.servicio.siteDomainName}}</simple>
+                </setProperty>
+                <setProperty id="salesPersonUserNameProp" propertyName="salesPersonUserName">
+                    <simple>{{wspolizaseguro.servicio.salesPersonUserName}}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <setProperty id="numeroPolizaConsultar2" propertyName="numeroPoliza">
+                            <simple>$simple{body.get(0).numeroPoliza}</simple>
+                        </setProperty>
+                        <to id="Consultar-To" uri="direct:consultar"/>
+                    </when>
+                    <when id="inicioCrear">
+                        <simple>${header.operationName} == 'crear'</simple>
+                        <setProperty id="numeroPolizaCrear" propertyName="numeroPoliza">
+                            <simple>$simple{body.get(0).numeroSeguroIBS}</simple>
+                        </setProperty>
+                        <to id="Crear-To" uri="direct:crear"/>
+                    </when>
+                    <when id="inicioEnviar">
+                        <simple>${header.operationName} == 'enviar'</simple>
+                        <to id="direct:enviarTo" uri="direct:enviar"/>
+                    </when>
+                    <when id="inicioCrearSolicitudVenta">
+                        <simple>${header.operationName} == 'crearSolicitudVenta'</simple>
+                        <setBody id="inicioSetBody">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <to id="crearSolicitudVentaTo" uri="direct:crearSolicitudVenta"/>
+                    </when>
+                    <when id="inicioFirmarDocumento">
+                        <simple>${header.operationName} == 'firmarDocumento'</simple>
+                        <setBody id="inicioFirmarDocumentoSetBody">
+                            <simple>$simple{body.get(0)}</simple>
+                        </setBody>
+                        <to id="firmarDocumentoTo" uri="direct:firmarDocumento"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+            </doTry>
+        </route>
+        <route id="crearSolicitudVenta">
+            <from id="crearSolicitudVenta-From" uri="direct:crearSolicitudVenta"/>
+            <doTry id="crearSolicitudVenta-DoTry">
+                <bean id="crearSolicitudVenta-propertyPaVentaURL"
+                      method="setPropertyPASELVentaURL" ref="beanRouteFacade"/>
+                <to id="crearSolicitudVenta-paUrlVenta" uri="sql-stored:classpath:etc/sql/PA_SELVentaURL.sql?outputHeader=selVentaUrlResponse&amp;dataSource=SQLCorredoraSeguros"/>
+                <bean id="crearSolicitudVenta-responsePaVentaURL"
+                      method="responsePASELVentaURL" ref="beanRouteFacade"/>
+                <removeHeaders id="crearSolicitudVentaRemoveHeaders" pattern="*"/>
+                <setHeader headerName="Exchange.HTTP_METHOD" id="setHeaderMethodCrearSolicitudVenta">
+                    <constant>PUT</constant>
+                </setHeader>
+                <setHeader headerName="Content-Type" id="setHeaderContentTypeCrearSolicitudVenta">
+                    <constant>application/json</constant>
+                </setHeader>
+                <choice id="choiceEjecutivo2">
+                    <when>
+                        <simple>$simple{body.ejecutivo} != null</simple>
+                        <setProperty id="salesPersonUserNameProp2" propertyName="salesPersonUserName">
+                            <simple>$simple{body.ejecutivo}</simple>
+                        </setProperty>
+                    </when>
+                </choice>
+                <bean method="generarRequestSolicitudVenta" ref="beanRouteFacade"/>
+                <setHeader headerName="CamelHttpQuery" id="setCamelHttpQuerycrearSolicitudVenta">
+                    <simple>siteDomainName=${exchangeProperty.siteDomainName}&amp;salesPersonUserName=${exchangeProperty.salesPersonUserName}</simple>
+                </setHeader>
+                <toD id="crearSolicitudVenta-ext-to" uri="cxfrs://bean://endpointWsInstandaCrearSolVenta?address=${property.urlStart}&amp;throwExceptionOnFailure=false"/>
+                <choice>
+                    <when>
+                        <simple>${header.CamelHttpResponseCode} != '200'</simple>
+                        <convertBodyTo type="java.lang.String"/>
+                        <throwException exceptionType="org.apache.camel.CamelException" message="Codigo externo ${header.CamelHttpResponseCode} - ${body}"/>
+                    </when>
+                </choice>
+                <bean method="generarResponseSolicitudVenta" ref="beanRouteFacade"/>
+                <doCatch id="crearSolicitudVenta-camelExDoCatch">
+                    <exception>org.apache.camel.CamelException</exception>
+                    <bean method="corregirFormatoErrorInstanda" ref="beanRouteFacade"/>
+                    <setProperty
+                        id="crearSolicitudVenta-camelExPropertyCodigo" propertyName="codigoError">
+                        <simple>432</simple>
+                    </setProperty>
+                    <setProperty id="exceptionCodigocrearSolicitudVenta" propertyName="codigoErrorExt">
+                        <simple>${header.CamelHttpResponseCode}</simple>
+                    </setProperty>
+                    <setProperty id="exceptionCodigocrearSolicitudVenta" propertyName="mensajeErrorExt">
+                        <simple>${body}</simple>
+                    </setProperty>
+                    <to id="tocrearSolicitudVenta-camelExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="crearSolicitudVenta-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="crearSolicitudVenta-PropertyCodigo" propertyName="codigoError">
+                        <simple>504</simple>
+                    </setProperty>
+                    <to id="tocrearSolicitudVentarExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultar">
+            <from id="consultar-From" uri="direct:consultar"/>
+            <doTry id="consultar-DoTry">
+                <bean id="consultar-propertyPaConsultarURL"
+                      method="setPropertyPaConsultarUrlConsulta" ref="beanRouteFacade"/>
+                <to id="consultar-paConsultarUrl" uri="sql-stored:classpath:etc/sql/PA_ConsultarURL.sql?outputHeader=consultarUrlResponse&amp;dataSource=SQLCorredoraSeguros"/>
+                <bean id="consultar-responsePaConsultarURL"
+                      method="responsePaConsultarUrl" ref="beanRouteFacade"/>
+                <removeHeaders id="consultarRemoveHeaders" pattern="*"/>
+                <setHeader headerName="Content-Type" id="setHeaderContentTypeConsultar">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="Exchange.HTTP_METHOD" id="setHeaderMethodConsultar">
+                    <constant>GET</constant>
+                </setHeader>
+                <setHeader headerName="CamelHttpQuery" id="CamelHttpPath1">
+                    <simple>siteDomainName=${exchangeProperty.siteDomainName}&amp;policyNumber=${exchangeProperty.numeroPoliza}&amp;salesPersonUserName=${exchangeProperty.salesPersonUserName}</simple>
+                </setHeader>
+                <setHeader
+                    headerName="Exchange.DESTINATION_OVERRIDE_URL" id="setUrlConsultar">
+                    <simple>${exchangeProperty.urlView}</simple>
+                </setHeader>
+                <toD id="consultar-ext-to" uri="cxfrs://bean://endpointWsInstandaConsulta?maxClientCacheSize=0&amp;throwExceptionOnFailure=false"/>
+                <choice>
+                    <when>
+                        <simple>${header.CamelHttpResponseCode} != '200'</simple>
+                        <convertBodyTo type="java.lang.String"/>
+                        <throwException exceptionType="org.apache.camel.CamelException" message="Codigo externo ${header.CamelHttpResponseCode} - ${body}"/>
+                    </when>
+                </choice>
+                <bean id="consultar-Bean" method="consultarResponse" ref="beanRouteFacade"/>
+                <doCatch id="consultar-camelSQLCatch">
+                    <exception>java.sql.SQLException</exception>
+                    <to id="toConsultarSQLExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="cons-camelExDoCatch">
+                    <exception>org.apache.camel.CamelException</exception>
+                    <bean method="corregirFormatoErrorInstanda" ref="beanRouteFacade"/>
+                    <setProperty id="cons-camelExPropertyCodigo" propertyName="codigoError">
+                        <simple>429</simple>
+                    </setProperty>
+                    <setProperty id="exceptionCodigoCons" propertyName="codigoErrorExt">
+                        <simple>${header.CamelHttpResponseCode}</simple>
+                    </setProperty>
+                    <setProperty id="exceptionMensajeCons" propertyName="mensajeErrorExt">
+                        <simple>${body}</simple>
+                    </setProperty>
+                    <to id="tocons-camelExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consPolizaSeguro-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="cons-PropertyCodigo" propertyName="codigoError">
+                        <simple>504</simple>
+                    </setProperty>
+                    <to id="toConsExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="enviar">
+            <from id="_from2" uri="direct:enviar"/>
+            <setProperty id="_setProperty1" propertyName="rut">
+                <simple>${body.get(0).rutCliente}</simple>
+            </setProperty>
+            <doTry id="_doTry1">
+                <removeHeaders id="_removeHeaders2" pattern="*"/>
+                <setHeader headerName="Content-Type" id="_setHeader1">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="Exchange.HTTP_METHOD" id="_setHeader2">
+                    <constant>GET</constant>
+                </setHeader>
+                <setHeader headerName="CamelHttpQuery" id="_setHeader3">
+                    <simple>quoteRef=${body.get(0).quoteRef}</simple>
+                </setHeader>
+                <setHeader headerName="Ocp-Apim-Subscription-Key" id="_setHeader4">
+                    <simple>{{wspolizaseguro.servicio.instanda.policydocuments.token}}</simple>
+                </setHeader>
+                <setProperty propertyName="policyNumber">
+                    <simple>${body.get(0).policyNumber}</simple>
+                </setProperty>
+                <toD id="_toD1" uri="cxfrs://bean://endpointWsInstandaDocumento?maxClientCacheSize=0"/>
+                <unmarshal>
+                    <json library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.polizaseguro.wsdl.apiinstanda.PolicyDocumentsResponse"/>
+                </unmarshal>
+                <bean id="_bean1" method="responseCrm" ref="beanRouteFacade"/>
+                <wireTap id="_to1" uri="direct:irCorredoraSeguroCRM"/>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="_setProperty2" propertyName="codigoError">
+                        <constant>419</constant>
+                    </setProperty>
+                    <to id="_to2" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty3" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <log id="_log3" loggingLevel="ERROR" message="Error: ${exception.stacktrace}"/>
+                    <to id="_to3" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route1">
+            <from id="_from1" uri="direct:irCorredoraSeguroCRM"/>
+            <removeHeaders id="_removeHeaders1" pattern="*"/>
+            <to id="xml2xslt_CorredoraSeguro" uri="xslt://etc/xslt/in/xml2Entrada_IngresoDocumentoVenta.xsl?saxon=true"/>
+            <to id="enviarToCorredoraSeguroCRM" uri="cxf:{{wspolizaseguro.servicio.instanda.corredorasegurocrm.endpoint}}?dataFormat=MESSAGE"/>
+            <convertBodyTo id="_convertBodyTo1" type="java.lang.String"/>
+            <choice id="_choice1">
+                <when id="_when1">
+                    <xpath>//ingresoDocumentoVentaResult != 'true'</xpath>
+                    <throwException exceptionType="java.lang.Exception"
+                                    id="error2" message="${body}"/>
+                </when>
+            </choice>
+        </route>
+        <route id="crear">
+            <from id="crear-From" uri="direct:crear"/>
+            <doTry id="crear-DoTry">
+                <bean id="crear-propertyPaConsultarURL"
+                      method="setPropertyPaConsultarUrl" ref="beanRouteFacade"/>
+                <to id="crear-paConsultarUrl" uri="sql-stored:classpath:etc/sql/PA_ConsultarURL.sql?outputHeader=consultarUrlResponse&amp;dataSource=SQLCorredoraSeguros"/>
+                <bean id="crear-responsePaConsultarURL"
+                      method="responsePaConsultarUrl" ref="beanRouteFacade"/>
+                <bean id="crearReq-Bean" method="setHeaderCrearPoliza" ref="beanRouteFacade"/>
+                <setHeader headerName="Exchange.HTTP_METHOD" id="setHeaderMethodCrear">
+                    <constant>PUT</constant>
+                </setHeader>
+                <setHeader headerName="Content-Type" id="setHeaderContentTypeCrear">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="CamelDestinationOverrideUrl" id="setUrlCreate">
+                    <simple>${exchangeProperty.urlCreate}</simple>
+                </setHeader>
+                <setHeader headerName="CamelHttpQuery" id="setCamelHttpQuery">
+                    <simple>siteDomainName=${exchangeProperty.siteDomainName}&amp;policyNumber=${exchangeProperty.numeroPoliza}&amp;salesPersonUserName=${exchangeProperty.salesPersonUserName}</simple>
+                </setHeader>
+                <toD id="crear-ext-to" uri="cxfrs://bean://endpointWsInstanda?throwExceptionOnFailure=false"/>
+                <choice>
+                    <when>
+                        <simple>${header.CamelHttpResponseCode} != '200'</simple>
+                        <convertBodyTo type="java.lang.String"/>
+                        <throwException exceptionType="org.apache.camel.CamelException" message="Codigo externo ${header.CamelHttpResponseCode} - ${body}"/>
+                    </when>
+                </choice>
+                <bean id="crearResp-Bean" method="crearResponse" ref="beanRouteFacade"/>
+                <doCatch id="crear-camelSQLCatch">
+                    <exception>java.sql.SQLException</exception>
+                    <to id="toCrearSQLExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="crear-camelExDoCatch">
+                    <exception>org.apache.camel.CamelException</exception>
+                    <bean method="corregirFormatoErrorInstanda" ref="beanRouteFacade"/>
+                    <setProperty id="crear-camelExPropertyCodigo" propertyName="codigoError">
+                        <simple>432</simple>
+                    </setProperty>
+                    <setProperty id="exceptionCodigoExtCrear" propertyName="codigoErrorExt">
+                        <simple>${header.CamelHttpResponseCode}</simple>
+                    </setProperty>
+                    <setProperty id="exceptionMensajeExtCrear" propertyName="mensajeErrorExt">
+                        <simple>${body}</simple>
+                    </setProperty>
+                    <to id="tocrear-camelExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="crearPolizaSeguro-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="crearPolizaSeguro-PropertyCodigo" propertyName="codigoError">
+                        <simple>504</simple>
+                    </setProperty>
+                    <to id="toCrearExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route>
+            <from uri="direct:firmarDocumento"/>
+            <doTry>
+                <setProperty propertyName="rutAsegurado">
+                    <simple>$simple{body.rutAsegurado}</simple>
+                </setProperty>
+                <setProperty propertyName="direccionAsegurado">
+                    <simple>$simple{body.direccionAsegurado}</simple>
+                </setProperty>
+                <setProperty propertyName="emailAsegurado">
+                    <simple>$simple{body.emailAsegurado}</simple>
+                </setProperty>
+                <setProperty propertyName="nombreDocumento">
+                    <simple>$simple{body.nombreDocumento}</simple>
+                </setProperty>
+                <setProperty propertyName="documento">
+                    <simple>$simple{body.documento}</simple>
+                </setProperty>
+                <setProperty propertyName="tipoDocumento">
+                    <simple>$simple{body.tipoDocumento}</simple>
+                </setProperty>
+                <setProperty propertyName="numeroPoliza">
+                    <simple>$simple{body.numeroPoliza}</simple>
+                </setProperty>
+                <setProperty propertyName="codigoProducto">
+                    <simple>$simple{body.codigoProducto}</simple>
+                </setProperty>
+                <setProperty propertyName="descripcionProducto">
+                    <simple>$simple{body.descripcionProducto}</simple>
+                </setProperty>
+                <setProperty propertyName="controlExterno">
+                    <simple>$simple{body.controlExterno}</simple>
+                </setProperty>
+                <setProperty propertyName="planAsegurado">
+                    <simple>$simple{body.planAsegurado}</simple>
+                </setProperty>
+                <to uri="direct:generarTokenFirmaElectronica"/>
+                <to uri="direct:llamarServicioFirmaElectronica"/>
+                <doCatch >
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty propertyName="codigoError">
+                        <constant>419</constant>
+                    </setProperty>
+                    <to uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch>
+                    <exception>java.lang.Exception</exception>
+                    <setProperty propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <log loggingLevel="ERROR" message="Error: ${exception.stacktrace}"/>
+                    <to uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="generarTokenFirmaElectronica">
+            <from id="generarTokenFirmaElectronicaFrom" uri="direct:generarTokenFirmaElectronica"/>
+            <doTry id="generarTokenFirmaElectronicaTry">
+                <removeHeaders id="generarTokenFirmaElectronicaHeaderRemove" pattern="*"/>
+                <setHeader headerName="Content-Type">
+                    <constant>application/x-www-form-urlencoded</constant>
+                </setHeader>
+                <setBody>
+                    <simple>client_id={{wspolizaseguro.firmaelectronica.token.clientIdentification}}&amp;scope={{wspolizaseguro.firmaelectronica.token.scope}}&amp;client_secret={{wspolizaseguro.firmaelectronica.token.clientSecret}}&amp;grant_type={{wspolizaseguro.firmaelectronica.token.grantType}}</simple>
+                </setBody>
+                <to id="generarTokenFirmaElectronicaToUri" uri="cxfrs:bean:endpointTokenFirmaElectronica?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <choice id="generarTokenFirmaElectronicaChoice">
+                    <when id="respuestaTokenFirmaElectronicaExitosa">
+                        <simple>${header.CamelHttpResponseCode} == '200'</simple>
+                        <unmarshal id="generarTokenFirmaElectronicaToJson">
+                            <json library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.polizaseguro.util.json.TokenFirmaElectronicaResponse"/>
+                        </unmarshal>
+                        <setProperty id="generarTokenFirmaElectronica" propertyName="accessToken">
+                            <simple>${body.accessToken}</simple>
+                        </setProperty>
+                    </when>
+                    <otherwise id="respuestaTokenFirmaElectronicaConError">
+                        <setProperty id="generarTokenFirmaElectronicaError" propertyName="tokenError">
+                            <jsonpath suppressExceptions="true">$.error</jsonpath>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.io.IOException"
+                            id="generarTokenFirmaElectronicaThrowException" message="El servicio externo ha respondido con error: ${exchangeProperty.tokenError}"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="generarTokenFirmaElectronicaDoCatchEspecifico">
+                    <exception>java.io.IOException</exception>
+                    <setProperty id="generarTokenFirmaElectronicaCodigoErrorEspecifico" propertyName="codigoError">
+                        <constant>419</constant>
+                    </setProperty>
+                    <to id="generarTokenFirmaElectronicaToExcepcionEspecifico" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="generarTokenFirmaElectronicaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="generarTokenFirmaElectronicaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="generarTokenFirmaElectronicaoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="llamarServicioFirmaElectronica">
+            <from id="llamarServicioFirmaElectronicaFrom" uri="direct:llamarServicioFirmaElectronica"/>
+            <doTry id="llamarServicioFirmaElectronicaTry">
+                <removeHeaders id="llamarServicioFirmaElectronicaHeaderRemove" pattern="*"/>
+                <setHeader headerName="Authorization" id="llamarServicioFirmaElectronicaAutorizacionSetHeader">
+                    <simple>Bearer ${exchangeProperty.accessToken}</simple>
+                </setHeader>
+                <setHeader headerName="Content-Type" id="llamarServicioFirmaElectronicaContentTypeSetHeader">
+                    <constant>application/json</constant>
+                </setHeader>
+                <setHeader headerName="Exchange.HTTP_METHOD" id="llamarServicioFirmaElectronicaMethodSetHeader">
+                    <constant>PUT</constant>
+                </setHeader>
+                <setHeader headerName="Header-Trace-serviceName">
+                    <simple>{{wspolizaseguro.firmaelectronica.header.traceServiceName}}</simple>
+                </setHeader>
+                <setHeader headerName="Header-Partner-partnerId">
+                    <simple>{{wspolizaseguro.firmaelectronica.header.partnerPartnerId}}</simple>
+                </setHeader>
+                <setHeader headerName="Header-SystemUserInfo-userName">
+                    <simple>{{wspolizaseguro.firmaelectronica.header.systemUserInfoUserName}}</simple>
+                </setHeader>
+                <setHeader headerName="Header-Channel-channelId">
+                    <simple>{{wspolizaseguro.firmaelectronica.header.channelChannelId}}</simple>
+                </setHeader>
+                <setHeader headerName="Header-Trace-serviceOperation">
+                    <simple>{{wspolizaseguro.firmaelectronica.header.traceServiceOperation}}</simple>
+                </setHeader>
+                <setHeader headerName="Header-SystemUserInfo-userId">
+                    <simple>{{wspolizaseguro.firmaelectronica.header.systemUserInfoUserId}}</simple>
+                </setHeader>
+                <setHeader headerName="Header-Trace-serviceId">
+                    <simple>{{wspolizaseguro.firmaelectronica.header.traceServiceId}}</simple>
+                </setHeader>
+                <setHeader headerName="Header-Trace-operationId">
+                    <simple>{{wspolizaseguro.firmaelectronica.header.traceOperationId}}</simple>
+                </setHeader>
+                <setHeader headerName="Header-Partner-partnerDesc">
+                    <simple>{{wspolizaseguro.firmaelectronica.header.partnerPartnerDesc}}</simple>
+                </setHeader>
+                <setHeader headerName="Header-Country-countryId">
+                    <simple>{{wspolizaseguro.firmaelectronica.header.countryCountryId}}</simple>
+                </setHeader>
+                <setHeader headerName="Header-Trace-timestamp">
+                    <simple>${date:now:yyyy-MM-dd}T${date:now:HH:mm:ss}</simple>
+                </setHeader>
+                <setHeader headerName="Header-App-appVersion">
+                    <simple>{{wspolizaseguro.firmaelectronica.header.appAppVersion}}</simple>
+                </setHeader>
+                <setHeader headerName="Header-Channel-channelDesc">
+                    <simple>{{wspolizaseguro.firmaelectronica.header.channelChannelDesc}}</simple>
+                </setHeader>
+                <setHeader headerName="Header-Country-countryDesc">
+                    <simple>{{wspolizaseguro.firmaelectronica.header.countryCountryDesc}}</simple>
+                </setHeader>
+                <bean method="requestFirmarDocumento" ref="beanRouteFacade"/>
+                <to id="llamarServicioFirmaElectronicaToCardif" uri="cxfrs:bean:endpointFirmaElectronicaCardif"/>
+                <choice id="llamarServicioFirmaElectronicaChoice">
+                    <when id="llamarServicioFirmaElectronicaResponseSinError">
+                        <simple>${header.CamelHttpResponseCode} == '200'</simple>
+                        <unmarshal>
+                            <json library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.polizaseguro.wsdl.apicardif.ElectronicSignatureResponse"/>
+                        </unmarshal>
+                        <bean id="llamarServicioFirmaElectronicaRespuesta"
+                              method="responseFirmarDocumento" ref="beanRouteFacade"/>
+                    </when>
+                </choice>
+                <doCatch id="llamarServicioFirmaElectronicaDoCatchEspecifico">
+                    <exception>java.io.IOException</exception>
+                    <setProperty id="ErrorllamarServicioFirmaElectronicaEspecifico" propertyName="codigoError">
+                        <constant>419</constant>
+                    </setProperty>
+                    <to id="llamarServicioFirmaElectronicaToExcepcionEspecifica" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="llamarServicioFirmaElectronicaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="llamarServicioFirmaElectronicaCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="llamarServicioFirmaElectronicaToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <log id="logException" loggingLevel="ERROR" message="${exception}"/>
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                      method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,1540 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyAdministradorIDG"
+        persistent-id="wsadministradorIDG" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/WSAdministradorIDG"
+        id="servicioAdministradorIDGPortType"
+        loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.administradoridg.AdministradorIDGPortType" wsdlURL="etc/wsdl/ServicioAdministradorIDG.wsdl"/>
+    <cxf:cxfEndpoint address="[{endpoint.IDG.url.AuthService}]"
+        id="endpointServicioAuthServiceIDG" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.administradoridg.wsdl.authentication.AuthenticationService" wsdlURL="etc/wsdl/AuthenticationServiceV9.wsdl"/>
+    <cxf:cxfEndpoint address="[{endpoint.IDG.url.AdminService}]"
+        id="endpointServicioAdminIDG" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.administradoridg.wsdl.admin.idg.AdminService" wsdlURL="etc/wsdl/AdminServiceV9.wsdl"/>
+    <cxf:cxfEndpoint address="[{endpoint.safesigner.card.url}]"
+        id="endpointServicioCardSS" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.administradoridg.wsdl.cardSS.CardWs" wsdlURL="etc/wsdl/CardWs.wsdl"/>
+    <cxf:cxfEndpoint address="[{endpoint.safesigner.auth.url}]"
+        id="endpointWSAuthSS" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.administradoridg.wsdl.authSS.AuthenticationWs" wsdlURL="etc/wsdl/AuthWs.wsdl"/>
+    <cxf:cxfEndpoint address="[{endpoint.safesigner.sms.url}]"
+        id="endpointWSSmsSS" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.administradoridg.wsdl.smsSS.SmsWs" wsdlURL="etc/wsdl/SmsWs.wsdl"/>
+    <cxf:rsClient address="[{rsnotificaciones.enviar.endpoint}]"
+        id="endpointRsNotificaciones" loggingFeatureEnabled="true">
+        <cxf:properties>
+            <entry key="throwExceptionOnFailure" value="true"/>
+        </cxf:properties>
+    </cxf:rsClient>
+    <cxf:rsServer address="/RSAdministradorIDG"
+        id="WSADMINISTRADORIDGREST" serviceClass="cl.coopeuch.integracion.administradoridg.AdministradorIDGPortType"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.administrador.idg}]/PortalWeb;charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.administrador.idg}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.administrador.idg}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.administrador.idg}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.administrador.idg}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.administrador.idg}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.administrador.idg}]"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.util.RouteFacade" id="beanRouteFacade"/>
+    <camelContext id="servicio-administradorIDG" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="rest-inicio">
+            <from id="inicioRestFrom" uri="cxfrs:bean:WSADMINISTRADORIDGREST"/>
+            <to id="restToConsultar" uri="direct:inicio"/>
+        </route>
+        <route id="soap-inicio">
+            <from id="inicioSoapServicio" uri="cxf:bean:servicioAdministradorIDGPortType"/>
+            <to id="SoapToConsultar" uri="direct:inicio"/>
+        </route>
+        <route id="cx-RuteoOperaciones">
+            <from id="EndpointListener" uri="direct:inicio"/>
+            <setProperty id="_setProperty1" propertyName="entra_fault">
+                <simple>0</simple>
+            </setProperty>
+            <setProperty id="grupo_cliente" propertyName="IDG.admin.grupo.clientes">
+                <simple>{{IDG.admin.grupo.clientes}}</simple>
+            </setProperty>
+            <setProperty id="grupo_app" propertyName="IDG.admin.grupo.app">
+                <simple>{{IDG.admin.grupo.app}}</simple>
+            </setProperty>
+            <setProperty id="user_admin" propertyName="IDG.admin.user">
+                <simple>{{IDG.admin.user}}</simple>
+            </setProperty>
+            <setProperty id="password_admin" propertyName="IDG.admin.password">
+                <simple>{{IDG.admin.password}}</simple>
+            </setProperty>
+            <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                <simple>$simple{body.get(0)}</simple>
+            </setProperty>
+            <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+            </setProperty>
+            <setProperty id="operationName" propertyName="operationName">
+                <simple>${header.operationName}</simple>
+            </setProperty>
+            <setProperty id="migracion" propertyName="migracion">
+                <simple>{{migracion}}</simple>
+            </setProperty>
+            <log id="_log1" message="operationName: ${header.operationName}"/>
+            <choice id="ruteoOperaciones">
+                <when id="rutaobtenerUsuario">
+                    <simple>${header.operationName} == 'obtenerUsuario'</simple>
+                    <to id="obtenerUsuarioTo" uri="direct:obtenerUsuario"/>
+                </when>
+                <when id="rutaobtenerTarjeta">
+                    <simple>${header.operationName} == 'obtenerTarjeta'</simple>
+                    <to id="obtenerTarjetaTo" uri="direct:obtenerTarjeta"/>
+                </when>
+                <when id="rutadesbloquear">
+                    <simple>${header.operationName} == 'desbloquear'</simple>
+                    <to id="desbloquearTo" uri="direct:desbloquear"/>
+                </when>
+                <when id="rutacambioEstadoTarjeta">
+                    <simple>${header.operationName} == 'cambioEstadoTarjeta'</simple>
+                    <to id="cambioEstadoTarjetaTo" uri="direct:cambioEstadoTarjeta"/>
+                </when>
+                <when id="rutaCrearUsuario">
+                    <simple>${header.operationName} == 'crearUsuario'</simple>
+                    <to id="crearUsuarioTo" uri="direct:crearUsuario"/>
+                </when>
+                <when id="rutaasignarTarjeta">
+                    <simple>${header.operationName} == 'asignarTarjeta'</simple>
+                    <to id="asignarTarjetaTo" uri="direct:asignarTarjeta"/>
+                </when>
+            </choice>
+        </route>
+        <route id="cambioEstadoTarjeta">
+            <from id="cambioEstadoTarjetaFrom" uri="direct:cambioEstadoTarjeta"/>
+            <doTry id="cambioEstadoTarjeta-Try-Principal">
+                <setBody id="setBody-cambioEstadoTarjeta">
+                    <simple>${exchangeProperty.requestEntrada}</simple>
+                </setBody>
+                <setProperty id="CambioEstadoTarjeta-rutCliente" propertyName="rutCliente">
+                    <simple>$simple{body.entrada.identificadorCliente}</simple>
+                </setProperty>
+                <setProperty id="CambioEstadoTarjeta-numeroTarjeta" propertyName="numeroTarjeta">
+                    <simple>$simple{body.entrada.numeroTarjeta}</simple>
+                </setProperty>
+                <setProperty id="cambioEstadoTarjeta-estado" propertyName="estado">
+                    <simple>$simple{body.entrada.estadoTarjeta}</simple>
+                </setProperty>
+                <setProperty id="cambioEstadoHeaderServicio" propertyName="SERVICIO">
+                    <simple>Servicio Administrador IDG</simple>
+                </setProperty>
+                <setProperty id="cambioEstadoHeaderAccion" propertyName="ACCION">
+                    <simple>cambioEstadoTarjeta</simple>
+                </setProperty>
+                <bean id="cambioEstadoTarjeta-ValidacionCampos-Bean"
+                    method="validarCamposEntrada" ref="beanRouteFacade"/>
+                <choice id="cambioEstadoTarjeta-Principal-Choice">
+                    <when id="cambioEstadoTarjeta-Principal-When">
+                        <simple>${exchangeProperty.ValidacionEntrada} == 'OK'</simple>
+                        <choice id="ValidacionEntrada-choice">
+                            <when id="ValidacionEntrada-when">
+                                <simple>${exchangeProperty.migracion} == 1</simple>
+                                <to id="cambioEstadoSS-to" uri="direct:cambioEstadoSS"/>
+                                <choice id="cambioEstadoSS-choice">
+                                    <when id="cambioEstadoSS-when">
+                                    <simple>${exchangeProperty.CODIGO} == 0</simple>
+                                    <wireTap
+                                    id="llamada_BD-ExitoSafesigner-cambioEstadoSS" uri="direct:insMigracionLog"/>
+                                    <wireTap
+                                    id="llamadaIDG_cambioEstadoTarjeta_wiretap" uri="direct:cambioEstadoTarjetaIDG"/>
+                                    <choice id="envioEmailBloqueo-choice">
+                                    <when id="envioEmailBloqueo-when">
+                                    <simple>${exchangeProperty.estado} == '4'</simple>
+                                    <wireTap
+                                    id="envioEmail-wiretap" uri="direct:envioEmailBloqueo"/>
+                                    </when>
+                                    </choice>
+                                    </when>
+                                </choice>
+                            </when>
+                            <otherwise id="cambioEstadoSS-otherwise">
+                                <to id="cambioEstadoSS-to-otherwise" uri="direct:cambioEstadoSS"/>
+                                <wireTap
+                                    id="llamada_BD-cambioEstadoSS-other" uri="direct:insMigracionLog"/>
+                                <choice id="envioEmailBloqueo-other-choice">
+                                    <when id="envioEmailBloqueo-other-when">
+                                    <simple>${exchangeProperty.estado} == '4'</simple>
+                                    <wireTap
+                                    id="envioEmail-other-wiretap" uri="direct:envioEmailBloqueo"/>
+                                    </when>
+                                </choice>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="cambioEstadoTarjetaa-Principal-Otherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="cambioEstadoTarjeta-throwException-ValidacionEntrada" message="${exchangeProperty.ValidacionEntrada}"/>
+                    </otherwise>
+                </choice>
+                <unmarshal id="cambioEstadoTarjeta-Unmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.administradoridg"/>
+                </unmarshal>
+                <doCatch id="cambioEstadoTarjeta-DoCatch-Principal">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="cambioEstadoTarjeta-Respuesta-Error-Principal" propertyName="operacionIDG">
+                        <simple>UserCardSet</simple>
+                    </setProperty>
+                    <to
+                        id="cambioEstadoTarjeta-inicioExcepcion-Principal" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cambioEstadoSS">
+            <from id="cambioEstadoSSFrom" uri="direct:cambioEstadoSS"/>
+            <bean id="consultaTarjetaSS-datosEntrada"
+                method="obtenerTarjetaSSRequest" ref="beanRouteFacade"/>
+            <to id="to2-StatusCard" uri="cxf:bean:endpointServicioCardSS?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>
+            <bean id="consultaTarjetaSS-obtenerStatus"
+                method="obtenerTarjetaValidaSSResponse" ref="beanRouteFacade"/>
+            <choice id="cambioEstadoSS_choice">
+                <when id="cambioEstadoSS_when">
+                    <simple>${exchangeProperty.CODIGO} == 0</simple>
+                    <bean id="requestCambioEstadoSS"
+                        method="requestCambioEstadoSS" ref="beanRouteFacade"/>
+                    <to id="_to3" uri="cxf:bean:endpointServicioCardSS?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>
+                    <bean id="responseCambioEstadoSS"
+                        method="responseCambioEstadoSS" ref="beanRouteFacade"/>
+                </when>
+            </choice>
+        </route>
+        <route id="asignarTarjeta">
+            <from id="asignarTarjetaFrom" uri="direct:asignarTarjeta"/>
+            <doTry id="asignarTarjeta_try">
+                <setBody id="setBody-asignarTarjeta">
+                    <simple>${exchangeProperty.requestEntrada}</simple>
+                </setBody>
+                <setProperty id="asignarTarjeta-rut-Cliente" propertyName="rutCliente">
+                    <simple>$simple{body.entrada.identificadorCliente}</simple>
+                </setProperty>
+                <setProperty id="asignarTarjeta-tarjeta" propertyName="numeroTarjeta">
+                    <simple>$simple{body.entrada.numeroTarjeta}</simple>
+                </setProperty>
+                <setProperty id="policySS-asignarSS" propertyName="POLICY_SS">
+                    <simple>{{policy.safesigner}}</simple>
+                </setProperty>
+                <bean id="asignarTarjeta-ValidacionCampos-Bean"
+                    method="validarCamposEntrada" ref="beanRouteFacade"/>
+                <choice id="asignarTarjeta-Principal-Choice">
+                    <when id="asignarTarjeta-Principal-When">
+                        <simple>${exchangeProperty.ValidacionEntrada} == 'OK'</simple>
+                        <choice id="_choice4">
+                            <when id="_when2">
+                                <simple>${exchangeProperty.migracion} == 1</simple>
+                                <to
+                                    id="migracion_llamadaIDG_estadoTarjetaSS" uri="direct:estadoTarjetaSS"/>
+                                <wireTap
+                                    id="llamada_BD-ExitoSafesigner-asignarTarjeta" uri="direct:insMigracionLog"/>
+                                <choice id="_choice5">
+                                    <when id="_when4">
+                                    <simple>${exchangeProperty.estado} == 0</simple>
+                                    <to id="asignarTarjetaSS-to" uri="direct:asignarTarjetaSS"/>
+                                    <choice id="asignarTarjetaSS-choice">
+                                    <when id="asignarTarjetaSS-when">
+                                    <simple>${exchangeProperty.CODIGO} == 0</simple>
+                                    <wireTap
+                                    id="llamada_BD-ExitoSafesigner-asignarTarjetaSS" uri="direct:insMigracionLog"/>
+                                    <wireTap
+                                    id="llamadaIDG_asignarTarjeta_wiretap" uri="direct:asignarTarjetaIDG"/>
+                                    </when>
+                                    </choice>
+                                    </when>
+                                    <when id="_when5">
+                                    <simple>${exchangeProperty.estado} == 5</simple>
+                                    <to
+                                    id="asignarTarjetaIDG-to-otherwise" uri="direct:asignarTarjetaIDG"/>
+                                    <wireTap
+                                    id="llamada_BD-ExitoSafesigner-estadoTarjetaSS" uri="direct:insMigracionLog"/>
+                                    </when>
+                                    <otherwise id="_otherwise2">
+                                    <to
+                                    id="probarConexion_estadoTarjeta" uri="direct:probarConexion"/>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="asignarTarjetaSS-otherwise">
+                                <to
+                                    id="migracion_llamadaIDG_estadoTarjetaSS-other" uri="direct:estadoTarjetaSS"/>
+                                <wireTap
+                                    id="llamada_BD-ExitoSafesigner-asignarTarjetaSS" uri="direct:insMigracionLog"/>
+                                <choice id="_choice28">
+                                    <when id="_when29">
+                                    <simple>${exchangeProperty.estado} == 0</simple>
+                                    <to
+                                    id="asignarTarjetaSS-to-otherwise" uri="direct:asignarTarjetaSS"/>
+                                    </when>
+                                </choice>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="asignarTarjeta-Principal-Otherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="asignarTarjeta-throwException-ValidacionEntrada" message="${exchangeProperty.ValidacionEntrada}"/>
+                    </otherwise>
+                </choice>
+                <unmarshal id="asignarTarjeta-Unmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.administradoridg"/>
+                </unmarshal>
+                <doCatch id="asignarTarjeta_catch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="asignarTarjeta-Respuesta-Error-Principal" propertyName="operacionIDG">
+                        <simple>UserCardCreate</simple>
+                    </setProperty>
+                    <to id="asignarTarjeta-inicioExcepcion-Principal" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="estadoTarjetaSS">
+            <from id="estadoTarjetaSSFrom" uri="direct:estadoTarjetaSS"/>
+            <bean id="requestEstadoTarjetaSS"
+                method="obtenerTarjetaSSRequest" ref="beanRouteFacade"/>
+            <to id="_to2" uri="cxf:bean:endpointServicioCardSS?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>
+            <bean id="responseEstadoTarjetaSS"
+                method="responseEstadoTarjetaSS" ref="beanRouteFacade"/>
+        </route>
+        <route id="_route1">
+            <from id="asignarTarjetaSS" uri="direct:asignarTarjetaSS"/>
+            <bean id="requestAsignarTarjetaSS"
+                method="requestAsignarTarjetaSS" ref="beanRouteFacade"/>
+            <to id="_to1" uri="cxf:bean:endpointServicioCardSS?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>
+            <bean id="responseAsignarTarjetaSS"
+                method="responseAsignarTarjetaSS" ref="beanRouteFacade"/>
+        </route>
+        <route id="crearUsuario">
+            <from id="crearUsuarioFrom" uri="direct:crearUsuario"/>
+            <doTry id="crearUsuario-try">
+                <setProperty id="policySS-crearUsuario" propertyName="POLICY_SS">
+                    <simple>{{policy.safesigner}}</simple>
+                </setProperty>
+                <setProperty id="setOperacion" propertyName="operacionHeader">
+                    <simple>${header.operationName}</simple>
+                </setProperty>
+                <bean id="crearUsuario-Principal-ValidacionCampos-Bean"
+                    method="validarCamposEntrada" ref="beanRouteFacade"/>
+                <bean id="obtenerDatosEntrada-crearUsuario"
+                    method="obtenerDatosEntrada" ref="beanRouteFacade"/>
+                <choice id="crearUsuario-Principal-Choice">
+                    <when id="crearUsuario-Principal-When">
+                        <simple>${exchangeProperty.ValidacionEntrada} == 'OK'</simple>
+                        <choice id="_choice6">
+                            <when id="_when6">
+                                <simple>${exchangeProperty.migracion} == 1</simple>
+                                <to id="validaUserSS-to" uri="direct:obtenerUsuarioSS"/>
+                                <choice id="validaUserSS-choice">
+                                    <when id="validaUserSS-when">
+                                    <simple>${exchangeProperty.CODIGO} != 200</simple>
+                                    <to
+                                    id="migracion_llamadaIDG_crearUsuarioSS" uri="direct:crearUsuarioSS"/>
+                                    <wireTap
+                                    id="llamada_BD-ExitoSafesigner-crearUsuario" uri="direct:insMigracionLog"/>
+                                    <choice id="_choice7">
+                                    <when id="_when7">
+                                    <simple>${exchangeProperty.CODIGO} &gt; 200</simple>
+                                    <to
+                                    id="llamada_crearUsuarioIDGSS" uri="direct:crearUsuario_normal"/>
+                                    </when>
+                                    </choice>
+                                    </when>
+                                    <otherwise id="_otherwise15">
+                                    <wireTap
+                                    id="llamada_BD-ExitoSafesigner-crearUsuario-other" uri="direct:insMigracionLog"/>
+                                    <to
+                                    id="llamada_crearUsuarioIDGSS-other" uri="direct:crearUsuario_normal"/>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="_otherwise3">
+                                <to id="llamada_crearUsuarioSS" uri="direct:obtenerUsuarioSS"/>
+                                <choice id="validaUserSS-choice">
+                                    <when id="validaUserSS-when">
+                                    <simple>${exchangeProperty.CODIGO} != 200</simple>
+                                    <to id="validaUserSS-other" uri="direct:crearUsuarioSS"/>
+                                    <wireTap
+                                    id="llamada_BD-ExitoSafesigner-crearUsuario" uri="direct:insMigracionLog"/>
+                                    </when>
+                                </choice>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="crearUsuario-Principal-Otherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="crearUsuario-throwException-ValidacionEntrada" message="${exchangeProperty.ValidacionEntrada}"/>
+                    </otherwise>
+                </choice>
+                <unmarshal id="crearUsuario-Unmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.administradoridg"/>
+                </unmarshal>
+                <doCatch id="crearUsuario-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="crearUsuario-Respuesta-Error" propertyName="operacionIDG">
+                        <simple>UserCreate</simple>
+                    </setProperty>
+                    <to id="crearUsuario-inicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route2">
+            <from id="crearUsuarioSS" uri="direct:crearUsuarioSS"/>
+            <doTry id="crearUsuarioSS-Try-Principal">
+                <setProperty id="crearUsuarioSS-framework_IDG" propertyName="framework">
+                    <constant>SS</constant>
+                </setProperty>
+                <bean id="crearUsuarioSS-datosEntrada"
+                    method="crearUsuarioSSRequest" ref="beanRouteFacade"/>
+                <to id="to-AuthenticationAsign" uri="cxf:bean:endpointWSAuthSS?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>
+                <bean id="crearUsuarioSS-obtenerStatus"
+                    method="crearUsuarioSSResponse" ref="beanRouteFacade"/>
+                <choice id="_choice8">
+                    <when id="_when8">
+                        <simple>${exchangeProperty.CODIGO} == 200</simple>
+                        <wireTap id="SMS" uri="direct:crearSMSSafesigner"/>
+                        <wireTap id="CARD" uri="direct:crearTarjetaSafesigner"/>
+                        <choice id="_choice25">
+                            <when id="_when27">
+                                <simple>${exchangeProperty.migracion} == 1</simple>
+                                <wireTap id="AUTH" uri="direct:crearUsuario_normal"/>
+                            </when>
+                        </choice>
+                    </when>
+                </choice>
+                <doCatch id="crearUsuarioSS-Principal-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="crearUsuarioSS-Principal-Respuesta-Error" propertyName="operacionIDG">
+                        <simple>UserCreate</simple>
+                    </setProperty>
+                    <setProperty
+                        id="crearUsuarioSS-Principal-Respuesta-CodigoError" propertyName="CODIGO">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty id="crearUsuarioSS-DescripcionError" propertyName="ValidacionEntrada">
+                        <simple>Error en la comunicación con el servicio interno ServicioAdministradorIDG - crearUsuario</simple>
+                    </setProperty>
+                    <choice id="_choice9">
+                        <when id="_when9">
+                            <simple>${exchangeProperty.migracion} == 0</simple>
+                            <removeHeaders
+                                id="crearUsuarioSS-IDG-removeHeaders-Error" pattern="*"/>
+                            <to
+                                id="crearUsuarioSS-Principal-inicioExcepcion" uri="direct:excepcion"/>
+                            <unmarshal id="crearUsuarioSS-Unmarshal-DoCacth">
+                                <jaxb contextPath="cl.coopeuch.integracion.administradoridg"/>
+                            </unmarshal>
+                            <stop id="_stop2"/>
+                        </when>
+                        <otherwise id="_otherwise4">
+                            <wireTap
+                                id="llamada_BD-ERROR-crearUsuarioSS" uri="direct:errorSafesigner"/>
+                            <to id="llamada_crearUsuarioSS-DoCatch" uri="direct:crearUsuario_normal"/>
+                        </otherwise>
+                    </choice>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route3">
+            <from id="crearSMS_SS" uri="direct:crearSMSSafesigner"/>
+            <setProperty id="crearSMS_SS-framework_IDG" propertyName="framework">
+                <constant>SS</constant>
+            </setProperty>
+            <bean id="crearSMS_SS-datosEntrada"
+                method="activarSmsSSRequest" ref="beanRouteFacade"/>
+            <to id="to-SMSCreate" uri="cxf:bean:endpointWSSmsSS?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>
+        </route>
+        <route id="_route4">
+            <from id="crearTarjeta_SS" uri="direct:crearTarjetaSafesigner"/>
+            <setProperty id="crearTarjeta_SS-framework_IDG" propertyName="framework">
+                <constant>SS</constant>
+            </setProperty>
+            <bean id="crearTarjeta_SS-datosEntrada"
+                method="cardSmsSSRequest" ref="beanRouteFacade"/>
+            <to id="to-CardCreate" uri="cxf:bean:endpointServicioCardSS?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>
+        </route>
+        <route id="_route5">
+            <from id="crearUsuarioFrom" uri="direct:crearUsuario_normal"/>
+            <setBody id="_route5-SetBody">
+                <simple>${exchangeProperty.requestEntrada}</simple>
+            </setBody>
+            <doTry id="crearUsuario-Try-Principal">
+                <bean id="crearUsuario-ValidacionCampos-Bean"
+                    method="validarCamposEntrada" ref="beanRouteFacade"/>
+                <choice id="crearUsuario-Principal-Choice-normal">
+                    <when id="crearUsuario-Principal-When-normal">
+                        <simple>${exchangeProperty.ValidacionEntrada} == 'OK'</simple>
+                        <to id="probarConexion_crearUsuario-normal" uri="direct:probarConexion"/>
+                        <to id="llamadaIDG_crearUsuario-normal" uri="direct:crearUsuarioIDG"/>
+                    </when>
+                    <otherwise id="crearUsuario-Principal-Otherwise-normal">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="crearUsuario-throwException-ValidacionEntrada-normal" message="${exchangeProperty.ValidacionEntrada}"/>
+                    </otherwise>
+                </choice>
+                <unmarshal id="crearUsuario-normal-Unmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.administradoridg"/>
+                </unmarshal>
+                <doCatch id="crearUsuario-normal-DoCatch-Principal">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="crearUsuario-normal-Respuesta-Error-Principal" propertyName="operacionIDG">
+                        <simple>UserCreate</simple>
+                    </setProperty>
+                    <to
+                        id="crearUsuario-normal-inicioExcepcion-Principal" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="obtenerUsuario">
+            <from id="obtenerUsuarioFrom" uri="direct:obtenerUsuario"/>
+            <doTry id="obtenerUsuario-try">
+                <setProperty id="setOperacionObtener" propertyName="operacionHeader">
+                    <simple>${header.operationName}</simple>
+                </setProperty>
+                <bean
+                    id="ObtenerUsuario-Principal-ValidacionCampos-Bean"
+                    method="validarCamposEntrada" ref="beanRouteFacade"/>
+                <bean id="obtenerDatosEntrada-obtenerUsuario"
+                    method="obtenerDatosEntrada" ref="beanRouteFacade"/>
+                <choice id="ObtenerUsuario-Principal-Choice">
+                    <when id="ObtenerUsuario-Principal-When">
+                        <simple>${exchangeProperty.ValidacionEntrada} == 'OK'</simple>
+                        <choice id="_choice10">
+                            <when id="_when10">
+                                <simple>${exchangeProperty.migracion} == 1</simple>
+                                <to
+                                    id="migracion_llamadaIDG_obtenerUsuarioSS" uri="direct:obtenerUsuarioSS"/>
+                                <wireTap
+                                    id="llamada_BD-ExitoSafesigner-validar" uri="direct:insMigracionLog"/>
+                                <choice id="_choice11">
+                                    <when id="_when11">
+                                    <simple>${exchangeProperty.CODIGO} &gt; 200</simple>
+                                    <to
+                                    id="llamada_obtenerUsuarioIDG" uri="direct:obtenerUsuario_normal"/>
+                                    </when>
+                                </choice>
+                            </when>
+                            <otherwise id="_otherwise5">
+                                <to id="llamada_obtenerUsuarioSS" uri="direct:obtenerUsuarioSS"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="ObtenerUsuario-Principal-Otherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="ObtenerUsuario-throwException-ValidacionEntrada" message="${exchangeProperty.ValidacionEntrada}"/>
+                    </otherwise>
+                </choice>
+                <unmarshal id="ObtenerUsuario-Unmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.administradoridg"/>
+                </unmarshal>
+                <doCatch id="obtenerUsuario-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="obtenerUsuario-Respuesta-Error" propertyName="operacionIDG">
+                        <simple>UserGet</simple>
+                    </setProperty>
+                    <to id="obtenerUsuario-inicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route6">
+            <from id="obtenerUsuarioIDG" uri="direct:obtenerUsuario_normal"/>
+            <doTry id="ObtenerUsuario-Try-Principal">
+                <to id="probarConexion_obtenerUsuario" uri="direct:probarConexion"/>
+                <to id="llamadaIDG_obtenerUsuario" uri="direct:obtenerUsuarioIDG"/>
+                <doCatch id="ObtenerUsuario-Principal-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="ObtenerUsuario-Principal-Respuesta-Error" propertyName="operacionIDG">
+                        <simple>UserGet</simple>
+                    </setProperty>
+                    <to id="ObtenerUsuario-Principal-inicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route7">
+            <from id="obtenerUsuarioSS" uri="direct:obtenerUsuarioSS"/>
+            <doTry id="ObtenerUsuarioSS-Try-Principal">
+                <setProperty id="obtenerUsuarioSS-framework_IDG" propertyName="framework">
+                    <constant>SS</constant>
+                </setProperty>
+                <bean id="obtenerUsuarioSS-datosEntrada"
+                    method="obtenerUsuarioSSRequest" ref="beanRouteFacade"/>
+                <to id="to-AuthenticationStatus" uri="cxf:bean:endpointWSAuthSS?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>
+                <bean id="obtenerUsuarioSS-obtenerStatus"
+                    method="obtenerUsuarioResponse" ref="beanRouteFacade"/>
+                <doCatch id="ObtenerUsuarioSS-Principal-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="ObtenerUsuarioSS-Principal-Respuesta-Error" propertyName="operacionIDG">
+                        <simple>UserGet</simple>
+                    </setProperty>
+                    <setProperty
+                        id="ObtenerUsuarioSS-Principal-Respuesta-CodigoError" propertyName="CODIGO">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty id="ObtenerUsuarioSS-DescripcionError" propertyName="ValidacionEntrada">
+                        <simple>Error en la comunicación con el servicio interno ServicioAdministradorIDG - obtenerUsuario</simple>
+                    </setProperty>
+                    <choice id="_choice12">
+                        <when id="_when12">
+                            <simple>${exchangeProperty.migracion} == 0</simple>
+                            <removeHeaders
+                                id="solitirarDesafio-IDG-removeHeaders-Error" pattern="*"/>
+                            <to
+                                id="ObtenerUsuarioSS-Principal-inicioExcepcion" uri="direct:excepcion"/>
+                            <unmarshal id="ObtenerUsuario-Unmarshal-DoCacth">
+                                <jaxb contextPath="cl.coopeuch.integracion.administradoridg"/>
+                            </unmarshal>
+                            <stop id="_stop4"/>
+                        </when>
+                        <otherwise id="_otherwise6">
+                            <wireTap id="llamada_BD-ERROR" uri="direct:errorSafesigner"/>
+                            <to id="llamada_obtenerUsuarioSS-DoCatch" uri="direct:obtenerUsuario_normal"/>
+                        </otherwise>
+                    </choice>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="obtenerTarjeta">
+            <from id="obtenerTarjetaFrom" uri="direct:obtenerTarjeta"/>
+            <doTry id="ObtenerTarjeta-Try-Principal">
+                <bean
+                    id="ObtenerTarjeta-Principal-ValidacionCampos-Bean"
+                    method="validarCamposEntrada" ref="beanRouteFacade"/>
+                <bean id="obtenerDatosEntrada-obtenerTarjeta"
+                    method="obtenerDatosEntrada" ref="beanRouteFacade"/>
+                <choice id="ObtenerTarjeta-Principal-Choice">
+                    <when id="ObtenerTarjeta-Principal-When">
+                        <simple>${exchangeProperty.ValidacionEntrada} == 'OK'</simple>
+                        <choice id="_choice13">
+                            <when id="_when13">
+                                <simple>${exchangeProperty.migracion} == 1</simple>
+                                <to
+                                    id="migracion_llamadaIDG_obtenerTarjetaSS" uri="direct:obtenerTarjetaSS"/>
+                                <wireTap
+                                    id="llamada_BD-ExitoSafesigner-obtenerTarjeta" uri="direct:insMigracionLog"/>
+                                <choice id="_choice14">
+                                    <when id="_when14">
+                                    <simple>${exchangeProperty.CODIGO} &gt; 200</simple>
+                                    <to
+                                    id="llamada_obtenerTarjetaIDG" uri="direct:obtenerTarjeta_normal"/>
+                                    </when>
+                                </choice>
+                            </when>
+                            <otherwise id="_otherwise7">
+                                <to id="llamada_obtenerTarjetaSS" uri="direct:obtenerTarjetaSS"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="ObtenerTarjeta-Principal-Otherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="ObtenerTarjeta-throwException-ValidacionEntrada" message="${exchangeProperty.ValidacionEntrada}"/>
+                    </otherwise>
+                </choice>
+                <unmarshal id="ObtenerTarjeta-Unmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.administradoridg"/>
+                </unmarshal>
+                <doCatch id="ObtenerTarjeta-DoCatch-Principal">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="ObtenerTarjeta-Respuesta-Error-Principal" propertyName="operacionIDG">
+                        <simple>UserCardGet</simple>
+                    </setProperty>
+                    <setProperty
+                        id="ObtenerTarjetaSS-Principal-Respuesta-CodigoError" propertyName="CODIGO">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty id="ObtenerTarjetaoSS-DescripcionError" propertyName="ValidacionEntrada">
+                        <simple>Error en la comunicación con el servicio interno ServicioAdministradorIDG - obtenerUsuario</simple>
+                    </setProperty>
+                    <choice id="_choice15">
+                        <when id="_when15">
+                            <simple>${exchangeProperty.migracion} == 0</simple>
+                            <removeHeaders
+                                id="ObtenerTarjeta-IDG-removeHeaders-Error" pattern="*"/>
+                            <to
+                                id="ObtenerTarjetaSS-Principal-inicioExcepcion" uri="direct:excepcion"/>
+                            <unmarshal id="ObtenerTarjeta-Unmarshal-DoCacth">
+                                <jaxb contextPath="cl.coopeuch.integracion.administradoridg"/>
+                            </unmarshal>
+                            <stop id="_stop5"/>
+                        </when>
+                        <otherwise id="_otherwise8">
+                            <wireTap
+                                id="llamada_BD-ERROR-ObtenerTarjeta" uri="direct:errorSafesigner"/>
+                            <to id="ObtenerTarjetaSS-DoCatch" uri="direct:obtenerTarjeta_normal"/>
+                        </otherwise>
+                    </choice>
+                    <to id="ObtenerTarjeta-inicioExcepcion-Principal" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route8">
+            <from id="obtenerTarjetaIDG" uri="direct:obtenerTarjeta_normal"/>
+            <doTry id="ObtenerTarjeta-Try-Principal-FlujoNormal">
+                <to id="probarConexion_obtenerTarjeta" uri="direct:probarConexion"/>
+                <to id="llamadaIDG_obtenerTarjeta" uri="direct:obtenerTarjetaIDG"/>
+                <doCatch id="obtenerTarjeta-Principal-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="obtenerTarjeta-Principal-Respuesta-Error" propertyName="operacionIDG">
+                        <simple>UserCardGet</simple>
+                    </setProperty>
+                    <to id="obtenerTarjeta-Principal-inicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_route9">
+            <from id="obtenerTarjetaSS" uri="direct:obtenerTarjetaSS"/>
+            <doTry id="obtenerTarjetaSS-Try-Principal">
+                <removeHeaders id="obtenerTarjetaSS-RemoveHeaders" pattern="*"/>
+                <setProperty id="obtenerTarjetaSS-framework_IDG" propertyName="framework">
+                    <constant>SS</constant>
+                </setProperty>
+                <bean id="obtenerTarjetaSS-datosEntrada"
+                    method="obtenerTarjetaSSRequest" ref="beanRouteFacade"/>
+                <to id="to-StatusCard" uri="cxf:bean:endpointServicioCardSS?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>
+                <bean id="obtenerTarjetaSS-obtenerStatus"
+                    method="obtenerTarjetaSSResponse" ref="beanRouteFacade"/>
+                <doCatch id="obtenerTarjetaSS-Principal-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="obtenerTarjetaSS-Principal-Respuesta-Error" propertyName="operacionIDG">
+                        <simple>UserCardGet</simple>
+                    </setProperty>
+                    <setProperty
+                        id="obtenerTarjetaSS-Principal-Respuesta-CodigoError" propertyName="CODIGO">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty id="obtenerTarjetaSS-DescripcionError" propertyName="ValidacionEntrada">
+                        <simple>Error en la comunicación con el servicio interno ServicioAdministradorIDG - obtenerTarjeta</simple>
+                    </setProperty>
+                    <choice id="_choice16">
+                        <when id="_when16">
+                            <simple>${exchangeProperty.migracion} == 0</simple>
+                            <removeHeaders
+                                id="solitirarDesafio-SS-removeHeaders-Error" pattern="*"/>
+                            <to
+                                id="obtenerTarjetaSS-Principal-inicioExcepcion" uri="direct:excepcion"/>
+                            <unmarshal id="obtenerTarjetaSS-Unmarshal-DoCacth">
+                                <jaxb contextPath="cl.coopeuch.integracion.administradoridg"/>
+                            </unmarshal>
+                            <stop id="_stop6"/>
+                        </when>
+                        <otherwise id="_otherwise9">
+                            <wireTap
+                                id="llamada_BD-ERROR-obtenerTarjeta" uri="direct:errorSafesigner"/>
+                            <to id="llamada_obtenerTarjetaIDG-DoCatch" uri="direct:obtenerTarjeta_normal"/>
+                        </otherwise>
+                    </choice>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="desbloquear">
+            <from id="desbloquearFrom" uri="direct:desbloquear"/>
+            <doTry id="desbloquear-Try-Principal">
+                <bean id="desbloquear-Principal-ValidacionCampos-Bean"
+                    method="validarCamposEntrada" ref="beanRouteFacade"/>
+                <bean id="desbloquear-obtenerTarjeta"
+                    method="obtenerDatosEntrada" ref="beanRouteFacade"/>
+                <log id="_log3" message="ValidacionEntrada: ${exchangeProperty.ValidacionEntrada}"/>
+                <choice id="desbloquear-Principal-Choice">
+                    <when id="desbloquear-Principal-When">
+                        <simple>${exchangeProperty.ValidacionEntrada} == 'OK'</simple>
+                        <choice id="_choice17">
+                            <when id="_when17">
+                                <simple>${exchangeProperty.migracion} == 1</simple>
+                                <to
+                                    id="migracion_llamadaIDG_desbloquearSS" uri="direct:desbloquearSS"/>
+                                <wireTap
+                                    id="llamada_BD-ExitoSafesigner-desbloquear" uri="direct:insMigracionLog"/>
+                                <choice id="_choice18">
+                                    <when id="_when18">
+                                    <simple>${exchangeProperty.CODIGO} &gt; 200</simple>
+                                    <to id="llamada_desbloquearIDG" uri="direct:desbloquear_normal"/>
+                                    </when>
+                                    <when id="_when28">
+                                    <simple>${exchangeProperty.CODIGO} == 0</simple>
+                                    <wireTap
+                                    id="llamada_desbloquearIDG-other" uri="direct:desbloquear_normal"/>
+                                    </when>
+                                </choice>
+                            </when>
+                            <otherwise id="_otherwise10">
+                                <to id="llamada_desbloquearSS" uri="direct:desbloquearSS"/>
+                                <wireTap
+                                    id="llamada_BD-desbloquear-other" uri="direct:insMigracionLog"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="desbloquear-normal-Principal-Otherwise">
+                        <bean id="desbloquear-DatosErroneos"
+                            method="enviarDatosInvalidos" ref="beanRouteFacade"/>
+                        <stop id="_stop7"/>
+                    </otherwise>
+                </choice>
+                <unmarshal id="desbloquear-normal-Unmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.administradoridg"/>
+                </unmarshal>
+                <doCatch id="desbloquear-normal-DoCatch-Principal">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="desbloquear-normal-Respuesta-Error-Principal" propertyName="operacionIDG">
+                        <simple>UserCardGet</simple>
+                    </setProperty>
+                    <setProperty
+                        id="desbloquear-normal-Principal-Respuesta-CodigoError" propertyName="CODIGO">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty
+                        id="desbloquear-normal-DescripcionError" propertyName="ValidacionEntrada">
+                        <simple>Error en la comunicación con el servicio interno ServicioAdministradorIDG - desbloquear</simple>
+                    </setProperty>
+                    <choice id="_choice19">
+                        <when id="_when19">
+                            <simple>${exchangeProperty.migracion} == 0</simple>
+                            <removeHeaders
+                                id="desbloquear-normal-IDG-removeHeaders-Error" pattern="*"/>
+                            <to
+                                id="desbloquearSS-normal-Principal-inicioExcepcion" uri="direct:excepcion"/>
+                            <unmarshal id="desbloquear-normal-Unmarshal-DoCacth">
+                                <jaxb contextPath="cl.coopeuch.integracion.administradoridg"/>
+                            </unmarshal>
+                            <stop id="_stop8"/>
+                        </when>
+                        <otherwise id="_otherwise11">
+                            <wireTap id="llamada_BD-ERROR-desbloquear" uri="direct:errorSafesigner"/>
+                            <to id="desbloquearSS-DoCatch" uri="direct:desbloquear_normal"/>
+                        </otherwise>
+                    </choice>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="Ruta-desbloquear-normal">
+            <from id="from-desbloquear_normal" uri="direct:desbloquear_normal"/>
+            <doTry id="desbloquear-normal-Try-Principal">
+                <to id="probarConexion_desbloquear" uri="direct:probarConexion"/>
+                <to id="llamadaIDG_desbloquear" uri="direct:desbloquearIDG"/>
+                <unmarshal id="desbloquear-Unmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.administradoridg"/>
+                </unmarshal>
+                <doCatch id="desbloquear-DoCatch-Principal">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="desbloquear-Respuesta-Error-Principal" propertyName="operacionIDG">
+                        <simple>UserLockoutSet</simple>
+                    </setProperty>
+                    <to
+                        id="desbloquear-inicioExcepcion-Principal-Docach" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="Ruta-desbloquearIDG">
+            <from id="desbloquearIDG-From" uri="direct:desbloquearIDG"/>
+            <doTry id="desbloquearIDG-Try">
+                <setBody id="desbloquearIDG-SetBody">
+                    <simple>${exchangeProperty.requestEntrada}</simple>
+                </setBody>
+                <setProperty id="desbloquearIDG-tipoDesbloqueo" propertyName="tipoDesbloqueo">
+                    <simple>$simple{body.entrada.tipoDesbloqueo}</simple>
+                </setProperty>
+                <setProperty id="desbloquearIDG-rutCliente" propertyName="rutCliente">
+                    <simple>$simple{body.entrada.identificadorCliente}</simple>
+                </setProperty>
+                <to id="desbloquearIDG-To" uri="direct:login"/>
+                <choice id="desbloquearIDG-Choice">
+                    <when id="desbloquearIDG-When">
+                        <simple>${exchangeProperty.conexion} == 'OK'</simple>
+                        <to id="userLockoutSet-IDG-To" uri="direct:userLockoutSet"/>
+                    </when>
+                </choice>
+            </doTry>
+        </route>
+        <route id="_route10">
+            <from id="from-desbloquear_normal" uri="direct:desbloquearSS"/>
+            <choice id="_choice20">
+                <when id="_when20">
+                    <simple>${exchangeProperty.tipoBloqueo} == '0'</simple>
+                    <to id="desbloqueoTarjetaSS-To" uri="direct:desbloqueoTarjetaSS"/>
+                </when>
+                <when id="_when21">
+                    <simple>${exchangeProperty.tipoBloqueo} == '1'</simple>
+                    <to id="desbloqueoSMS_SS-To" uri="direct:desbloqueoSMS_SS"/>
+                </when>
+                <when id="_when22">
+                    <simple>${exchangeProperty.tipoBloqueo} == '2'</simple>
+                    <to id="desbloqueoUsuarioSS-To" uri="direct:desbloqueoUsuarioSS"/>
+                </when>
+                <when id="_when23">
+                    <simple>${exchangeProperty.tipoBloqueo} == '3'</simple>
+                    <to id="desbloqueoUsuarioSS-To" uri="direct:desbloqueoUsuarioSS"/>
+                </when>
+            </choice>
+        </route>
+        <route id="desbloqueoTarjetaSS">
+            <from id="_from1" uri="direct:desbloqueoTarjetaSS"/>
+            <doTry id="desbloqueoTarjetaSS-Try">
+                <removeHeaders id="desbloqueoTarjetaSS-RemoveHeaders" pattern="*"/>
+                <setProperty id="desbloqueoTarjetaSS-framework_IDG" propertyName="framework">
+                    <constant>SS</constant>
+                </setProperty>
+                <bean id="desbloqueoTarjetaSS-datosEntrada"
+                    method="desbloquearSSRequest" ref="beanRouteFacade"/>
+                <to id="to-CardUnsuspend" uri="cxf:bean:endpointServicioCardSS?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}"/>
+                <bean id="desbloqueoTarjetaSS-desbloquearTarjeta"
+                    method="desbloquearSSResponse" ref="beanRouteFacade"/>
+                <doCatch id="desbloqueoTarjetaSS-DoCatch-Principal">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="desbloqueoTarjetaSS-Respuesta-Error-Principal" propertyName="operacionIDG">
+                        <simple>UserLockoutSet</simple>
+                    </setProperty>
+                    <setProperty
+                        id="desbloqueoTarjetaSS-Principal-Respuesta-CodigoError" propertyName="CODIGO">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty
+                        id="desbloqueoTarjetaSS-DescripcionError" propertyName="ValidacionEntrada">
+                        <simple>Error en la comunicación con el servicio interno ServicioAdministradorIDG - desbloquear</simple>
+                    </setProperty>
+                    <choice id="_choice21">
+                        <when id="_whenMigracion">
+                            <simple>${exchangeProperty.migracion} == 0</simple>
+                            <removeHeaders
+                                id="desbloqueoTarjetaSS-removeHeaders-Error" pattern="*"/>
+                            <to
+                                id="desbloqueoTarjetaSS-Principal-inicioExcepcion" uri="direct:excepcion"/>
+                            <unmarshal id="desbloqueoTarjetaSS-Unmarshal-DoCacth">
+                                <jaxb contextPath="cl.coopeuch.integracion.administradoridg"/>
+                            </unmarshal>
+                            <stop id="_stop9"/>
+                        </when>
+                        <otherwise id="_otherwise12">
+                            <wireTap
+                                id="llamada_BD-ERROR-desbloqueoTarjetaSS" uri="direct:errorSafesigner"/>
+                            <to id="desbloqueoTarjetaSS-DoCatch" uri="direct:desbloquear_normal"/>
+                            <stop id="_stop10"/>
+                        </otherwise>
+                    </choice>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="desbloqueoUsuarioSS">
+            <from id="_from2" uri="direct:desbloqueoUsuarioSS"/>
+            <doTry id="desbloqueoUsuarioSS-Try">
+                <removeHeaders id="desbloqueoUsuarioSS-RemoveHeaders" pattern="*"/>
+                <setProperty id="desbloqueoUsuarioSS-framework_IDG" propertyName="framework">
+                    <constant>SS</constant>
+                </setProperty>
+                <bean id="desbloqueoUsuarioSS-datosEntrada"
+                    method="desbloquearUsuarioSSRequest" ref="beanRouteFacade"/>
+                <to id="to-AuthUnsuspend" uri="cxf:bean:endpointWSAuthSS?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}&amp;loggingFeatureEnabled=true"/>
+                <bean id="desbloqueoUsuarioSS-desbloqueoUsuario"
+                    method="desbloqueoUsuarioSSResponse" ref="beanRouteFacade"/>
+                <setProperty id="desbloqueoUsuarioSS-PSW" propertyName="PSW">
+                    <constant>PSW</constant>
+                </setProperty>
+                <choice id="_choice24">
+                    <when id="_when26">
+                        <simple>${exchangeProperty.CODIGO} == 0 and ${exchangeProperty.estadoPSW}</simple>
+                        <wireTap id="_wireTap1" uri="direct:desbloqueoUsuarioSS"/>
+                    </when>
+                    <when id="_when30">
+                        <simple>${exchangeProperty.CODIGO} != 0 and ${exchangeProperty.estadoPSW}</simple>
+                        <to id="_to4" uri="direct:desbloqueoUsuarioSS"/>
+                    </when>
+                </choice>
+                <doCatch id="desbloqueoUsuarioSS-DoCatch-Principal">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="desbloqueoUsuarioSS-Respuesta-Error-Principal" propertyName="operacionIDG">
+                        <simple>UserLockoutSet</simple>
+                    </setProperty>
+                    <setProperty
+                        id="desbloqueoUsuarioSS-Principal-Respuesta-CodigoError" propertyName="CODIGO">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty
+                        id="desbloqueoUsuarioSS-DescripcionError" propertyName="ValidacionEntrada">
+                        <simple>Error en la comunicación con el servicio interno ServicioAdministradorIDG - desbloquear</simple>
+                    </setProperty>
+                    <setProperty id="policySS-desbloquearUsuarioSS" propertyName="POLICY_SS">
+                        <simple>{{policy.safesigner}}</simple>
+                    </setProperty>
+                    <choice id="_choice22">
+                        <when id="_when24">
+                            <simple>${exchangeProperty.migracion} == 0</simple>
+                            <removeHeaders
+                                id="desbloqueoUsuarioSS-removeHeaders-Error" pattern="*"/>
+                            <to
+                                id="desbloqueoUsuarioSS-Principal-inicioExcepcion" uri="direct:excepcion"/>
+                            <unmarshal id="desbloqueoUsuarioSS-Unmarshal-DoCacth">
+                                <jaxb contextPath="cl.coopeuch.integracion.administradoridg"/>
+                            </unmarshal>
+                            <stop id="_stop11"/>
+                        </when>
+                        <otherwise id="_otherwise13">
+                            <wireTap
+                                id="llamada_BD-ERROR-desbloqueoUsuarioSS" uri="direct:errorSafesigner"/>
+                            <to id="desbloqueoUsuarioSS-DoCatch" uri="direct:desbloquear_normal"/>
+                            <stop id="_stop12"/>
+                        </otherwise>
+                    </choice>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="desbloqueoSMS_SS">
+            <from id="_from3" uri="direct:desbloqueoSMS_SS"/>
+            <doTry id="desbloqueoSMS_SS-Try">
+                <removeHeaders id="desbloqueoSMS_SS-RemoveHeaders" pattern="*"/>
+                <setProperty id="desbloqueoSMS_SS-framework_IDG" propertyName="framework">
+                    <constant>SS</constant>
+                </setProperty>
+                <bean id="desbloqueoSMS_SS-datosEntrada"
+                    method="desbloquearSMSSSRequest" ref="beanRouteFacade"/>
+                <to id="to-SMSUnsuspend" uri="cxf:bean:endpointWSSmsSS?continuationTimeout=5000&amp;password={{safesigner.cert.password}}&amp;username={{safesigner.cert.usuario}}&amp;loggingFeatureEnabled=true"/>
+                <bean id="desbloqueoSMS_SS-desbloqueoSMS"
+                    method="desbloqueoSMS_SSResponse" ref="beanRouteFacade"/>
+                <doCatch id="desbloqueoSMS_SS-DoCatch-Principal">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="desbloqueoSMS_SS-Respuesta-Error-Principal" propertyName="operacionIDG">
+                        <simple>UserLockoutSet</simple>
+                    </setProperty>
+                    <setProperty
+                        id="desbloqueoSMS_SS-Principal-Respuesta-CodigoError" propertyName="CODIGO">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty id="desbloqueoSMS_SS-DescripcionError" propertyName="ValidacionEntrada">
+                        <simple>Error en la comunicación con el servicio interno ServicioAdministradorIDG - desbloquear</simple>
+                    </setProperty>
+                    <choice id="_choice23">
+                        <when id="_when25">
+                            <simple>${exchangeProperty.migracion} == 0</simple>
+                            <removeHeaders
+                                id="desbloqueoSMS_SS-removeHeaders-Error" pattern="*"/>
+                            <to
+                                id="desbloqueoSMS_SS-Principal-inicioExcepcion" uri="direct:excepcion"/>
+                            <unmarshal id="desbloqueoSMS_SS-Unmarshal-DoCacth">
+                                <jaxb contextPath="cl.coopeuch.integracion.administradoridg"/>
+                            </unmarshal>
+                            <stop id="_stop13"/>
+                        </when>
+                        <otherwise id="_otherwise14">
+                            <wireTap
+                                id="llamada_BD-ERROR-desbloqueoSMS_SS" uri="direct:errorSafesigner"/>
+                            <to id="desbloqueoSMS_SS-DoCatch" uri="direct:desbloquear_normal"/>
+                            <stop id="_stop14"/>
+                        </otherwise>
+                    </choice>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="Ruta-asignarTarjeta">
+            <from id="asignarTarjeta-From" uri="direct:asignarTarjetaIDG"/>
+            <doTry id="asignarTarjeta-Try">
+                <setBody id="asignarTarjeta-SetBody">
+                    <simple>${exchangeProperty.requestEntrada}</simple>
+                </setBody>
+                <setProperty id="asignarTarjeta-numeroTarjeta" propertyName="numeroTarjeta">
+                    <simple>$simple{body.entrada.numeroTarjeta}</simple>
+                </setProperty>
+                <setProperty id="asignarTarjeta-rutCliente" propertyName="rutCliente">
+                    <simple>$simple{body.entrada.identificadorCliente}</simple>
+                </setProperty>
+                <to id="asignarTarjeta-To" uri="direct:login"/>
+                <choice id="asignarTarjeta-Choice">
+                    <when id="asignarTarjeta-When">
+                        <simple>${exchangeProperty.conexion} == 'OK'</simple>
+                        <to id="userCardCreate-IDG-To" uri="direct:userCardCreate"/>
+                    </when>
+                </choice>
+            </doTry>
+        </route>
+        <route id="Ruta-CambioEstadoTarjetaIDG">
+            <from id="CambioEstadoTarjetaIDG-From" uri="direct:cambioEstadoTarjetaIDG"/>
+            <doTry id="CambioEstadoTarjetaIDG-Try">
+                <setBody id="CambioEstadoTarjetaIDG-SetBody">
+                    <simple>${exchangeProperty.requestEntrada}</simple>
+                </setBody>
+                <setProperty id="CambioEstadoTarjetaIDG-rutCliente" propertyName="rutCliente">
+                    <simple>$simple{body.entrada.identificadorCliente}</simple>
+                </setProperty>
+                <setProperty id="CambioEstadoTarjetaIDG-estado" propertyName="estado">
+                    <simple>$simple{body.entrada.estadoTarjeta}</simple>
+                </setProperty>
+                <setProperty id="CambioEstadoTarjetaIDG-numeroTarjeta" propertyName="numeroTarjeta">
+                    <simple>$simple{body.entrada.numeroTarjeta}</simple>
+                </setProperty>
+                <setProperty id="CambioEstadoTarjetaIDG-comentario" propertyName="comentario">
+                    <simple>$simple{body.entrada.comentario}</simple>
+                </setProperty>
+                <to id="CambioEstadoTarjetaIDG-To" uri="direct:login"/>
+                <choice id="CambioEstadoTarjetaIDG-Choice">
+                    <when id="CambioEstadoTarjetaIDG-When-Conexion">
+                        <simple>${exchangeProperty.conexion} == 'OK'</simple>
+                        <to id="userCardSet-IDG-To" uri="direct:userCardSet"/>
+                    </when>
+                </choice>
+            </doTry>
+        </route>
+        <route id="Ruta-obtenerTarjetaIDG">
+            <from id="ObtenerTarjeta-From" uri="direct:obtenerTarjetaIDG"/>
+            <doTry id="ObtenerTarjeta-Try">
+                <setBody id="ObtenerTarjeta-SetBody">
+                    <simple>${exchangeProperty.requestEntrada}</simple>
+                </setBody>
+                <setProperty id="obtenerTarjeta-rutCliente" propertyName="rutCliente">
+                    <simple>$simple{body.entrada.userId}</simple>
+                </setProperty>
+                <setProperty id="obtenerTarjeta-estado" propertyName="estado">
+                    <simple>$simple{body.entrada.estado}</simple>
+                </setProperty>
+                <to id="obtenerTarjeta-To" uri="direct:login"/>
+                <choice id="obtenerTarjeta-Choice">
+                    <when id="obtenerTarjeta-When-Conexion">
+                        <simple>${exchangeProperty.conexion} == 'OK'</simple>
+                        <to id="userCardGet-IDG-To" uri="direct:userCardGet"/>
+                    </when>
+                </choice>
+            </doTry>
+        </route>
+        <route id="Ruta-crearUsuario">
+            <from id="crearUsuario-From" uri="direct:crearUsuarioIDG"/>
+            <doTry id="crearUsuario-Try">
+                <setBody id="crearUsuario-SetBody">
+                    <simple>${exchangeProperty.requestEntrada}</simple>
+                </setBody>
+                <setProperty id="crearUsuario-grupoCliente" propertyName="grupoCliente">
+                    <simple>$simple{body.entrada.grupoCliente}</simple>
+                </setProperty>
+                <setProperty id="crearUsuario-rutCliente" propertyName="rutCliente">
+                    <simple>$simple{body.entrada.identificadorCliente}</simple>
+                </setProperty>
+                <setProperty id="crearUsuario-nombreFullCliente" propertyName="nombreFullCliente">
+                    <simple>$simple{body.entrada.nombreFullCliente}</simple>
+                </setProperty>
+                <to id="crearUsuario-To" uri="direct:login"/>
+                <choice id="crearUsuario-Choice">
+                    <when id="crearUsuario-When">
+                        <simple>${exchangeProperty.conexion} == 'OK'</simple>
+                        <to id="userCreate-IDG-To" uri="direct:userCreate"/>
+                    </when>
+                </choice>
+            </doTry>
+        </route>
+        <route id="Ruta-obtenerUsuarioIDG">
+            <from id="obtenerUsuarioIDG-From" uri="direct:obtenerUsuarioIDG"/>
+            <doTry id="obtenerUsuarioIDG-Try">
+                <setBody id="obtenerUsuarioIDG-SetBody">
+                    <simple>${exchangeProperty.requestEntrada}</simple>
+                </setBody>
+                <setProperty id="obtenerUsuarioIDG-rutCliente" propertyName="rutCliente">
+                    <simple>$simple{body.entrada.identificadorCliente}</simple>
+                </setProperty>
+                <to id="obtenerUsuarioIDG-To" uri="direct:login"/>
+                <choice id="_choice3">
+                    <when id="_when3">
+                        <simple>${exchangeProperty.conexion} == 'OK'</simple>
+                        <to id="userGet-IDG-To" uri="direct:userGet"/>
+                    </when>
+                </choice>
+            </doTry>
+        </route>
+        <route id="Ruta-userCardSet">
+            <from id="UserCardSet-IDG-From" uri="direct:userCardSet"/>
+            <doTry id="UserCardSet-IDG-Try">
+                <setHeader headerName="Cookie" id="UserCardSet-IDG-Cookie">
+                    <simple>${headers.Set-Cookie}</simple>
+                </setHeader>
+                <setHeader headerName="operationName" id="UserCardSet-IDG-operationName">
+                    <constant>userCardSet</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="UserCardSet-IDG-SOAPAction">
+                    <constant/>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="UserCardSet-IDG-operationNamespace">
+                    <constant>urn:entrust.com:ig:adminV9:wsdl</constant>
+                </setHeader>
+                <bean id="UserCardSet-IDG-Entrada-Bean"
+                    method="cambioEstadoTarjetaCoordenada" ref="beanRouteFacade"/>
+                <to id="UserCardSet-IDG-To" uri="cxf:bean:endpointServicioAdminIDG"/>
+                <setProperty id="UserCardSet-IDG-Respuesta" propertyName="respuesta">
+                    <simple>OK</simple>
+                </setProperty>
+                <bean id="UserCardSet-IDG-Respuesta-Bean"
+                    method="respuestaCambioEstadoCoordenada" ref="beanRouteFacade"/>
+                <choice id="UserCardSet-ValidaRespuesta-Choice">
+                    <when id="UserCardSet-ValidaRespuesta-When">
+                        <simple>${exchangeProperty.cambioEstado} == 'OK'</simple>
+                        <choice id="UserCardSet-ValidaRespuesta-Choice">
+                            <when id="UserCardSet-ValidaRespuesta-When">
+                                <simple>${exchangeProperty.estado} == '4'</simple>
+                                <wireTap id="envioEmail" uri="direct:envioEmailBloqueo"/>
+                            </when>
+                        </choice>
+                    </when>
+                </choice>
+                <doCatch id="UserCardSet-IDG-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="UserCardSet-IDG-Respuesta-Error" propertyName="operacionIDG">
+                        <simple>UserCardSet</simple>
+                    </setProperty>
+                    <to id="UserCardSet-inicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="Ruta-envioEmailBloqueo">
+            <from id="envioEmailBloqueo-IDG-From" uri="direct:envioEmailBloqueo"/>
+            <doTry id="envioEmailBloqueo-IDG-Try">
+                <to id="remoteCall_traerDatosPersona" uri="direct:traerDatosPersona"/>
+                <to id="remoteCall_envioEmailTransferencia" uri="direct:envioEmailTransferencia"/>
+                <doCatch id="envioEmailBloqueo-IDG-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="envioEmailBloqueo-inicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="datosPersona">
+            <from id="datosPersona-from" uri="direct:traerDatosPersona"/>
+            <bean id="obtenerDatosCliente-Bean"
+                method="obtenerDatosCliente" ref="beanRouteFacade"/>
+            <marshal id="_marshal1">
+                <jaxb contextPath="cl.coopeuch.integracion.administradoridg.wsdl.wspersona"/>
+            </marshal>
+            <to id="obtenerDatosCliente-to" uri="AMQ:{{colas.servicio.persona.in.temp}}??preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+            <to id="eliminarTag-XSLT" uri="xslt://etc/xsl/response/eliminarTag.xsl?saxon=true"/>
+            <convertBodyTo id="obtenerDatosCliente-convertBodyTo" type="java.lang.String"/>
+            <convertBodyTo
+                id="obtenerDatosCliente-ConvertBodyToResponse" type="cl.coopeuch.integracion.administradoridg.wsdl.wspersona.TraerDatosBasicosResponse"/>
+            <bean id="obtenerEmailCliente-Bean"
+                method="obtenerEmailCliente" ref="beanRouteFacade"/>
+            <convertBodyTo id="datosPersona-convertBodyTo" type="java.lang.String"/>
+        </route>
+        <route id="Ruta-userLockoutSet">
+            <from id="UserLockoutSet-IDG-From" uri="direct:userLockoutSet"/>
+            <doTry id="UserLockoutSet-IDG-Try">
+                <setHeader headerName="Cookie" id="UserLockoutSet-IDG-Cookie">
+                    <simple>${headers.Set-Cookie}</simple>
+                </setHeader>
+                <setHeader headerName="operationName" id="UserLockoutSet-IDG-operationName">
+                    <constant>userLockoutSet</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="UserLockoutSet-IDG-SOAPAction">
+                    <constant/>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="UserLockoutSet-IDG-operationNamespace">
+                    <constant>urn:entrust.com:ig:adminV9:wsdl</constant>
+                </setHeader>
+                <bean id="UserLockoutSet-IDG-Entrada-Bean"
+                    method="desbloquear" ref="beanRouteFacade"/>
+                <to id="UserLockoutSet-IDG-To" uri="cxf:bean:endpointServicioAdminIDG"/>
+                <setProperty id="UserLockoutSet-IDG-Respuesta" propertyName="respuesta">
+                    <simple>OK</simple>
+                </setProperty>
+                <bean id="UserLockoutSet-IDG-Respuesta-Bean"
+                    method="respuestaDesbloquear" ref="beanRouteFacade"/>
+                <doCatch id="UserLockoutSet-IDG-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="UserLockoutSet-IDG-Respuesta-Error" propertyName="operacionIDG">
+                        <simple>UserLockoutSet</simple>
+                    </setProperty>
+                    <to id="UserLockoutSet-inicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="Ruta-userCardCreate">
+            <from id="UserCardCreate-IDG-From" uri="direct:userCardCreate"/>
+            <doTry id="UserCardCreate-IDG-Try">
+                <setHeader headerName="Cookie" id="UserCardCreate-IDG-Cookie">
+                    <simple>${headers.Set-Cookie}</simple>
+                </setHeader>
+                <setHeader headerName="operationName" id="UserCardCreate-IDG-operationName">
+                    <constant>userCardCreate</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="UserCardCreate-IDG-SOAPAction">
+                    <constant/>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="UserCardCreate-IDG-operationNamespace">
+                    <constant>urn:entrust.com:ig:adminV9:wsdl</constant>
+                </setHeader>
+                <bean id="UserCardCreate-IDG-Entrada-Bean"
+                    method="asignarTarjetaCoordenada" ref="beanRouteFacade"/>
+                <to id="UserCardCreate-IDG-To" uri="cxf:bean:endpointServicioAdminIDG"/>
+                <setProperty id="UserCardCreate-IDG-Respuesta" propertyName="respuesta">
+                    <simple>OK</simple>
+                </setProperty>
+                <bean id="UserCardCreate-IDG-Respuesta-Bean"
+                    method="respuestaAsignarTarjetaCoordenada" ref="beanRouteFacade"/>
+                <doCatch id="UserCardCreate-IDG-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="UserCardCreate-IDG-Respuesta-Error" propertyName="operacionIDG">
+                        <simple>UserCardCreate</simple>
+                    </setProperty>
+                    <to id="UserCardCreate-inicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="Ruta-userCardGet">
+            <from id="UserCardGet-IDG-From" uri="direct:userCardGet"/>
+            <doTry id="UserCardGet-IDG-Try">
+                <setHeader headerName="Cookie" id="UserCardGet-IDG-Cookie">
+                    <simple>${headers.Set-Cookie}</simple>
+                </setHeader>
+                <setHeader headerName="operationName" id="UserCardGet-IDG-operationName">
+                    <constant>userCardGet</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="UserCardGet-IDG-SOAPAction">
+                    <constant/>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="UserCardGet-IDG-operationNamespace">
+                    <constant>urn:entrust.com:ig:adminV9:wsdl</constant>
+                </setHeader>
+                <bean id="UserCardGet-IDG-Entrada-Bean"
+                    method="obtenerTarjetaCoordenada" ref="beanRouteFacade"/>
+                <to id="UserCardGet-IDG-To" uri="cxf:bean:endpointServicioAdminIDG"/>
+                <setProperty id="UserCardGet-IDG-Respuesta" propertyName="respuesta">
+                    <simple>OK</simple>
+                </setProperty>
+                <bean id="UserCardGet-IDG-Respuesta-Bean"
+                    method="respuestaObtenerTarjetaCoordenada" ref="beanRouteFacade"/>
+                <doCatch id="UserCardGet-IDG-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="UserCardGet-IDG-Respuesta-Error" propertyName="operacionIDG">
+                        <simple>UserCardGet</simple>
+                    </setProperty>
+                    <to id="UserCardGet-inicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="Ruta-userCreate">
+            <from id="UserCreate-IDG-From" uri="direct:userCreate"/>
+            <doTry id="UserCreate-IDG-Try">
+                <setHeader headerName="Cookie" id="UserCreate-IDG-Cookie">
+                    <simple>${headers.Set-Cookie}</simple>
+                </setHeader>
+                <setHeader headerName="operationName" id="UserCreate-IDG-operationName">
+                    <constant>userCreate</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="UserCreate-IDG-SOAPAction">
+                    <constant/>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="UserCreate-IDG-operationNamespace">
+                    <constant>urn:entrust.com:ig:adminV9:wsdl</constant>
+                </setHeader>
+                <bean id="UserCreate-IDG-Entrada-Bean"
+                    method="crearUsuario" ref="beanRouteFacade"/>
+                <to id="UserCreate-IDG-To" uri="cxf:bean:endpointServicioAdminIDG"/>
+                <setProperty id="UserCreate-IDG-Respuesta" propertyName="respuesta">
+                    <simple>OK</simple>
+                </setProperty>
+                <bean id="UserCreate-IDG-Respuesta-Bean"
+                    method="respuestaCrearUsuario" ref="beanRouteFacade"/>
+                <doCatch id="UserCreate-IDG-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="UserCreate-IDG-Respuesta-Error" propertyName="operacionIDG">
+                        <simple>UserCreate</simple>
+                    </setProperty>
+                    <to id="inicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="Ruta-userGet">
+            <from id="UserGet-IDG-From" uri="direct:userGet"/>
+            <doTry id="UserGet-IDG-Try">
+                <setHeader headerName="Cookie" id="UserGet-IDG-Cookie">
+                    <simple>${headers.Set-Cookie}</simple>
+                </setHeader>
+                <setHeader headerName="operationName" id="UserGet-IDG-operationName">
+                    <constant>userGet</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="UserGet-IDG-SOAPAction">
+                    <constant/>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="UserGet-IDG-operationNamespace">
+                    <constant>urn:entrust.com:ig:adminV9:wsdl</constant>
+                </setHeader>
+                <bean id="UserGet-IDG-Entrada-Bean"
+                    method="obtenerUsuario" ref="beanRouteFacade"/>
+                <to id="UserGet-IDG-To" uri="cxf:bean:endpointServicioAdminIDG"/>
+                <setProperty id="UserGet-IDG-Respuesta" propertyName="respuesta">
+                    <simple>OK</simple>
+                </setProperty>
+                <bean id="UserGet-IDG-Respuesta-Bean"
+                    method="respuestaObtenerUsuario" ref="beanRouteFacade"/>
+                <doCatch id="UserGet-IDG-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="UserGet-IDG-Respuesta-Error" propertyName="operacionIDG">
+                        <simple>UserGet</simple>
+                    </setProperty>
+                    <to id="UserGet-icioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="Ruta-LoginIDG">
+            <from id="LoginIDG-From" uri="direct:login"/>
+            <doTry id="LoginIDG-Try">
+                <removeHeaders id="LoginIDG-RemoveHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="LoginIDG-operationName">
+                    <constant>login</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="LoginIDG-SOAPAction">
+                    <constant/>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="LoginIDG-operationNamespace">
+                    <constant>urn:entrust.com:ig:adminV9:wsdl</constant>
+                </setHeader>
+                <bean id="LoginIDG-Entrada-Bean" method="crearSesion" ref="beanRouteFacade"/>
+                <to id="LoginIDG-To" uri="cxf:bean:endpointServicioAdminIDG"/>
+                <setProperty id="Login-Respuesta" propertyName="respuesta">
+                    <simple>OK</simple>
+                </setProperty>
+                <bean id="LoginIDG-Respuesta-Bean"
+                    method="respuestaCreacionSession" ref="beanRouteFacade"/>
+                <doCatch id="LoginIDG-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="Login-Respuesta-Error" propertyName="respuesta">
+                        <simple>ERROR</simple>
+                    </setProperty>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="EMAIL_ANTISPAM">
+            <from id="EnvioEmailTransferencia-From" uri="direct:envioEmailTransferencia"/>
+            <removeHeaders id="EnvioEmailTransferencia-removeHeaders" pattern="*"/>
+            <bean id="EnvioEmailTransferencia-Bean"
+                method="requestEnviaEmailTransferencia" ref="beanRouteFacade"/>
+            <setProperty id="idNotificacionBloqueoTcoo" propertyName="idNotificacion">
+                <simple>{{rsnotificaciones.idnotificacion.bloqueo}}</simple>
+            </setProperty>
+            <to id="enviarRsNotificacionesFrom" uri="direct:enviarRsNotificaciones"/>
+        </route>
+        <route id="Ruta-GetGenericChallengeCallParms">
+            <from id="GetGenericChallengeCallParms" uri="direct:probarConexion"/>
+            <doTry id="GetGenericChallengeCallParms-DoTry">
+                <removeHeaders
+                    id="GetGenericChallengeCallParms-RemoveHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="GetGenericChallengeCallParms-operationName">
+                    <constant>getGenericChallenge</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="GetGenericChallengeCallParms-SOAPAction">
+                    <constant/>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="GetGenericChallengeCallParms-operationNamespace">
+                    <constant>urn:entrust.com:ig:authenticationV9:wsdl</constant>
+                </setHeader>
+                <bean id="GetGenericChallengeCallParms-Entrada-Bean"
+                    method="llamarOperacion_GetGenericChallengeCallParms" ref="beanRouteFacade"/>
+                <to id="GetGenericChallengeCallParms-To" uri="cxf:bean:endpointServicioAuthServiceIDG"/>
+                <doCatch id="_doCatch4">
+                    <exception>java.lang.Exception</exception>
+                    <to id="validaErrores__GetGenericChallengeCallParms" uri="direct:ManejoErrorIDG"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="ManejoErrorIDG">
+            <from id="ManejoErrorIDG-From" uri="direct:ManejoErrorIDG"/>
+            <bean id="ManejoErrorIDG-Bean" method="manejoErrorIDG" ref="beanRouteFacade"/>
+            <choice id="_choice1">
+                <when id="_when1">
+                    <simple>${exchangeProperty.conexion} == 'OK'</simple>
+                    <choice id="_choice2">
+                        <when id="ManejoErrorIDG-obtenerUsuario-When">
+                            <simple>${exchangeProperty.operationName} == 'obtenerUsuario'</simple>
+                            <to id="ManejoErrorIDG-To" uri="direct:obtenerUsuarioIDG"/>
+                        </when>
+                        <when id="ManejoErrorIDG-crearUsuario-When">
+                            <simple>${exchangeProperty.operationName} == 'crearUsuario'</simple>
+                            <to id="ManejoErrorIDG-To" uri="direct:crearUsuarioIDG"/>
+                        </when>
+                        <when id="ManejoErrorIDG-obtenerTarjeta-When">
+                            <simple>${exchangeProperty.operationName} == 'obtenerTarjeta'</simple>
+                            <to id="ManejoErrorIDG-To" uri="direct:obtenerTarjetaIDG"/>
+                        </when>
+                        <when id="ManejoErrorIDG-asignarTarjeta-When">
+                            <simple>${exchangeProperty.operationName} == 'asignarTarjeta'</simple>
+                            <to id="ManejoErrorIDG-To" uri="direct:asignarTarjetaIDG"/>
+                        </when>
+                        <when id="ManejoErrorIDG-cambioEstadoTarjeta-When">
+                            <simple>${exchangeProperty.operationName} == 'cambioEstadoTarjeta'</simple>
+                            <to id="ManejoErrorIDG-To" uri="direct:cambioEstadoTarjetaIDG"/>
+                        </when>
+                        <when id="ManejoErrorIDG-desbloquear-When">
+                            <simple>${exchangeProperty.operationName} == 'desbloquear'</simple>
+                            <to id="ManejoErrorIDG-To" uri="direct:desbloquearIDG"/>
+                        </when>
+                    </choice>
+                    <stop id="_stop3"/>
+                </when>
+                <otherwise id="_otherwise1">
+                    <stop id="_stop1"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="errorSafesigner">
+            <from id="errorSafesigner-from" uri="direct:errorSafesigner"/>
+            <to id="errorSafesigner-To" uri="direct:insMigracionLog"/>
+        </route>
+        <route id="insMigracionLog">
+            <from id="insMigracionLog-from" uri="direct:insMigracionLog"/>
+            <to id="insMigracionLog-To" uri="sql-stored:classpath:etc/sql/pa_insMigracionSSLog.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseMigracion"/>
+        </route>
+        <route id="enviarRsNotificacionesRoute">
+            <from id="enviarRsNotificacionesFrom" uri="direct:enviarRsNotificaciones"/>
+            <log id="enviarRsNotificacionesLogEntrada" message="\nAdministrador IDG: Entrada a enviarRsNotificacionesRoute"/>
+            <convertBodyTo id="envioEmailConvertToString" type="java.lang.String"/>
+            <setBody id="envioEmailSetBodyEntradaXSLT">
+                <xpath>//entrada</xpath>
+            </setBody>
+            <bean id="requestNotificacion" method="requestNotificacion" ref="beanRouteFacade"/>
+            <to id="envioNotificacion" uri="cxfrs://bean://endpointRsNotificaciones"/>
+            <log id="enviarRsNotificacionesLogSalida" message="\nAdministrador IDG: Salida enviarRsNotificacionesRoute"/>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <when id="entraFault">
+                    <simple resultType="java.lang.Integer">${property.entra_fault} == 0</simple>
+                    <to id="excepcionToAmqFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </when>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

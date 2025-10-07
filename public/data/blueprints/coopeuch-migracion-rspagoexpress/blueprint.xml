@@ -1,0 +1,2812 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd   http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wspagoexpress" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.wspagoexpress}]/PagoExpress;charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.wspagoexpress}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.wspagoexpress}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.wspagoexpress}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.wspagoexpress}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.wspagoexpress}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.wspagoexpress}]"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.pagoexpress.util.AggregatorStrategy" id="agregador"/>
+    <bean
+        class="cl.coopeuch.integracion.pagoexpress.util.AgregatorCreditoHipotecarioSplit" id="agregadorCreditoHISplit"/>    
+    <bean
+        class="cl.coopeuch.integracion.pagoexpress.util.AggregatorProductos" id="agregadorProductos"/>
+    <bean
+        class="cl.coopeuch.integracion.pagoexpress.util.AggregatorPagosCV" id="agregadorPagosCV"/>
+    <bean
+        class="cl.coopeuch.integracion.pagoexpress.util.AggregatorPagosWP" id="agregadorPagosWP"/>
+    <bean class="cl.coopeuch.integracion.pagoexpress.util.RouteFacade" id="beanRouteFacade"/>
+	<bean class="cl.coopeuch.integracion.pagoexpress.util.ValidacionDatosRetorno"
+		id="validacion" />
+	<bean class="cl.coopeuch.integracion.pagoexpress.util.AggregatorCreditoHipotecarioMultiCast"
+		id="aggregatorCreditoHipotecario" />    
+    <camelcxf:cxfEndpoint address="/WSPagoExpress"
+        id="endpointWSPagoExpress" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.pagoexpress.wsdl.WSPagoExpressSOAPPortType" wsdlURL="etc/wsdl/WSPagoExpress.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSPagoExpress"
+        id="endpointRSPagoExpress" serviceClass="cl.coopeuch.integracion.pagoexpress.wsdl.WSPagoExpressSOAPPortType">
+        <camelcxf:providers>
+            <bean id="jsonProvider" class="org.apache.cxf.jaxrs.provider.json.JSONProvider">
+                <property name="serializeAsArray" value="true"/>
+                <property name="arrayKeys">
+                    <list>
+                        <value>listaProductos</value>
+                        <value>productoPagadoWP</value>
+                        <value>factores</value>
+                        <value>factor</value>
+                    </list>
+                </property>
+                <property name="ignoreEmptyArrayValues" value="true"/>
+            </bean>
+        </camelcxf:providers>
+    </camelcxf:rsServer>
+    <camelcxf:rsClient address="[{rsnotificaciones.enviar.endpoint}]"
+        id="endpointRsNotificaciones" loggingFeatureEnabled="true">
+        <camelcxf:properties>
+            <entry key="throwExceptionOnFailure" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient address="[{wsfactoresautenticacion.consultar.url}]" 
+		id="endpointfactoresautenticacionconsultar"
+		loggingFeatureEnabled="true" />
+    <camelcxf:rsClient address="[{wssofttoken.generar.url}]" 
+		id="endpointsofttokengenerar"
+		loggingFeatureEnabled="true" />
+    <camelcxf:rsClient address="[{wssofttoken.validar.url}]" 
+		id="endpointsofttokenvalidar"
+		loggingFeatureEnabled="true" />
+    
+    <camelcxf:rsClient address="[{serviciopagos.rest}]/pagoCreditoConsumo" 
+        id="endpointServicioPagoCreditoConsumo"
+        loggingFeatureEnabled="true">
+        <camelcxf:properties>
+           <entry key="throwExceptionOnFailure" value="false"/>
+       </camelcxf:properties>
+       <camelcxf:providers>
+           <ref component-id="jsonProvider"/>
+       </camelcxf:providers>
+    </camelcxf:rsClient>
+    
+    <camelcxf:rsClient address="[{serviciopagos.rest}]/pagoCreditoHipotecario" 
+        id="endpointServicioPagoCreditoHipotecario"
+        loggingFeatureEnabled="true">
+        <camelcxf:properties>
+           <entry key="throwExceptionOnFailure" value="false"/>
+       </camelcxf:properties>
+       <camelcxf:providers>
+           <ref component-id="jsonProvider"/>
+       </camelcxf:providers>
+    </camelcxf:rsClient>
+    
+    <camelcxf:rsClient address="[{serviciopagos.rest}]/pagoCuotasParticipacion" 
+        id="endpointServicioPagoCuotasParticipacion"
+        loggingFeatureEnabled="true">
+        <camelcxf:properties>
+           <entry key="throwExceptionOnFailure" value="false"/>
+       </camelcxf:properties>
+       <camelcxf:providers>
+           <ref component-id="jsonProvider"/>
+       </camelcxf:providers>
+    </camelcxf:rsClient>
+    
+    <camelcxf:rsClient address="[{serviciopagos.rest}]/pagoTarjetaCredito" 
+        id="endpointServicioPagoTarjetaCredito"
+        loggingFeatureEnabled="true">
+        <camelcxf:properties>
+           <entry key="throwExceptionOnFailure" value="false"/>
+       </camelcxf:properties>
+       <camelcxf:providers>
+           <ref component-id="jsonProvider"/>
+       </camelcxf:providers>
+    </camelcxf:rsClient>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <camelContext id="servicio-pago-express" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSPagoExpress?LoggingFeatureEnabled=true"/>
+            <to id="soapToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSPagoExpress?LoggingFeatureEnabled=true"/>
+            <to id="restToInicioWs" uri="direct:iniciows"/>
+        </route>
+        <route id="iniciows">
+            <from id="iniciows" uri="direct:iniciows"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <bean id="obtenerDatosOperacionBean"
+                    method="obtenerDatosOperacion" ref="beanRouteFacade"/>
+                <choice id="_choice4">
+                    <when id="_when4">
+                        <simple>${exchangeProperty.valida_rut} == 'Correcto'</simple>
+                        <choice id="_choice14">
+                            <when id="_when16">
+                                <simple>${exchangeProperty.ERROR} == ''</simple>
+                                <choice id="inicioChoiceOperacion">
+                                    <when id="inicioWhenOperacionlistarDetalleProductos">
+                                    <simple>${header.operationName} == 'listarDetalleProductos'</simple>
+                                    <to id="tolistarDetalleProductos" uri="direct:listarDetalleProductos"/>
+                                    </when>
+                                    <when id="inicioWhenOperacionseleccionarProducto">
+                                    <simple>${header.operationName} == 'seleccionarProducto'</simple>
+                                    <to id="toseleccionarProducto" uri="direct:seleccionarProducto"/>
+                                    </when>
+                                    <when id="inicioWhenOperacionautenticaConsultaFactores">
+                                    <simple>${header.operationName} == 'autenticaConsultaFactores'</simple>
+                                    <to id="toautenticaConsultaFactores" uri="direct:autenticaConsultaFactores"/>
+                                    </when>
+                                    <when id="inicioWhenOperacionautorizarPagoProductoCV">
+                                    <simple>${header.operationName} == 'autorizarPagoProductoCV'</simple>
+                                    <to id="toautorizarPagoProductoCV" uri="direct:autorizarPagoProductoCV"/>
+                                    </when>
+                                    <when id="inicioWhenOperacionpagarProductoWP">
+                                    <simple>${header.operationName} == 'pagarProductoCV'</simple>
+                                    <to id="topagarProductosCV" uri="direct:pagarProductosCV"/>
+                                    </when>
+                                    <when id="inicioWhenOperacionpagarProductoWP">
+                                    <simple>${header.operationName} == 'pagarProductoWP'</simple>
+                                    <to id="topagarProductosWP" uri="direct:pagarProductosWP"/>
+                                    </when>
+                                    <when id="inicioWhenOperacionConsultarParametro">
+                                    <simple>${header.operationName} == 'consultarParametros'</simple>
+                                    <to id="toConsultarParametro" uri="direct:consultarParametros"/>
+                                    </when>
+                                    <when id="inicioWhenOperacionConsultarPago">
+                                    <simple>${header.operationName} == 'consultarPago'</simple>
+                                    <to id="toConsultarPago" uri="direct:consultarPago"/>
+                                    </when>
+                                    <when id="inicioWhenOperacionConsultarMontoAPagar">
+                                    <simple>${header.operationName} == 'consultarMontoAPagar'</simple>
+                                    <to id="toConsultarMontoAPagar" uri="direct:consultarMontoAPagar"/>
+                                    </when>
+                                    <when id="inicioWhenOperacionActualizarFlujoPago">
+                                    <simple>${header.operationName} == 'actualizarFlujoPago'</simple>
+                                    <to id="toConsultarMontoAPagar" uri="direct:actualizarFlujoPago"/>
+                                    </when>
+                                    <when id="inicioWhenOperacionValidarToken">
+                                    <simple>${header.operationName} == 'validarToken'</simple>
+                                    <to id="toValidarToken" uri="direct:validarToken"/>
+                                    </when>
+                                    <otherwise id="inicioOtherwise">
+                                    <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="_otherwise5">
+                                <setProperty id="inicioCodigoError_300" propertyName="codigoError">
+                                    <constant>300</constant>
+                                </setProperty>
+                                <setProperty id="_setProperty1" propertyName="codigoServicio">
+                                    <simple>300</simple>
+                                </setProperty>
+                                <to id="cambiaMensajeError_300" uri="direct:cambiaMensajeError"/>
+                                <throwException
+                                    exceptionType="java.lang.UnsupportedOperationException"
+                                    id="throwExceptionOperacionInvalida_300" message="${property.mensajeFront}"/>
+                                <stop id="_stop32"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <setProperty id="inicioCodigoError" propertyName="codigoError">
+                            <constant>400</constant>
+                        </setProperty>
+                        <setProperty id="_setProperty2" propertyName="codigoServicio">
+                            <simple>400</simple>
+                        </setProperty>
+                        <to id="cambiaMensajeError_400" uri="direct:cambiaMensajeError"/>
+                        <throwException
+                            exceptionType="java.lang.UnsupportedOperationException"
+                            id="throwExceptionOperacionInvalida" message="${property.mensajeFront}"/>
+                        <stop id="_stop2"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch-UnsupportedOperationException">
+                    <exception>java.lang.UnsupportedOperationException</exception>
+                    <setProperty
+                        id="inicioCodigoError-UnsupportedOperationException" propertyName="codigoError">
+                        <constant>400</constant>
+                    </setProperty>
+                    <to
+                        id="toInicioExcepcion-UnsupportedOperationException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty3" propertyName="codigoServicio">
+                        <simple>500</simple>
+                    </setProperty>
+                    <to id="_to1" uri="direct:cambiaMensajeError"/>
+                    <to id="toInicioExcepcion-inicioDoCatch" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="listarDetalleProductos">
+            <from id="listarDetalleProductosFrom" uri="direct:listarDetalleProductos"/>
+            <doTry id="listarDetalleProductosTry">
+                <to id="pa_ValidaPrivacidad-To" uri="sql-stored:classpath:etc/sql/pa_selValidaPrivacidadRut.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseValidarPrivacidad"/>
+                <bean id="beanValidaRut" method="validarRut" ref="beanRouteFacade"/>
+                <choice id="_choice15">
+                    <when id="_when17">
+                        <simple>${exchangeProperty.rutExpuesto} == 'OK'</simple>
+                        <bean id="creaTokenBean" method="creaToken" ref="beanRouteFacade"/>
+                        <setProperty id="operacionWSProductosCPS" propertyName="opeWSProductos">
+                            <constant>consultarProductosSitio</constant>
+                        </setProperty>
+                        <to id="productosCPTo" uri="direct:wsproductos"/>
+                        <bean id="validaRespuestaCPBean"
+                            method="validaRespuesta" ref="beanRouteFacade"/>
+                        <choice id="validarCPchoice">
+                            <when id="validarCPwhen">
+                                <simple>${exchangeProperty.respOpe} == 'OK'</simple>
+                                <multicast id="listarMulticast"
+                                    parallelProcessing="true" strategyRef="agregadorProductos">
+                                    <to id="ldpToListarFamiliaCP" uri="direct:listarFamiliaCP"/>
+                                    <to id="ldpToListarFamiliaTC" uri="direct:listarFamiliaTC"/>
+                                    <to id="ldpToListarFamiliaPC" uri="direct:listarFamiliaPC"/>
+                                    <to id="ldpToListarFamiliaHI" uri="direct:listarFamiliaHI"/>
+                                    <to id="ldpToListarFamiliaPM" uri="direct:listarFamiliaPM"/>
+                                    <to id="ldpToListarFamiliaAH" uri="direct:listarFamiliaAH"/>
+                                </multicast>
+                            </when>
+                        </choice>
+                        <choice id="validaProductosChoice">
+                            <when id="validaProductosWhen">
+                                <simple>${exchangeProperty.indProd} == 'OK'</simple>
+                                <to id="registrarTokenInicial" uri="direct:registrarToken"/>
+                                <choice id="registrarTokenChoice">
+                                    <when id="registrarTokenWhen">
+	                                    <simple>${exchangeProperty.codigoError} == null</simple>
+	                                    <bean id="listarDetalleProductosRTResponse2"
+	                                    	method="respuestaListarProductos" ref="beanRouteFacade"/>
+	                                    <choice>
+	                                    	<when>
+	                                    		<simple>${exchangeProperty.cuotaVencida} &gt; 0</simple>	                                    		
+	                                    		<to id="CR-CuotaVencida" uri="direct:consultarParametroMora"/>
+	                                    		<bean id="obtenerMaximoDiasMoraCreditoConsumo"
+                                    				method="obtenerMaximoDiasMoraCreditoConsumo" ref="beanRouteFacade"/>
+                                    		    <bean id="obtenerReglasAbonosMultiples"
+                                    				method="obtenerReglasMultiplesAbonos" ref="beanRouteFacade"/>
+                                    		    <to id="CR-OfertasVigentes" uri="direct:ofertaVigente"/>
+                                    		    <bean id="validarOfertaPago"  method="validarOfertaPago" ref="beanRouteFacade"/>                                     		                                       		                                    		    
+	                                    	</when>
+	                                    </choice>	                                    
+	                                    <wireTap id="_wireTap-listarDetalleProductos" uri="direct:guardarInformacion"/>
+                                        <bean id="listarDetalleProductosOcultarNumeros"
+	                                    	method="ocultarNumeroProducto" ref="beanRouteFacade"/>                             
+                                    </when>
+                                    <otherwise id="registrarTokenOtherwise">
+	                                    <setProperty id="_setProperty5" propertyName="codigoServicio">
+	                                    	<simple>${exchangeProperty.codigoError}</simple>
+	                                    </setProperty>
+	                                    <to id="listarDetalleMensajeFront" uri="direct:cambiaMensajeError"/>
+	                                    <bean id="listarDetalleProductosResponsePCENOK"
+	                                    method="listarDetalleProductosResponse" ref="beanRouteFacade"/>	                                    
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="validaProductosOtherwise">
+                                <bean id="listarDetalleProductosResponsePNOK"
+                                    method="listarDetalleProductosResponse" ref="beanRouteFacade"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise>
+                        <bean id="listarDetalleProductos-errorValidaRutExpuesto"
+                            method="errorValidaRut" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>                
+                <doCatch id="listarDetalleProductosDoCatchEx">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="listarDetalleProductosCodigoErrorEx" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty6" propertyName="codigoServicio">
+                        <simple>500</simple>
+                    </setProperty>
+                    <to id="cambiaMensajeError_500" uri="direct:cambiaMensajeError"/>
+                    <to id="tolistarDetalleProductosExcepcionEx" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="listarFamiliaCP">
+            <from id="fromListarFamiliaCP" uri="direct:listarFamiliaCP"/>
+            <choice id="filtroProductochoiceCP">
+                <when id="filtroProductowhenCP">
+                    <simple>${exchangeProperty.proplistProdCP} != null</simple>
+                    <setProperty id="tipoFamiliaCP" propertyName="familiaProducto">
+                        <constant>CP</constant>
+                    </setProperty>
+                    <setProperty id="operacionWSCuentasCSC" propertyName="opeWSCuentas">
+                        <constant>consultaSaldosCuentas</constant>
+                    </setProperty>
+                    <to id="cuentasCSCTo" uri="direct:wscuentas"/>
+                </when>
+                <otherwise id="otherwhiseCP">
+                    <bean id="CPListaVacia" method="retornaListaVacia" ref="beanRouteFacade"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="listarFamiliaTC">
+            <from id="fromListarFamiliaTC" uri="direct:listarFamiliaTC"/>
+            <choice id="filtroProductochoiceTC">
+                <when id="filtroProductowhenTC">
+                    <simple>${exchangeProperty.proplistProdTC} != null</simple>
+                    <setProperty id="tipoFamiliaTC" propertyName="familiaProducto">
+                        <constant>TC</constant>
+                    </setProperty>
+                    <setProperty id="operacionWSTarjetaCreditoTDC" propertyName="opeWSTarjetaCredito">
+                        <constant>traerListaTarjetasParaCuenta</constant>
+                    </setProperty>
+                    <to id="tarjetaCreditoTDCTo" uri="direct:wstarjetacredito"/>
+                </when>
+                <otherwise id="otherwhiseTC">
+                    <bean id="TCListaVacia" method="retornaListaVacia" ref="beanRouteFacade"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="listarFamiliaPC">
+            <from id="fromListarFamiliaPC" uri="direct:listarFamiliaPC"/>
+            <choice id="filtroProductochoicePC">
+                <when id="filtroProductowhenPC">
+                    <simple>${exchangeProperty.proplistProdPC} != null</simple>
+                    <setProperty id="tipoFamiliaPC" propertyName="familiaProducto">
+                        <constant>PC</constant>
+                    </setProperty>
+                    <!--<setProperty id="operacionWSCreditosConsumoTDPC" propertyName="opeWSCreditosConsumo">
+                        <constant>traerDatosPagoCreditos</constant>
+                    </setProperty>
+                     <to id="CreditosConsumoTDPCTo" uri="direct:wscreditosconsumo"/> -->
+                    <setProperty id="operacionWSCreditoMypeTDPM2" propertyName="opeWSCreditoMype">
+                        <constant>consultarDatosPago</constant>
+                    </setProperty>
+                    <to id="CreditosConsumoTDPCTo" uri="direct:wscreditomype"/>
+                </when>
+                <otherwise id="otherwhisePC">
+                    <bean id="PCListaVacia" method="retornaListaVacia" ref="beanRouteFacade"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="listarFamiliaHI">
+            <from id="fromListarFamiliaHI" uri="direct:listarFamiliaHI"/>
+            <choice id="filtroProductochoiceHI">
+                <when id="filtroProductowhenHI">
+                    <simple>${exchangeProperty.proplistProdHI} != null</simple>
+                    <setProperty id="tipoFamiliaHI" propertyName="familiaProducto">
+                        <constant>HI</constant>
+                    </setProperty>
+                    <setProperty id="operacionWSCreditoHipotecarioTDC" propertyName="opeWSCreditoHipotecario">
+                        <constant>consultaDatosCreditoHipotecario</constant>
+                    </setProperty>
+                    <to id="creditoHipotecarioTo" uri="direct:wscreditohipotecario"/>
+                </when>
+                <otherwise id="otherwhiseHI">
+                    <bean id="HIListaVacia" method="retornaListaVacia" ref="beanRouteFacade"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="listarFamiliaPM">
+            <from id="fromListarFamiliaPM" uri="direct:listarFamiliaPM"/>
+            <choice id="filtroProductochoicePM">
+                <when id="filtroProductowhenPM">
+                    <simple>${exchangeProperty.proplistProdPM} != null</simple>
+                    <setProperty id="tipoFamiliaPM" propertyName="familiaProducto">
+                        <constant>PM</constant>
+                    </setProperty>
+                    <setProperty id="operacionWSCreditoMypeTDPM" propertyName="opeWSCreditoMype">
+                        <constant>consultarDatosPago</constant>
+                    </setProperty>
+                    <to id="CreditoMypeTDPMTo" uri="direct:wscreditomype"/>
+                </when>
+                <otherwise id="otherwhisePM">
+                    <bean id="PMListaVacia" method="retornaListaVacia" ref="beanRouteFacade"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="listarFamiliaAH">
+            <from id="fromListarFamiliaAH" uri="direct:listarFamiliaAH"/>
+            <choice id="filtroProductochoiceAH">
+                <when id="filtroProductowhenAH">
+                    <simple>${exchangeProperty.proplistProdAH} != null</simple>
+                    <setProperty id="tipoFamiliaAH" propertyName="familiaProducto">
+                        <constant>AH</constant>
+                    </setProperty>
+                    <setProperty id="operacionWSCuentasAhorro" propertyName="opeWSCuentasAhorro">
+                        <constant>consultaCuentasAhorro</constant>
+                    </setProperty>
+                    <to id="CuentasAhorroTo" uri="direct:opcuentasahorro"/>
+                </when>
+                <otherwise id="otherwhiseAH">
+                    <bean id="AHListaVacia" method="retornaListaVacia" ref="beanRouteFacade"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="seleccionarProducto">
+            <from id="seleccionarProductoFrom" uri="direct:seleccionarProducto"/>
+            <doTry id="seleccionarProductoTry">
+                <to id="seleccionarProducto-validarToken-To" uri="direct:validarToken"/>
+                <to id="seleccionarProducto-guardarValidarDetalle-To" uri="direct:validarSeleccionProducto"/>
+                <choice id="seleccionarProductoChoice">
+                    <when id="seleccionarProductoWhen">
+                        <simple>${exchangeProperty.CODIGO} == '200'</simple>
+                        <to id="pa_delDatosSeleccionados-To" uri="sql-stored:classpath:etc/sql/pa_delDatosSeleccionados.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseEliminacion"/>
+                        <to id="seleccionarProducto-idTransaccion-To" uri="direct:consultarIdTransaccion"/>
+                        <choice id="idTransaccionChoice">
+                            <when id="idTransaccionWhen">
+                                <simple>${exchangeProperty.IDTransaccion} &gt; 0</simple>
+                                <to
+                                    id="seleccionarProducto-guardarRegistrarDetalle-To" uri="direct:guardarSeleccionProducto"/>
+                            </when>
+                            <otherwise id="idTransaccionOtherwise">
+                                <bean
+                                    id="seleccionarProducto-IOC5250-ResponseError"
+                                    method="errorSeleccionarProducto" ref="beanRouteFacade"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="errorSeleccionarProdOtherwise">
+                        <setProperty
+                            id="seleccionarProducto-CodigoError" propertyName="codigoError">
+                            <simple>440</simple>
+                        </setProperty>
+                        <setProperty id="_setProperty7" propertyName="codigoServicio">
+                            <simple>440</simple>
+                        </setProperty>
+                        <to id="cambiaMensajeError_440" uri="direct:cambiaMensajeError"/>
+                        <setProperty
+                            id="seleccionarProducto-ResponseError-Origen" propertyName="origenError">
+                            <constant>WSPagoExpress_seleccionarProducto</constant>
+                        </setProperty>
+                        <bean id="seleccionarProducto-ResponseError"
+                            method="errorSeleccionarProducto" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="seleccionarProductoDoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="seleccionarProductoCodigoError" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty8" propertyName="codigoServicio">
+                        <simple>502</simple>
+                    </setProperty>
+                    <to id="cambiaMensajeError_502" uri="direct:cambiaMensajeError"/>
+                    <to id="toseleccionarProductoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="seleccionarProductoDoCatchEx">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="seleccionarProductoCodigoErrorEx" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty9" propertyName="codigoServicio">
+                        <simple>500</simple>
+                    </setProperty>
+                    <to id="_to2" uri="direct:cambiaMensajeError"/>
+                    <to id="toseleccionarProductoExcepcionEx" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- LLamada a SQLServer Procedimientos Almacenados -->
+        <route id="registrarToken">
+            <from id="registrarToken-from" uri="direct:registrarToken"/>
+            <doTry id="registrarToken-excepcionTry">
+                <to id="pa_insToken-To" uri="sql-stored:classpath:etc/sql/pa_insToken.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseRegistrarToken"/>
+                <bean id="ProcedimientoAlmacenado-registrarToken-Bean"
+                    method="registrarToken" ref="beanRouteFacade"/>
+                <doCatch id="registrarToken-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="registrarTokenPACodErrorSQL" propertyName="codigoError">
+                        <simple>464</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty10" propertyName="codigoServicio">
+                        <simple>464</simple>
+                    </setProperty>
+                    <to id="cambiaMensajeError_464" uri="direct:cambiaMensajeError"/>
+                    <setBody id="registrarToken-SetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="registrarToken-excepcionLog"
+                        loggingLevel="ERROR" message="Ha ocurrido un error al ejecutar el Procedimiento Almacenado: ${body}"/>
+                    <to id="toRegistrarTokenExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validarToken">
+            <from id="validarToken-from" uri="direct:validarToken"/>
+            <doTry id="validarToken-excepcionTry">
+                <to id="pa_selValidarToken-To" uri="sql-stored:classpath:etc/sql/pa_selValidarToken.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseValidarToken"/>
+                <bean id="ProcedimientoAlmacenado-validarToken-Bean"
+                    method="validarToken" ref="beanRouteFacade"/>
+                <choice id="operacionValidarToken">
+                    <when id="isOperacionValidarToken">
+                        <simple>${exchangeProperty.operationName} == 'validarToken'</simple>
+                        <bean id="validarTokenResponse"
+                            method="validarTokenResponse" ref="beanRouteFacade"/>
+                    </when>
+                </choice>
+                <doCatch id="validarToken-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="validarTokenPACodErrorSQL" propertyName="codigoError">
+                        <simple>464</simple>
+                    </setProperty>
+                    <setProperty id="validarTokenPACodServicioSQL" propertyName="codigoServicio">
+                        <simple>464</simple>
+                    </setProperty>
+                    <to id="cambiaMensajeErrorVT" uri="direct:cambiaMensajeError"/>
+                    <setBody id="validarToken-SetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="validarToken-excepcionLog"
+                        loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="eliminarRegistrosListados">
+            <from id="eliminarRegistrosListados-from" uri="direct:eliminarRegistrosListados"/>
+            <doTry id="eliminarRegistrosListados-excepcionTry">
+                <to id="pa_delProductosListados-To" uri="sql-stored:classpath:etc/sql/pa_delProductosListados.sql?dataSource=dataSourceSqlServer&amp;outputHeader=eliminarRegistros"/>
+                <doCatch id="eliminarRegistrosListados-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="eliminarRegistrosListados-SetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="eliminarRegistrosListados-excepcionLog"
+                        loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validarTokenCanal">
+            <from id="validarTokenCanal-from" uri="direct:validarTokenCanal"/>
+            <doTry id="validarTokenCanal-excepcionTry">
+                <to id="pa_selValidarCanal-To" uri="sql-stored:classpath:etc/sql/pa_selValidarCanal.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseValidarTokenCanal"/>
+                <bean
+                    id="ProcedimientoAlmacenado-validarTokenCanal-Bean"
+                    method="validarTokenCanal" ref="beanRouteFacade"/>
+                <doCatch id="validarTokenCanal-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="validarTokenCanal-SetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="validarTokenCanal-excepcionLog"
+                        loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="guardarInformacion">
+            <from id="guardarInformacion-from" uri="direct:guardarInformacion"/>
+            <doTry id="guardarInformacion-excepcionTry">
+                <loop doWhile="true" id="guardarInformacion_loop">
+                    <simple>${exchangeProperty.PosicionActualProductos} &lt; ${exchangeProperty.NumeroProductosListados}</simple>
+                    <bean
+                        id="obtenerDatosRespuestaListarDetalle-BeanRouteFacadeUUID"
+                        method="obtenerDatosRespuestaListarDetalle" ref="beanRouteFacade"/>
+
+                    <to id="obtenerDatosRespuestaListarDetalle-To" uri="sql-stored:classpath:etc/sql/pa_insListarProducto.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseListarProductos"/>
+                    <wireTap id="wireTapAbonoMultiple" uri="direct:validarAbonoMultiple"/>       
+                    <bean
+                        id="obtenerDatosRespuestaListarDetalle-BeanRouteFacadeUUID-Salida"
+                        method="obtenerSalidaListarDetalle" ref="beanRouteFacade"/>     
+                            
+                    <to
+                        id="guardarInformacion-guardarInformacionListadoDetalle-To" uri="direct:guardarInformacionListadoDetalle"/>
+                    
+                </loop>
+                <doCatch id="guardarInformacion-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="guardarInformacion-SetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="guardarInformacion-excepcionLog"
+                        loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="guardarInformacionListadoDetalle">
+            <from id="guardarInformacionListadoDetalle-from" uri="direct:guardarInformacionListadoDetalle"/>
+            <doTry id="guardarInformacionListadoDetalle-excepcionTry">
+                <loop doWhile="true" id="guardarInformacionListadoDetalle_loop">
+                    <simple>${exchangeProperty.PosicionActualDetalleProductos} &lt; ${exchangeProperty.NumeroDetalleProductosListados}</simple>
+                    <bean
+                        id="guardarInformacionListadoDetalle-BeanRouteFacadeUUID"
+                        method="obtenerRespuestaListarDetalle" ref="beanRouteFacade"/>
+                    <to id="guardarInformacionListadoDetalle-To" uri="sql-stored:classpath:etc/sql/pa_insListarDetalleProducto.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseListarDetalleProductos"/>
+                </loop>
+                <doCatch id="guardarInformacionListadoDetalle-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="guardarInformacionListadoDetalle-SetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log
+                        id="guardarInformacionListadoDetalle-excepcionLog"
+                        loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="guardarSeleccionProductoBD">
+            <from id="guardarSeleccionProductoBD-from" uri="direct:guardarSeleccionProductoBD"/>
+            <doTry id="guardarSeleccionProductoBD-excepcionTry">
+                <choice id="_choice9">
+                    <when id="_when9">
+                        <simple>${exchangeProperty.FAMILIA_PRODUCTO} == 'HI'</simple>
+                        <setProperty
+                            id="elementosProductos-guardarSeleccionProductoBD-SetProperties" propertyName="elementosProductos">
+                            <constant>1</constant>
+                        </setProperty>
+                        <loop doWhile="true" id="_loop2">
+                            <simple>${exchangeProperty.elementosProductos} &lt;= ${exchangeProperty.totalCuotas}</simple>
+                            <to id="pa_insSeleccionProducto-To" uri="sql-stored:classpath:etc/sql/pa_insSeleccionProducto.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseRegistrarSeleccionProducto"/>
+                            <bean
+                                id="ProcedimientoAlmacenado-obtenerDatosCuota-Bean"
+                                method="obtenerDatosCuota" ref="beanRouteFacade"/>
+                            <choice id="_choice10">
+                                <when id="_when10">
+                                    <simple>${body}  contains 'error'</simple>
+                                    <stop id="_stop11"/>
+                                </when>
+                            </choice>
+                        </loop>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <to id="pa_insSeleccionProducto-To" uri="sql-stored:classpath:etc/sql/pa_insSeleccionProducto.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseRegistrarSeleccionProducto"/>
+                        <bean
+                            id="ProcedimientoAlmacenado-guardarSeleccionProductoBD-Bean"
+                            method="registrarSeleccionProductoBD" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="ProcedimientoAlmacenado-guardarSeleccionProductoBD-DoCatchSQL">
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty
+                        id="ProcedimientoAlmacenado-guardarSeleccionProductoBD-servicio-TOUT" propertyName="servicio">
+                        <constant>SELECCIONAR</constant>
+                    </setProperty>
+                    <setProperty
+                        id="ProcedimientoAlmacenado-guardarSeleccionProductoBD-ErrorSQL" propertyName="codigoError">
+                        <simple>509</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty11" propertyName="codigoServicio">
+                        <simple>509</simple>
+                    </setProperty>
+                    <to id="_to3" uri="direct:cambiaMensajeError"/>
+                    <to
+                        id="ProcedimientoAlmacenado-guardarSeleccionProductoBD-ToExcepcionSQL" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="guardarSeleccionProductoBD-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="guardarSeleccionProductoBD-SetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="guardarSeleccionProductoBD-excepcionLog"
+                        loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="guardarSeleccionProducto">
+            <from id="guardarSeleccionProducto-from" uri="direct:guardarSeleccionProducto"/>
+            <loop doWhile="true" id="_loop1">
+                <simple>${exchangeProperty.PosicionActual} &lt; ${exchangeProperty.NumeroProductos}</simple>
+                <bean id="guardarSeleccionProducto-BeanRouteFacadeUUID"
+                    method="obtenerDatosPA" ref="beanRouteFacade"/>
+                <choice id="_choice11">
+                    <when id="_when11">
+                        <simple>${exchangeProperty.ValidacionCantidadCuota} == 'ERROR'</simple>
+                        <stop id="_stop12"/>
+                    </when>
+                </choice>
+                <to id="guardarSeleccionProductoBD-To" uri="direct:guardarSeleccionProductoBD"/>
+            </loop>
+        </route>
+        <route id="validarSeleccionProducto">
+            <from id="validarSeleccionProducto-from" uri="direct:validarSeleccionProducto"/>
+            <doTry id="validarSeleccionProducto-excepcionTry">
+                <setProperty
+                    id="validaSeleccionProductoBD-SetProperties" propertyName="ValidarPosicionActual">
+                    <constant>0</constant>
+                </setProperty>
+                <bean id="cambiarValoresProperty-Bean"
+                    method="cambiarValoresProperty" ref="beanRouteFacade"/>
+                <loop doWhile="true" id="validar_loop">
+                    <simple>${exchangeProperty.ValidarPosicionActual} &lt; ${exchangeProperty.NumeroProductos}</simple>
+                    <to id="validaSeleccionProducto-To" uri="direct:validaSeleccionProductoBD"/>
+                    <bean id="cambiarValoresProperty-Bean"
+                        method="cambiarValoresProperty" ref="beanRouteFacade"/>
+                </loop>
+                <doCatch id="ProcedimientoAlmacenado-validaSeleccionProducto-DoCatchSQL">
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty
+                        id="ProcedimientoAlmacenado-validaSeleccionProducto-servicio-TOUT" propertyName="servicio">
+                        <constant>SELECCIONAR</constant>
+                    </setProperty>
+                    <setProperty
+                        id="ProcedimientoAlmacenado-validaSeleccionProducto-ErrorSQL" propertyName="codigoError">
+                        <simple>509</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty12" propertyName="codigoServicio">
+                        <simple>509</simple>
+                    </setProperty>
+                    <to id="_to4" uri="direct:cambiaMensajeError"/>
+                    <to
+                        id="ProcedimientoAlmacenado-validaSeleccionProducto-ToExcepcionSQL" uri="direct:excepcion"/>
+                    <stop id="_stop7"/>
+                </doCatch>
+                <doCatch id="validaSeleccionProducto-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="validaSeleccionProducto-SetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="validaSeleccionProducto-excepcionLog"
+                        loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                    <stop id="_stop8"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validaSeleccionProductoBD">
+            <from id="validaSeleccionProductoBD-from" uri="direct:validaSeleccionProductoBD"/>
+            <doTry id="validaSeleccionProductoBD-excepcionTry">
+                <setProperty
+                    id="elementosProductos-validaSeleccionProductoBD-SetProperties" propertyName="elementosProductos">
+                    <constant>0</constant>
+                </setProperty>            
+                <bean id="validaSeleccionProductoBD-BeanRouteFacadeUUID"
+                    method="validarDatosSeleccionar" ref="beanRouteFacade"/> 
+                <choice>
+                	<when>
+                		<simple>${exchangeProperty.FAMILIA_PRODUCTO} == 'PC'</simple>
+                		<to id="pa_updDatosPagoOferta-To" uri="sql-stored:classpath:etc/sql/pa_updDatosPagoOferta.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseUpdDatosPagoOferta"/>   
+                	</when>
+                </choice>                     
+                <to id="pa_selValidarProductoSeleccionado-To" uri="sql-stored:classpath:etc/sql/pa_selValidarProductoSeleccionado.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseValidarSeleccion"/>
+                <bean
+                    id="ProcedimientoAlmacenado-validaSeleccionProductoBD-Bean"
+                    method="validarDatosIngresados" ref="beanRouteFacade"/>
+                <choice id="_choice8">
+                    <when id="_when7">
+                        <simple>${exchangeProperty.SALIDA_VALIDACION} == 'ERROR'</simple>
+                        <stop id="_stop6"/>
+                    </when>
+                </choice>
+                <doCatch id="ProcedimientoAlmacenado-validaSeleccionProductoBD-DoCatchSQL">
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty
+                        id="ProcedimientoAlmacenado-validaSeleccionProductoBD-servicio-TOUT" propertyName="servicio">
+                        <constant>VALIDAR</constant>
+                    </setProperty>
+                    <setProperty
+                        id="ProcedimientoAlmacenado-validaSeleccionProductoBD-ErrorSQL" propertyName="codigoError">
+                        <simple>509</simple>
+                    </setProperty>
+                    <to
+                        id="ProcedimientoAlmacenado-validaSeleccionProductoBD-ToExcepcionSQL" uri="direct:excepcion"/>
+                    <stop id="_stop9"/>
+                </doCatch>
+                <doCatch id="validaSeleccionProductoBD-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="validaSeleccionProductoBD-SetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="validaSeleccionProductoBD-excepcionLog"
+                        loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                    <stop id="_stop10"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Invocacion WSProductos -->
+        <route id="wsproductos">
+            <from id="wsproductos-From" uri="direct:wsproductos"/>
+            <doTry id="wsproductosDoTry">
+                <choice id="wsproductosChoiceOpe">
+                    <when id="wsproductosWhenOpeCPS">
+                        <simple>${exchangeProperty.opeWSProductos} == 'consultarProductosSitio'</simple>
+                        <setProperty id="routeIdCPSProperty" propertyName="routeId">
+                            <simple>${exchangeProperty.opeWSProductos}</simple>
+                        </setProperty>
+                        <bean id="productosConsultarProductosSitioBean"
+                            method="productosConsultarProductosSitioRequest" ref="beanRouteFacade"/>
+                        <log message="request wsproducto: ${body}"/>
+                        <bean id="beanRouteFacadeUUIDCPS"
+                            method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                        <to id="toAMQCPS" uri="beanAMQ:{{wsproductos.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>                     
+                        <log message="response wsproducto: ${body}"/>
+                        <unmarshal id="unmarshalXsdProductos">
+                            <jaxb contextPath="cl.coopeuch.integracion.pagoexpress.productos.xsd"/>
+                        </unmarshal>
+                    </when>
+                </choice>
+                <doCatch id="productosTOUTDoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="codigoErrorProductosTOUT" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty13" propertyName="codigoServicio">
+                        <simple>502</simple>
+                    </setProperty>
+                    <to id="_to5" uri="direct:cambiaMensajeError"/>
+                    <to id="tolistarProductosExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="productosDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoErrorProductos" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty14" propertyName="codigoServicio">
+                        <simple>500</simple>
+                    </setProperty>
+                    <to id="_to6" uri="direct:cambiaMensajeError"/>
+                    <log id="ERRORCP" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="toProductosExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Invocacion WSCreditosConsumo -->
+		<route id="wscreditosconsumo">
+            <from id="wscreditosconsumo-From" uri="direct:wscreditosconsumo"/>
+            <doTry id="wscreditosconsumoDoTry">
+                <choice id="wscreditosconsumoChoiceOpe">
+                    <when id="wscreditosconsumoWhenOpeTDPC">
+                        <simple>${exchangeProperty.opeWSCreditosConsumo} == 'traerDatosPagoCreditos'</simple>
+                        <setProperty id="routeIdPCProperty" propertyName="routeId">
+                            <simple>${exchangeProperty.opeWSCreditosConsumo}</simple>
+                        </setProperty>
+
+                        <setBody id="setBodyPropListPCRequest">
+                            <simple>${exchangeProperty.proplistProdPC}</simple>
+                        </setBody>
+						
+                        <split id="splitPCM" parallelProcessing="true" strategyRef="agregador">
+                            <simple>${body}</simple>
+                            <bean id="traerDatosPagoCreditosBean"
+                                method="traerDatosPagoCreditosRequest" ref="beanRouteFacade"/>
+                            <log message="Resquest wscreditosconsumo: ${body}"></log>
+                            <bean id="beanRouteFacadeUUIDTDPC"
+                                method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                            <to id="toAMQTDPC" uri="beanAMQ:{{wscreditosconsumo.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                            <setBody id="setBodySalidaTDPC">
+                                <xpath>//salida</xpath>
+                            </setBody>
+                            <setBody id="setBodyTDPC">
+                                <simple>&lt;NS1:traerDatosPagoCreditosResponse xmlns:NS1="http://creditosconsumo.core.coopeuch.cl"&gt;${body}&lt;/NS1:traerDatosPagoCreditosResponse&gt;</simple>
+                            </setBody>
+                            <unmarshal id="unmarshalRespPC">
+                                <jaxb contextPath="cl.coopeuch.integracion.pagoexpress.creditosconsumo.wsdl"/>
+                            </unmarshal>   
+                            <bean id="validaRespuestaPCEBean"
+                                method="obtenerRespuestaDatosPagoCreditos" ref="validacion"/>  
+                                                  
+                        </split>
+                        <choice id="validaFamiliaPCChoice">
+                            <when id="validaFamiliaPCWhen">
+                                <simple>${exchangeProperty.familiaProducto} == 'PC'</simple>
+                                <setProperty
+                                    id="setPropertyProdConsultadosPC" propertyName="productosConsultadosPC">
+                                    <simple>${body}</simple>
+                                </setProperty>
+                            </when>
+                        </choice>
+                    </when>
+                </choice>
+                <doCatch id="wscreditosconsumoDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoErrorPC" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty15" propertyName="codigoServicio">
+                        <simple>500</simple>
+                    </setProperty>
+                    <to id="_to7" uri="direct:cambiaMensajeError"/>
+                    <log id="ERRORTDCC" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <wireTap id="wireTapExceptionPC" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+		<!-- Invocacion WSCreditoMype -->
+		<route id="wscreditomype">
+            <from id="wscreditomype-From" uri="direct:wscreditomype"/>
+            <doTry id="wscreditomypeDoTry">
+                <choice id="wscreditomypeChoiceOpe">
+                    <when id="wscreditomypeWhenOpeTDPC">
+                        <simple>${exchangeProperty.opeWSCreditoMype} == 'consultarDatosPago'</simple>
+                        <setProperty id="routeIdPMProperty" propertyName="routeId">
+                            <simple>${exchangeProperty.opeWSCreditoMype}</simple>
+                        </setProperty>
+                        
+                        <choice id="productosConsumoChoice">
+		                    <when id="productosConsumoPMWhen2">
+                                <simple>${exchangeProperty.familiaProducto} == 'PM'</simple>
+                                <setBody id="setBodyPropListPMRequest2">
+                                    <simple>${exchangeProperty.proplistProdPM}</simple>
+                                </setBody>
+                            </when>                        
+                            <when id="productosConsumoWhen2">
+                                <simple>${exchangeProperty.familiaProducto} == 'PC'</simple>
+                        
+		                        <setBody id="setBodyPropListPCRequest2">
+		                            <simple>${exchangeProperty.proplistProdPC}</simple>
+		                        </setBody>
+		                    </when>
+                        </choice>
+						
+                        <split id="splitPM" parallelProcessing="true" strategyRef="agregador">
+                            <simple>${body}</simple>
+                            <bean id="consultarDatosPagoBean"
+                                method="consultarDatosPagoRequest" ref="beanRouteFacade"/>
+                            <log message="Resquest wscreditomype: ${body}"></log>
+                            <bean id="beanRouteFacadeUUIDTDPM"
+                                method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                            <to id="toAMQTDPM" uri="beanAMQ:{{wscreditomype.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                            <setBody id="setBodySalidaTDPM">
+                                <xpath>//salida</xpath>
+                            </setBody>
+                            <setBody id="setBodyTDPM">
+                                <simple>&lt;consultarDatosPagoResponse xmlns:NS1="http://integracion.coopeuch.cl/WSCreditoMype/"&gt;${body}&lt;/consultarDatosPagoResponse&gt;</simple>
+                            </setBody>
+							<log message="Response wscreditomype: ${body}"></log>
+                            <unmarshal id="unmarshalRespPM">
+                                <jaxb contextPath="cl.coopeuch.integracion.pagoexpress.creditomype.wsdl"/>
+                            </unmarshal>
+
+                            <bean id="validaRespuestaPMEBean"
+                                method="obtenerRespuestaConsultarDatosPago" ref="validacion"/>        
+                        </split>
+                        
+                        <choice id="validaFamiliaPCChoice2">
+                            <when id="validaFamiliaPMChoice2">
+                                <simple>${exchangeProperty.familiaProducto} == 'PC'</simple>
+                                <setProperty
+                                    id="setPropertyProdConsultadosPC2" propertyName="productosConsultadosPC">
+                                    <simple>${body}</simple>
+                                </setProperty>
+                            </when>          
+                            <when id="validaFamiliaPMChoice2">
+                                <simple>${exchangeProperty.familiaProducto} == 'PM'</simple>
+                                <setProperty
+                                    id="setPropertyProdConsultadosPM2" propertyName="productosConsultadosPM">
+                                    <simple>${body}</simple>
+                                </setProperty>
+                            </when>
+                        </choice>
+                    </when>
+                </choice>
+                <doCatch id="wscreditomypeDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoErrorPM" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty152" propertyName="codigoServicio">
+                        <simple>500</simple>
+                    </setProperty>
+                    <to id="_to72" uri="direct:cambiaMensajeError"/>
+                    <log id="ERRORTDCC2" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <wireTap id="wireTapExceptionPM" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route> 
+        
+        <!-- Invocacion WSCuentas -->
+        <route id="wscuentas">
+            <from id="wscuentas-From" uri="direct:wscuentas"/>
+            <doTry id="wscuentasDoTry">
+                <choice id="wscuentasChoiceOpe">
+                    <when id="wscuentasWhenOpe">
+                        <simple>${exchangeProperty.opeWSCuentas} == 'consultaSaldosCuentas'</simple>
+                        <setProperty id="routeIdCTProperty" propertyName="routeId">
+                            <simple>${exchangeProperty.opeWSCuentas}</simple>
+                        </setProperty>
+                        <setBody id="setBodyPropListCPRequest">
+                            <simple>${exchangeProperty.proplistProdCP}</simple>
+                        </setBody>
+                        <split id="splitCP" parallelProcessing="true" strategyRef="agregador">
+                            <simple>${body}</simple>
+                            <bean id="consultaSaldosCuentasBean"
+                                method="consultaSaldosCuentasRequest" ref="beanRouteFacade"/>
+                            <bean id="beanRouteFacadeUUIDCSC"
+                                method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                            <to id="toAMQCSC" uri="beanAMQ:{{wscuentas.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                            <setBody id="setBodySalidaCT">
+                                <xpath>//salida</xpath>
+                            </setBody>
+                            <setBody id="setBodyCT">
+                                <simple>&lt;NS1:consultaSaldosCuentasResponse xmlns:NS1="http://cuenta.core.coopeuch.cl"&gt;${body}&lt;/NS1:consultaSaldosCuentasResponse&gt;</simple>
+                            </setBody>
+                            <unmarshal id="unmarshalRespCT">
+                                <jaxb contextPath="cl.coopeuch.integracion.pagoexpress.cuentas.wsdl"/>
+                            </unmarshal>
+                        </split>
+                        <setProperty id="setPropertyProdConsultadosCP" propertyName="productosConsultadosCP">
+                            <simple>${body}</simple>
+                        </setProperty>
+                    </when>
+                </choice>
+                <doCatch id="cuentasDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="codigoErrorCuentas" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty16" propertyName="codigoServicio">
+                        <simple>500</simple>
+                    </setProperty>
+                    <to id="_to8" uri="direct:cambiaMensajeError"/>
+                    <log id="ERRORCT" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <wireTap id="wireTapExceptionCT" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Invocacion WSTarjetaCredito -->
+		<route id="wstarjetacredito">
+			<from id="wstarjetacredito-From" uri="direct:wstarjetacredito"/>
+			<doTry id="wstarjetacreditoDoTry">
+				<choice id="wstarjetacreditoChoiceOpe">
+					<when id="wstarjetacreditosWhenOpe">
+						<simple>${exchangeProperty.opeWSTarjetaCredito} == 'traerListaTarjetasParaCuenta'</simple>
+						<setProperty id="routeIdTCProperty" propertyName="routeId">
+							<simple>${exchangeProperty.opeWSTarjetaCredito}</simple>
+						</setProperty>
+						<setBody id="setBodyPropListTCRequest">
+							<simple>${exchangeProperty.proplistProdTC}</simple>
+						</setBody>
+						<split id="splitTC" strategyRef="agregador">
+							<simple>${body}</simple>					
+							<bean
+									id="traerListaTarjetasParaCuentaBean"
+									method="traerListaTarjetasParaCuentaRequest" ref="beanRouteFacade"/>
+							<bean id="beanRouteFacadeUUIDLTC"
+									method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+							<to id="toAMQLTC" uri="beanAMQ:{{wstarjetacredito.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+							<setBody id="setBodySalidaLTC">
+								<xpath>//salida</xpath>
+							</setBody>
+							<setBody id="setBodyLTC ">
+								<simple>&lt;NS1:traerListaTarjetasParaCuentaResponse xmlns:NS1="http://tarjetadecredito.core.coopeuch.cl"&gt;${body}&lt;/NS1:traerListaTarjetasParaCuentaResponse&gt;</simple>
+							</setBody>
+							<unmarshal id="unmarshalRespTCLTC">
+								<jaxb contextPath="cl.coopeuch.integracion.pagoexpress.tarjetacredito.wsdl"/>
+							</unmarshal>
+							<bean id="validaRespuestaLTCBean"
+									method="obtenerRespuestaListaTarjetasParaCuenta" ref="validacion"/>
+							
+							<choice id="_choice2">
+								<when id="_when2">
+									<simple>${exchangeProperty.respOpe} == 'OK'</simple>
+									<setProperty
+									id="operacionWSTarjetaCreditoDTC" propertyName="opeWSTarjetaCredito">
+										<constant>consultarSaldoTC</constant>
+									</setProperty>
+									<setProperty
+									id="routeIdTCTDTProperty" propertyName="routeId">
+										<simple>${exchangeProperty.opeWSTarjetaCredito}</simple>
+									</setProperty>
+									<setBody id="setBodyPropListTCTDTRequest">
+										<simple>${exchangeProperty.proplistProdTC}</simple>
+									</setBody>
+									<bean
+									id="consultarDatosTarjeta-Bean"
+									method="consultarTarjetaRequest" ref="beanRouteFacade"/>
+									<bean
+									id="beanRouteFacade-consultarDatosTarjeta"
+									method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+									<to id="toAMQLTC" uri="beanAMQ:{{wsnexus.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+									<to
+									id="consultarTC_nexus-to-CDATA" uri="xslt://etc/xsl/response/getCDATA.xsl?saxon=true"/>
+								</when>
+							</choice>
+						</split>
+						<setProperty id="setPropertyProdConsultadosTC" propertyName="productosConsultadosTC">
+							<simple>${body}</simple>
+						</setProperty>
+					</when>
+				</choice>
+				<doCatch id="tarjetacreditoDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="codigoErrorTarjetaCredito" propertyName="codigoError">
+						<constant>500</constant>
+					</setProperty>
+					<setProperty id="_setProperty17" propertyName="codigoServicio">
+						<simple>500</simple>
+					</setProperty>
+					<to id="_to9" uri="direct:cambiaMensajeError"/>
+					<log id="ERRORTC" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+					<to id="toTarjetaCreditoExcepcion" uri="direct:excepcion"/>
+				</doCatch>
+			</doTry>
+		</route>
+        <!-- Invocacion WSCreditoHipotecario -->
+		<route id="wscreditohipotecario">
+			<from id="wscreditohipotecario-From" uri="direct:wscreditohipotecario" />
+			<doTry id="wscreditohipotecarioDoTry">
+				<choice id="wscreditohipotecarioChoiceOpe">
+					<when id="wscreditohipotecarioWhenOpe">
+						<simple>${exchangeProperty.opeWSCreditoHipotecario} == 'consultaDatosCreditoHipotecario'</simple>
+						<setProperty id="routeIdHIProperty" propertyName="routeId">
+							<simple>${exchangeProperty.opeWSCreditoHipotecario}</simple>
+						</setProperty>
+						<setBody id="setBodyPropListHIRequest">
+							<simple>${exchangeProperty.proplistProdHI}</simple>
+						</setBody>
+						<split id="splitHI" parallelProcessing="true" strategyRef="agregadorCreditoHISplit">
+							<simple>${body}</simple>							
+							<multicast id="creditosHipotecario-MultiCast" parallelProcessing="true" strategyRef="aggregatorCreditoHipotecario">                 
+			                   	<to id="WSCreditoHipotecario-consultaDatosCreditoHipotecario" uri="direct:consultaDatosCreditoHipotecario"/>
+			                    <to id="WSCreditoHipotecario-consultaPlanPagoCreditoHipotecario" uri="direct:consultaPlanPagoCreditoHipotecario"/>
+	                		</multicast>
+						</split>
+						<setProperty id="_setProperty4" propertyName="productosConsultadosHI">
+							<simple>${body}</simple>
+						</setProperty>
+					</when>
+				</choice>
+				<doCatch id="creditoHipotecarioDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="codigoErrorCreditoHipotecario"
+						propertyName="codigoError">
+						<constant>500</constant>
+					</setProperty>
+					<setProperty propertyName="codigoServicio">
+						<simple>500</simple>
+					</setProperty>
+					<to uri="direct:cambiaMensajeError"/>	
+					<log id="ERRORHI" loggingLevel="ERROR"
+						message="Ha ocurrido un error ::${exception}" />
+					<to id="toCreditoHipotecyarioExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+        <!-- Invocacion OPCuentasAhorro -->
+        <route id="opcuentasahorro">
+            <from id="opcuentasahorro-From" uri="direct:opcuentasahorro"/>
+            <doTry id="opcuentasAhorroDoTry">
+                <choice id="opcuentasAhorroChoiceOpe">
+                    <when id="opcuentasAhorroWhenOpe">
+                        <simple>${exchangeProperty.opeWSCuentasAhorro} == 'consultaCuentasAhorro'</simple>
+                        <setProperty id="routeIdAHProperty" propertyName="routeId">
+                            <simple>${exchangeProperty.opeWSCuentasAhorro}</simple>
+                        </setProperty>
+                        <split id="splitAH" parallelProcessing="true" strategyRef="agregador">
+                            <simple>${body}</simple>
+                            <log id="_logAH" message="Procesa cuentas ahorro ::"/>
+                        </split>
+                        <setProperty id="setPropertyProdConsultadosAH" propertyName="productosConsultadosAH">
+                            <simple>${body}</simple>
+                        </setProperty>
+                    </when>
+                </choice>
+            </doTry>
+        </route>
+        <!-- Ruta de Integracion IBS IOC -->
+        <route id="consultar_idtransaccion">
+            <from id="consultar_idtransaccion-From" uri="direct:consultarIdTransaccion"/>
+            <doTry id="consultar_idtransaccion-DoTry">
+                <bean id="consultar_idtransaccion-BeanRouteFacadeUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <setBody id="consultar_idtransaccion-SetBody">
+                    <simple>${exchangeProperty.sp_datos}</simple>
+                </setBody>
+                <convertBodyTo id="consultar_idtransaccion-BodyTo" type="java.lang.String"/>
+                <to id="consultar_idtransaccion-ToXSLTrama" uri="xslt://etc/xsl/request/IOC525001I_consultarIdTransaccion.xsl"/>
+                <to id="consultar_idtransaccion-ToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=ERROR&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="consultar_idtransaccion-Transform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultar_idtransaccion-XSLSOAP" uri="xslt://etc/xsl/response/IOC525001O_consultarIdTransaccion.xsl?saxon=true"/>
+                <choice id="_choice7">
+                    <when id="_when8">
+                        <simple>${body} contains 'IOC525001O'</simple>
+                        <setProperty
+                            id="consultar_idtransaccion-IDTransaccion" propertyName="IDTransaccion">
+                            <xpath resultType="String">//IDTransaccion</xpath>
+                        </setProperty>
+                    </when>
+                    <otherwise id="_otherwise3">
+                        <setProperty
+                            id="consultar_idtransaccion-IDTransaccion" propertyName="IDTransaccion">
+                            <constant>0</constant>
+                        </setProperty>
+                        <setProperty
+                            id="consultar_idtransaccion-codigoError" propertyName="codigoErrorID">
+                            <xpath resultType="String">//codigo</xpath>
+                        </setProperty>
+                        <setProperty
+                            id="consultar_idtransaccion-descripcionError" propertyName="descripcionErrorID">
+                            <xpath resultType="String">//descripcion</xpath>
+                        </setProperty>
+                    </otherwise>
+                </choice>
+                <doCatch id="consultar_idtransaccion-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="consultar_idtransaccion-codigoError-Excepcion" propertyName="codigoErrorID">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty19" propertyName="codigoServicio">
+                        <simple>503</simple>
+                    </setProperty>
+                    <to id="_to11" uri="direct:cambiaMensajeError"/>
+                    <setProperty
+                        id="consultar_idtransaccion-descripcion-Excepcion" propertyName="servicioError">
+                        <constant>WSIDtransaccion - consultar</constant>
+                    </setProperty>
+                    <to id="to-consultar_idtransaccion-Excepcion" uri="direct:excepcion"/>
+                    <stop id="_stop1"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+ 		<route id="pagarProductosCV">
+            <from id="pagarCVFrom" uri="direct:pagarProductosCV"/>
+            <doTry id="ppcv-dotry">
+                <choice id="ppcv-validaCV-choice">
+                    <when id="ppcv-validaCV-when">
+                        <simple>${exchangeProperty.validaCV} != '200'</simple>
+                        <setProperty id="ppcv-validaCV-codigoError" propertyName="codigoError">
+                            <simple>${exchangeProperty.validaCV}</simple>
+                        </setProperty>
+	                    <setProperty id="ppcv-validaCV-codigoServicio" propertyName="codigoServicio">
+	                        <simple>${exchangeProperty.validaCV}</simple>
+	                    </setProperty>
+	                    <setProperty id="ppcv-validaCV-mensajeError" propertyName="mensajeError">
+	                        <simple>Error en la validacion campos CV</simple>
+	                    </setProperty>
+	                    <to id="ppcv-error-validaCV-to-errorResponse" uri="direct:errorResponse"/>
+                    </when>
+                </choice>
+                <bean id="ppcv-pagarCVSetPropertiesPa"
+                    method="setPropertiesPaValidarIdTransaccion" ref="beanRouteFacade"/>
+                <to id="ppcv-pagarCVTovalidarToken" uri="direct:validarTransaccion"/>
+                <to id="ppcv-toValidaRutPagoVsRutTitular" uri="direct:validarRutPagoProductoAhorro"/>
+                <choice id="ppcv-validarCodigo-choice">
+                	<when id="ppcv-validarCodigo-when-ok">
+                    	<simple>${exchangeProperty.CODIGO} == '200'</simple>
+            			<to id="ppcv-to-paSelDetalleProducto" uri="sql-stored:classpath:etc/sql/pa_selDetalleProducto.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseDetalleProducto"/>
+                      	<bean id="ppcv-SelDetalleProducto-bean"
+                       		method="respSelDetalleProducto" ref="beanRouteFacade"/>
+	                    <setProperty id="ppcv-seldetalleproducto-backup" propertyName="bodybackup">
+	                        <simple>${body}</simple>
+	                    </setProperty>
+                    	<to id="ppcv-to-obtenerEstadoFlujo" uri="direct:obtenerEstadoFlujo"/>
+		            	<choice id="ppcv-validarDesafio-choice">
+		            		<when id="ppcv-validarDesafio-when-true">
+		            			<simple>${exchangeProperty.EstadoFlujo} == 'F'</simple>
+		            			
+		            			<choice id="ppcv-factor-choice">
+		            				<when id="ppcv-factor-coord">
+		            					<simple>${exchangeProperty.Factor} == '1'</simple>
+		            					<to id="ppcv-To-ValidarDesafio" uri="direct:validarDesafio"/>
+		            				</when>
+		            				<when id="ppcv-factor-passcoopeuch">
+		            					<simple>${exchangeProperty.Factor} == '2'</simple>
+		            					<to id="ppcv-to-validarPass" uri="direct:validarPasscoopeuch"/>
+		            				</when>
+		            				<otherwise id="ppcv-factor-otherwise">
+					                    <setProperty id="ppcv-factor-error-code" propertyName="codigoError">
+					                        <constant>420</constant>
+					                    </setProperty>
+					                    <setProperty id="ppcv-factor-service-code" propertyName="codigoServicio">
+					                        <simple>420</simple>
+					                    </setProperty>
+					                    <setProperty id="ppcv-factor-error-message" propertyName="mensajeError">
+					                        <simple>Factor faltante o no valido</simple>
+					                    </setProperty>					                    
+		            					<to id="ppcv-error-factor-to-errorResponse" uri="direct:errorResponse"/>
+		            				</otherwise>
+		            			</choice>
+		            		</when>
+		            	</choice>
+                        <setBody id="ppcv-seldetalleproducto-restore">
+                          <simple>${exchangeProperty.bodybackup}</simple>
+                        </setBody>
+                       	<choice id="ppcv-pagarproducto-choice">
+                       		<when id="ppcv-pagarproducto-AH-when">
+                       			<simple>${exchangeProperty.FAMILIA_PRODUCTO} == 'AH'</simple>
+								<split id="ppcv-ah-tef-split"
+									stopOnException="true" strategyRef="agregadorPagosCV">
+									<simple>${body}</simple>
+									<bean id="ppcv-ah-tef-DetalleProductoAhorro-bean"
+										method="datosDetalleProducto" ref="beanRouteFacade"/>
+									<setProperty id="ppcv-ah-tef-solicitudId" propertyName="solicitudId">
+										<constant>0</constant>
+									</setProperty>
+									<wireTap id="ppcv-ah-tef--consultarValidaTEF-wireTap" uri="direct:consultarValidaTEF"/>
+									<to id="ppcv-ah-tef-to-WsTransferenciaInterna" uri="direct:wstransferenciainternaByAMQ"/>
+									<bean id="ppcv-ah-tef-respServicioTransferencia-bean"
+										method="respServicioPagos" ref="beanRouteFacade"/>
+									<wireTap id="ppcv-ah-tef-guardaAuditoriaPago-wiretap" uri="direct:auditoriaPago"/>
+									<choice id="ppcv-ah-tef-resultado-transferencia-choice">
+										<when id="ppcv-ah-tef-resultado-transferencia-ok-when">
+											<simple>${exchangeProperty.resultadoPago}</simple>
+											<to id="ppcv-ah-tef-to-PaUpdPago" uri="sql-stored:classpath:etc/sql/pa_updPago.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseUpdPago"/>
+										</when>
+										<otherwise id="ppcv-ah-tef-resultado-transferencia-noOk-otherwise">
+											<wireTap id="ppcv-ah-tef-EliminarRegistros-wireTap" uri="direct:eliminarRegistrosListados"/>
+										</otherwise>
+									</choice>
+								</split>
+                       		</when>
+                       		<otherwise id="ppcv-pagarproducto-noAH-otherwise">
+								<split id="ppcv-tef-split"
+									stopOnException="true" strategyRef="agregadorPagosCV">
+									<simple>${body}</simple>
+									<bean id="ppcv-tef-pagarCVDetalleProducto-bean"
+										method="datosDetalleProducto" ref="beanRouteFacade"/>
+									<to id="ppcv-tef-to-WsPagos" uri="direct:wspagosByAMQ"/>
+									<bean id="ppcv-tef-respServicioPagos-bean"
+										method="respServicioPagos" ref="beanRouteFacade"/>
+									<wireTap id="ppcv-tef-guardaAuditoriaPago-wiretap" uri="direct:auditoriaPago"/>
+									<choice id="ppcv-tef-resultado-pago-choice">
+										<when id="ppcv-tef-resultado-pago-ok-when">
+											<simple>${exchangeProperty.resultadoPago}</simple>
+											<to id="ppcv-tef-to-PaUpdPago" uri="sql-stored:classpath:etc/sql/pa_updPago.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseUpdPago"/>
+											<wireTap id="bloquearOfertaPagoCV" uri="direct:updateOfertaPagoAbono"></wireTap>
+										</when>
+										<otherwise id="ppcv-tef-resultado-pago-noOk-otherwise">
+											<wireTap id="ppcv-tef-EliminarRegistros-wireTap" uri="direct:eliminarRegistrosListados"/>
+										</otherwise>
+									</choice>
+								</split>
+                       		</otherwise>
+                       	</choice>
+                    	
+                   	</when>
+                    <otherwise id="ppcv-validarCodigo-Otherwise-nook">
+                        <setProperty id="ppcv-validaCodigo-error-codigoError" propertyName="codigoError">
+                            <simple>${exchangeProperty.CODIGO}</simple>
+                        </setProperty>
+                        <setProperty id="ppcv-validaCodigo-error-servicio" propertyName="servicio">
+                            <constant>PAGAR</constant>
+                        </setProperty>
+                        <setProperty id="ppcv-validaCodigo-error-codigoRespuesta" propertyName="codigoRespuesta">
+                            <simple>${exchangeProperty.CODIGO}</simple>
+                        </setProperty>
+                        <wireTap id="ppcv-validaCodigo-error-to-auditoriaPago" uri="direct:auditoriaPago"/>
+                        <to id="ppcv-error-token-to-errorResponse" uri="direct:errorResponse"/>
+                        <!--<throwException id="ppcv-validaCodigo-throwException"
+                            exceptionType="java.lang.Exception" message="Token inválido"/>-->
+                    </otherwise>                   	
+                </choice>
+                        
+                        
+                <doCatch id="ppcv-DoCatchEx">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="ppcv-ErrorEx-error-code" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="ppcv-ErrorEx-service-code" propertyName="codigoServicio">
+                        <simple>500</simple>
+                    </setProperty>
+                    <to id="ppcv-ErrorEx-to-excepcion" uri="direct:excepcion"/>
+                </doCatch>  
+            </doTry>
+            
+        </route>
+        
+        <route id="pagarProductosWP">
+            <from id="pagarProductosWPFrom" uri="direct:pagarProductosWP"/>
+            <doTry id="pagarWPTry">
+                <bean id="pagarWPSetPropertiesPa"
+                    method="setPropertiesPaValidarIdTransaccion" ref="beanRouteFacade"/>
+                <to id="pagarWPTovalidarToken" uri="direct:validarTransaccion"/>
+                <to id="pagarWPInsNumeroWEBPAY" uri="sql-stored:classpath:etc/sql/pa_insNumeroWEBPAY.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseInsNumeroWEBPAY"/>
+                <choice id="pagarWPChoice">
+                    <when id="pagarWPWhen">
+                        <simple>${exchangeProperty.CODIGO} == '200'</simple>
+                        <to id="pagarWPPaSelDetalleProducto" uri="sql-stored:classpath:etc/sql/pa_selDetalleProducto.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseDetalleProducto"/>
+                        <bean id="pagarWPrespSelDetalleProducto"
+                            method="respSelDetalleProducto" ref="beanRouteFacade"/>
+                        <choice id="validaFamiliaPagarWPChoice">
+                            <when id="validaFamiliaPagarWPWhen">
+                                <simple>${exchangeProperty.FAMILIA_PRODUCTO} == 'AH'</simple>
+                                <split id="pagarWPSplitPagosAH"
+                                    stopOnException="true" strategyRef="agregadorPagosWP">
+                                    <simple>${body}</simple>
+                                    <bean id="pagarWPDetalleProductoAH"
+                                    method="datosDetalleProducto" ref="beanRouteFacade"/>
+                                    <to id="pagarWPToWsCuentaAhorro" uri="direct:wscuentaahorroByAMQ"/>
+                                    
+                                    <bean id="pagarWPbuscarIdPagoAH"
+                                    method="respServicioPagos" ref="beanRouteFacade"/>
+                                    <wireTap
+                                    id="wireTap-GuardaAuditoriaPago-WP-AH-Respuesta" uri="direct:auditoriaPago"/>
+                                    <choice id="pagarWPChoiceAH">
+                                    <when id="pagarWPWhenAH">
+                                    <simple>${exchangeProperty.resultadoPago}</simple>
+                                    <to id="pagarWPPaUpdPagoAH" uri="sql-stored:classpath:etc/sql/pa_updPago.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseUpdPago"/>
+                                     <setProperty propertyName="bodyTemp">
+	        							<simple>${body}</simple>
+	        						</setProperty>
+                                    
+                                    <setProperty propertyName="codAutorizacionIbs">
+	        							<simple>0</simple>
+	        						</setProperty>
+	        	 
+	        						<to id="pa_insSeleccionIdWebPayTOAH" uri="sql-stored:classpath:etc/sql/pa_insSeleccionIdWebPay.sql?dataSource=dataSourceSqlServer&amp;outputHeader=respuestaInsSeleccionIdWebPay"/>
+	         						<log message="respuesta pa id webpay: ${header.respuestaInsSeleccionIdWebPay}" />
+	         						<bean id="grabarIdWebPay-BeanAH" method="obtieneIdGeneradoParaTefPag2" ref="beanRouteFacade"/>
+	         	                    <to uri="direct:grabarIdWebPay"/>
+	         	                    
+	         	                    <setBody>
+	         	                    	<simple>${exchangeProperty.bodyTemp}</simple>
+	         	                    </setBody>
+                                    </when>
+                                    <otherwise id="pagarWPotherwisePagoAH">
+                                    <wireTap
+                                    id="pagarWPeliminarRegistrosListadosAH" uri="direct:eliminarRegistrosListados"/>
+                                    </otherwise>
+                                    </choice>
+                                </split>
+                            </when>
+                            <otherwise id="pagarWPOtherwiseWSPagos">
+                                <split id="pagarWPSplitPagos"
+                                    stopOnException="true" strategyRef="agregadorPagosWP">
+                                    <simple>${body}</simple>
+                                    <bean id="pagarWPDetalleProducto"
+                                    method="datosDetalleProducto" ref="beanRouteFacade"/>
+
+                                    <to uri="direct:servicioPagosRest"/>
+                                    <!--
+                                    <to id="pagarWPToWsPagos" uri="direct:wspagosByAMQ"/>
+                                  -->
+                                    <bean id="pagarWPbuscarIdPago"
+                                    method="respServicioPagos" ref="beanRouteFacade"/>
+                                    <wireTap
+                                    id="wireTap-GuardaAuditoriaPago-WP-Respuesta" uri="direct:auditoriaPago"/>
+                                    <choice id="pagarWPChoice">
+                                    <when id="pagarWPWhen">
+                                    <simple>${exchangeProperty.resultadoPago}</simple>
+                                    <to id="pagarWPPaUpdPago" uri="sql-stored:classpath:etc/sql/pa_updPago.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseUpdPago"/>
+                                    <wireTap id="bloquearOfertaPagoWebpay" uri="direct:updateOfertaPagoAbono"></wireTap>
+                                    
+                                     <setProperty propertyName="bodyTemp">
+	        							<simple>${body}</simple>
+	        						</setProperty>
+                                    
+                                    <setProperty propertyName="codAutorizacionIbs">
+	        							<simple>0</simple>
+	        						</setProperty>
+	        	 
+	        						<to id="pa_insSeleccionIdWebPayTOAH" uri="sql-stored:classpath:etc/sql/pa_insSeleccionIdWebPay.sql?dataSource=dataSourceSqlServer&amp;outputHeader=respuestaInsSeleccionIdWebPay"/>
+	         						<log message="respuesta pa id webpay: ${header.respuestaInsSeleccionIdWebPay}" />
+	         						<bean id="grabarIdWebPay-BeanAH" method="obtieneIdGeneradoParaTefPag2" ref="beanRouteFacade"/>
+	         	                    <to uri="direct:grabarIdWebPay"/>
+	         	                    
+	         	                    <setBody>
+	         	                    	<simple>${exchangeProperty.bodyTemp}</simple>
+	         	                    </setBody>
+	         	                    
+                                    </when>
+                                    <otherwise id="pagarWPotherwisePago">
+                                    <wireTap
+                                    id="pagarWPeliminarRegistrosListados" uri="direct:eliminarRegistrosListados"/>
+                                    </otherwise>
+                                    </choice>
+	         	                    
+                                </split>
+                            </otherwise>
+                        </choice>
+                        
+                        
+	         	                    
+                    </when>
+                    <otherwise id="pagarWPOtherwise">
+                        <setProperty id="pagarWPSetCodigoErrorToken" propertyName="codigoError">
+                            <simple>${exchangeProperty.CODIGO}</simple>
+                        </setProperty>
+                        <setProperty
+                            id="pagarWPOtherwise-codigoRespuesta" propertyName="codigoRespuesta">
+                            <simple>${exchangeProperty.CODIGO}</simple>
+                        </setProperty>
+                        <wireTap id="wireTap-pagarWPOtherwise-WP" uri="direct:auditoriaPago"/>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="pagarWPthrowToken" message="Token inválido"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="pagarWPDoCatchTimeout">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="WPwspagosByAMQSetCodErrorTimeout" propertyName="codigoError">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty21" propertyName="codigoServicio">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty
+                        id="pagarWPDoCatchTimeout-codigoRespuesta" propertyName="codigoRespuesta">
+                        <simple>503</simple>
+                    </setProperty>
+                    <to id="_to14" uri="direct:cambiaMensajeError"/>
+                    <to id="topagarWPExcepcionTimeout" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="pagarWPDoCatchEx">
+                    <exception>java.lang.Exception</exception>
+                    <to id="topagarWPExcepcionEx" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+
+        <route id="autenticaConsultaFactores">
+            <from id="autenticaConsultaFactores-From" uri="direct:autenticaConsultaFactores"/>
+            <doTry id="autenticaConsultaFactores-Try">
+                <to id="autenticaConsultaFactores-validarTokenCanal-To" uri="direct:validarTokenCanal"/>
+                <choice id="acf-choice-token">
+                    <when id="acf-when-token">            
+                        <simple>${exchangeProperty.CODIGO} == '200'</simple>
+                        <to id="appc-to-validarTiempoAutorizacion" uri="direct:validarTiempoAutorizacion"/>
+                        <to id="acf-to-wscuentavista" uri="direct:wscuentavista"/>
+                        <to id="acf-to-PaSelDetalleProducto" uri="sql-stored:classpath:etc/sql/pa_selDetalleProducto.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseDetalleProducto"/>
+                        <log message="Salida Tiempo: ${exchangeProperty.SalidaTiempo}"/>
+                        <bean id="acf-RespSelDetalleProducto-bean"
+                            method="respSelDetalleProducto" ref="beanRouteFacade"/>                         
+                        <choice id="acf-choice-valida-cross-rut-AH">
+                        	<when id="acf-when-valida-cross-rut-AH">
+                        		<simple>${exchangeProperty.FAMILIA_PRODUCTO} == 'AH' and ${exchangeProperty.validoDesafio}</simple>
+			                    <setProperty id="appcv-AHpagoCruzado-error-code" propertyName="codigoError">
+			                        <constant>421</constant>
+			                    </setProperty>
+			                    <setProperty id="appcv-AHpagoCruzado-service-code" propertyName="codigoServicio">
+			                        <simple>421</simple>
+			                    </setProperty>
+		                        <setProperty id="appcv-AHpagoCruzado-origen-error" propertyName="origenError">
+		                            <constant>WSPagoExpress_autenticaConsultaFactores</constant>
+		                        </setProperty>
+			                    <setProperty id="appcv-AHpagoCruzado-error-message" propertyName="mensajeError">
+			                        <simple>No es posible realizar abono a Cuenta de Ahorro a otro socio</simple>
+			                    </setProperty>
+                        	</when>
+                        	<otherwise>
+		                        <setProperty id="creaSolicitudIdValidaTEF2" propertyName="solicitudId">
+		                            <constant>1</constant>
+		                        </setProperty>
+		                        <choice id="acf-choice-salida-tiempo">
+		                            <when id="acf-when-salida-tiempo-1">
+		                                <simple>${exchangeProperty.SalidaTiempo} == '-1'</simple>
+		                                <to id="acf-to-wsautenticacion" uri="direct:wsautenticacion"/>
+		                                <to id="acf-to-actualizarTiempoAutorizar" uri="direct:actualizarTiempoAutorizar"/>
+		                                <choice id="acf-choice-ahorro-registrar">
+		                                	<when id="acf-when-ahorro-registrar">
+		                                		<simple>${exchangeProperty.FAMILIA_PRODUCTO} == 'AH'</simple>
+		                                		<wireTap id="acf-wireTap-RegistrarValidaTEF" uri="direct:registrarValidaTEF"/>
+		                                	</when>
+		                                </choice>
+		                                <to id="acf-salida1-to-factoresautenticacion" uri="direct:wsfactoresautenticacion"/>
+		                                <bean id="respuestaAutenticaConsultaFactores"
+		                                	method="respuestaAutenticaConsultaFactores" ref="beanRouteFacade"/>
+		                                <wireTap id="acf-wireTap-to-estadoFlujo-1" uri="direct:actualizarEstadoFlujo"/>
+		                            </when>
+		                            <when id="acf-when-salida-tiempo-2">
+		                                <simple>${exchangeProperty.SalidaTiempo} == '-2'</simple>
+		                                <log message="Entre aca en salida tiempo -2"/>
+		                                <setProperty id="acf-salidaTiempo-CodigoError482" propertyName="codigoError">
+		                                    <simple>482</simple>
+		                                </setProperty>
+		                                <setProperty id="acf-salidaTiempo-CodigoServicio482" propertyName="codigoServicio">
+		                                    <simple>482</simple>
+		                                </setProperty>
+		                                <setProperty id="acf-origenError482" propertyName="origenError">
+		                                    <constant>WSPagoExpress_autenticaConsultaFactores</constant>
+		                                </setProperty>
+		                                <to id="acf-error482-to-errorResponse" uri="direct:errorResponse"/>
+		                            </when>
+		                            <when id="acf-when-salida-tiempo-3">
+		                                <simple>${exchangeProperty.SalidaTiempo} == '-3'</simple>
+		                                <setProperty id="acf-salidaTiempo-CodigoError442" propertyName="codigoError">
+		                                    <simple>442</simple>
+		                                </setProperty>
+		                                <setProperty id="acf-salidaTiempo-CodigoServicio442" propertyName="codigoServicio">
+		                                    <simple>442</simple>
+		                                </setProperty>
+		                                <setProperty id="acf-origenError442" propertyName="origenError">
+		                                    <constant>WSPagoExpress_autenticaConsultaFactores</constant>
+		                                </setProperty>
+										<to id="acf-error442-to-errorResponse" uri="direct:errorResponse"/>
+		                            </when>
+		                            <otherwise id="acf-otherwise-salida-tiempo">
+		                                <choice id="autorizarFamiliaProductoAhorroOtherChoice">
+		                                    <when id="autorizarFamiliaProductoAhorroOtherWhen">
+												<simple>${exchangeProperty.FAMILIA_PRODUCTO} == 'AH'</simple>
+												<wireTap id="wireTapToRegistrarValidaTEFOtherwise" uri="direct:registrarValidaTEF"/>
+		                                    </when>
+		                                </choice>
+		                                <to id="acf-salida3-to-factoresautenticacion" uri="direct:wsfactoresautenticacion"/>
+		                                <bean id="acf-respuestaAutenticaConsultaFactores"
+		                                	method="respuestaAutenticaConsultaFactores" ref="beanRouteFacade"/>
+		                                <wireTap id="acf-wireTap-to-estadoFlujo-1" uri="direct:actualizarEstadoFlujo"/>
+		                            </otherwise>
+								</choice>
+                        	</otherwise>
+                        </choice>
+                     </when>
+                     <otherwise id="acf-otherwise-token">
+                     	<setProperty id="acf-otherwise-token-CodigoError" propertyName="codigoError">
+                        	<simple>${exchangeProperty.CODIGO}</simple>
+                        </setProperty>
+                        <setProperty id="acf-otherwise-token-CodigoServicio" propertyName="codigoServicio">
+                            <simple>${exchangeProperty.CODIGO}</simple>
+                        </setProperty>
+                        <setProperty id="acf-otherwise-token-Servicio" propertyName="servicio">
+                            <simple>PA</simple>
+                        </setProperty>               
+                        <setProperty id="acf-otherwise-token-origenError" propertyName="origenError">
+                            <constant>WSPagoExpress_autenticaConsultaFactores</constant>
+                        </setProperty>
+						<to id="acf-otherwise-token-error-to-errorResponse" uri="direct:errorResponse"/>
+                     </otherwise>
+                  </choice>
+                <doCatch id="autenticaConsultaFactores-DoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="autenticaConsultaFactores-CodigoError" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty37" propertyName="codigoServicio">
+                        <simple>502</simple>
+                    </setProperty>
+                    <to id="to-autenticaConsultaFactores-Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="autenticaConsultaFactores-DoCatchEx">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="autenticaConsultaFactores-ErrorEx" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty38" propertyName="codigoServicio">
+                        <simple>500</simple>
+                    </setProperty>
+                    <to id="to-autenticaConsultaFactores-excepcionEx" uri="direct:excepcion"/>
+                </doCatch>            
+            </doTry>
+        </route>
+
+        <route id="autorizarPagoProductoCV">
+            <from id="autorizarPagoProductoCV-From" uri="direct:autorizarPagoProductoCV"/>
+            <doTry id="appcv-doTry">
+            	<to id="appcv-to-validarToken" uri="direct:validarToken"/>
+            	<choice id="appcv-validartoken-choice">
+            		<when id="appc-validartoken-when-codigo200">
+            			<simple>${exchangeProperty.CODIGO} == '200'</simple>
+                        <to id="appc-to-PaSelDetalleProducto" uri="sql-stored:classpath:etc/sql/pa_selDetalleProducto.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseDetalleProducto"/>
+                        <bean id="appc-RespSelDetalleProducto-bean"
+                            method="respSelDetalleProducto" ref="beanRouteFacade"/>
+            			<choice id="appcv-factor-choice">
+            				<when id="appcv-factor-coord">
+            					<simple>${exchangeProperty.Factor} == '1'</simple>
+            					<to id="appcv-to-solicitarDesafio" uri="direct:solicitarDesafio"/>
+            				</when>
+            				<when id="appcv-factor-passcoopeuch">
+            					<simple>${exchangeProperty.Factor} == '2'</simple>
+            					<to id="appcv-to-solicitarDesafio" uri="direct:generarPasscoopeuch"/>
+            				</when>
+            				<otherwise id="appcv-factor-otherwise">
+			                    <setProperty id="appcv-factor-error-code" propertyName="codigoError">
+			                        <constant>420</constant>
+			                    </setProperty>
+			                    <setProperty id="appcv-factor-service-code" propertyName="codigoServicio">
+			                        <simple>420</simple>
+			                    </setProperty>
+		                        <setProperty id="appcv-validatoken-origenError415" propertyName="origenError">
+		                            <constant>WSPagoExpress_autorizarPagoProductoCV</constant>
+		                        </setProperty>
+			                    <setProperty id="appcv-factor-error-message" propertyName="mensajeError">
+			                        <simple>Factor no valido</simple>
+			                    </setProperty>
+	           					<to id="appcv-error-factor-to-errorResponse" uri="direct:errorResponse"/>
+            				</otherwise>
+            			</choice>
+                        <bean id="appcv-autorizarPagoProductoCV"
+                       		method="respuestaAutorizarPagoProductoCV" ref="beanRouteFacade"/>
+            		</when>
+            		<otherwise id="appcv-validatoken-otherwise">
+                        <setProperty id="appcv-validatoken-codigoError415" propertyName="codigoError">
+                            <simple>415</simple>
+                        </setProperty>
+                        <setProperty id="appcv-validatoken-codigoServicio415" propertyName="codigoServicio">
+                            <simple>415</simple>
+                        </setProperty>
+                        <setProperty id="appcv-validatoken-origenError415" propertyName="origenError">
+                            <constant>WSPagoExpress_autorizarPagoProductoCV</constant>
+                        </setProperty>
+						<to id="appcv-error415-to-errorResponse" uri="direct:errorResponse"/>         		
+            		</otherwise>
+            	</choice>
+
+                <doCatch id="appcv-DoCatchEx">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="appcv-ErrorEx-error-code" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="appcv-ErrorEx-service-code" propertyName="codigoServicio">
+                        <simple>500</simple>
+                    </setProperty>
+                    <to id="appcv-ErrorEx-to-excepcion" uri="direct:excepcion"/>
+                </doCatch>            
+            </doTry>
+		</route>
+
+        <route id="wsautenticacion">
+            <from id="wsautenticacion-From" uri="direct:wsautenticacion"/>
+            <doTry id="wsautenticacion-DoTry">
+                <bean id="validarUser-Bean" method="validarUserRequest" ref="beanRouteFacade"/>
+                <removeHeaders id="RemoveHeadersJMS_autenticaRut" pattern="*"/>
+                <bean id="validarUser-beanRouteFacadeUUIDCPS"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="wsautenticacion-validarUser-toAMQCPS" uri="beanAMQ:{{wsautenticacion.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false&amp;receiveTimeout=10000&amp;requestTimeout=10000"/>
+                <convertBodyTo id="wsautenticacion-ConvertBodyTo" type="java.lang.String"/>
+                <setBody id="wsautenticacion-SetBody">
+                    <xpath>//salida</xpath>
+                </setBody>
+                <bean id="wsautenticacion-validarUser-Bean"
+                    method="validarUserResponse" ref="beanRouteFacade"/>
+                <choice id="_choice5">
+                    <when id="_when5">
+                        <simple>${exchangeProperty.SalidaAutenticacion} == 'ERROR'</simple>
+                        <choice id="_choice16">
+                            <when id="_when18">
+                                <simple>${exchangeProperty.CodigoErrorAutentica} == '45203017'</simple>
+                                <setProperty
+                                    id="estado-flujo-Autorizador" propertyName="estado">
+                                    <constant>B</constant>
+                                </setProperty>
+                                <wireTap id="_wireTap-CodigoErrorAutentica" uri="direct:actualizarEstadoFlujo"/>
+                                <to id="autenticacion_excepcionControlada" uri="direct:errorResponse"/>
+                            </when>
+                            <when id="_when19">
+                                <simple>${exchangeProperty.CodigoErrorAutentica} == '45203016'</simple>
+                                <setProperty
+                                    id="estado-flujo-Autorizador" propertyName="estado">
+                                    <constant>B</constant>
+                                </setProperty>
+                                <wireTap id="_wireTap-CodigoErrorAutentica" uri="direct:actualizarEstadoFlujo"/>
+                                <to id="autenticacion_excepcionControlada2" uri="direct:errorResponse"/>
+                            </when>
+                        </choice>
+                        <stop id="stopErrorAutenticacion"/>
+                    </when>
+                </choice>
+                <doCatch id="wsautenticacion-DoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty
+                        id="wsautenticacion-codigoError-servicio-TOUT" propertyName="servicio">
+                        <constant>AUTENTICACION</constant>
+                    </setProperty>
+                    <setProperty id="codigoError-wsdesafio-OUT" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty26" propertyName="codigoServicio">
+                        <simple>503</simple>
+                    </setProperty>
+                    <to id="to-wsautenticacion-Excepcion" uri="direct:excepcion"/>
+                    <stop id="_stop4"/>
+                </doCatch>
+                <doCatch id="wsautenticacion-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="wsautenticacion-codigoErrorProductos" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty27" propertyName="codigoServicio">
+                        <simple>500</simple>
+                    </setProperty>
+                    <log id="wsautenticacion-ERROR" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-wsautenticacion-Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="wsdesafio-solicitar">
+            <from id="wsdesafio-solicitar-from" uri="direct:solicitarDesafio"/>
+            <doTry id="wsdesafio-solicitar-DoTry">
+                <bean id="wsdesafio-solicitar-Bean"
+                    method="solicitarDesafioRequest" ref="beanRouteFacade"/>
+                <removeHeaders id="RemoveHeadersJMS_wsdesafio-solicitar" pattern="*"/>
+                <bean id="wsdesafio-solicitar-beanRouteFacadeUUIDCPS"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="wsdesafio-solicitartoAMQCPS" uri="beanAMQ:{{wsdesafio.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false&amp;receiveTimeout=6000&amp;requestTimeout=6000"/>
+                <convertBodyTo id="wsdesafio-solicitar-ConvertBodyTo" type="java.lang.String"/>
+                <setBody id="wsdesafio-solicitar-SetBody">
+                    <xpath>//salida</xpath>
+                </setBody>
+                <bean id="wsdesafio-solicitar-validarUser-Bean"
+                    method="solicitarDesafioResponse" ref="beanRouteFacade"/>
+                <choice id="wsdesafio-solicitar-response-error-choice">
+                    <when id="wsdesafio-solicitar-response-error-when">
+                        <simple>${exchangeProperty.SalidaDesafio} == 'ERROR'</simple>
+                        <to id="wsdesafio-solicitar-response-error-to-errorResponse" uri="direct:errorResponse"/>
+                    </when>
+                </choice>
+                <doCatch id="wsdesafio-solicitar-cameTimeout-DoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="wsdesafio-solicitar-camelTimeout-servicio" propertyName="servicio">
+                        <constant>DESAFIO</constant>
+                    </setProperty>
+                    <setProperty id="wsdesafio-solicitar-camelTimeout-codigoError" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="wsdesafio-solicitar-camelTimeout-codigoServicio" propertyName="codigoServicio">
+                        <simple>503</simple>
+                    </setProperty>
+                    <to id="wsdesafio-solicitar-camelTimeout-to-excepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="wsdesafio-solicitar-javaex-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="wsdesafio-solicitar-javaex-codigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="wsdesafio-solicitar-javaex-codigoServicio" propertyName="codigoServicio">
+                        <simple>500</simple>
+                    </setProperty>
+                    <log id="wsdesafio-solicitar-javaex-log"
+                        loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="wsdesafio-solicitar-javaex-to-exception" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+         <route id="wsdesafio-validar">
+            <from id="wsdesafio-validar-from" uri="direct:validarDesafio"/>
+            <doTry id="wsdesafio-validar-DoTry">
+	            <bean id="wsdesafio-validar-request-bean"
+	                method="validarDesafioRequest" ref="beanRouteFacade"/>
+	            <convertBodyTo id="wsdesafio-validar-request-convertBody-to-string" type="java.lang.String"/>
+	            <log message="Resquest ServicioDesafio - Validar: ${body}"/>
+	            <removeHeaders id="wsdesafio-validar-removeheaders" pattern="*"/>
+	            <to id="wsdesafio-validar-to-amq" uri="beanAMQ:{{wsdesafio.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false;receiveTimeout=6000&amp;requestTimeout=6000"/>
+				<convertBodyTo id="wsdesafio-validar-response-convertBody-to-string" type="java.lang.String"/>
+				<log message="Response ServicioDesafio - Validar: ${body}"/>
+	           	<setBody id="wsdesafio-validar-setBody-get-salida">
+	               <xpath>//salida</xpath>
+	           	</setBody>
+	           	<bean id="wsdesafio-validar-response-bean"
+	               method="validarDesafioResponse" ref="beanRouteFacade"/>
+                <choice id="wsdesafio-validar-response-error-choice">
+                    <when id="wsdesafio-validar-response-error-when">
+                        <simple>${exchangeProperty.SalidaDesafio} == 'ERROR'</simple>
+                        <to id="wsdesafio-validar-response-error-to-errorResponse" uri="direct:errorResponse"/>
+                    </when>
+                </choice>	               
+                <doCatch id="wsdesafio-validar-cameTimeout-DoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="wsdesafio-validar-camelTimeout-servicio" propertyName="servicio">
+                        <constant>DESAFIO</constant>
+                    </setProperty>
+                    <setProperty id="wsdesafio-validar-camelTimeout-codigoError" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="wsdesafio-validar-camelTimeout-codigoServicio" propertyName="codigoServicio">
+                        <simple>503</simple>
+                    </setProperty>
+                    <to id="wsdesafio-validar-camelTimeout-to-excepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="wsdesafio-validar-javaex-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="wsdesafio-validar-javaex-codigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="wsdesafio-validar-javaex-codigoServicio" propertyName="codigoServicio">
+                        <simple>500</simple>
+                    </setProperty>
+                    <log id="wsdesafio-validar-javaex-log"
+                        loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="wsdesafio-validar-javaex-to-exception" uri="direct:excepcion"/>
+                </doCatch>                          
+	       	</doTry>
+        </route>
+        
+        <route id="wssofttoken-generar">
+        	<from id="wssofttoken-generar-from" uri="direct:generarPasscoopeuch"/>
+        	<doTry id="wssofttoken-generar-doTry">
+            	<bean id="wssofttoken-generar-request-Bean"
+                	method="softTokenGenerarRequest" ref="beanRouteFacade"/>
+            	<log message="Resquest WSSoftToken - Generar: ${body}"/>
+				<removeHeaders pattern="*"/>
+           		<setHeader headerName="Content-Type">
+              		<constant>application/json</constant>
+          		</setHeader>    
+          		<setHeader headerName="CamelHttpMethod">
+              		<constant>POST</constant>
+          		</setHeader>
+				<to id="wssofttoken-generar-to" uri="cxfrs:bean:endpointsofttokengenerar"/>
+          		<convertBodyTo type="java.lang.String"/>
+          		<log message="Response WSSoftToken - Generar: ${body}"/>
+              	<bean id="wssofttoken-generar-response-Bean"
+                  	method="softTokenGenerarResponse" ref="beanRouteFacade"/>
+        		<choice id="wssofttoken-generar-response-choice">
+        			<when id="wssofttoken-generar-response-when-error">
+        				<simple>${exchangeProperty.SalidaSoftoken} == 'ERROR'</simple>
+        				<to id="wssofttoken-generar-response-error-to-errorResponse" uri="direct:errorResponse"/>
+        			</when>
+        		</choice>
+        		
+                <doCatch id="wssofttoken-generar-cameTimeout-DoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="wssofttoken-generar-camelTimeout-servicio" propertyName="servicio">
+                        <constant>DESAFIO</constant>
+                    </setProperty>
+                    <setProperty id="wssofttoken-generar-camelTimeout-codigoError" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="wssofttoken-generar-camelTimeout-codigoServicio" propertyName="codigoServicio">
+                        <simple>503</simple>
+                    </setProperty>
+                    <to id="wssofttoken-generar-camelTimeout-to-excepcion" uri="direct:excepcion"/>
+                </doCatch>        		
+                <doCatch id="wssofttoken-generar-doCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="wssofttoken-generar-JavaEx-servicio" propertyName="servicio">
+                        <constant>SOFTTOKEN</constant>
+                    </setProperty>
+                    <setProperty id="wssofttoken-generar-JavaEx-codigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="wssofttoken-generar-JavaEx-codigoServicio" propertyName="codigoServicio">
+                        <simple>500</simple>
+                    </setProperty>
+                    <log id="wssofttoken-generar-JavaEx-log"
+                        loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="wssofttoken-generar-JavaEx-to-excepcion" uri="direct:excepcion"/>
+                </doCatch>        	
+        	</doTry>
+        </route>
+        
+        <route id="wssofttoken-validar">
+        	<from id="wssofttoken-validar-from" uri="direct:validarPasscoopeuch"/>
+        	<doTry id="wssofttoken-validar-doTry">
+            	<bean id="wssofttoken-validar-request-Bean"
+                	method="softTokenValidarRequest" ref="beanRouteFacade"/>
+            	<log message="Resquest WSSoftToken - Validar: ${body}"/>
+				<removeHeaders pattern="*"/>
+           		<setHeader headerName="Content-Type">
+              		<constant>application/json</constant>
+          		</setHeader>    
+          		<setHeader headerName="CamelHttpMethod">
+              		<constant>POST</constant>
+          		</setHeader>
+				<to id="wssofttoken-validar-to" uri="cxfrs:bean:endpointsofttokenvalidar"/>
+          		<convertBodyTo type="java.lang.String"/>
+          		<log message="Response WSSoftToken - Validar: ${body}"/>
+              	<bean id="wssofttoken-validar-response-Bean"
+                  	method="softTokenValidarResponse" ref="beanRouteFacade"/>
+        		<choice id="wssofttoken-validar-response-choice">
+        			<when id="wssofttoken-validar-response-when-error">
+        				<simple>${exchangeProperty.SalidaSoftoken} == 'ERROR'</simple>
+        				<to id="wssofttoken-validar-response-error-to-errorResponse" uri="direct:errorResponse"/>
+        			</when>
+        		</choice>
+        		
+                <doCatch id="wssofttoken-validar-cameTimeout-DoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="wssofttoken-validar-camelTimeout-servicio" propertyName="servicio">
+                        <constant>DESAFIO</constant>
+                    </setProperty>
+                    <setProperty id="wssofttoken-validar-camelTimeout-codigoError" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="wssofttoken-validar-camelTimeout-codigoServicio" propertyName="codigoServicio">
+                        <simple>503</simple>
+                    </setProperty>
+                    <to id="wssofttoken-validar-camelTimeout-to-excepcion" uri="direct:excepcion"/>
+                </doCatch>        		
+                <doCatch id="wssofttoken-validar-doCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="wssofttoken-validar-JavaEx-servicio" propertyName="servicio">
+                        <constant>SOFTTOKEN</constant>
+                    </setProperty>
+                    <setProperty id="wssofttoken-validar-JavaEx-codigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="wssofttoken-validar-JavaEx-codigoServicio" propertyName="codigoServicio">
+                        <simple>500</simple>
+                    </setProperty>
+                    <log id="wssofttoken-validar-JavaEx-log"
+                        loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="wssofttoken-validar-JavaEx-to-excepcion" uri="direct:excepcion"/>
+                </doCatch>        	
+        	</doTry>
+        </route>
+        
+        <route id="wscuentavista">
+            <from id="wscuentavista-From" uri="direct:wscuentavista"/>
+            <doTry id="wscuentavista-DoTry">
+                <bean id="consultar-wscuentavista-Bean"
+                    method="consultarCuentaVista" ref="beanRouteFacade"/>
+                <removeHeaders id="RemoveHeadersJMS_wscuentavista" pattern="*"/>
+                <setHeader headerName="operationName" id="operationName">
+                    <simple>consultar</simple>
+                </setHeader>
+                <bean id="wscuentavista-beanRouteFacadeUUIDCPS"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="wscuentavista-consultar-toAMQ" uri="beanAMQ:{{wscuentavista.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false&amp;receiveTimeout=6000&amp;requestTimeout=6000"/>
+                <convertBodyTo id="wscuentavista-ConvertBodyTo" type="java.lang.String"/>
+                <setBody id="wscuentavista-consultar-SetBody">
+                    <xpath>//consultarResponse</xpath>
+                </setBody>
+                <unmarshal id="unmarshalResp-wscuentavista">
+                    <jaxb contextPath="cl.coopeuch.integracion.pagoexpress.cuentavista.wsdl"/>
+                </unmarshal>
+                <bean id="wscuentavista-validarUser-Bean"
+                    method="consultarCuentaVistaResponse" ref="beanRouteFacade"/>
+                <choice id="_choice13">
+                    <when id="_when15">
+                        <simple>${exchangeProperty.numeroCuenta} != '' </simple>
+                        <wireTap id="_wireTap-insertNumeroCV" uri="direct:insertNumeroCV"/>
+                    </when>
+                </choice>
+                <choice id="choice-wscuentavista">
+                    <when id="when-wscuentavista">
+                        <simple>${exchangeProperty.SALIDA_CV} == 'ERROR'</simple>
+                        <to id="cuentavista_errorResponse" uri="direct:errorResponse"/>
+                    </when>
+                </choice>
+                <doCatch id="wscuentavista-DoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="wscuentavista-origenError-camel-excepcion" propertyName="origenError">
+                        <constant>CUENTA_VISTA</constant>
+                    </setProperty>
+                    <setProperty id="wscuentavista-codigoError-servicio-TOUT" propertyName="servicio">
+                        <constant>CUENTA_VISTA</constant>
+                    </setProperty>
+                    <setProperty id="codigoError-wscuentavista-OUT" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty30" propertyName="codigoServicio">
+                        <simple>503</simple>
+                    </setProperty>
+                    <to id="to-wscuentavista-Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="wscuentavista-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="wscuentavista-origenError-java-excepcion" propertyName="origenError">
+                        <constant>CUENTA_VISTA</constant>
+                    </setProperty>
+                    <setProperty id="wscuentavista-codigoErrorProductos" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty31" propertyName="codigoServicio">
+                        <simple>500</simple>
+                    </setProperty>
+                    <log id="wscuentavista-ERROR" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="to-wscuentavista-Excepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+		<route id="wsfactoresautenticacion">
+        	<from id="wsfactoresautenticacion-From" uri="direct:wsfactoresautenticacion"/>
+        		<doTry id="wsfactoresautenticacion-DoTry">
+                	<bean id="consultarRequest-wsfactoresautenticacion-Bean"
+                    	method="factoresAutenticacionConsultarRequest" ref="beanRouteFacade"/>
+                    <log message="Resquest WSFactoresAutenticacion: ${body}"/>
+					<removeHeaders pattern="*"/>
+		           	<setHeader headerName="Content-Type">
+	               		<constant>application/json</constant>
+	           		</setHeader>    
+	           		<setHeader headerName="CamelHttpMethod">
+	               		<constant>POST</constant>
+	           		</setHeader> 
+					<to id="wsfactoresautenticacionconsultar-To" uri="cxfrs:bean:endpointfactoresautenticacionconsultar"/>
+            		<convertBodyTo type="java.lang.String"/>
+            		<log message="Response WSFactoresAutenticacion: ${body}"/>
+                	<bean id="consultarResponse-wsfactoresautenticacion-Bean"
+                    	method="factoresAutenticacionConsultarResponse" ref="beanRouteFacade"/>            		
+	                
+	                <doCatch id="wsfactoresautenticacion-DoCatch">
+	                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+	                    <setProperty id="wsfactoresautenticacion-codigoError-servicio-TOUT" propertyName="servicio">
+	                        <constant>FACTORES_AUTENTICACION</constant>
+	                    </setProperty>
+	                    <setProperty id="codigoError-wsfactoresautenticacion-OUT" propertyName="codigoError">
+	                        <constant>503</constant>
+	                    </setProperty>
+	                    <setProperty id="codigError-wsfactoresautenticacion-OUT2" propertyName="codigoServicio">
+	                        <simple>503</simple>
+	                    </setProperty>
+	                    <to id="wsfactoresautenticacion-to-cambiarmensaje" uri="direct:cambiaMensajeError"/>
+	                    <to id="to-wsfactoresautenticacion-Excepcion" uri="direct:excepcion"/>
+	                    <stop id="_stop_wsfactoresautenticacion-timeout"/>
+	                </doCatch>
+	                <doCatch id="wsfactoresautenticacion-DoCatch2">
+	                    <exception>java.lang.Exception</exception>
+	                    <setProperty id="codigoError-wsfactoresautenticacion-OUT3" propertyName="codigoError">
+	                        <constant>500</constant>
+	                    </setProperty>
+	                    <setProperty id="codigoError-wsfactoresautenticacion-OUT4" propertyName="codigoServicio">
+	                        <simple>500</simple>
+	                    </setProperty>
+	                    <to id="to-wsfactoresautenticacion-cambiarmensaje2" uri="direct:cambiaMensajeError"/>
+	                    <log id="wsfactoresautenticacion-ERROR" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+	                    <to id="to-wsfactoresautenticacion-Excepcion2" uri="direct:excepcion"/>
+	                </doCatch>
+       			</doTry>
+		</route>
+        
+        <route id="guardarNumeroCV">
+            <from id="guardarNumeroCV-from" uri="direct:insertNumeroCV"/>
+            <to id="pa_insNumeroCV-To" uri="sql-stored:classpath:etc/sql/pa_insNumeroCV.sql?dataSource=dataSourceSqlServer&amp;outputHeader=respuestaNumeroCV"/>
+        </route>
+        <route id="actualizarEstadoFlujo">
+            <from id="actualizarEstadoFlujo-from" uri="direct:actualizarEstadoFlujo"/>
+            <to id="pa_updEtapa-To" uri="sql-stored:classpath:etc/sql/pa_updEtapa.sql?dataSource=dataSourceSqlServer&amp;outputHeader=respuestaEtapa"/>
+        </route>
+        <route id="obtenerEstadoFlujo">
+            <from id="obtenerEstadoFlujo-from" uri="direct:obtenerEstadoFlujo"/>
+            <to id="pa_selEstadoFlujo-To" uri="sql-stored:classpath:etc/sql/pa_selEstadoFlujo.sql?dataSource=dataSourceSqlServer&amp;outputHeader=respuestaSelEstado"/>
+            <bean id="obtenerEstadoFlujo-bean"
+                method="obtenerEstadoFlujo" ref="beanRouteFacade"/>            
+        </route>
+        <route id="validarTransaccion">
+            <from id="validarTransaccion-from" uri="direct:validarTransaccion"/>
+            <to id="pa_validarIdTransaccion-To" uri="sql-stored:classpath:etc/sql/pa_selValidarIDTransaccion.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseValidarTransaccion"/>
+            <bean id="validarTransaccionBean"
+                method="validarIdTransaccion" ref="beanRouteFacade"/>
+        </route>
+        <route id="validarTiempoAutorizacion">
+            <from id="validarTiempoAutorizacion-from" uri="direct:validarTiempoAutorizacion"/>
+            <to id="pa_selTiempoAperturaSesion-To" uri="sql-stored:classpath:etc/sql/pa_selTiempoAperturaSesion.sql?dataSource=dataSourceSqlServer&amp;outputHeader=validarTiempoAutorizacion"/>
+            <bean id="validarTiempoAutorizacion-Bean"
+                method="obtenerTiempoAutorizacion" ref="beanRouteFacade"/>
+        </route>
+        <route id="ActualizarTiempoAutorizar">
+            <from id="ActualizarTiempoAutorizar-from" uri="direct:actualizarTiempoAutorizar"/>
+            <to id="pa_updEtapaAutorizacion-To" uri="sql-stored:classpath:etc/sql/pa_updEtapaAutorizacion.sql?dataSource=dataSourceSqlServer&amp;outputHeader=respuestaAutorizacion"/>
+        </route>
+        <route id="consultarParametros">
+            <from id="consultarParametros-from" uri="direct:consultarParametros"/>
+            <doTry id="consultarParametros-DoTry">
+                <to id="pa_selParametros-To" uri="sql-stored:classpath:etc/sql/pa_selParametros.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseParametros"/>
+                <bean id="consultarParametros-Bean"
+                    method="consultarParametros" ref="beanRouteFacade"/>
+                <doCatch id="ProcedimientoAlmacenado-consultarParametros-DoCatchSQL">
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty
+                        id="ProcedimientoAlmacenado-consultarParametros-servicio-TOUT" propertyName="servicio">
+                        <constant>PARAMETRO</constant>
+                    </setProperty>
+                    <setProperty
+                        id="ProcedimientoAlmacenado-consultarParametros-ErrorSQL" propertyName="codigoError">
+                        <simple>509</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty32" propertyName="codigoServicio">
+                        <simple>509</simple>
+                    </setProperty>
+                    <to id="_to24" uri="direct:cambiaMensajeError"/>
+                    <to
+                        id="ProcedimientoAlmacenado-consultarParametros-ToExcepcionSQL" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultarParametros-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="consultarParametros-SetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="consultarParametros-excepcionLog"
+                        loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarPago">
+            <from id="consultarPago-from" uri="direct:consultarPago"/>
+            <doTry id="consultarPago-DoTry">
+                <bean id="validarDatosConsultaPago-Bean"
+                    method="validarDatosConsultaPago" ref="beanRouteFacade"/>
+                <choice id="_choice17">
+                    <when id="_when20">
+                        <simple>${exchangeProperty.validarDatosConsultaPago}</simple>
+                        <to id="pa_selPago-To" uri="sql-stored:classpath:etc/sql/pa_selPago.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responsePago"/>
+                        <bean id="consultarPago-Bean"
+                            method="consultarPago" ref="beanRouteFacade"/>
+                        <choice id="consultarPago-choice">
+                            <when id="consultarPago-when">
+                                <simple>${exchangeProperty.consultaPago}</simple>
+                                <bean id="consultarPago-BeanMail"
+                                    method="consultarPagoObtenerMail" ref="beanRouteFacade"/>
+                                <to id="consultarPagoToWsPersona" uri="direct:wspersonaByAMQ"/>
+                                <bean id="consultarPago-BeanRespuesta"
+                                    method="consultarPagoResponse" ref="beanRouteFacade"/>
+                            </when>
+                        </choice>
+                    </when>
+                </choice>
+                <doCatch id="ProcedimientoAlmacenado-consultarPago-DoCatchSQL">
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty
+                        id="ProcedimientoAlmacenado-consultarPago-servicio-TOUT" propertyName="servicio">
+                        <constant>CONSULTA_PAGO</constant>
+                    </setProperty>
+                    <setProperty
+                        id="ProcedimientoAlmacenado-consultarPago-ErrorSQL" propertyName="codigoError">
+                        <simple>509</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty33" propertyName="codigoServicio">
+                        <simple>509</simple>
+                    </setProperty>
+                    <to id="_to25" uri="direct:cambiaMensajeError"/>
+                    <to
+                        id="ProcedimientoAlmacenado-consultarPago-ToExcepcionSQL" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultarPago-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="consultarPago-SetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="consultarPago-excepcionLog"
+                        loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarMontoAPagar">
+            <from id="consultarMontoAPagar-from" uri="direct:consultarMontoAPagar"/>
+            <doTry id="consultarMontoAPagar-DoTry">
+                <to id="pa_selMontoAPagar-To" uri="sql-stored:classpath:etc/sql/pa_selMontoAPagar.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseMontoAPagar"/>
+                <bean id="consultarMontoAPagar-Bean"
+                    method="consultarMontoAPagar" ref="beanRouteFacade"/>
+                <choice id="consultarMontoAPagar-choice">
+                    <when id="consultarMontoAPagar-when">
+                        <simple>${exchangeProperty.consultaMontoAPagar}</simple>
+                        <bean id="consultarMontoAPagar-BeanRespuesta"
+                            method="consultarMontoAPagarResponse" ref="beanRouteFacade"/>
+                    </when>
+                </choice>
+                <doCatch id="ProcedimientoAlmacenado-consultarMontoAPagar-DoCatchSQL">
+                    <exception>java.sql.SQLException</exception>
+                    <setProperty
+                        id="ProcedimientoAlmacenado-consultarMontoAPagar-servicio-TOUT" propertyName="servicio">
+                        <constant>CONSULTA_MONTO_A_PAGAR</constant>
+                    </setProperty>
+                    <setProperty
+                        id="ProcedimientoAlmacenado-consultarMontoAPagar-ErrorSQL" propertyName="codigoError">
+                        <simple>509</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty34" propertyName="codigoServicio">
+                        <simple>509</simple>
+                    </setProperty>
+                    <to id="_to26" uri="direct:cambiaMensajeError"/>
+                    <to
+                        id="ProcedimientoAlmacenado-consultarMontoAPagar-ToExcepcionSQL" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultarMontoAPagar-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="consultarMontoAPagar-SetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="consultarMontoAPagar-excepcionLog"
+                        loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="wspersonaByAMQ">
+            <from id="wspersonaByAMQFrom" uri="direct:wspersonaByAMQ"/>
+            <doTry id="wspersonaByAMQ">
+                <bean id="wspersonaByAMQUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="wspersonaByAMQAmqCall" uri="beanAMQ:{{wspersona.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false&amp;receiveTimeout=6000&amp;requestTimeout=6000"/>
+                <unmarshal id="wspersonaByAMQMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.pagoexpress.persona.xsd"/>
+                </unmarshal>
+                <doCatch id="wspersonaByAMQDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="wspersonaByAMQSetCodError" propertyName="codigoError">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty35" propertyName="codigoServicio">
+                        <simple>503</simple>
+                    </setProperty>
+                    <to id="_to27" uri="direct:cambiaMensajeError"/>
+                    <setProperty id="wspersonaByAMQSetErrorServicio" propertyName="servicio">
+                        <simple>PERSONA</simple>
+                    </setProperty>
+                    <to id="wspersonaByAMQToException" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="wspagosByAMQ">
+            <from id="wspagosByAMQFrom" uri="direct:wspagosByAMQ"/>
+            <convertBodyTo id="wspagosByAMQConvertBodyPagos" type="java.lang.String"/>
+            <removeHeaders id="wspagosByAMQRmHeaders" pattern="*"/>
+            <bean id="wspagosByAMQUUID" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+            <log id="inPago" message="\nEntrada Servicio Pago: \n${body}"/>
+            <to id="wspagosByAMQCall" uri="beanAMQ:{{wspagos.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false&amp;receiveTimeout=6000&amp;requestTimeout=6000"/>
+            <log id="outPago" message="\nSalida Servicio Pago: \n${body}"/>
+            <unmarshal id="wspagosByAMQMarshal">
+                <jaxb contextPath="cl.coopeuch.integracion.pagoexpress.pagos.xsd"/>
+            </unmarshal>
+        </route>
+        <route id="wscuentaahorroByAMQ">
+            <from id="wscuentaahorroByAMQFrom" uri="direct:wscuentaahorroByAMQ"/>
+            <convertBodyTo id="wscuentaahorroByAMQConvertBodyPagos" type="java.lang.String"/>
+            <removeHeaders id="wscuentaahorroByAMQRmHeaders" pattern="*"/>
+            <bean id="wscuentaahorroByAMQUUID"
+                method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+            <log id="inPagoCuentaAhorro" message="\nEntrada Servicio Abono Cuenta Ahorro: \n${body}"/>
+            <to id="wscuentaahorroByAMQCall" uri="beanAMQ:{{wscuentaahorro.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false&amp;receiveTimeout=6000&amp;requestTimeout=6000"/>
+            <log id="outPagoCuentaAhorro" message="\nSalida Servicio Abono Cuenta Ahorro: \n${body}"/>
+            <unmarshal id="wscuentaahorroByAMQMarshal">
+                <jaxb contextPath="cl.coopeuch.integracion.pagoexpress.cuentaahorro.wsdl"/>
+            </unmarshal>
+        </route>
+        <route id="registrarValidaTEF">
+            <from id="registrarValidaTEFFrom" uri="direct:registrarValidaTEF"/>
+            <doTry id="registrarValidaTEFTry">
+                <to id="registrarValidaTEFPaSelProductoValidaTEF" uri="sql-stored:classpath:etc/sql/pa_selProductoValidaTEF.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseProductoValidaTEF"/>
+                <bean id="registrarValidaTEFrespSelProductoValidaTEF"
+                    method="respSelProductoValidaTEF" ref="beanRouteFacade"/>
+                <split id="registrarValidaTEFSplit" stopOnException="true">
+                    <simple>${body}</simple>
+                    <bean id="detalleProductoValidaTEF"
+                        method="datosProductoValidaTEF" ref="beanRouteFacade"/>
+                    <to id="toWsValidaTef" uri="direct:wsvalidatefByAMQ"/>
+                    <bean id="respRegistrarValidaTEF"
+                        method="respServicioValidaTEF" ref="beanRouteFacade"/>
+                </split>
+                <doCatch id="registrarValidaTefDoCatchTimeout">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="wsvalidatefByAMQSetCodErrorTimeout" propertyName="codigoError">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty id="_propertyRegistrarValidaTef" propertyName="codigoServicio">
+                        <simple>503</simple>
+                    </setProperty>
+                    <to id="_toCambiaMensajeErrorRegistrarValidaTef" uri="direct:cambiaMensajeError"/>
+                    <to id="toRegistrarValidaTefExcepcionTimeout" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="registrarValidaTefDoCatchEx">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toRegistrarValidaTefExcepcionEx" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarValidaTEF">
+            <from id="consultarValidaTEFFrom" uri="direct:consultarValidaTEF"/>
+            <doTry id="consultarValidaTEFTry">
+                <bean id="consultarDetalleProductoValidaTEF"
+                    method="datosProductoValidaTEF" ref="beanRouteFacade"/>
+                <to id="toConsultarWsValidaTef" uri="direct:wsvalidatefByAMQ"/>
+                <bean id="respConsultarValidaTEF"
+                    method="respServicioValidaTEF" ref="beanRouteFacade"/>
+                <doCatch id="consultarValidaTefDoCatchTimeout">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty
+                        id="wsConsultaValidatefByAMQSetCodErrorTimeout" propertyName="codigoError">
+                        <simple>503</simple>
+                    </setProperty>
+                    <setProperty id="_propertyConsultarValidaTef" propertyName="codigoServicio">
+                        <simple>503</simple>
+                    </setProperty>
+                    <to id="_toCambiaMensajeErrorConsultarValidaTef" uri="direct:cambiaMensajeError"/>
+                    <to id="toConsultarValidaTefExcepcionTimeout" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="consultarValidaTefDoCatchEx">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toConsultarValidaTefExcepcionEx" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="validarRutPagoProductoAhorro">
+            <from id="validarRutPagoProductoAhorroFrom" uri="direct:validarRutPagoProductoAhorro"/>
+            <doTry id="validarRutPagoProductoAhorroTry">
+                <to id="validaCVPaSelDetalleProducto" uri="sql-stored:classpath:etc/sql/pa_selDetalleProducto.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseDetalleProducto"/>
+                <bean id="validaCVrespSelDetalleProducto"
+                    method="respSelDetalleProducto" ref="beanRouteFacade"/>
+                <choice id="validaFamiliaAhorroChoice">
+                    <when id="validaFamiliaAhorroWhen">
+                        <simple>${exchangeProperty.FAMILIA_PRODUCTO} == 'AH'</simple>
+                        <bean
+                            id="pagarCVValidacionProductosFamiliaAhorro"
+                            method="validacionProductosFamiliaAhorro" ref="beanRouteFacade"/>
+                        <choice id="validaRutPagoVsRutTitularChoice">
+                            <when id="validaRutPagoVsRutTitularWhen">
+                                <simple>${exchangeProperty.ERROR} != ''</simple>
+                                <setProperty
+                                    id="validaRutPagoVsRutTitularSetCodigoError" propertyName="codigoError">
+                                    <constant>400</constant>
+                                </setProperty>
+                                <setProperty
+                                    id="validaRutPagoVsRutTitularSetCodigoServicio" propertyName="codigoServicio">
+                                    <simple>400</simple>
+                                </setProperty>
+                                <to
+                                    id="validaRutPagoVsRutTitularCambiaMensaje" uri="direct:cambiaMensajeError"/>
+                                <throwException
+                                    exceptionType="java.lang.UnsupportedOperationException"
+                                    id="validaRutPagoVsRutTitularThrow" message="${property.mensajeFront}"/>
+                                <stop id="validaRutPagoVsRutTitularStop"/>
+                            </when>
+                        </choice>
+                    </when>
+                </choice>
+                <doCatch id="validarRutPagoProductoAhorroDoCatchEx">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toValidarRutPagoProductoAhorroExcepcionEx" uri="direct:excepcion"/>
+                    <stop id="validaRutPagoVsRutTitularStopDoCatchE"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="wsvalidatefByAMQ">
+            <from id="wsvalidatefByAMQFrom" uri="direct:wsvalidatefByAMQ"/>
+            <convertBodyTo id="wsvalidatefByAMQConvertBody" type="java.lang.String"/>
+            <removeHeaders id="wsvalidatefByAMQRmHeaders" pattern="*"/>
+            <bean id="wsvalidatefByAMQUUID"
+                method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+            <log id="inValidaTEF" message="\nEntrada Servicio Valida TEF: \n${body}"/>
+            <to id="wsvalidatefByAMQCall" uri="beanAMQ:{{wsvalidatef.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false&amp;receiveTimeout=6000&amp;requestTimeout=6000"/>
+            <log id="outValidaTEF" message="\nSalida Servicio Valida TEF: \n${body}"/>
+            <convertBodyTo id="convertBodyValidaTefResponse" type="java.lang.String"/>
+            <setBody id="setBodyValidaTefResponse">
+                <xpath>//salida</xpath>
+            </setBody>
+        </route>
+        <route id="wstransferenciainternaByAMQ">
+            <from id="wstransferenciainternaByAMQFrom" uri="direct:wstransferenciainternaByAMQ"/>
+            <convertBodyTo id="wstransferenciainternaByAMQConvertBody" type="java.lang.String"/>
+            <removeHeaders id="wstransferenciainternaByAMQRmHeaders" pattern="*"/>
+            <bean id="wstransferenciainternaByAMQUUID"
+                method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+            <log id="inTransferenciaInterna" message="\nEntrada Servicio Transferencia Interna: \n${body}"/>
+            <to id="wstransferenciainternaByAMQCall" uri="beanAMQ:{{wsserviciotransferencia.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false&amp;receiveTimeout=6000&amp;requestTimeout=6000"/>          
+            <log id="outTransferenciaInterna" message="\nSalida Servicio Transferencia Interna: \n${body}"/>
+            <unmarshal id="wstransferenciainternaByAMQMarshal">
+                <jaxb contextPath="cl.coopeuch.integracion.pagoexpress.transferencia.xsd"/>
+            </unmarshal>
+        </route>
+        
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+            	<log id="excepcion-log" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String" />
+                <log message="Excepcion: ${body}"></log>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault.pagoexpress}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+			<to id="excepcion-to-errorResponse" uri="direct:errorResponse"/>
+        </route>
+   
+        <route id="errorResponse">
+        	<from id="errorResponse-from" uri="direct:errorResponse"/>
+            <doTry id="errorResponse-try">
+            	<to id="errorResponse-to-cambiarmensajeerror" uri="direct:cambiaMensajeError"/>
+				<bean id="errorResponse-crear-Bean"
+					method="excepcionCrear" ref="beanRouteFacade"/>
+				<stop/>
+                <doCatch id="errorResponse-catch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="errorResponse-excepcion-setbodyerror">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="errorResponse-excepcion-log" loggingLevel="ERROR" message="Ha ocurrido un error al tratar de generar la respuesta de error: ${body}"/>
+                </doCatch>
+            </doTry>        		
+        </route>
+
+        <route id="cambiaMensajeError">
+            <from id="cambiaMensajeError-From" uri="direct:cambiaMensajeError"/>
+            <doTry id="cambiaMensajeError-DoTry">
+                <when id="_when21">
+                    <simple>${property.bodyErrorCPS} == ''</simple>
+                    <setProperty id="_setProperty36" propertyName="codigoServicio">
+                        <simple>465</simple>
+                    </setProperty>
+                    <to id="cambiaMensajeError_465" uri="direct:cambiaMensajeError"/>
+                </when>
+                <to id="PA_TraeMensajeFront-To" uri="sql-stored:PA_TraeMensajeFront(        VARCHAR ${property.codigoServicio},        OUT VARCHAR pRetornoMsg,        OUT INTEGER pRetornoId)?dataSource=dataSourceSqlServer&amp;outputHeader=responseMensajesFront"/>
+                <log id="_log19" message="2"/>
+                <bean id="beanMensajeFront" method="validaMensajeFront" ref="beanRouteFacade"/>
+                <log id="_log20" message="3"/>
+                <doCatch id="cambiaMensajeError-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion-cambiaMensajeError" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="AuditoriaPago">
+            <from id="AuditoriaPago-from" uri="direct:auditoriaPago"/>
+            <to id="pa_insAuditoriaPago-To" uri="sql-stored:classpath:etc/sql/pa_insAuditoriaPago.sql?dataSource=dataSourceSqlServer&amp;outputHeader=respuestaAuditoriaPago"/>
+            <log message="respuestaAuditoriaPago: ${header.respuestaAuditoriaPago}" />
+        </route>
+		<route id="WSCreditoHipotecario-ConsultaDatosCreditoHipotecario">
+            <from id="WSCreditoHipotecario-From" uri="direct:consultaDatosCreditoHipotecario"/>            
+            <doTry id="WSCreditoHipotecario-ConsultaDatosCreditoHipotecario-Try">
+                <bean id="consultaDatosCreditoHipotecarioBean" method="consultaDatosCreditoHipotecarioRequest" ref="beanRouteFacade" />
+                <log message="request consultaDatosCreditoHipotecario: ${body}"/>
+            	<bean id="beanRouteFacadeUUIDCDC" method="crearJMSCorrelationId24" ref="beanRouteFacade" />                         
+                <to id="toAMQHICDC"
+					uri="beanAMQ:{{wscreditohipotecario.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false" />
+                
+                <setBody id="setBodySalidaHICDC">
+					<xpath>//salida</xpath>
+				</setBody>
+				<setBody id="setBodyHICDC ">
+					<simple>&lt;NS1:consultaDatosCreditoHipotecarioResponse xmlns:NS1="http://creditohipotecario.core.coopeuch.cl"&gt;${body}&lt;/NS1:consultaDatosCreditoHipotecarioResponse&gt;</simple>
+				</setBody>
+                <log message="response consultaDatosCreditoHipotecario: ${body}"/>
+				<unmarshal id="unmarshalRespHICDC">
+					<jaxb contextPath="cl.coopeuch.integracion.pagoexpress.creditohipotecario.wsdl" />
+				</unmarshal>
+				<bean id="WSCreditoHipotecario-ConsultaDatosCreditoHipotecario-validaRespuesta" method="obtenerRespuestaDatosCreditoHipotecario"
+					ref="validacion" />
+                <doCatch id="WSCreditoHipotecario-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="WSCreditoHipotecario-ConsultaDatosCreditoHipotecario-ToException" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="WSCreditoHipotecario-ConsultaPlanPagoCreditoHipotecario">
+            <from id="WSCreditoHipotecario-From" uri="direct:consultaPlanPagoCreditoHipotecario"/>            
+            <doTry id="WSCreditoHipotecario-ConsultaPlanPagoCreditoHipotecario-Try">
+                <setProperty id="operacionWSCreditoHipotecarioCPP"
+					propertyName="opeWSCreditoHipotecario">
+					<constant>consultaPlanPagoCreditoHipotecario</constant>
+				</setProperty>
+				<setProperty id="routeIdHICPPProperty"
+					propertyName="routeId">
+					<simple>${exchangeProperty.opeWSCreditoHipotecario}</simple>
+				</setProperty>
+				<bean id="consultaPlanPagoCreditoHipotecarioBean" method="consultaPlanPagoCreditoHipotecarioRequest"
+					ref="beanRouteFacade" />
+				<log message="request consultaPlanPagoCreditoHipotecario: ${body}"/>
+				<bean id="beanRouteFacadeUUIDCPP" method="crearJMSCorrelationId24"
+					ref="beanRouteFacade" />
+				<to id="toAMQCPP"
+					uri="beanAMQ:{{wscreditohipotecario.amq.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false" />
+				<setBody id="setBodySalidaHICPP">
+					<xpath>//salida</xpath>
+				</setBody>
+				<setBody id="setBodyCPP ">
+					<simple>&lt;NS1:consultaPlanPagoCreditoHipotecarioResponse xmlns:NS1="http://creditohipotecario.core.coopeuch.cl"&gt;${body}&lt;/NS1:consultaPlanPagoCreditoHipotecarioResponse&gt;</simple>
+				</setBody>
+				<log message="response consultaPlanPagoCreditoHipotecario: ${body}"/>
+				<unmarshal id="unmarshalRespHICPP">
+					<jaxb
+						contextPath="cl.coopeuch.integracion.pagoexpress.creditohipotecario.wsdl" />
+				</unmarshal>
+				<bean id="WSCreditoHipotecario-ConsultaPlanPagoCreditoHipotecario-validaRespuesta" method="obtenerRespuestaPlanPagoCreditoHipotecario"
+					ref="validacion" />
+                <doCatch id="WSCreditoHipotecario-ConsultaPlanPagoCreditoHipotecario-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="WSCreditoHipotecario-ConsultaPlanPagoCreditoHipotecario-ToException" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="actualizarFlujoPago">
+			<from id="actualizarFlujoPago-from" uri="direct:actualizarFlujoPago" />
+			<doTry id="actualizarFlujoPago-DoTry">
+				<to id="actualizarFlujoPago-PaSelDetalleProducto"
+			        uri="sql-stored:classpath:etc/sql/pa_selDetalleProducto.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseDetalleProducto" />			    
+			    <bean id="actualizarFlujoPago-respSelDetalleProducto" method="respSelDetalleProducto" ref="beanRouteFacade" />
+			    <to id="GuardaAuditoriaPagos" uri="direct:auditoriaPago" />
+			 	<bean id="actualizarFlujoPago-respuestaAuditoriaPago" method="respuestaAuditoriaPago" ref="beanRouteFacade" />
+				<doCatch id="ProcedimientoAlmacenado-actualizarFlujoPago-DoCatchSQL">
+					<exception>java.sql.SQLException</exception>
+					<setProperty
+						id="ProcedimientoAlmacenado-actualizarFlujoPago-servicio-TOUT"
+						propertyName="servicio">
+						<constant>ACTUALIZAR_FLUJO_PAGO</constant>
+					</setProperty>
+					<setProperty
+						id="ProcedimientoAlmacenado-actualizarFlujoPago-ErrorSQL"
+						propertyName="codigoError">
+						<simple>509</simple>
+					</setProperty>
+					<setProperty propertyName="codigoServicio">
+						<simple>509</simple>
+					</setProperty>
+					<to uri="direct:cambiaMensajeError"/>	
+					<to id="ProcedimientoAlmacenado-actualizarFlujoPago-ToExcepcionSQL"
+						uri="direct:excepcion" />
+				</doCatch>
+				<doCatch id="actualizarFlujoPago-DoCatch">
+					<exception>java.lang.Exception</exception>
+					<setBody id="actualizarFlujoPago-SetBodyError">
+						<simple>${exception}, Body -&gt; ${body}</simple>
+					</setBody>
+					<log id="actualizarFlujoPago-excepcionLog" loggingLevel="ERROR"
+						message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}" />
+				</doCatch>
+			</doTry>
+		</route>   
+		<route id="consultarParametrosMora">
+            <from id="consultarParametrosMora-from" uri="direct:consultarParametroMora"/>
+           	<setProperty id="Parametros-Dia-Moras" propertyName="cp_tipo">
+				<constant>CR</constant>
+			</setProperty>
+            <to id="pa_selParametros-consultarParametrosMora-To" uri="sql-stored:classpath:etc/sql/pa_selParametros.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseParametros"/>            
+            <bean id="consultarParametrosMora-Bean"
+                    method="consultarParametros" ref="beanRouteFacade"/> 
+            <setProperty id="Parametros-Multiples-Abono" propertyName="cp_tipo">
+				<constant>AM</constant>
+			</setProperty>
+            <to id="pa_selParametros-consultarParametrosMultiplesAbono-To" uri="sql-stored:classpath:etc/sql/pa_selParametros.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseParametrosMultipleAbono"/>            
+            <bean id="consultarParametrosMultiplesAbono-Bean"
+                    method="consultarParametrosMultipleAbono" ref="beanRouteFacade"/>   
+         </route>     
+         <route id="consultarOfertaVigente">
+            <from id="consultarOfertaVigente-from" uri="direct:ofertaVigente"/>
+            <to id="pa_selOfertaVigente-consultarOfertaVigente-To" uri="sql-stored:classpath:etc/sql/pa_selOfertaVigente.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseOfertaVigente"/>            
+            <bean id="consultarOfertaVigente-Bean"
+                    method="consultarOfertaVigente" ref="beanRouteFacade"/>  			
+         </route>   
+          <route id="updateOfertaPagoAbono">
+            <from id="updateOfertaPagoAbono-from" uri="direct:updateOfertaPagoAbono"/>
+            <doTry id="updateOfertaPagoAbono-excepcionTry">
+                <removeHeaders id="RemoveHeadersJMS_updateOfertaPagoAbono" pattern="*"/>
+                <to id="pa_updMetricaAbono-To" uri="sql-stored:classpath:etc/sql/pa_updMetricaAbono.sql?dataSource=dataSourceSqlServer&amp;outputHeader=respuestaActualizarMetrica"/>
+                <bean id="consultarEnvioEmailAbonoCuota-Bean"
+                    method="obtenerTipoAbono" ref="beanRouteFacade"/> 
+                    
+                <removeHeaders id="RemoveHeadersJMS_pa_updMetricaAbono-To" pattern="*"/>    
+                <choice>
+                	<when>
+                		<simple>${exchangeProperty.ABONO}</simple>
+                		<to id="pa_updBloquearOfertaAbono-To" uri="sql-stored:classpath:etc/sql/pa_updBloquearOfertaAbono.sql?dataSource=dataSourceSqlServer&amp;outputHeader=respuestaBloquearOferta"/>
+		                <bean id="consultarEnvioEmailAbonoCuota-Bean"
+		                    method="consultarEnvioEmailAbonoCuota" ref="beanRouteFacade"/>  	
+		                   
+		                <choice>
+		                	<when>
+		                		<simple>${exchangeProperty.envioNotificacionPostPagoAbono}</simple>
+		                		 <bean id="consultarEnvioEmailAbonoCuota-Bean"
+				                    method="requestNotificacion" ref="beanRouteFacade"/>  	
+				                <removeHeaders pattern="*"/>
+				           		<setHeader headerName="Content-Type">
+				              		<constant>application/json</constant>
+				          		</setHeader>    
+				          		<setHeader headerName="CamelHttpMethod">
+				              		<constant>POST</constant>
+				          		</setHeader>
+				                <log id="Entrada RsNotificaciones - enviar:" message="Entrada: ${body}"/> 
+				                <to id="envioNotificacion" uri="cxfrs:bean:endpointRsNotificaciones?LoggingFeatureEnabled=true"/>
+				          		<convertBodyTo type="java.lang.String"/>
+				          		<log message="Salida RsNotificaciones - enviar: ${body}"/>
+		                	</when>
+		                	<otherwise>
+		                		<log message="No se envia notificaciones"/>	
+		                	</otherwise>
+		                </choice>	
+                	</when>                
+                </choice>
+                
+               
+                <doCatch id="updateOfertaPagoAbono-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="updateOfertaPagoAbono-SetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="updateOfertaPagoAbono-excepcionLog"
+                        loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="ValidarAbonoMultiple">
+            <from id="ValidarAbonoMultiple-from" uri="direct:validarAbonoMultiple"/>            
+            <choice>
+	           	<when>
+	           		<simple>${exchangeProperty.ABONO} == 1</simple>
+	           		 <to id="pa_insMetricaAbono-To" uri="sql-stored:classpath:etc/sql/pa_insMetricaAbono.sql?dataSource=dataSourceSqlServer&amp;outputHeader=respuestaAbonoMultiple"/>
+	           	</when>
+	           	<when>
+	           		<simple>${exchangeProperty.ABONO_MULTIPLE}  == 1</simple>
+	           		 <to id="pa_insMetricaAbonoMultiple-To" uri="sql-stored:classpath:etc/sql/pa_insMetricaAbono.sql?dataSource=dataSourceSqlServer&amp;outputHeader=respuestaAbonoMultiple"/>
+	           	</when>
+           	</choice>
+        </route> 
+        <route id="grabarIdWebPay">
+        	<from id="grabarIdWebPayFrom" uri="direct:grabarIdWebPay"/>
+        	<doTry>
+	        	 <transform id="grabarIdWebPay-Transform">
+	                    <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+	            </transform>
+	        	<to id="grabarIdWebPayXSLTrama" uri="xslt://etc/xsl/request/IOC522101I_registrarEnTefPagE.xsl"/>
+	        	<bean id="wspagosByAMQUUIDgrabarIdWebPay" method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+	        	<log message="entrada IOC522101I: ${body}"/>
+	        	<to id="grabarIdWebPayToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+	        	<log message="SalidaXXXXXXX: ${body}"/>
+	        	<doCatch>
+	        		<exception>java.lang.Exception</exception>
+	        		 <log loggingLevel="ERROR" message="Ha ocurrido un error al ejecutar servicio IOC522101I: ${body} - ${exception.message}"/>
+	        	</doCatch>
+        	</doTry>
+        </route>
+
+           <route id="rutaRestServicioPagos" streamCache="true">
+            <from uri="direct:servicioPagosRest" />
+                <doTry>
+		            <removeHeaders pattern="*"/>
+		            <setHeader headerName="Content-Type">
+		                <constant>application/json</constant>
+		            </setHeader>
+		            <setHeader headerName="CamelHttpMethod">
+		                <constant>POST</constant>
+		            </setHeader>
+		            <marshal>
+		                <json library="Jackson"/>
+		            </marshal>
+		            <convertBodyTo type="java.lang.String"/>
+		            <log message="[IN] body to servicio pagos rest.....${body}"/>
+		            <choice>
+			            <when>
+				            <simple>${exchangeProperty.operationNamePagoRest} == 'pagoCreditoConsumo'</simple>
+				            <to id="torutaRestServicioPagosConsumo" uri="cxfrs:bean:endpointServicioPagoCreditoConsumo?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+				             <log message="[MID] RAW body FROM servicio pagos rest.....${body}"/>
+				            <unmarshal>
+		                		<json library="Jackson" prettyPrint="true" unmarshalTypeName="cl.coopeuch.integracion.pagoexpress.rest.rspagos.out.SalidaCreditoConsumo"/>
+		            		</unmarshal>
+						</when>
+		           		<when>
+				            <simple>${exchangeProperty.operationNamePagoRest} == 'pagoCreditoHipotecario'</simple>
+				            <to id="torutaRestServicioPagosHipotecario" uri="cxfrs:bean:endpointServicioPagoCreditoHipotecario?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+				              <log message="[MID] RAW body FROM servicio pagos rest.....${body}"/>
+				            <unmarshal>
+		                		<json library="Jackson" prettyPrint="true" unmarshalTypeName="cl.coopeuch.integracion.pagoexpress.rest.rspagos.out.SalidaCreditoHipotecario"/>
+		            		</unmarshal>
+						</when>
+		            	<when>
+				            <simple>${exchangeProperty.operationNamePagoRest} == 'pagoCuotasParticipacion'</simple>
+				            <to id="torutaRestServicioPagosCuotasParticipacion" uri="cxfrs:bean:endpointServicioPagoCuotasParticipacion?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+				              <log message="[MID] RAW body FROM servicio pagos rest.....${body}"/>
+				            <unmarshal>
+		                		<json library="Jackson" prettyPrint="true" unmarshalTypeName="cl.coopeuch.integracion.pagoexpress.rest.rspagos.out.SalidaCuotaParticipacion"/>
+		            		</unmarshal>
+						</when>
+		            	<when>
+				            <simple>${exchangeProperty.operationNamePagoRest} == 'pagoTarjetaCredito'</simple>
+				            <to id="torutaRestServicioPagosTC" uri="cxfrs:bean:endpointServicioPagoTarjetaCredito?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+				              <log message="[MID] RAW body FROM servicio pagos rest.....${body}"/>
+				            <unmarshal>
+		                		<json library="Jackson" prettyPrint="true" unmarshalTypeName="cl.coopeuch.integracion.pagoexpress.rest.rspagos.out.SalidaTarjetaCredito"/>
+		            		</unmarshal>
+						</when>
+		            </choice>
+
+					<log message="[OUT] body from servicio pagos rest.....${body}"/>
+                    
+                   
+		            
+		            <bean id="rutaRestServicioPagosBeanconvertFromServicioPagoRest" method="convertFromServicioPagoRest" ref="beanRouteFacade" />
+		            
+               		<doCatch>
+                		<exception>java.lang.Exception</exception>
+                     	<log loggingLevel="ERROR" message="Ha ocurrido un error al consumir servicio de pagos Rest: ${body} - ${exception.message}"/>
+                     	
+                     	 <setProperty propertyName="codAutorizacionIbs">
+	        							<simple>0</simple>
+	        						</setProperty>
+                     	<to uri="direct:grabarIdWebPay"/>
+                     	<throwException exceptionType="java.lang.Exception" message="${exception.message}"/>
+                	</doCatch>
+                </doTry>    
+                    
+        </route>
+    </camelContext>
+</blueprint>

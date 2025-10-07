@@ -1,0 +1,330 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="property-placeholder"
+        persistent-id="wseeccnexus" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Endpoint wsdl nexus -->
+    <cxf:cxfEndpoint address="/ServicioEeccNexus" id="eeccNexusEndpoint"
+        serviceClass="cl.coopeuch.integracion.nexus.wsdl.NexusPortType" wsdlURL="etc/wsdl/ServicioNexus.wsdl"/>
+    <cxf:rsServer address="/RSEeccNexus" id="EeccNexusRest" serviceClass="cl.coopeuch.integracion.nexus.rest.NexusRest"/>
+    <!-- Conexion AMQ -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.util.RouteFacade" id="routeFacade"/>
+    <camelContext id="servicio-eeccnexus-context"
+        xmlns="http://camel.apache.org/schema/blueprint"
+        xmlns:N="http://tempuri.org/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+        <route id="_routeCola">
+            <from id="_fromCola" uri="AMQ:queue:{{colas.servicio.nexus.in.temp}}?preserveMessageQos=true"/>
+            <to id="_toInicioColas" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-InicioREST">
+            <from id="inicioFrom-REST" uri="cxfrs:bean:EeccNexusRest"/>
+            <choice id="inicioChoiceOperacion-REST">
+                <when id="inicioWhenOperacion-consultaEstadosDeCuentaPDF-REST">
+                    <simple>${header.operationName} == 'consultaEstadosDeCuentaPDF'</simple>
+                    <unmarshal id="consultaEstadosDeCuentaPDF_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.nexus.soap.ConsultaEstadosDeCuentaPDF"/>
+                    </unmarshal>
+                    <bean id="consultaEstadosDeCuentaPDF_bean6"
+                        method="consultaEstadosDeCuentaPDFRequestRest" ref="routeFacade"/>
+                    <marshal id="consultaEstadosDeCuentaPDF_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.nexus.soap"/>
+                    </marshal>
+                    <to id="consultaEstadosDeCuentaPDF_to7" uri="direct:inicio"/>
+                    <unmarshal id="consultar_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.nexus.soap"/>
+                    </unmarshal>
+                    <bean id="consultaEstadosDeCuentaPDF_bean7"
+                        method="consultaEstadosDeCuentaPDFResponseRest" ref="routeFacade"/>
+                    <marshal id="consultaEstadosDeCuentaPDF_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.nexus.soap.ConsultaEstadosDeCuentaPDFResponse"/>
+                    </marshal>
+                </when>
+                <when id="inicioWhenOperacion-consultaMovimientosNoFacturados-REST">
+                    <simple>${header.operationName} == 'consultaMovimientosNoFacturados'</simple>
+                    <unmarshal id="consultaMovimientosNoFacturados_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.nexus.soap.ConsultaMovimientosNoFacturados"/>
+                    </unmarshal>
+                    <bean id="consultaMovimientosNoFacturados_bean6"
+                        method="consultaMovimientosNoFacturadosRequestRest" ref="routeFacade"/>
+                    <marshal id="consultaMovimientosNoFacturados_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.nexus.soap"/>
+                    </marshal>
+                    <to id="consultaMovimientosNoFacturados_to7" uri="direct:inicio"/>
+                    <unmarshal id="consultaMovimientosNoFacturados_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.nexus.soap"/>
+                    </unmarshal>
+                    <bean id="consultaMovimientosNoFacturados_bean7"
+                        method="consultaMovimientosNoFacturadosResponseRest" ref="routeFacade"/>
+                    <marshal id="consultaMovimientosNoFacturados_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.nexus.soap.ConsultaMovimientosNoFacturadosResponse"/>
+                    </marshal>
+                </when>
+                <when id="inicioWhenOperacion-consultarSaldoTC-REST">
+                    <simple>${header.operationName} == 'consultarSaldoTC'</simple>
+                    <unmarshal id="consultarSaldoTC_unmarshal">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.nexus.soap.ConsultarSaldoTC"/>
+                    </unmarshal>
+                    <bean id="consultarSaldoTC_bean6"
+                        method="consultarSaldoTCRequestRest" ref="routeFacade"/>
+                    <marshal id="consultarSaldoTC_marshal5">
+                        <jaxb contextPath="cl.coopeuch.integracion.nexus.soap"/>
+                    </marshal>
+                    <to id="consultarSaldoTC_to7" uri="direct:inicio"/>                    
+                    <unmarshal id="consultarSaldoTC_unmarshal6">
+                        <jaxb contextPath="cl.coopeuch.integracion.nexus.soap"/>
+                    </unmarshal>
+                    <bean id="consultarSaldoTC_bean7"
+                        method="consultarSaldoTCResponseRest" ref="routeFacade"/>
+                    <marshal id="consultarSaldoTC_marshal6">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.nexus.soap.ConsultarSaldoTCResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <route id="cx-RuteoOperaciones">
+            <from id="inicioFrom" uri="cxf:bean:eeccNexusEndpoint?DataFormat=MESSAGE"/>
+            <to id="_toInicioWSDL" uri="direct:inicio"/>
+        </route>
+        <!-- Ruta que invoca operaciones de servicio Web -->
+        <route id="cx-RuteoOperaciones-SOAP">
+            <from id="eeccNexusEndpointListener" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean
+                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                    id="guardaBody" method="guardaBody"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaconsultaEstadosDeCuentaPDF">
+                        <simple>${body} contains 'consultaEstadosDeCuentaPDF'</simple>
+                        <to id="consultaEstadosDeCuentaPDFTo" uri="direct:consultaEstadosDeCuentaPDF"/>
+                    </when>
+                    <when id="rutaconsultaMovimientosNoFacturados">
+                        <simple>${body} contains 'consultaMovimientosNoFacturados'</simple>
+                        <to id="consultaMovimientosNoFacturadosTo" uri="direct:consultaMovimientosNoFacturados"/>
+                    </when>
+                    <when id="ruta-consultarSaldoTC">
+                        <simple>${body} contains 'consultarSaldoTC'</simple>
+                        <to id="consultaMovimientosNoFacturadosTo" uri="direct:consultarSaldoTC"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="ruteoOperacionesRestauraBody" method="restauraBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <!--  ruta de servicio Web que consulta estado de cuenta del socio-->
+        <route id="consultaEstadosDeCuentaPDF">
+            <from id="consultaEstadosDeCuentaPDFFrom" uri="direct:consultaEstadosDeCuentaPDF"/>
+            <doTry id="consultaEstadosDeCuentaPDFTry">
+                <removeHeaders
+                    excludePattern="Content*|User*|Connection"
+                    id="removeHeaders-LlamadaNexus" pattern="*"/>
+                <setHeader headerName="SOAPAction" id="_setHeader1">
+                    <constant>http://tempuri.org/IWSST247/MolST247Consultas</constant>
+                </setHeader>
+                <setHeader headerName="Content-Encoding" id="_setHeaders5">
+                    <constant>identity</constant>
+                </setHeader>
+                <to id="consultaEstadosDeCuentaPDFXml2trama" uri="xslt://etc/xsl/request/xml2xml_consultaEstadosDeCuentaPDF.xsl?saxon=true"/>
+                <to id="cxfconsultaEstadosDeCuentaPDF" uri="cxf:{{endpoint.nexus.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="consultaEstadosDeCuentaPDFBodyTo" type="java.lang.String"/>
+                <setHeader headerName="CodigoError" id="consultaEstadosDeCuentaPDFHeaderCodError">
+                    <xpath resultType="String">//s:Envelope/s:Body/N:MolST247ConsultasResponse/N:coderror</xpath>
+                </setHeader>
+                <setHeader headerName="msgerror" id="consultaEstadosDeCuentaPDFHeaderMsgError">
+                    <xpath resultType="String">//s:Envelope/s:Body/N:MolST247ConsultasResponse/N:msgerror</xpath>
+                </setHeader>
+                <to id="_to1" uri="xslt://etc/xsl/response/getCDATA.xsl?saxon=true"/>
+                <transform id="consultaEstadosDeCuentaPDFTransform">
+                    <simple>&lt;xml&gt;${body}&lt;/xml&gt;</simple>
+                </transform>
+                <to id="xml2xmlout_consultaEstadosDeCuentaPDF" uri="xslt://etc/xsl/response/xml2xmlout_consultaEstadosDeCuentaPDF.xsl?saxon=true"/>
+                <doCatch id="consultaEstadosDeCuentaPDFCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="consultaEstadosDeCuentaPDFRestauraBody" method="restauraBody"/>
+                    <setBody id="consultaEstadosDeCuentaPDFSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultaEstadosDeCuentaPDFFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="consultaEstadosDeCuentaPDFBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultaEstadosDeCuentaPDFFinally"/>
+            </doTry>
+        </route>
+        <!--  ruta de servicio Web que consulta movimientos no facturados del socio-->
+        <route id="consultaMovimientosNoFacturados">
+            <from id="consultaMovimientosNoFacturadosFrom" uri="direct:consultaMovimientosNoFacturados"/>
+            <doTry id="consultaMovimientosNoFacturadosTry">
+                <to id="consultaMovimientosNoFacturadosXml2trama" uri="xslt://etc/xsl/request/xml2xml_consultaMovimientosNoFacturados.xsl?saxon=true"/>
+                <removeHeaders
+                    excludePattern="Content*|User*|Connection"
+                    id="_removeHeaders1x" pattern="*"/>
+                <setHeader headerName="SOAPAction" id="_setHeader2">
+                    <constant>http://tempuri.org/IWSST247/MolST247Consultas</constant>
+                </setHeader>
+                <setHeader headerName="Content-Encoding" id="_setHeaderx5">
+                    <constant>identity</constant>
+                </setHeader>
+                <to id="cxfconsultaMovimientosNoFacturados" uri="cxf:{{endpoint.nexus.url}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="_convertBodyTo2" type="java.lang.String"/>
+                <setHeader headerName="CodigoError" id="Header54">
+                    <xpath resultType="String">//s:Envelope/s:Body/N:MolST247ConsultasResponse/N:coderror</xpath>
+                </setHeader>
+                <setHeader headerName="msgerror" id="Header54x">
+                    <xpath resultType="String">//s:Envelope/s:Body/N:MolST247ConsultasResponse/N:msgerror</xpath>
+                </setHeader>
+                <to id="consultaMovimientosNoFacturadosCdata" uri="xslt://etc/xsl/response/getCDATA.xsl?saxon=true"/>
+                <transform id="consultaMovimientosNoFacturadosTransform">
+                    <simple>&lt;xml&gt;${body}&lt;/xml&gt;</simple>
+                </transform>
+                <to id="xml2xmlout_consultaMovimientosNoFacturados" uri="xslt://etc/xsl/response/xml2xmlout_consultaMovimientosNoFacturados.xsl?saxon=true"/>
+                <doCatch id="consultaMovimientosNoFacturadosCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="consultaMovimientosNoFacturadosRestauraBody" method="restauraBody"/>
+                    <setBody id="consultaMovimientosNoFacturadosSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultaMovimientosNoFacturadosFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="consultaMovimientosNoFacturadosBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultaMovimientosNoFacturadosFinally"/>
+            </doTry>
+        </route>
+        <!--  ruta de servicio Web que consulta movimientos no facturados del socio-->
+        <route id="consultarSaldoTC">
+            <from id="consultarSaldoTC-From" uri="direct:consultarSaldoTC"/>
+            <doTry id="consultarSaldoTC-Try">
+                <setProperty id="numeroTarjeta" propertyName="numeroTarjeta">
+                    <xpath resultType="String">//numeroTarjeta</xpath>
+                </setProperty>
+                <setProperty id="tipoTarjeta" propertyName="tipoTarjeta">
+                    <xpath resultType="String">//tipoTarjeta</xpath>
+                </setProperty>
+                <choice id="_choice2">
+                    <when id="_when2">
+                        <simple>${exchangeProperty.tipoTarjeta} == 'A' || ${exchangeProperty.tipoTarjeta} == 'T'</simple>
+                        <setProperty id="usuario" propertyName="usuario">
+                            <simple>{{operacion.consulta.usuario}}</simple>
+                        </setProperty>
+                        <setProperty id="clave" propertyName="clave">
+                            <simple>{{operacion.consulta.clave}}</simple>
+                        </setProperty>
+                        <setProperty id="cod_servicio" propertyName="cod_servicio">
+                            <simple>{{operacion.consulta.cod_servicio}}</simple>
+                        </setProperty>
+                        <setProperty id="cod_usuario" propertyName="cod_usuario">
+                            <simple>{{operacion.consulta.cod_usuario}}</simple>
+                        </setProperty>
+                        <setProperty id="dir_ip" propertyName="dir_ip">
+                            <simple>{{operacion.consulta.dir_ip}}</simple>
+                        </setProperty>
+                        <setProperty id="id_emisor_servicio" propertyName="id_emisor_servicio">
+                            <simple>{{operacion.consulta.id_emisor_servicio}}${date:now:yyyyMMddHHmmss}</simple>
+                        </setProperty>
+                        <setProperty id="filler_01" propertyName="filler_01">
+                            <simple>{{operacion.consulta.filler_01}}</simple>
+                        </setProperty>
+                        <setProperty id="filler_02" propertyName="filler_02">
+                            <simple>{{operacion.consulta.filler_02}}</simple>
+                        </setProperty>
+                        <to id="consultarSaldoTC-Xml2trama" uri="xslt://etc/xsl/request/xml2xml_consultarSaldoTC.xsl?saxon=true"/>
+                        <log id="logConsultarSaldoTCRequest" loggingLevel="INFO" message="Entrada MOL Monetario: ${body}"/>
+                        <removeHeaders
+                            excludePattern="Content*|User*|Connection"
+                            id="consultarSaldoTC-removeHeaders" pattern="*"/>
+                        <setHeader headerName="SOAPAction" id="consultarSaldoTC-setHeader">
+                            <constant>http://tempuri.org/IWSST247/MolST247Consultas</constant>
+                        </setHeader>
+                        <setHeader headerName="Content-Encoding" id="consultarSaldoTC-setHeader-Content-Encoding">
+                            <constant>identity</constant>
+                        </setHeader>
+						<to id="consultarSaldoTC-cxf" uri="cxf:{{endpoint.nexus.url.mol}}?dataFormat=MESSAGE"/>
+                        <convertBodyTo
+                            id="consultarSaldoTC-convertBodyTo" type="java.lang.String"/>
+                        <log id="logConsultarSaldoTCResponse" loggingLevel="INFO" message="Salida MOL Monetario: ${body}"/>    
+                        <setProperty id="codigoError-MOL" propertyName="CodigoError">
+                            <xpath resultType="String">//s:Envelope/s:Body/N:MolST247ConsultasResponse/N:coderror</xpath>
+                        </setProperty>
+                        <setProperty id="descripcionError-MOL" propertyName="DescripcionError">
+                            <xpath resultType="String">normalize-space(//s:Envelope/s:Body/N:MolST247ConsultasResponse/N:msgerror)</xpath>
+                        </setProperty>
+                        <choice id="_choice1">
+                            <when id="_when1">
+                                <simple>${exchangeProperty.CodigoError} == '0'</simple>
+                                <to id="consultarSaldoTC-Cdata" uri="xslt://etc/xsl/response/getCDATA.xsl?saxon=true"/>
+                                <log id="_log1" message="body: ${body}"/>
+                                <transform id="consultarSaldoTC-Transform">
+                                    <simple>&lt;xml&gt;${body}&lt;/xml&gt;</simple>
+                                </transform>
+                                <to id="xml2xmlout_consultarSaldoTC" uri="xslt://etc/xsl/response/xml2xmlout_consultarSaldoTC.xsl?saxon=true"/>
+                            </when>
+                            <otherwise id="_otherwise1">
+                                <to id="xml2xmlout_consultarSaldoTC" uri="xslt://etc/xsl/response/xml2xmlout_consultarSaldoTC.xsl?saxon=true"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <to id="xml2xmlout_consultarSaldoTC" uri="xslt://etc/xsl/response/xml2xmlout_consultarSaldoTC.xsl?saxon=true"/>
+                    </otherwise>
+                </choice>
+                <removeHeaders
+                    id="consultarSaldoTC-removeHeaders-Salida" pattern="Set-Cookie*|SOAPAction*"/>
+                <doCatch id="_doCatch1">
+                    <exception>java.net.SocketException</exception>
+                    <setBody id="consultarSaldoTC-SetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <log id="_log2" message="Aqui exception:${exception}"/>
+                    <to id="consultarSaldoTC-Fault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="consultarSaldoTC-ErrorSocket" method="setErrorSocket"/>
+                </doCatch>
+                <doCatch id="consultarSaldoTC-Catch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="consultarSaldoTC-RestauraBody" method="restauraBody"/>
+                    <setBody id="consultarSaldoTC-SetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="consultarSaldoTC-Fault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="consultarSaldoTC-BodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="consultarSaldoTC-Finally"/>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

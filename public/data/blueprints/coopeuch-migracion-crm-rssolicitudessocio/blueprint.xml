@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.0.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wssolicitudessociocrm" placeholder-prefix="[{" placeholder-suffix="}]"/>
+    <bean class="cl.coopeuch.integracion.utilidad.util.RouteFacade" id="beanRouteFacade"/>
+    <!--Servicios -->
+    <cxf:cxfEndpoint address="/crm/WSSolicitudesSocio"
+        id="fromWsSolicitudesSocioSoap" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.crm.wssolicitudessocio.WSSolicitudesSocioSoap" wsdlURL="etc/wsdl/WSSolicitudesSocio.asmx.wsdl"/>
+    <cxf:rsServer address="/crm/RSSolicitudesSocio"
+        id="fromWsSolicitudesSocioRest" loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.utilidad.rest.SolicitudesSocioCRMRest"/>
+    <!--Cliente proxy-->
+    <cxf:cxfEndpoint address="[{crm.proxy.solicitudessocio.endpoint}]"
+        id="toEndpointWsSolicitudesSocio" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.crm.wssolicitudessocio.WSSolicitudesSocioSoap" wsdlURL="etc/wsdl/WSSolicitudesSocio.asmx.wsdl"/>
+    <camelContext id="servicio-crm-solicitudes-socio" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="soap-inicio" streamCache="true">
+            <from id="solicitudesSocioFrom" uri="cxf:bean:fromWsSolicitudesSocioSoap?dataFormat=RAW"/>
+            <removeHeaders id="solicitudesSocioRemoveHeaders" pattern="CamelHttp*"/>
+            <to id="solicitudesSocioTo" uri="cxf:bean:toEndpointWsSolicitudesSocio?dataFormat=RAW"/>
+        </route>
+        <route id="rest-inicio" streamCache="true">
+            <from id="inicioRestFrom" uri="cxfrs:bean:fromWsSolicitudesSocioRest"/>
+            <choice id="fromOperation">
+                <when id="whenGetActualizaDatosSocio">
+                    <simple>${header.operationName} == 'getActualizaDatosSocio'</simple>
+                    <unmarshal id="unmarshalGetActualizaDatosSocio">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wssolicitudessocio.GetActualizaDatosSocio"/>
+                    </unmarshal>
+                    <bean id="getActualizaDatosSocioRequest"
+                        method="getActualizaDatosSocioRest" ref="beanRouteFacade"/>
+                    <to id="getActualizaDatosSocioTo" uri="cxf:bean:toEndpointWsSolicitudesSocio"/>
+                    <marshal id="marshalGetActualizaDatosSocioResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wssolicitudessocio.GetActualizaDatosSocioResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenSolicitudesActualizaDatosSocio">
+                    <simple>${header.operationName} == 'solicitudesActualizaDatosSocio'</simple>
+                    <unmarshal id="unmarshalSolicitudesActualizaDatosSocio">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wssolicitudessocio.SolicitudesActualizaDatosSocio"/>
+                    </unmarshal>
+                    <bean id="solicitudesActualizaDatosSocioRequest"
+                        method="solicitudesActualizaDatosSocioRest" ref="beanRouteFacade"/>
+                    <to id="solicitudesActualizaDatosSocioTo" uri="cxf:bean:toEndpointWsSolicitudesSocio"/>
+                    <marshal id="marshalSolicitudesActualizaDatosSocioResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.crm.wssolicitudessocio.SolicitudesActualizaDatosSocioResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,326 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+        <cm:property-placeholder id="propertyGlobalDb2"
+		persistent-id="globalDb2" placeholder-prefix="[[" placeholder-suffix="]]"
+		update-strategy="reload" />
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsevaluacionpersona" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.tarea.evaluacion.util.RouteFacade" id="beanRouteFacade"/>
+    <bean
+        class="cl.coopeuch.integracion.tarea.evaluacion.util.AggregatorConsultas" id="agregadorConsultas"/>
+    <camelcxf:cxfEndpoint address="/WSEvaluacionPersona"
+        id="endpointWSEvaluacionPersona"
+        serviceClass="cl.coopeuch.integracion.tarea.wsdl.WSEvaluacionPersonaSOAPPortType" wsdlURL="etc/wsdl/WSEvaluacionPersona.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsClient address="[{endpoint.wsinfopersona.consultar}]"
+        id="endpointWsInfoPersonaConsultar" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient
+        address="[{endpoint.wscondicionescomerciales.consultar}]"
+        id="endpointWsCondicionesComercialesConsultar" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient
+        address="[{endpoint.serviciopersona.traerdatosbasicosdg}]"
+        id="endpointServicioPersonaTraerDatosBasicosDG" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient
+        address="[{endpoint.serviciotarjetadecredito.listar}]"
+        id="endpointTarjetadeCreditoListar" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <camelcxf:rsServer address="/RSEvaluacionPersona"
+        id="endpointRSEvaluacionPersona" serviceClass="cl.coopeuch.integracion.tarea.wsdl.WSEvaluacionPersonaSOAPPortType"/>
+    <http-conf:conduit name="*.http-conduit">
+        <http-conf:client ConnectionTimeout="15000" ReceiveTimeout="15000"/>
+    </http-conf:conduit>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+		destroy-method="close" id="dataSourceSqlDb2">
+		<property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver" />
+		<property name="url" value="[[jdbc.db2.url.servicio]]" />
+		<property name="username" value="[[jdbc.db2.username.creditos]]" />
+		<property name="password" value="[[jdbc.db2.password.creditos]]" />
+		<property name="timeBetweenEvictionRunsMillis" value="[{jdbc.db2.timeBetweenEvictionRunsMillis.wsevaluacionpersona}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.db2.numTestsPerEvictionRun.wsevaluacionpersona}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.db2.minEvictableIdleTimeMillis.wsevaluacionpersona}]"/>
+        <property name="maxActive" value="[{jdbc.db2.maxActive.wsevaluacionpersona}]"/>
+    </bean>
+    <camelContext id="servicio-evaluacion-persona" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSEvaluacionPersona"/>
+            <setProperty propertyName="deudaCons">
+					<simple>SOAP</simple>
+				</setProperty>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+         <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSEvaluacionPersona"/>
+            <setProperty propertyName="deudaCons">
+					<simple>REST</simple>
+				</setProperty>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>		
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <bean id="validarDatosOperacionBean"
+                    method="validarDatosOperacion" ref="beanRouteFacade"/>
+                <choice id="validaErrorChoice">
+                    <when id="validaErrorWhen">
+                        <simple>${exchangeProperty.ERROR} == ''</simple>
+                        <choice id="inicioChoiceOperacion">
+                            <when id="validaRutWhen">
+                                <simple>${exchangeProperty.valida_rut} == 'Correcto'</simple>
+                                <choice id="validaRutChoice">
+                                    <when id="inicioWhenOperacionConsultar">
+	                                    <simple>${header.operationName} == 'consultar'</simple>
+	                                    <to id="toConsultar" uri="direct:consultar"/>
+                                    </when>
+                                    <otherwise id="inicioOtherwise">
+                                    <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <when id="inicioWhenOperacionConsultarDeudaConsolidada">
+                              <simple>${header.operationName} == 'consultarDeudaConsolidada'</simple>
+                              <to id="toConsultarDeudaConsolidada" uri="direct:consultarDeudaConsolidada"/>
+                             </when>
+                            <otherwise id="otherwiseError_400">
+                                <setProperty id="inicioCodigoError" propertyName="codigoError">
+                                    <constant>400</constant>
+                                </setProperty>
+                                <throwException
+                                    exceptionType="java.lang.UnsupportedOperationException"
+                                    id="throwExceptionOperacionInvalida_400" message="El RUT ingresado no es valido."/>
+                                <stop id="_stop"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="otherwiseError_300">
+                        <setProperty id="codigoErrorDatos" propertyName="codigoError">
+                            <constant>300</constant>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.UnsupportedOperationException"
+                            id="throwExceptionOperacionInvalida_300" message="Falta completar datos de entrada"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch-UnsupportedOperationException">
+                    <exception>java.lang.UnsupportedOperationException</exception>
+                    <to
+                        id="toInicioExcepcion-UnsupportedOperationException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultar">
+            <from id="consultarFrom" uri="direct:consultar"/>
+            <choice id="choiceByPassInfoPersona">
+                <when id="whenByPassInfoPersona">
+                    <simple>${exchangeProperty.byPassInfoPersona}</simple>
+                    <log id="logDummyInfoPersonaRequest"
+                        loggingLevel="INFO" message="Dummy InfoPersona: true"/>
+                    <bean id="dummyConsultarInfoPersonaBean"
+                    	method="responseDummyConsultarInfoPersona" ref="beanRouteFacade"/>
+                </when>
+                <otherwise id="otherwiseByPassInfoPersona">
+                    <bean id="consultarInfoPersonaRequestBean"
+                        method="requestConsultarInfoPersona" ref="beanRouteFacade"/>
+                    <log id="logConsultarInfoPersonaRequest"
+                        loggingLevel="INFO" message="Mensaje Entrada: ${body}"/>
+                    <to id="consultarInfoPersona-To" uri="cxfrs:bean:endpointWsInfoPersonaConsultar?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                    <bean id="consultarInfoPersonaResponseBean"
+                        method="responseConsultarInfoPersona" ref="beanRouteFacade"/>
+                    <log id="logConsultarInfoPersonaResponse_2"
+                        loggingLevel="INFO" message="Salida Mensaje: ${body}"/>
+                </otherwise>
+            </choice>
+            <choice id="choiceConsultaServicioPersona">
+                <when id="whenConsultaServicioPersona">
+                    <simple>${exchangeProperty.procesarServicios}</simple>
+                    <multicast id="consultarMulticast"
+                        parallelProcessing="true" strategyRef="agregadorConsultas">
+                        <to id="toConsultarCondicionesComerciales" uri="direct:consultarCondicionesComerciales"/>
+                        <to id="toListarTarjetadeCredito" uri="direct:listarTarjetadeCredito"/>
+                        <choice id="choiceConsultaServicioPersona">
+                            <when id="whenConsultaServicioPersona">
+                                <simple>${exchangeProperty.consultaServicioPersona}</simple>
+                                <to id="toConsultarServicioPersona" uri="direct:consultarServicioPersona"/>
+                            </when>
+                        </choice>
+                    </multicast>
+                </when>
+            </choice>
+        </route>
+        <route id="consultarCondicionesComerciales">
+            <from id="fromConsultarCondicionesComerciales" uri="direct:consultarCondicionesComerciales"/>
+            <setProperty id="tipoCondicionesComerciales" propertyName="tipoConsulta">
+                <constant>CC</constant>
+            </setProperty>
+            <bean id="consultarCondicionesComercialesRequestBean"
+                method="requestConsultarCondicionesComerciales" ref="beanRouteFacade"/>
+            <log id="logConsultarCondicionesComercialesRequest"
+                loggingLevel="INFO" message="Mensaje Entrada CondicionesComerciales: ${body}"/>
+            <to id="consultarCondicionesComerciales-To" uri="cxfrs:bean:endpointWsCondicionesComercialesConsultar?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+            <unmarshal id="unmarshalConsultarCondicionesComercialesResponse">
+                <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tarea.wsdl.condicionescomerciales.ConsultarResponse"/>
+            </unmarshal>
+        </route>
+        <route id="consultarServicioPersona">
+            <from id="fromConsultarServicioPersona" uri="direct:consultarServicioPersona"/>
+            <setProperty id="tipoServicioPersona" propertyName="tipoConsulta">
+                <constant>SP</constant>
+            </setProperty>
+            <bean id="consultarServicioPersonaRequestBean"
+                method="requestConsultarServicioPersona" ref="beanRouteFacade"/>
+            <marshal id="marshalConsultarServicioPersonaRequest">
+                <json library="Jackson"/>
+            </marshal>
+            <convertBodyTo id="convertConsultarServicioPersonaRequest" type="java.lang.String"/>
+            <log id="logConsultarServicioPersonaRequest"
+                loggingLevel="INFO" message="Mensaje Entrada ServicioPersona: ${body}"/>
+            <to id="consultarServicioPersona-To" uri="cxfrs:bean:endpointServicioPersonaTraerDatosBasicosDG?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+            <convertBodyTo id="convertConsultarServicioPersonaResponse" type="java.lang.String"/>
+            <doTry id="tryUnmarshalServicioPersona">
+                <unmarshal id="unmarshalConsultarServicioPersonaResponse">
+                    <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tarea.wsdl.persona.DatosBasicosDG"/>
+                </unmarshal>
+                <doCatch id="doCatchUnmarshalServicioPersona">
+                    <exception>java.lang.Exception</exception>
+                    <unmarshal id="unmarshalConsultarServicioPersonaResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tarea.wsdl.persona.Error"/>
+                    </unmarshal>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="listarTarjetadeCredito">
+            <from id="fromListarTarjetadeCredito" uri="direct:listarTarjetadeCredito"/>
+            <setProperty id="tipoTarjetadeCredito" propertyName="tipoConsulta">
+                <constant>TC</constant>
+            </setProperty>
+            <bean id="listarTarjetadeCreditoRequestBean"
+                method="requestListarTarjetadeCredito" ref="beanRouteFacade"/>
+            <marshal id="marshalListarTarjetaCreditoRequest">
+                <json library="Jackson"/>
+            </marshal>
+            <convertBodyTo id="convertListarTarjetaCreditoRequest" type="java.lang.String"/>
+            <log id="logListarTarjetadeCreditoRequest"
+                loggingLevel="INFO" message="Mensaje Entrada ServicioTarjetadeCredito: ${body}"/>
+            <to id="listarTarjetadeCredito-To" uri="cxfrs:bean:endpointTarjetadeCreditoListar?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+            <convertBodyTo id="convertListarTarjetaCreditoResponse" type="java.lang.String"/>
+            <doTry id="tryUnmarshalTarjetaCredito">
+                <unmarshal id="unmarshalTarjetadeCreditoResponse">
+                    <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.tarea.wsdl.tarjetacredito.ListarTarjetaCreditoResponse"/>
+                </unmarshal>
+                <doCatch id="doCatchUnmarshalTarjetaCredito">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="listarTarjetadeCreditoResponseBean"
+                        method="responseListarTarjetadeCredito" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+        </route>      
+   	<route id="consultarDeudaConsolidada">
+				<from id="consultarDeudaConsolidadaFrom" uri="direct:consultarDeudaConsolidada" />
+				<doTry id="tryUnmarshalConsultarDeudaConsolidada">
+					<setProperty propertyName="userId">
+						<xpath resultType="String">//userId/text()</xpath>
+					</setProperty>
+					<setProperty propertyName="canalLlamada">
+						<xpath resultType="String">//canalLlamada/text()</xpath>
+					</setProperty>
+					<setProperty propertyName="rut">
+						<xpath resultType="String">//rut/text()</xpath>
+					</setProperty>
+					<setProperty propertyName="consulta">
+						<xpath resultType="String">//consulta/text()</xpath>
+					</setProperty>
+					<to id="consultarDeuda"
+						uri="sql-stored:classpath:etc/sql/PA_EVALUACIONPERSONA_CONSULTADEUDACONSOLIDADA_WS.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=dataResponse" />
+					<bean id="consultarDeudaCons" method="respuestaPaConsultaDeudaConsolidada"
+						ref="beanRouteFacade" />
+					<removeHeaders id="consultarDeuda-rmHeaders" pattern="*" />
+					<choice>
+						<when>
+							<simple>${property.deudaCons} == 'REST'</simple>
+							<marshal id="_marshal6">
+								<json include="NON_NULL" library="Jackson"
+									unmarshalTypeName="cl.coopeuch.integracion.tarea.wsdl.ConsultarDeudaConsolidadaResponse" />
+							</marshal>
+						</when>
+					</choice>
+					<doCatch id="consultarDeudaConsolidadaDoCatch">
+						<exception>java.lang.Exception</exception>
+						<to id="consultarDeudaConsolidadaExceptionTo" uri="direct:exceptionRoute" />
+					</doCatch>
+				</doTry>
+			</route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

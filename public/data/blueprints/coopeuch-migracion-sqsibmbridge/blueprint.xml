@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camel="http://camel.apache.org/schema/blueprint"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="        http://www.osgi.org/xmlns/blueprint/v1.0.0 http://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd        http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd        http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0 http://aries.apache.org/schemas/blueprint-cm/blueprint-cm-1.1.0.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder persistent-id="amqconectormq" update-strategy="reload"/>
+    <!-- Local Beans -->
+    <bean class="cl.coopeuch.util.jms.CorrelationIdToFuse" id="convertCorrelationId"/>
+    <bean class="cl.coopeuch.util.jms.CorrelationIdToWmq" id="convertCorrelationIdWmq"/>
+    <!-- Configure Active MQ connection factory -->
+    <bean class="org.apache.activemq.ActiveMQConnectionFactory" id="amqConnectionFactory">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="jmsConfig">
+        <property name="connectionFactory" ref="amqConnectionFactory"/>
+    </bean>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="activemq">
+        <property name="cacheLevelName" value="CACHE_CONSUMER"/>
+        <property name="transacted" value="false"/>
+        <property name="asyncConsumer" value="true"/>
+        <property name="asyncStartListener" value="true"/>
+        <property name="configuration" ref="jmsConfig"/>
+        <property name="concurrentConsumers" value="${ibm.qm.concurrentConsumers}"/>
+        <property name="replyToConcurrentConsumers" value="${ibm.qm.concurrentConsumers}"/>
+    </bean>
+    <!-- Configure IBM WebSphere MQ connection factory -->
+    <bean class="com.ibm.mq.jms.MQConnectionFactory" id="websphereConnectionFactory">
+        <property name="transportType" value="1"/>
+        <property name="hostName" value="${ibm.mq.host}"/>
+        <property name="port" value="${ibm.mq.port}"/>
+        <property name="queueManager" value="${ibm.qm.name}"/>
+        <property name="useConnectionPooling" value="true"/>
+        <property name="channel" value="${ibm.qm.channel}"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="websphereConfig">
+        <property name="connectionFactory" ref="websphereConnectionFactory"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsComponent" id="websphere">
+        <property name="cacheLevelName" value="CACHE_CONSUMER"/>
+        <property name="transacted" value="false"/>
+        <property name="asyncConsumer" value="true"/>
+        <property name="asyncStartListener" value="true"/>
+        <property name="configuration" ref="websphereConfig"/>
+        <property name="concurrentConsumers" value="${ibm.qm.concurrentConsumers}"/>
+        <property name="replyToConcurrentConsumers" value="${ibm.qm.concurrentConsumers}"/>
+    </bean>
+    <camelContext allowUseOriginalMessage="false" id="MQConectorWMQ"
+        streamCache="true" xmlns="http://camel.apache.org/schema/blueprint">
+        <threadPoolProfile defaultProfile="true" id="cw2020"
+            maxPoolSize="140" maxQueueSize="10000" poolSize="70"/>
+        <route id="AmqBridgeWmq" streamCache="true">
+            <from id="fromAmq" uri="activemq:queue:{{amq.queue.in.temp}}"/>
+            <removeHeader headerName="JMSDestination" id="removeHeaderJMS"/>
+            <removeHeader headerName="JMSReplyTo" id="removeHeaderRepyTo"/>
+            <setHeader headerName="CamelJmsDestinationName" id="setHeaderCamelJMS">
+                <constant>queue:///{{ibm.queue.in}}?targetClient=1</constant>
+            </setHeader>
+            <to id="convertEncodingWmq" uri="bean:convertCorrelationIdWmq?method=setIdWmq"/>
+            <to id="toWmq" uri="websphere:queue:{{ibm.queue.in}}?preserveMessageQos=true&amp;exchangePattern=InOut&amp;replyToOverride={{ibm.queue.exclusive.out}}&amp;jmsMessageType=Text&amp;replyToType=Exclusive&amp;synchronous=true&amp;replyTo={{ibm.queue.exclusive.out}}"/>
+            <to id="convertEncoding" uri="bean:convertCorrelationId?method=setId"/>
+        </route>
+    </camelContext>
+</blueprint>

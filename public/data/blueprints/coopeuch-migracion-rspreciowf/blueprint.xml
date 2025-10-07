@@ -1,0 +1,271 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:sec="http://cxf.apache.org/configuration/security"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Servicio de mantencion Workflow -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wspreciowf" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.preciowf.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSPrecioWF"
+        continuationTimeout="10000" id="endpointWsPrecioWF"
+        loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.preciowf.wsdl.WSPrecioWFSOAPPortType" wsdlURL="etc/wsdl/WSPrecioWF.wsdl"/>
+    <camelcxf:cxfEndpoint address="[{pricing.workflow.endpoint}]"
+        continuationTimeout="10000" id="endpointServicioWorkflow"
+        loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.preciowf.wsdl.servicioworkflow.WorkflowWS" wsdlURL="etc/wsdl/WorkflowWS.wsdl"/>
+    <camelContext id="servicio-preciowf" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="cxf:bean:endpointWsPrecioWF"/>
+            <doTry id="inicioTry">
+                <bean id="obtenerDatosOperacionBean"
+                    method="obtenerDatosOperacion" ref="beanRouteFacade"/>
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetBody" propertyName="bodyEntrada">
+                    <simple>${body.get(0)}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsSolicRebTasa">
+                        <simple>${header.operationName} == 'consultarSolicitudRebajaTasa'</simple>
+                        <to id="toConsSolicRebTasa" uri="direct:consSolicRebTasa"/>
+                    </when>
+                    <when id="inicioWhenOperacionObtSolicRebTasa">
+                        <simple>${header.operationName} == 'obtenerSolicitudRebajaTasa'</simple>
+                        <to id="toObtSolicRebTasa" uri="direct:obtSolicRebTasa"/>
+                    </when>
+                    <when id="inicioWhenOperacionAjustPresPorSucursal">
+                        <simple>${header.operationName} == 'ajustarPresupuestoPorSucursal'</simple>
+                        <to id="toAjustPresPorSucursal" uri="direct:ajustPresSucursal"/>
+                    </when>
+                    <when id="inicioWhenOperacionAlmacenarTasaCursada">
+                        <simple>${header.operationName} == 'almacenarTasaCursada'</simple>
+                        <to id="toAlmacenarTasaCursada" uri="direct:almacenarTasaCursada"/>
+                    </when>
+                    <when id="inicioWhenOperacionCancelarSolicRebTasa">
+                        <simple>${header.operationName} == 'cancelarSolicitudRebajaTasa'</simple>
+                        <to id="toCancelarSolicRebTasa" uri="direct:cancelarSolicRebTasa"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioPropertyCodigo" propertyName="codigoError">
+                        <simple>1</simple>
+                    </setProperty>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consSolicRebTasa">
+            <from id="consSolicRebTasaFrom" uri="direct:consSolicRebTasa"/>
+            <doTry id="consSolicRebTasaTry">
+                <removeHeaders id="consSolicRebTasaRemoveHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="SetHeaderOpNameCons">
+                    <constant>consultarSolicitudRebajaTasa</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="SetHeaderSoapActionCons">
+                    <constant/>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="SetHeaderOpNamespaceCons">
+                    <constant>http://ws.workflow.admintasas.ingerencia.com/</constant>
+                </setHeader>
+                <bean id="consSolicRebTasaBean"
+                    method="consultarSolicitudRebajaTasaRequest" ref="beanRouteFacade"/>
+                <to id="consSolicRebTasaTo" uri="cxf:bean:endpointServicioWorkflow"/>
+                <bean id="consSolicRebTasaResponseBean"
+                    method="consultarSolicitudRebajaTasaResponse" ref="beanRouteFacade"/>
+                <choice id="consSolicRebTasaChoice">
+                    <when id="consSolicRebTasaWhen">
+                        <simple>${body} == 'OK'</simple>
+                        <log id="logTraceConsSolicRebTasaOk"
+                            loggingLevel="TRACE" message="Servicio Workflow respondio satisfactoriamente"/>
+                    </when>
+                </choice>
+                <doCatch id="consSolicRebTasaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consSolicRebTasaPropertyCodigo" propertyName="codigoError">
+                        <simple>1</simple>
+                    </setProperty>
+                    <to id="consSolicRebTasaExcepcionto" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="obtSolicRebTasa">
+            <from id="obtSolicRebTasaFrom" uri="direct:obtSolicRebTasa"/>
+            <doTry id="obtSolicRebTasaTry">
+                <removeHeaders id="obtSolicRebTasaRemoveHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="SetHeaderOpNameObt">
+                    <constant>obtenerSolicitudRebajaTasa</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="SetHeaderSoapActionObt">
+                    <constant/>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="SetHeaderOpNamespaceObt">
+                    <constant>http://ws.workflow.admintasas.ingerencia.com/</constant>
+                </setHeader>
+                <bean id="obtSolicRebTasaBean"
+                    method="obtenerSolicitudRebajaTasaRequest" ref="beanRouteFacade"/>
+                <to id="obtSolicRebTasaTo" uri="cxf:bean:endpointServicioWorkflow"/>
+                <bean id="obtSolicRebTasaResponseBean"
+                    method="obtenerSolicitudRebajaTasaResponse" ref="beanRouteFacade"/>
+                <choice id="obtSolicRebTasaChoice">
+                    <when id="obtSolicRebTasaWhen">
+                        <simple>${body} == 'OK'</simple>
+                        <log id="logTraceObtSolicRebTasaOk"
+                            loggingLevel="TRACE" message="Servicio Workflow respondio satisfactoriamente"/>
+                    </when>
+                </choice>
+                <doCatch id="obtSolicRebTasaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="obtSolicRebTasaPropertyCodigo" propertyName="codigoError">
+                        <simple>1</simple>
+                    </setProperty>
+                    <to id="obtSolicRebTasaExcepcionto" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="ajustPresSucursal">
+            <from id="ajustPresSucursalFrom" uri="direct:ajustPresSucursal"/>
+            <doTry id="ajustPresSucursalTry">
+                <removeHeaders id="ajustPresSucursalRemoveHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="SetHeaderOpNameAjust">
+                    <constant>ajustarPresupuestoPorSucursal</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="SetHeaderSoapActionAjust">
+                    <constant/>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="SetHeaderOpNamespaceAjust">
+                    <constant>http://ws.workflow.admintasas.ingerencia.com/</constant>
+                </setHeader>
+                <bean id="ajustPresSucursalBean"
+                    method="ajustarPresupuestoPorSucursalRequest" ref="beanRouteFacade"/>
+                <to id="ajustPresSucursalTo" uri="cxf:bean:endpointServicioWorkflow"/>
+                <bean id="ajustPresSucursalResponseBean"
+                    method="ajustarPresupuestoPorSucursalResponse" ref="beanRouteFacade"/>
+                <choice id="ajustPresSucursalChoice">
+                    <when id="ajustPresSucursalWhen">
+                        <simple>${body} == 'OK'</simple>
+                        <log id="logTraceAjustPresSucursalOk"
+                            loggingLevel="TRACE" message="Servicio Workflow respondio satisfactoriamente"/>
+                    </when>
+                </choice>
+                <doCatch id="ajustPresSucursalDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="ajustPresSucursalPropertyCodigo" propertyName="codigoError">
+                        <simple>1</simple>
+                    </setProperty>
+                    <to id="ajustPresSucursalExcepcionto" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="almacenarTasaCursada">
+            <from id="almacenarTasaCursadaFrom" uri="direct:almacenarTasaCursada"/>
+            <doTry id="almacenarTasaCursadaTry">
+                <removeHeaders id="almacenarTasaCursadaRemoveHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="SetHeaderOpNameAlmac">
+                    <constant>almacenarTasaCursada</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="SetHeaderSoapActionAlmac">
+                    <constant/>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="SetHeaderOpNamespaceAlmac">
+                    <constant>http://ws.workflow.admintasas.ingerencia.com/</constant>
+                </setHeader>
+                <bean id="almacenarTasaCursadaBean"
+                    method="almacenarTasaCursadaRequest" ref="beanRouteFacade"/>
+                <to id="almacenarTasaCursadaTo" uri="cxf:bean:endpointServicioWorkflow"/>
+                <bean id="almacenarTasaCursadaResponseBean"
+                    method="almacenarTasaCursadaResponse" ref="beanRouteFacade"/>
+                <choice id="almacenarTasaCursadaChoice">
+                    <when id="almacenarTasaCursadaWhen">
+                        <simple>${body} == 'OK'</simple>
+                        <log id="logTraceAlmacenarTasaCursadaOk"
+                            loggingLevel="TRACE" message="Servicio Workflow respondio satisfactoriamente"/>
+                    </when>
+                </choice>
+                <doCatch id="almacenarTasaCursadaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="almacenarTasaCursadaPropertyCodigo" propertyName="codigoError">
+                        <simple>1</simple>
+                    </setProperty>
+                    <to id="almacenarTasaCursadaExcepcionto" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cancelarSolicRebTasa">
+            <from id="cancelarSolicRebTasaFrom" uri="direct:cancelarSolicRebTasa"/>
+            <doTry id="cancelarSolicRebTasaTry">
+                <removeHeaders id="cancelarSolicRebTasaRemoveHeaders" pattern="*"/>
+                <setHeader headerName="operationName" id="SetHeaderOpNameCancel">
+                    <constant>cancelarSolicitudRebajaTasa</constant>
+                </setHeader>
+                <setHeader headerName="SOAPAction" id="SetHeaderSoapActionCancel">
+                    <constant/>
+                </setHeader>
+                <setHeader headerName="operationNamespace" id="SetHeaderOpNamespaceCancel">
+                    <constant>http://ws.workflow.admintasas.ingerencia.com/</constant>
+                </setHeader>
+                <bean id="cancelarSolicRebTasaBean"
+                    method="cancelarSolicitudRebajaTasaRequest" ref="beanRouteFacade"/>
+                <to id="cancelarSolicRebTasaTo" uri="cxf:bean:endpointServicioWorkflow"/>
+                <bean id="cancelarSolicRebTasaResponseBean"
+                    method="cancelarSolicitudRebajaTasaResponse" ref="beanRouteFacade"/>
+                <choice id="cancelarSolicRebTasaChoice">
+                    <when id="cancelarSolicRebTasaWhen">
+                        <simple>${body} == 'OK'</simple>
+                        <log id="logTraceCancelarSolicRebTasaOk"
+                            loggingLevel="TRACE" message="Servicio Workflow respondio satisfactoriamente"/>
+                    </when>
+                </choice>
+                <doCatch id="cancelarSolicRebTasaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="cancelarSolicRebTasaPropertyCodigo" propertyName="codigoError">
+                        <simple>1</simple>
+                    </setProperty>
+                    <to id="cancelarSolicRebTasaExcepcionto" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

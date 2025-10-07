@@ -1,0 +1,803 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsevaluacioncredito" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Enpoint del Servicio -->
+    <cxf:cxfEndpoint address="/WSEvaluacionCredito"
+        id="WSEvaluacionCreditoEndpoint" loggingFeatureEnabled="false"
+        serviceClass="cl.coopeuch.integracion.evaluacioncredito.wsdl.EvaluacionCredito" wsdlURL="wsdl/WSEvaluacionCredito.wsdl"/>
+    <cxf:rsServer address="/RSEvaluacionCredito"
+        id="endpointRSEvaluacionCredito" serviceClass="cl.coopeuch.integracion.evaluacioncredito.wsdl.EvaluacionCredito"/>
+    <bean
+        class="cl.coopeuch.integracion.evaluacioncredito.util.RouteFacade" id="beanRouteFacade"/>
+    <cxf:cxfEndpoint address="[{endpoint.servicioResumenSinacofi.url}]"
+        id="servicioResumenSinacofiEndpoint"
+        loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.evaluacioncredito.wsdl.resumensinacofi.ResumenSinacofiPortType"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.evaluacioncredito.util.AggregatorStrategy" id="agregador"/>
+    <bean
+        class="cl.coopeuch.core.evaluacioncredito.agregacion.ConcatenarProductos" id="concatenarProductos"/>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <camelContext id="servicio-evaluacion-credito" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:WSEvaluacionCreditoEndpoint"/>
+            <setProperty id="ruteoOperacionesSetTipoRequestSOAP" propertyName="tipoRequest">
+                <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+            </setProperty>
+            <setBody id="ruteoOperacionesSetBodySOAP">
+                <simple>$simple{body.get(0)}</simple>
+            </setBody>
+            <to id="soapToInicioWs" uri="direct:inicio"/>
+        </route>
+        <route id="inicio-jms">
+            <from id="inicioFromJMS" uri="AMQ:queue:{{colas.servicio.evaluacioncredito.in.temp}}?preserveMessageQos=true"/>
+            <setProperty id="ruteoOperacionesSetTipoRequestJMS" propertyName="tipoRequest">
+                <simple>$simple{body.class.getSimpleName()}</simple>
+            </setProperty>
+            <to id="jmsToInicio" uri="direct:inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSEvaluacionCredito"/>
+            <setProperty id="ruteoOperacionesSetTipoRequestREST" propertyName="tipoRequest">
+                <simple>$simple{body.class.getSimpleName()}</simple>
+            </setProperty>
+            <setBody id="ruteoOperacionesSetBody1">
+                <simple>$simple{body.get(0)}</simple>
+            </setBody>
+            <to id="restToInicioWs" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-Inicio">
+            <from id="inicioFromServicio" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="ruteoOperacionesSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaEvaluaCredito">
+                        <simple>${header.operationName} == 'evaluaCredito'</simple>
+                        <bean id="beanPreparoLista"
+                            method="beanPreparoLista" ref="beanRouteFacade"/>
+                        <convertBodyTo id="consultarConvertBodyToString" type="java.lang.String"/>
+                        <setProperty id="setPropertyRutSocio" propertyName="rutSocio">
+                            <xpath resultType="java.lang.String">//rutSocio/text()</xpath>
+                        </setProperty>
+                        <setProperty id="setPropertyCodigoCampana" propertyName="codigoCampana">
+                            <xpath resultType="java.lang.String">//codigoCampana/text()</xpath>
+                        </setProperty>
+                        <setProperty id="setPropertyCanalLlamada" propertyName="canalLlamadaIn">
+                            <xpath resultType="java.lang.String">//canalLlamada/text()</xpath>
+                        </setProperty>
+                        <setProperty id="setPropertyMedioEvaluacion" propertyName="medioEvaluacionIn">
+                            <xpath resultType="java.lang.String">//medioEvaluacion/text()</xpath>
+                        </setProperty>
+                        <setProperty id="evaluaCreditoHeaderRut" propertyName="RutSocio">
+                            <xpath resultType="String">substring(//rutSocio, 1, string-length(//rutSocio)-1)</xpath>
+                        </setProperty>
+                        <setProperty id="evaluaCreditoHeaderDv" propertyName="DvRutSocio">
+                            <xpath resultType="String">substring(//rutSocio, string-length(//rutSocio), string-length(//rutSocio))</xpath>
+                        </setProperty>
+                        <setProperty id="evaluaCreditoHeaderUsuario" propertyName="Usuario">
+                            <xpath resultType="String">//userId</xpath>
+                        </setProperty>
+                        <setProperty id="evaluaCreditoHeaderCanal" propertyName="CanalLlamada">
+                            <xpath resultType="String">//canalLlamada</xpath>
+                        </setProperty>
+                        <setProperty
+                            id="evaluaCreditoHeaderRutEmpleador" propertyName="RutEmpleador">
+                            <xpath resultType="String">substring(//rutEmpleador, 1, string-length(//rutEmpleador)-1)</xpath>
+                        </setProperty>
+                        <setProperty id="evaluaCreditoHeaderDvEmpleador" propertyName="DvEmpleador">
+                            <xpath resultType="String">substring(//rutEmpleador, string-length(//rutEmpleador), string-length(//rutEmpleador))</xpath>
+                        </setProperty>
+                        <setProperty
+                            id="evaluaCreditoHeaderNumSerieCedula" propertyName="NumSerieCedula">
+                            <xpath resultType="String">//numSerieCedula</xpath>
+                        </setProperty>
+                        <to id="evaluaCreditoTo" uri="direct:evaluaCredito"/>
+                    </when>
+                    <when id="rutaEvaluaCreditoCastigado">
+                        <simple>${header.operationName} == 'evaluaCreditoCastigado'</simple>
+                        <bean id="beanPreparoLista"
+                            method="beanPreparoListaCastigado" ref="beanRouteFacade"/>
+                        <convertBodyTo id="consultarConvertBodyToString" type="java.lang.String"/>
+                        <setProperty id="setPropertyRutSocio" propertyName="rutSocio">
+                            <xpath resultType="java.lang.String">//rutSocio/text()</xpath>
+                        </setProperty>
+                        <setProperty id="setPropertyCodigoCampana" propertyName="codigoCampana">
+                            <xpath resultType="java.lang.String">//codigoCampana/text()</xpath>
+                        </setProperty>
+                        <setProperty id="setPropertyCanalLlamada" propertyName="canalLlamadaIn">
+                            <xpath resultType="java.lang.String">//canalLlamada/text()</xpath>
+                        </setProperty>
+                        <setProperty id="setPropertyMedioEvaluacion" propertyName="medioEvaluacionIn">
+                            <xpath resultType="java.lang.String">//medioEvaluacion/text()</xpath>
+                        </setProperty>
+                        <setProperty id="evaluaCreditoHeaderRut" propertyName="RutSocio">
+                            <xpath resultType="String">substring(//rutSocio, 1, string-length(//rutSocio)-1)</xpath>
+                        </setProperty>
+                        <setProperty id="evaluaCreditoHeaderDv" propertyName="DvRutSocio">
+                            <xpath resultType="String">substring(//rutSocio, string-length(//rutSocio), string-length(//rutSocio))</xpath>
+                        </setProperty>
+                        <setProperty id="evaluaCreditoHeaderUsuario" propertyName="Usuario">
+                            <xpath resultType="String">//userId</xpath>
+                        </setProperty>
+                        <setProperty id="evaluaCreditoHeaderCanal" propertyName="CanalLlamada">
+                            <xpath resultType="String">//canalLlamada</xpath>
+                        </setProperty>
+                        <setProperty
+                            id="evaluaCreditoHeaderRutEmpleador" propertyName="RutEmpleador">
+                            <xpath resultType="String">substring(//rutEmpleador, 1, string-length(//rutEmpleador)-1)</xpath>
+                        </setProperty>
+                        <setProperty id="evaluaCreditoHeaderDvEmpleador" propertyName="DvEmpleador">
+                            <xpath resultType="String">substring(//rutEmpleador, string-length(//rutEmpleador), string-length(//rutEmpleador))</xpath>
+                        </setProperty>
+                        <setProperty
+                            id="evaluaCreditoHeaderNumSerieCedula" propertyName="NumSerieCedula">
+                            <xpath resultType="String">//numSerieCedula</xpath>
+                        </setProperty>
+                        <to id="evaluaCreditoCastigadoTo" uri="direct:evaluaCreditoCastigado"/>
+                    </when>
+                    <when id="rutaConsultarMedioEvaluacion">
+                        <simple>${header.operationName} == 'consultarMedioEvaluacion'</simple>
+                        <marshal id="rutaConsultarMarshal">
+                            <jaxb contextPath="cl.coopeuch.integracion.evaluacioncredito.wsdl"/>
+                        </marshal>
+                        <convertBodyTo id="consultarConvertBodyToString" type="java.lang.String"/>
+                        <to id="consultarMedioEvaluacionTo" uri="direct:consultarMedioEvaluacion"/>
+                    </when>
+                    <when id="rutaConsultarDeudaInterna">
+                        <simple>${header.operationName} == 'consultarDeudaInterna'</simple>
+                        <to id="consultarDeudaInternaTo" uri="direct:consultarDeudaInterna"/>
+                    </when>
+                    <when id="rutaActualizarDeudaInterna">
+                        <simple>${header.operationName} == 'actualizarDeudaInterna'</simple>
+                        <to id="actualizarDeudaInternaTo" uri="direct:actualizarDeudaInterna"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOpeConsulta" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="evaluaCredito">
+            <!--             <doTry id="evaluaCreditoTry"> -->
+            <from id="evaluaCreditoFrom" uri="direct:evaluaCredito"/>
+            <setBody id="setBody">
+                <xpath>//entrada</xpath>
+            </setBody>
+            <setProperty propertyName="email">
+            	<xpath>//email</xpath>
+            </setProperty>
+            <setProperty id="_setProperty3" propertyName="userId">
+                <xpath>//userId</xpath>
+            </setProperty>
+            <setProperty id="_setProperty4" propertyName="canalLlamada">
+                <xpath>//canalLlamada</xpath>
+            </setProperty>
+            <setProperty id="_setProperty6" propertyName="canalLlamada_evaluar">
+                <xpath resultType="String">//canalLlamada</xpath>
+            </setProperty>
+            <setProperty id="property_codigoCampana" propertyName="codigoCampana">
+                <xpath resultType="String">//codigoCampana</xpath>
+            </setProperty>
+            <setProperty id="_setProperty7" propertyName="cuerpoEntrada">
+                <simple>${body}</simple>
+            </setProperty>
+            <setProperty id="_setProperty12" propertyName="codVendedor">
+                <xpath resultType="String">//codVendedor</xpath>
+            </setProperty>
+            <setProperty id="_setProperty13" propertyName="doc_id">
+                <constant>0</constant>
+            </setProperty>
+            <setProperty id="_setProperty10" propertyName="sw">
+                <constant>0</constant>
+            </setProperty>
+            <setBody id="_setBody1">
+                <simple>${property.requestEntrada}</simple>
+            </setBody>
+            <unmarshal id="_unmarshal1">
+                <jaxb contextPath="cl.coopeuch.integracion.evaluacioncredito.wsdl"/>
+            </unmarshal>
+            <setProperty id="_setProperty9" propertyName="entradaObjeto">
+                <simple>${body}</simple>
+            </setProperty>
+            <when id="_when9">
+                <simple>${body.entrada.catalogo} != null and ${body.entrada.solicitudCreditoPGC} == null</simple>
+                <setProperty id="_setProperty11" propertyName="sw">
+                    <constant>1</constant>
+                </setProperty>
+                <bean id="_beanValidacion"
+                    method="validarCantidadArticulos" ref="beanRouteFacade"/>
+                <bean id="_TransformarDireccion"
+                    method="transformarDireccion" ref="beanRouteFacade"/>
+                <split id="concatenarProductosSplit"
+                    parallelProcessing="true" stopOnException="true" strategyRef="concatenarProductos">
+                    <simple>${body.entrada.catalogo.skus.sku}</simple>
+                    <removeHeaders id="_removeHeaders4" pattern="*"/>
+                    <setBody id="_setBody4">
+                        <simple>${body.sku}</simple>
+                    </setBody>
+                    <to id="_toCatalogoSumaRequest" uri="AMQ:{{colas.servicio.catalogosuma.obtenerproducto.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                    <log id="_log17" message="${body}"/>
+                    <bean id="_bean3" method="obtenerProducto" ref="beanRouteFacade"/>
+                </split>
+                <setProperty id="_setProperty8" propertyName="productos">
+                    <simple>${body}</simple>
+                </setProperty>
+                <to id="_to1" uri="direct:obtenerPersona"/>
+                <bean id="_bean2" method="crearPreventa" ref="beanRouteFacade"/>
+                <log id="_log21" message="Salida crearPreventa: ${body}"/>
+                <bean id="createJMSCorrelationId24CatalogoCC"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="_toAMQCrearPreventa" uri="AMQ:{{colas.servicio.catalogosuma.crearpreventa.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <log id="_log13111" message="Salida: ${body}"/>
+                <bean id="_bean4" method="obtenerDocId" ref="beanRouteFacade"/>
+            </when>
+            <setBody id="_setBody2">
+                <simple>${property.cuerpoEntrada}</simple>
+            </setBody>
+            <enrich id="resumenSinacofiEnrich" strategyRef="agregador">
+                <constant>direct:resumenSinacofi</constant>
+            </enrich>
+            <setProperty id="_setProperty1" propertyName="codError">
+                <xpath resultType="String">//codError</xpath>
+            </setProperty>
+            <choice id="evaluaCreditoValidarSinacofi">
+                <when id="whenSinacofiError">
+                    <simple>${body} == 'ERROR SINACOFI'</simple>
+                    <throwException exceptionType="java.lang.Exception"
+                        id="throwExceptionSinacofi" message="Error al consultar a Sinacofi"/>
+                </when>
+                <when id="_when2">
+                    <simple>${property.codError} == '-1'</simple>
+                    <throwException exceptionType="java.lang.Exception"
+                        id="throwExceptionSinacofi1" message="Error al consultar a Sinacofi"/>
+                </when>
+                <when id="_otherwise2">
+                    <simple>${property.codError} == '0'</simple>
+                    <to id="evaluaCreditoXmlTrama" uri="xslt://transformations/in/evaluaCredito.xsl"/>
+                    <log id="_log25" message="Entrada IOC0320: ${body}"/>
+                    <bean id="consultarUUID"
+                        method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                    <to id="activemq-evaluaCredito" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                    <transform id="transformTRAMA">
+                        <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                    </transform>
+                    <to id="Out_evaluaCreditoTo" uri="xslt://transformations/mid/Out_EvaluaCredito.xsl?saxon=true"/>
+                    <setProperty id="_setProperty14" propertyName="Out_EvaluaCredito">
+                        <simple>${body}</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty5" propertyName="numSolicitud">
+                        <xpath resultType="String">//numSolicitud</xpath>
+                    </setProperty>
+                    <log id="_log16" message="@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ ${property.numSolicitud}"/>
+                    <choice id="_choice8">
+                        <when id="_when11">
+                            <simple>${property.numSolicitud} != '' and ${property.entradaObjeto.entrada.catalogo} != null and ${property.entradaObjeto.entrada.catalogo} != ''</simple>
+                            <to id="toGuardarDatosIOC03080" uri="direct:guardarDatosIOC03080"/>
+                        </when>
+                        <when id="_when12">
+                            <simple>${property.numSolicitud} == '' and ${property.doc_id} != 0</simple>
+                            <to id="toCancelarPreventa" uri="direct:cancelarPreventa"/>
+                        </when>
+                        <when id="_when10">
+                            <simple>${property.numSolicitud} != '' and ${property.entradaObjeto.entrada.solicitudCreditoPGC} != '0' and ${property.entradaObjeto.entrada.solicitudCreditoPGC} != null</simple>
+                            <to id="toGuardarDatosIOC030801" uri="direct:guardarDatosIOC03080"/>
+                        </when>
+                    </choice>
+                    <choice id="evaluaCreditochoice">
+                        <when id="respEvaluacionWhen">
+                            <simple>${body} contains 'respuestaEvaluacion'</simple>
+                            <enrich id="motorIBSEnrich" strategyRef="agregador">
+                                <constant>direct:riesgoScoring</constant>
+                            </enrich>
+                            <setProperty id="setPropertyUsuario" propertyName="usuario">
+                                <xpath resultType="java.lang.String">//respuestaEvaluacion/usuario/text()</xpath>
+                            </setProperty>
+                            <setProperty id="setPropertyCanalLl" propertyName="canalLlamada">
+                                <xpath resultType="java.lang.String">//respuestaEvaluacion/canalLlamada/text()</xpath>
+                            </setProperty>
+                            <setProperty id="setPropertyCodEval" propertyName="codEvaluacion">
+                                <xpath resultType="java.lang.String">//respuestaEvaluacion/codEvaluacion/text()</xpath>
+                            </setProperty>
+                            <setProperty id="setPropertyDescEval" propertyName="descEvaluacion">
+                                <xpath resultType="java.lang.String">//respuestaEvaluacion/descEvaluacion/text()</xpath>
+                            </setProperty>
+                            <choice id="_choice1">
+                                <when id="_when1">
+                                    <simple>${body} contains 'error '</simple>
+                                    <to id="evaluaCreditoTramaXml" uri="xslt://transformations/out/evaluaCreditoResponse.xsl?saxon=true"/>
+                                </when>
+                                <otherwise id="_otherwise1">
+                                    <enrich id="regIBSIBSEnrich" strategyRef="agregador">
+                                    <constant>direct:registroIBS</constant>
+                                    </enrich>
+                                    <to id="evaluaCreditoTramaXml" uri="xslt://transformations/out/evaluaCreditoResponse.xsl?saxon=true"/>
+                                </otherwise>
+                            </choice>
+                        </when>
+                    </choice>
+                    <wireTap id="_wireTap1" uri="direct:validarRespuestaMotor"/>
+                    <unmarshal id="evaluaCreditoConvertBodyToResponse">
+                        <jaxb contextPath="cl.coopeuch.integracion.evaluacioncredito.wsdl"/>
+                    </unmarshal>
+                </when>
+            </choice>
+            <!--                             <doCatch id="evaluaCreditoCatch"> -->
+            <!--                                 <exception>java.lang.Exception</exception> -->
+            <!--                                 <when> -->
+            <!--                                     <simple>${property.numSolicitud} == '' and ${property.doc_id} != 0</simple> -->
+            <!--                                     <to id="toCancelarPreventaFault" uri="direct:cancelarPreventa"/> -->
+            <!--                                 </when> -->
+            <!--                                 <to id="evaluaCreditoToExcepcion" uri="direct:excepcion"/> -->
+            <!--                                 <stop id="evaluaStop"/> -->
+            <!--                             </doCatch> -->
+            <!--                         </doTry> -->
+        </route>
+        <route id="_routeCancelarPreventa">
+            <from id="from_CancelarPreventa" uri="direct:cancelarPreventa"/>
+            <setHeader headerName="doc_id" id="_setHeader1">
+                <simple>${property.doc_id}</simple>
+            </setHeader>
+            <bean id="requestCancelarPreventa"
+                method="requestCancelarPreventa" ref="beanRouteFacade"/>
+            <bean id="_bean12" method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+            <to id="_toAMQCancelarPreventa" uri="AMQ:{{colas.servicio.catalogosuma.cancelar.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+            <log id="_log19" message="${body}"/>
+            <setBody id="_setBody5">
+                <simple>${property.Out_EvaluaCredito}</simple>
+            </setBody>
+        </route>
+        <route id="_routeGuardarDatosTiendaVirtual">
+            <from id="fromGuardarDatosIOC03080" uri="direct:guardarDatosIOC03080"/>
+            <doTry id="_doTry2">
+                <bean id="GuardarDatosUUID1"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <bean id="trasformarIOC030801I"
+                    method="transformarIOC030801I" ref="beanRouteFacade"/>
+                <marshal id="_marshal3">
+                    <bindy
+                        classType="cl.coopeuch.core.evaluacioncredito.modelo.IOC030801I" type="Fixed"/>
+                </marshal>
+                <log id="_log14" message="Entrada IOC0308: |${body}|"/>
+                <to id="activemq-ioc030801I" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="_log18" message="Salida IOC0308: |${body}|"/>
+                <choice id="_choice7">
+                    <when id="_when13">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_unmarshal4">
+                            <bindy
+                                classType="cl.coopeuch.core.evaluacioncredito.modelo.IOCERROR" type="Fixed"/>
+                        </unmarshal>
+                    </when>
+                    <otherwise id="_otherwise5">
+                        <unmarshal id="_unmarshal3">
+                            <bindy
+                                classType="cl.coopeuch.core.evaluacioncredito.modelo.IOC030801O" type="Fixed"/>
+                        </unmarshal>
+                        <setProperty id="_setProperty15" propertyName="doc_id">
+                            <simple>${body.getS01DOCID()}</simple>
+                        </setProperty>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log13" loggingLevel="ERROR" message="${property.CamelExceptionCaught}"/>
+                </doCatch>
+            </doTry>
+            <setBody id="_setBody3">
+                <simple>${property.Out_EvaluaCredito}</simple>
+            </setBody>
+        </route>
+        <route id="routeValidarRespuestaMotor">
+            <from id="fromValidarRespuestaMotor" uri="direct:validarRespuestaMotor"/>
+            <removeHeaders id="_removeHeaders2" pattern="*"/>
+            <choice id="_choice2">
+                <when id="_when3">
+                    <xpath resultType="String">//indRegMotor = 'N'</xpath>
+                    <to id="ValidarRespuestaMotorXls" uri="xslt://transformations/mid/In_gestionCreditoFormalizaCredito.xsl?saxon=true"/>
+                    <log id="_log3" message="Entrada Gestion Credito1\n${body}"/>
+                    <to id="toValidarRespuestaMotor" uri="AMQ:{{amq.gestioncredito.req}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                    <log id="_log1" message="Termino bien Gestion Credito\n${body}"/>
+                </when>
+            </choice>
+        </route>
+        <route id="routeValidarRespuestaMotorNoConexion">
+            <from id="fromValidarRespuestaMotorNoConexion" uri="direct:validarRespuestaMotorNoConexion"/>
+            <removeHeaders id="_removeHeaders3" pattern="*"/>
+            <to id="ValidarRespuestaMotorNoConexionXls" uri="xslt://transformations/mid/In_gestionCreditoFormalizaCredito.xsl?saxon=true"/>
+            <log id="_log4" message="Entrada Gestion Credito2\n${body}"/>
+            <to id="toValidarRespuestaMotorNoConexion" uri="AMQ:{{amq.gestioncredito.req}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+            <log id="_log2" message="Termino bien Gestion Credito\n${body}"/>
+        </route>
+        <route id="resumenSinacofi">
+            <from id="resumenSinacofiFrom" uri="direct:resumenSinacofi"/>
+            <doTry id="resumenSinacofiTry">
+                <setProperty id="canal.vigencia" propertyName="canalVigencia">
+                    <simple>{{canal.vigencia}}</simple>
+                </setProperty>
+                <log id="_log7" message="canalVigencia:${property.canalVigencia}"/>
+                <log id="_log8" message="canalLlamada:${property.canalLlamada_evaluar}"/>
+                <setProperty id="canal.codigo.campana" propertyName="canalCodigoCampana">
+                    <simple>{{canal.codigo.campana}}</simple>
+                </setProperty>
+                <log id="_log9" message="canalCodigoCampana:${property.canalCodigoCampana}"/>
+                <log id="_log10" message="codigoCampana:${property.codigoCampana}"/>
+                <choice id="_choice5">
+                    <when id="_when7">
+                        <simple>${property.canalLlamada_evaluar} == ${property.canalVigencia}</simple>
+                        <choice id="_choice6">
+                            <when id="_when8">
+                                <simple>${property.codigoCampana} == ${property.canalCodigoCampana}</simple>
+                                <to
+                                    id="ValidacionCanalCampana_CedulaVigente" uri="xslt://transformations/out/respuestaSinacofi.xsl?saxon=true"/>
+                                <log id="_log15" message="Salida resumen Sinacofi\n ${body}"/>
+                            </when>
+                            <otherwise id="_otherwise3">
+                                <to
+                                    id="llamadaRuta_ResumenSinacofi-CampanaDistinta" uri="direct:llamadaResumenSinacofi"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                    <otherwise id="_otherwise4">
+                        <to id="llamadaRuta_ResumenSinacofi" uri="direct:llamadaResumenSinacofi"/>
+                    </otherwise>
+                </choice>
+                <removeHeaders id="_removeHeaders1" pattern="*"/>
+                <setProperty id="_setProperty2" propertyName="cedulaVigente">
+                    <xpath resultType="String">//CedulaVigente</xpath>
+                </setProperty>
+                <doCatch id="resumenSinacofiNoRespondeCatch">
+                    <exception>java.io.IOException</exception>
+                    <setBody id="setBodyErrorSinacofi">
+                        <simple>ERROR SINACOFI</simple>
+                    </setBody>
+                    <stop id="resumenSinacofiStop"/>
+                </doCatch>
+                <doCatch id="resumenSinacofiCatch">
+                    <exception>java.lang.Exception</exception>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="llamada_resumenSinacofi">
+            <from id="resumenSinacofiFrom" uri="direct:llamadaResumenSinacofi"/>
+            <to id="resumenSinacofiXls" uri="xslt://transformations/mid/In_resumenSinacofiWS.xsl?saxon=true"/>
+            <log id="_log11" message="Entrada resumen Sinacofi\n ${body}"/>
+            <removeHeaders id="remoteCall_resumenSinacofiRemoveHeaders" pattern="JMS*"/>
+            <bean id="consultarUUID1" method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+            
+             <setProperty id="setPropertyWorkAround" propertyName="canalesOmitir">
+                    <simple>{{canalesOmitir}}</simple>
+            </setProperty>
+                        
+            <choice>
+            	<when>
+            	<simple>${exchangeProperty.canalesOmitir} contains 'CDIG'  || ${exchangeProperty.canalesOmitir} contains 'APLA' </simple>
+           			 <to id="Out_SinacofiTo" uri="xslt://transformations/mid/Out_Sinacofi_workaround.xsl?saxon=true"/>
+            	</when>
+            	<otherwise>
+            	 	<to id="resumenSinacofiToResumenSinacofi" uri="AMQ:{{amq.queue.resumensinacofi.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+            		<convertBodyTo id="guardarInfoRs" type="java.lang.String"/>
+            		<to id="Out_SinacofiTo" uri="xslt://transformations/mid/Out_Sinacofi.xsl?saxon=true"/>
+            	</otherwise>
+            </choice>
+           
+            
+            <log id="_log12" message="Salida resumen Sinacofi\n ${body}"/>
+        </route>
+        <route id="riesgoScoring">
+            <from id="riesgoScoringFrom" uri="direct:riesgoScoring"/>
+            <doTry id="riesgoScoringfiTry">
+                <setHeader headerName="rutSocio" id="rutSocio">
+                    <simple>${exchangeProperty.rutSocio}</simple>
+                </setHeader>
+                <setHeader headerName="codigoCampana" id="codigoCampana">
+                    <simple>${exchangeProperty.codigoCampana}</simple>
+                </setHeader>
+                <to id="In_RiesgoScoring_MQ" uri="xslt://transformations/mid/In_RiesgoScoring_MQ.xsl?saxon=true"/>
+                <choice id="validaRespIBSChoice">
+                    <when id="VaidaRespIBSWhen">
+                        <simple>${body} contains 'E1'</simple>
+                        <bean id="consultarddUUID"
+                            method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                        <to id="activemq-ConsultaMotor" uri="AMQ:{{amq.queueMotor.in}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;requestTimeout=5000&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <convertBodyTo id="riesgoScoringBodyTo" type="java.lang.String"/>
+                    </when>
+                    <otherwise id="validaRespIBSOtherwise">
+                        <convertBodyTo id="respBodyTo" type="java.lang.String"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="riesgoScoringfiCatch">
+                    <exception>java.lang.Exception</exception>
+                    <wireTap id="_wireTap2" uri="direct:validarRespuestaMotorNoConexion"/>
+                    <to id="riesgoScoringToExcepcion" uri="direct:excepcion"/>
+                    <stop id="riesgoScoringStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="registroIBS">
+            <from id="registroIBSFrom" uri="direct:registroIBS"/>
+            <doTry id="registroIBSTry">
+                <convertBodyTo id="registroIBSBodyTo" type="java.lang.String"/>
+                <to id="registroIBSTrama" uri="xslt://transformations/mid/In_RegistroIBS.xsl?saxon=true"/>
+                <bean id="consultarUUdtooIiiD"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="activemq-registroIBS" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="_log26" message="\n **** RESPUESTA REGISTRO IBS ${body} ***"/>
+                <doCatch id="registroIBSCatch">
+                    <exception>java.lang.Exception</exception>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarMedioEvaluacion">
+            <from id="consultarMedioEvaluacionFrom" uri="direct:consultarMedioEvaluacion"/>
+            <doTry id="consultarMedioEvaluacionTry">
+                <convertBodyTo id="consultarMEIBSBodyTo" type="java.lang.String"/>
+                <to id="consultarMedioEvaluacionXmlTrama" uri="xslt://transformations/in/consultarMedioEvaluacion.xsl"/>
+                <bean id="consultarMEUUID"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="activemq-consultaME" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="transformTRAMAME">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarMedioEvaluacionTramaXml" uri="xslt://transformations/out/consultarMedioEvaluacionResponse.xsl?saxon=true"/>
+                <unmarshal id="consultarMedioEvaluacionConvertBodyToResponse">
+                    <jaxb contextPath="cl.coopeuch.integracion.evaluacioncredito.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultarMedioEvaluacionCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="consultarMedioEvaluacionToExcepcion" uri="direct:excepcion"/>
+                    <stop id="consultarStop"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarDeudaInterna">
+            <from id="consultarDeudaInternaFrom" uri="direct:consultarDeudaInterna"/>
+            <doTry id="consultarDeudaInternaTry">
+                <marshal id="consultarDeudaInternaMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.evaluacioncredito.wsdl"/>
+                </marshal>
+                <convertBodyTo id="consultarDeudaInternaBodyToString" type="java.lang.String"/>
+                <bean id="consultarDeudaInternaUUID"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultarDeudaInternaToXSLTrama" uri="xslt://transformations/in/IOC032501I_consultarDeudaInterna.xsl"/>
+                <to id="consultarDeudaInternaToAmq" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="consultarDeudaInternaTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarDeudaInternaToXSLSOAP" uri="xslt://transformations/out/IOC032501O_consultarDeudaInterna.xsl?saxon=true"/>
+                <unmarshal id="consultarDeudaInternaUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.evaluacioncredito.wsdl"/>
+                </unmarshal>
+                <doCatch id="consultarDeudaInternaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="consultarDeudaInternaToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="actualizarDeudaInterna">
+            <from id="actualizarDeudaInternaFrom" uri="direct:actualizarDeudaInterna"/>
+            <doTry id="actualizarDeudaInternaTry">
+                <marshal id="actualizarDeudaInternaMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.evaluacioncredito.wsdl"/>
+                </marshal>
+                <convertBodyTo id="actualizarDeudaInternaBodyToString" type="java.lang.String"/>
+                <bean id="actualizarDeudaInternaUUID"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <choice id="_choice3">
+                    <when id="_when4">
+                        <xpath>//nroSolicitud != 'null'</xpath>
+                        <to id="actualizarDeudaInternaToXSLTrama" uri="xslt://transformations/in/IOC032502I_actualizarDeudaInterna.xsl"/>
+                        <to id="actualizarDeudaInternaToAmq" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                        <transform id="actualizarDeudaInternaTransformBody">
+                            <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                        </transform>
+                        <to id="actualizarDeudaInternaToXSLSOAP" uri="xslt://transformations/out/IOC032502O_actualizarDeudaInterna.xsl?saxon=true"/>
+                        <unmarshal id="actualizarDeudaInternaUnmarshal">
+                            <jaxb contextPath="cl.coopeuch.integracion.evaluacioncredito.wsdl"/>
+                        </unmarshal>
+                    </when>
+                    <when id="_when5">
+                        <xpath>//numeroSimulacion != 'null'</xpath>
+                        <to id="toActualizaPorNroSimulacion" uri="direct:actualizaPorNroSimulacion"/>
+                    </when>
+                </choice>
+                <doCatch id="actualizarDeudaInternaDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="actualizarDeudaInternaToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="routeActualizaPorNroSimulacion">
+            <from id="fromActualizaPorNroSimulacion" uri="direct:actualizaPorNroSimulacion"/>
+            <doTry id="_doTry1">
+                <bean id="actualizarDeudaInternaUUID1"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <bean id="actualizarDeudaInternaRequest"
+                    method="actualizarDeudaInternaRequest" ref="beanRouteFacade"/>
+                <marshal id="_marshal1">
+                    <bindy
+                        classType="cl.coopeuch.core.evaluacioncredito.modelo.IOC032503I" type="Fixed"/>
+                </marshal>
+                <log id="_log20" message="${body}"/>
+                <to id="activemq-actualizarDeudaInterna" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <log id="_log5" message="Salida IOC${body}"/>
+                <choice id="_choice4">
+                    <when id="_when6">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_marshal2">
+                            <bindy
+                                classType="cl.coopeuch.core.evaluacioncredito.modelo.IOCERROR" type="Fixed"/>
+                        </unmarshal>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="_throwException1" message="${body.getDescError()}"/>
+                    </when>
+                </choice>
+                <unmarshal id="_unmarshal5">
+                    <bindy
+                        classType="cl.coopeuch.core.evaluacioncredito.modelo.IOC032503O" type="Fixed"/>
+                </unmarshal>
+                <bean id="actualizarDeudaInternaResponse"
+                    method="actualizarDeudaInternaResponse" ref="beanRouteFacade"/>
+                <doCatch id="_doCatch1">
+                    <exception>cl.coopeuch.integracion.evaluacioncredito.util.exception.CamposNulos</exception>
+                    <log id="_log34" loggingLevel="ERROR" message="${property.CamelExceptionCaught}"/>
+                    <bean id="_bean1" method="errorToXMLSBIFCamposNulos" ref="beanRouteFacade"/>
+                    <stop id="_stop1"/>
+                </doCatch>
+                <doCatch id="_doCatch7">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log6" loggingLevel="ERROR" message="${property.CamelExceptionCaught}"/>
+                    <bean id="_bean7" method="errorToXMLSBIF" ref="beanRouteFacade"/>
+                    <stop id="_stop8"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="obtenerDatosBasicos">
+            <from id="fromObtenerDatosBasicos" uri="direct:obtenerPersona"/>
+            <bean id="createJMSCorrelationId24Persona"
+                method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+            <bean id="_bean5" method="traerDatosPersonaDGRequest" ref="beanRouteFacade"/>
+            <to id="_toAMQObtenerPersona" uri="AMQ:{{colas.servicio.persona.in.temp}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+            <unmarshal id="_unmarshal2">
+                <jaxb contextPath="cl.coopeuch.integracion.cliente.persona"/>
+            </unmarshal>
+        </route>
+        <route id="evaluaCreditoCastigado">
+            <from id="evaluaCreditoCastigadoFrom" uri="direct:evaluaCreditoCastigado"/>
+            <doTry id="evaluaCreditoTry">
+                <setBody id="setBodyCC">
+                    <xpath>//entrada</xpath>
+                </setBody>
+                <setProperty id="_setProperty3CC" propertyName="userId">
+                    <xpath>//userId</xpath>
+                </setProperty>
+                <setProperty id="_setProperty4CC" propertyName="canalLlamada">
+                    <xpath>//canalLlamada</xpath>
+                </setProperty>
+                <setProperty id="_setProperty7CC" propertyName="cuerpoEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="_setProperty13CC" propertyName="doc_id">
+                    <constant>0</constant>
+                </setProperty>
+                <setProperty id="_setProperty10CC" propertyName="sw">
+                    <constant>0</constant>
+                </setProperty>
+                <setBody id="_setBody1CC">
+                    <simple>${property.requestEntrada}</simple>
+                </setBody>
+                <unmarshal id="_unmarshal1CC">
+                    <jaxb contextPath="cl.coopeuch.integracion.evaluacioncredito.wsdl"/>
+                </unmarshal>
+                <setProperty id="_setProperty9CC" propertyName="entradaObjeto">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setBody id="_setBody2CC">
+                    <simple>${property.cuerpoEntrada}</simple>
+                </setBody>
+                <log id="_log22" message="\n XML ENTRADA METODO CASTIGADO: ${body}"/>
+                <to id="evaluaCreditoXmlTramaCC" uri="xslt://transformations/in/evaluaCreditoCastigado.xsl"/>
+                <log id="_log23" message="\n TRAMA ENTRADA IOC0322 TRAMA:***${body}***"/>
+                <bean id="consultarUUIDCC"
+                    method="createJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="activemq-evaluaCreditoCC" uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="transformTRAMACC">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <log id="_log24" message="\n TRAMA SALIDA IOC0322 ****${body}****"/>
+                <to id="Out_evaluaCreditoToCC" uri="xslt://transformations/mid/Out_EvaluaCreditoCastigado.xsl?saxon=true"/>
+                <setProperty id="_setProperty14CC" propertyName="Out_EvaluaCreditoCastigado">
+                    <simple>${body}</simple>
+                </setProperty>
+                <choice id="evaluaCreditochoiceCC">
+                    <when id="respEvaluacionWhenCC">
+                        <simple>${body} contains 'respuestaEvaluacion'</simple>
+                        <enrich id="motorIBSEnrichCC" strategyRef="agregador">
+                            <constant>xslt://transformations/mid/Dummy_Out_RiesgoScoring_MQ.xsl?saxon=true</constant>
+                        </enrich>
+                        <log id="_log30" message="\n XML REPUESTA MOTOR APROBADO DUMMY  **** ${body} *****"/>
+                        <setProperty id="setPropertyUsuarioCC" propertyName="usuario">
+                            <xpath resultType="java.lang.String">//respuestaEvaluacion/usuario/text()</xpath>
+                        </setProperty>
+                        <setProperty id="setPropertyCanalLlCC" propertyName="canalLlamada">
+                            <xpath resultType="java.lang.String">//respuestaEvaluacion/canalLlamada/text()</xpath>
+                        </setProperty>
+                        <setProperty id="setPropertyCodEvalCC" propertyName="codEvaluacion">
+                            <xpath resultType="java.lang.String">//respuestaEvaluacion/codEvaluacion/text()</xpath>
+                        </setProperty>
+                        <setProperty id="setPropertyDescEvalCC" propertyName="descEvaluacion">
+                            <xpath resultType="java.lang.String">//respuestaEvaluacion/descEvaluacion/text()</xpath>
+                        </setProperty>
+                        <choice id="_choice1CC">
+                            <when id="_when1CC">
+                                <simple>${body} contains 'error '</simple>
+                                <to id="evaluaCreditoTramaXmlCC" uri="xslt://transformations/out/evaluaCreditoCastigadoResponse.xsl?saxon=true"/>
+                            </when>
+                            <otherwise id="_otherwise1CC">
+                                <log id="_log28" message="\n ENTRA A REGISTRO IBS CON:  ${body} *****"/>
+                                <enrich id="regIBSIBSEnrichCC" strategyRef="agregador">
+                                    <constant>direct:registroIBS</constant>
+                                </enrich>
+                                <log id="_log31" message="\n SALE DE REGISTRO IBS CON:  ${body} *****"/>
+                                <to id="evaluaCreditoTramaXmlCC" uri="xslt://transformations/out/evaluaCreditoCastigadoResponse.xsl?saxon=true"/>
+                            </otherwise>
+                        </choice>
+                    </when>
+                </choice>
+                <wireTap id="_wireTap1CC" uri="direct:validarRespuestaMotor"/>
+                <unmarshal id="evaluaCreditoConvertBodyToResponseCC">
+                    <jaxb contextPath="cl.coopeuch.integracion.evaluacioncredito.wsdl"/>
+                </unmarshal>
+                <doCatch id="evaluaCreditoCastigadoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="evaluaCreditoCastigadoToExcepcion" uri="direct:excepcion"/>
+                    <stop id="evaluaStopCC"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

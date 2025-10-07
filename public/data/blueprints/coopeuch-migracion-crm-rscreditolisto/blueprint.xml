@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wscreditolistocrm" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.crm.creditolisto.util.RouteFacade" id="beanRouteFacade"/>
+    <!--Servicios -->
+    <cxf:cxfEndpoint address="/crm/WSCreditoListo"
+        id="fromWsCreditoListoCrmSoap" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.crm.creditolisto.wsdl.WSCreditoListoSoap" wsdlURL="etc/wsdl/WSCreditoListo11.wsdl"/>
+    <cxf:cxfEndpoint address="/crm/WSCreditoListo12"
+        id="fromWsCreditoListoCrmSoap12" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.crm.creditolisto.wsdl.WSCreditoListoSoap" wsdlURL="etc/wsdl/WSCreditoListo12.wsdl"/>
+    <cxf:rsServer address="/crm/RSCreditoListo"
+        id="fromWsCreditoListoCRMRest" loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.crm.creditolisto.util.rest.CreditoListoCRMRest"/>
+    <!--Cliente proxy -->
+    <cxf:cxfEndpoint address="{{crm.proxy.wscreditolisto.crm.endpoint}}"
+        id="toEndpointWscreditolistoCrm" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.crm.creditolisto.wsdl.WSCreditoListoSoap" wsdlURL="etc/wsdl/WSCreditoListo.wsdl"/>
+    <camelContext id="servicio-credito-listo-CRM" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="soap-inicio" streamCache="true">
+            <from id="creditolistoCRM11From" uri="cxf:bean:fromWsCreditoListoCrmSoap?dataFormat=RAW"/>
+            <log id="log11001" message="creditolisto CRM 11"/>
+            <removeHeaders id="creditolistoCRM11removeHeaders" pattern="CamelHttp*"/>
+            <log id="log11002" message="Body = ${body}"/>
+            <to id="creditolistoCRM11To" uri="cxf:bean:toEndpointWscreditolistoCrm?dataFormat=RAW"/>
+        </route>
+        <route id="soap12-inicio" streamCache="true">
+            <from id="creditolistoCRM12From" uri="cxf:bean:fromWsCreditoListoCrmSoap12?dataFormat=RAW"/>
+            <log id="log12001" message="creditolisto CRM 12"/>
+            <removeHeaders id="creditolistoCRM12removeHeaders" pattern="CamelHttp*"/>
+            <log id="log12002" message="Body = ${body}"/>
+            <to id="creditolistoCRM12To" uri="cxf:bean:toEndpointWscreditolistoCrm?dataFormat=RAW"/>
+        </route>
+        <route id="rest-inicio" streamCache="true">
+            <from id="inicioRestFrom" uri="cxfrs:bean:fromWsCreditoListoCRMRest"/>
+            <choice id="fromOperation">
+                <when id="whenCreditoListoListarCampanasConsumo">
+                    <simple>${header.operationName} == 'ListarCampanasConsumo'</simple>
+                    <log id="logRS004" message="ListarCampanasConsumo1 Body = ${body}"/>
+                    <unmarshal id="unmarshalListarCampanasConsumo">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.crm.creditolisto.wsdl.ListarCampanasConsumo"/>
+                    </unmarshal>
+                    <log id="logRS006" message="ListarCampanasConsumo2 Body = ${body}"/>
+                    <bean
+                        id="consultarCreditoListoListarCampanasConsumoRequest"
+                        method="listarCampanasConsumoRest" ref="beanRouteFacade"/>
+                    <log id="logRS007" message="ListarCampanasConsumo3 Body = ${body}"/>
+                    <to
+                        id="consultarCreditoListoListarCampanasConsumoTo" uri="cxf:bean:toEndpointWscreditolistoCrm"/>
+                    <marshal id="marshalListarCampanasConsumoResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.crm.creditolisto.wsdl.ListarCampanasConsumoResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenCreditoListoActualizarContactoCampana">
+                    <simple>${header.operationName} == 'ActualizarContactoCampana'</simple>
+                    <log id="logRS008" message="ListarCampanasConsumo1 Body = ${body}"/>
+                    <unmarshal id="unmarshalActualizarContactoCampana">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.crm.creditolisto.wsdl.ActualizarContactoCampana"/>
+                    </unmarshal>
+                    <bean
+                        id="consultarCreditoListoActualizarContactoCampanaRequest"
+                        method="actualizarContactoCampanaRest" ref="beanRouteFacade"/>
+                    <to
+                        id="consultarActualizarContactoCampanasConsumoTo" uri="cxf:bean:toEndpointWscreditolistoCrm"/>
+                    <marshal id="marshalActualizarContactoCampanaResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.crm.creditolisto.wsdl.ActualizarContactoCampanaResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+    </camelContext>
+</blueprint>

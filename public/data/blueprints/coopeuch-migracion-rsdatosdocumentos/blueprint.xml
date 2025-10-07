@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Servicio para consultar datos de documentos -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsdatosdocumento" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Conexion AMQ -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Endpoint wsdl Servicio DatosDocumento -->
+    <camelcxf:cxfEndpoint address="/WSDatosDocumento"
+        id="endpointWsDatosDocumento"
+        serviceClass="cl.coopeuch.integracion.datosdocumento.wsdl.WSDatosDocumentoSOAPPortType" wsdlURL="etc/wsdl/WSDatosDocumento.wsdl"/>
+    <bean
+        class="cl.coopeuch.integracion.datosdocumento.util.RouteFacade" id="beanRouteFacade"/>
+    <camelContext id="servicio-datos-documento" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-inicio">
+            <from id="inicioFrom" uri="cxf:bean:endpointWsDatosDocumento"/>
+            <setBody id="_setBody1">
+                <simple>$simple{body.get(0)}</simple>
+            </setBody>
+            <to id="to_inicio_cxf" uri="direct:inicio"/>
+        </route>
+        <route id="amq-inicio">
+            <from id="amq-from" uri="beanAMQ:queue:{{colas.servicio.datos.documento.in.temp}}?preserveMessageQos=true"/>
+            <to id="to_inicio_cola" uri="direct:inicio"/>
+        </route>
+        <!-- Ruta que invoca operaciones del servicio web -->
+        <route id="direct-Inicio">
+            <from id="_from3" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="toDatosDocumentoConsultar" uri="direct:DatosDocumentoConsultar"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="beanExcepcionDatosDocumento"
+                        method="iniciarExcepcion" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta que consume cola MQ IBS y consulta datos de documentos en IBS -->
+        <route id="consultar">
+            <from id="consultarFrom" uri="direct:DatosDocumentoConsultar"/>
+            <doTry id="crearTry">
+                <marshal id="_marshal1">
+                    <jaxb contextPath="cl.coopeuch.integracion.datosdocumento.wsdl"/>
+                </marshal>
+                <convertBodyTo id="consultarConvert" type="java.lang.String"/>
+                <bean id="consultarBeanRouteFacadeUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultarToXSLTrama" uri="xslt://etc/xslt/request/IOC800001I_consultar.xsl?saxon=true"/>
+                <to id="consultarToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="consultarTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarToXSLSOAP" uri="xslt://etc/xslt/response/IOC800001O_consultar.xsl?saxon=true"/>
+                <convertBodyTo id="consultarConvertBodyToResponse" type="cl.coopeuch.integracion.datosdocumento.wsdl.ConsultarResponse"/>
+                <doCatch id="consultarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="consultarBeanExcepcion"
+                        method="consultarExcepcion" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

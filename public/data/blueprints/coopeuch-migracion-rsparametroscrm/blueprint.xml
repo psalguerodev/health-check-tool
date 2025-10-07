@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.0.0"
+           xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+
+    <cm:property-placeholder id="propertyLocal"
+                             persistent-id="wsparametrosgeneralescrm" placeholder-prefix="[{"
+                             placeholder-suffix="}]"/>
+
+    <bean class="cl.coopeuch.integracion.utilidad.util.RouteFacade" id="beanRouteFacade"/>
+    <!--Servicios -->
+    <cxf:cxfEndpoint id="fromWsParametrosCrmSoap"
+                     address="/WSParametrosGeneralesCRM"
+                     serviceClass="cl.coopeuch.crm.wsparametroscrm.WSParametrosCRMSoap"
+                     loggingFeatureEnabled="true"
+                     wsdlURL="etc/wsdl/WSParametrosCRM11.wsdl"/>
+
+    <cxf:cxfEndpoint id="fromWsParametrosCrmSoap12"
+                     address="/WSParametrosGeneralesCRM12"
+                     serviceClass="cl.coopeuch.crm.wsparametroscrm.WSParametrosCRMSoap"
+                     loggingFeatureEnabled="true"
+                     wsdlURL="etc/wsdl/WSParametrosCRM12.wsdl"/>
+
+    <cxf:rsServer address="/RSParametrosGeneralesCRM"
+                  id="fromWsParametrosCrmRest" loggingFeatureEnabled="true"
+                  serviceClass="cl.coopeuch.integracion.utilidad.rest.ParametrosCRMRest"/>
+
+    <!--Cliente proxy-->
+    <cxf:cxfEndpoint id="toEndpointWsparametrosCrm"
+                     address="[{crm.proxy.wsparametroscrm.endpoint}]"
+                     serviceClass="cl.coopeuch.crm.wsparametroscrm.WSParametrosCRMSoap"
+                     loggingFeatureEnabled="true"
+                     wsdlURL="etc/wsdl/WSParametrosCRM.asmx.wsdl"/>
+
+    <camelContext id="servicio-parametroscrm" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="soap-inicio" streamCache="true">
+            <from id="parametrosCRM11From" uri="cxf:bean:fromWsParametrosCrmSoap?dataFormat=RAW"/>
+            <removeHeaders id="parametrosCRM11removeHeaders" pattern="CamelHttp*"/>
+            <to id="parametrosCRM11To" uri="cxf:bean:toEndpointWsparametrosCrm?dataFormat=RAW"/>
+        </route>
+        <route id="soap12-inicio" streamCache="true">
+            <from id="fromWsParametrosCrmSoap12" uri="cxf:bean:fromWsParametrosCrmSoap12?dataFormat=RAW"/>
+            <removeHeaders id="parametrosCRM12removeHeaders" pattern="CamelHttp*"/>
+            <to id="parametrosCRM12To" uri="cxf:bean:toEndpointWsparametrosCrm?dataFormat=RAW"/>
+        </route>
+
+        <route id="rest-inicio" streamCache="true">
+            <from id="inicioRestFrom" uri="cxfrs:bean:fromWsParametrosCrmRest"/>
+            <choice id="fromOperation">
+                <when id="whenconsultarParametrosMantenedores">
+                    <simple>${header.operationName} == 'consultarParametrosMantenedores'</simple>
+                    <unmarshal id="unmarshalConsultarParametrosMantenedores">
+                        <json include="NON_NULL" library="Jackson"
+                              unmarshalTypeName="cl.coopeuch.crm.wsparametroscrm.ConsultarParametrosMantenedores"/>
+                    </unmarshal>
+                    <bean id="consultarParametrosMantenedoresRequest"
+                          method="consultarParametrosMantenedoresRest" ref="beanRouteFacade"/>
+                    <to id="consultarParametrosMantenedoresTo"
+                        uri="cxf:bean:toEndpointWsparametrosCrm"/>
+                    <marshal id="marshalconsultarParametrosMantenedoresResponse">
+                        <json include="NON_NULL" library="Jackson"
+                              unmarshalTypeName="cl.coopeuch.crm.wsparametroscrm.ConsultarParametrosMantenedoresResponse"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+    </camelContext>
+</blueprint>

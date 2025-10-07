@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder persistent-id="WSServicioTOC"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioToc"
+        id="servicioAtenticarFirmaEndpoint"
+        serviceClass="cl.coopeuch.integracion.wsdl.toc.WSTOCSOAPPortType" wsdlURL="etc/wsdl/WSTOC.wsdl"/>
+    <camelContext id="ServicioToc" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="routeServicioToc">
+            <from id="_EntradaSOAP" uri="cxf:bean:servicioAtenticarFirmaEndpoint?DataFormat=MESSAGE"/>
+            <convertBodyTo id="_convertBodyTo1" type="String"/>
+            <choice id="_choice1">
+                <when id="_when1">
+                    <simple>${body} contains 'validarRequest'</simple>
+                    <to id="_to1" uri="direct:validar"/>
+                </when>
+                <when id="_when2">
+                    <simple>${body} contains 'ProcessDocument'</simple>
+                    <to id="_to5" uri="direct:firmaSimple"/>
+                </when>
+            </choice>
+        </route>
+        <route id="_routeValidar">
+            <from id="_fromValidar" uri="direct:validar"/>
+            <removeHeaders id="_removeHeadersValidarIn" pattern="*"/>
+            <to id="_toXsltInValidar" uri="xslt://etc/xslt/validar/ValidarTransaccionEntrada.xsl?saxon=true"/>
+            <to id="_toWSValidar" uri="cxf:{{servicio.firmar.documentos.validar.trx}}?DataFormat=MESSAGE"/>
+            <convertBodyTo id="_convertBodyToValidarOut" type="java.lang.String"/>
+            <to id="_toXsltOutValidar" uri="xslt://etc/xslt/validar/ValidarTransaccionSalida.xsl?saxon=true"/>
+            <removeHeaders id="_removeHeadersValidarOut" pattern="*"/>
+        </route>
+        <route id="_routeFirmaSimple">
+            <from id="_fromFirmaSimple" uri="direct:firmaSimple"/>
+            <removeHeaders id="_removeHeadersFirmaSimpleIn" pattern="*"/>
+            <to id="_toXsltFirmaSimpleIn" uri="xslt://etc/xslt/firmar/FirmarSimpleEntrada.xsl?saxon=true"/>
+            <to id="_toWSFirmaSimple" uri="cxf:{{Servicio.firma.simple}}?DataFormat=MESSAGE"/>
+            <to id="_toXsltFirmaSimpleOut" uri="xslt://etc/xslt/firmar/FirmarSimpleSalida.xsl?saxon=true"/>
+            <removeHeaders id="_removeHeadersFirmaSimpleOut" pattern="*"/>
+        </route>
+    </camelContext>
+</blueprint>

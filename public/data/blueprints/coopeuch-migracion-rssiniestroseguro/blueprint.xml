@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wssiniestroseguro" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <camelcxf:rsClient
+        address="[{wssiniestroseguro.servicio.siniestro.endpoint}]"
+        id="endpoint" loggingFeatureEnabled="true"
+        password="[{wssiniestroseguro.servicio.siniestro.clave}]" username="[{wssiniestroseguro.servicio.siniestro.usuario}]"/>
+    <bean
+        class="cl.coopeuch.integracion.entidad.wsdl.wssiniestroseguro.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <camelcxf:cxfEndpoint address="/WSSiniestroSeguro"
+        id="endpointWSSiniestroSeguro"
+        serviceClass="cl.coopeuch.integracion.entidad.wsdl.wssiniestroseguro.WSSiniestroSeguroSOAPPortType" wsdlURL="etc/wsdl/WSSiniestroSeguro.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSSiniestroSeguro"
+        id="endpointRSSiniestroSeguro" serviceClass="cl.coopeuch.integracion.entidad.wsdl.wssiniestroseguro.WSSiniestroSeguroSOAPPortType"/>
+    <camelContext id="servicio-siniestro-seguro" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSSiniestroSeguro"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSSiniestroSeguro"/>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionEnviar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <setProperty id="rutCliente" propertyName="rut">
+                            <simple>$simple{body.get(0).rut}</simple>
+                        </setProperty>
+                        <to id="Consultar-To" uri="direct:consultar"/>
+                    </when>
+                    <when id="inicioRegistar">
+                        <simple>${header.operationName} == 'registrar'</simple>
+                        <to id="irRegistrar" uri="direct:registrar"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+            </doTry>
+        </route>
+        <route id="consultar">
+            <from id="ConsultarSiniestroSeguro-From" uri="direct:consultar"/>
+            <doTry id="ConsultarSiniestroSeguro-DoTry">
+                <removeHeaders id="consultarRemoveHeaders" pattern="*"/>
+                <setHeader headerName="CamelHttpMethod" id="setTipoOperacion">
+                    <constant>GET</constant>
+                </setHeader>
+                <setHeader headerName="Content-Type" id="setTipoMedio">
+                    <constant>application/json</constant>
+                </setHeader>
+                <bean id="modificarRut-Bean" method="modificarRut" ref="beanRouteFacade"/>
+                <setHeader headerName="CamelHttpQuery" id="CamelHttpPath">
+                    <simple>rut=${exchangeProperty.rut}</simple>
+                </setHeader>
+                <setHeader customId="true" headerName="CamelHttpPath" id="CamelHttpPath">
+                    <simple>{{wssiniestroseguro.servicio.siniestro.http.path}}</simple>
+                </setHeader>
+                <to id="_to1" pattern="InOut" uri="cxfrs://bean://endpoint"/>
+                <bean id="obtenerSiniestroSeguro-Bean"
+                    method="obtenerSiniestroSeguro" ref="beanRouteFacade"/>
+                <doCatch id="obtenerSiniestroSeguro-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty
+                        id="sobtenerSiniestroSeguro-PropertyCodigo" propertyName="codigoError">
+                        <simple>3</simple>
+                    </setProperty>
+                    <to id="toServicioSiniestroSegurosExcepcion" uri="direct:excepcion"/>
+                    <stop id="_stop1"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="registrar">
+            <from id="_from2" uri="direct:registrar"/>
+            <doTry id="_doTry1">
+                <setProperty id="_setProperty3" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setHeader headerName="codigoOperacion" id="_setHeader1">
+                    <simple>{{wssiniestroseguro.servicio.siniestro.codigo.operacion}}</simple>
+                </setHeader>
+                <setProperty id="_setProperty1" propertyName="operacion">
+                    <simple>${header.operationName}</simple>
+                </setProperty>
+                <bean id="_beanSalidaPrimerPago"
+                    method="transformarIOC746001OtoXml" ref="beanRouteFacade"/>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty2" propertyName="codigoError">
+                        <simple>3</simple>
+                    </setProperty>
+                    <to id="_to3" uri="direct:excepcion"/>
+                    <stop id="_stop2"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,479 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+           xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+           xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+           xmlns:http="http://cxf.apache.org/transports/http/configuration"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="variablesGlobales"
+                             persistent-id="global" placeholder-prefix="{["
+                             placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="variablesLocales"
+                             persistent-id="serviciovalidatef" placeholder-prefix="[{"
+                             placeholder-suffix="}]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioValidaTEF"
+                     id="servicioValidaTEFEndpoint"
+                     serviceClass="cl.coopeuch.integracion.validatef.wsdl.ServicioValidaTEF"
+                     wsdlURL="wsdl/ServicioValidaTEF.wsdl"/>
+    <cxf:rsServer address="/RSServicioValidaTEF" id="validaTEFRest"
+                  serviceClass="cl.coopeuch.integracion.validatef.rest.ValidaTEFRest"/>
+    <cxf:rsClient address="[{rsadministradoridg.endpoint}]"
+                  id="endpointRsAdministradorIDG" loggingFeatureEnabled="true">
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <!--Propiedades Cola AMQ -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!--Conexion a BD CoopeuchPass-->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+          destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{coopeuchPass.bd.url}];charset=iso_1"/>
+        <property name="username" value="[{coopeuchPass.bd.username}]"/>
+        <property name="password" value="[{coopeuchPass.bd.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{coopeuchPass.bd.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{coopeuchPass.bd.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{coopeuchPass.bd.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{coopeuchPass.bd.maxActive}]"/>
+    </bean>
+
+    <bean class="cl.coopeuch.integracion.validatef.util.RouteFacade" id="routeFacade"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    
+	<bean id="logTraceIncidencias" class="org.slf4j.LoggerFactory" factory-method="getLogger">
+		<argument index="0" value="logValidatef" />
+	</bean>
+    
+    <camelContext id="servicio-valida-tef" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="soap-inicio">
+            <from id="fromSoap" uri="cxf:bean:servicioValidaTEFEndpoint?DataFormat=MESSAGE"/>
+            <to id="soapToInicio" uri="direct:inicio"/>
+        </route>
+        <route id="amq-inicio">
+            <from id="fromAmq" uri="AMQ:queue:{{colas.servicio.valida.tef.in.temp}}?preserveMessageQos=true"/>
+            <to id="amqToInicio" uri="direct:inicio"/>
+        </route>
+        <route id="rest-inicio">
+            <from id="fromRest" uri="cxfrs:bean:validaTEFRest"/>
+            <doTry id="restTry">
+                <setProperty id="restSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="restSetTipoRequest" propertyName="tipoRequest">
+                    <simple>${header.operationName}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacionREST">
+                    <when id="inicioWhenOperacionValidadorTEFREST">
+                        <simple>${header.operationName} == 'validadorTEF'</simple>
+                        <unmarshal id="validadorTEF_unmarshal">
+                            <json include="NON_NULL" library="Jackson"
+                                  unmarshalTypeName="cl.coopeuch.integracion.validatef.xsd.EntradaValidadorTEF"/>
+                        </unmarshal>
+                        <bean id="validadorTEFResquestRest"
+                              method="validadorTEFResquestRest" ref="routeFacade"/>
+                    </when>
+                    <when id="inicioWhenOperacionValidadorParametrosTEFREST">
+                        <simple>${header.operationName} == 'validadorParametrosTEF'</simple>
+                        <unmarshal id="validadorParametrosTEF_unmarshal">
+                            <json include="NON_NULL" library="Jackson"
+                                  unmarshalTypeName="cl.coopeuch.integracion.validatef.xsd.EntradaValidadorParametrosTEF"/>
+                        </unmarshal>
+                        <bean id="validadorParametrosTEFResquestRest"
+                              method="validadorParametrosTEFResquestRest" ref="routeFacade"/>
+                    </when>
+                </choice>
+                <marshal id="validadorTEF_marshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.validatef.xsd"/>
+                </marshal>
+                <to id="restToInicio" uri="direct:inicio"/>
+                <to id="restToSalidaRest" uri="direct:salidaRest"/>
+                <doCatch id="restDoCatchSchemaValidation">
+                    <exception>java.io.IOException</exception>
+                    <setProperty id="restSchemaValidationCodigoError" propertyName="codigoError">
+                        <constant>417</constant>
+                    </setProperty>
+                    <to id="restToExcepcionSchemaValidation" uri="direct:excepcion"/>
+                    <to id="restToExcepcionSalidaRest" uri="direct:salidaRest"/>
+                </doCatch>
+                <doCatch id="restDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="restexceptionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="restToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="salidaRest">
+            <from id="fromSalidaRest" uri="direct:salidaRest"/>
+            <unmarshal id="unmarshalErrorValidation">
+                <jaxb contextPath="cl.coopeuch.integracion.validatef.xsd"/>
+            </unmarshal>
+            <choice id="restChoiceMarshallError">
+                <when id="whenValidadorTEFMarshall">
+                    <simple>${property.tipoRequest} == 'validadorTEF'</simple>
+                    <bean id="validadorTEFResponseRestError"
+                          method="validadorTEFResponseRest" ref="routeFacade"/>
+                    <marshal id="validadorTEFError_marshall">
+                        <json include="NON_NULL" library="Jackson"
+                              unmarshalTypeName="cl.coopeuch.integracion.validatef.xsd.RespValidadorTEF"/>
+                    </marshal>
+                </when>
+                <when id="whenValidadorParametrosTEFMarshall">
+                    <simple>${property.tipoRequest} == 'validadorParametrosTEF'</simple>
+                    <bean id="validadParametrosTEFResponseRestError"
+                          method="validadorParametrosTEFResponseRest" ref="routeFacade"/>
+                    <marshal id="validadorParametrosTEFError_marshall">
+                        <json include="NON_NULL" library="Jackson"
+                              unmarshalTypeName="cl.coopeuch.integracion.validatef.xsd.RespValidadorParametrosTEF"/>
+                    </marshal>
+                </when>
+            </choice>
+        </route>
+        <route id="inicio">
+            <from id="fromInicio" uri="direct:inicio"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="convertBodyToString" type="java.lang.String"/>
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <bean id="generarIdflujoLog" method="generarIdFlujoLog" ref="routeFacade"/>
+                <log id="logBodyInicio" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ValidaTef(mismo) ||  Type: Inbound  || Body: ${body}" />
+                <choice id="ruteoOperaciones">
+                    <when id="rutavalidadorParametrosTEF">
+                        <simple>${body} contains 'validadorParametrosTEF'</simple>
+                        <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                            <constant>validadorParametrosTEF</constant>
+                        </setProperty>
+                        <to id="validadorParametrosTEFValidator" uri="validator:xsd/soapValidaTEF.xsd"/>
+                        <to id="validadorParametrosTEFTo" uri="direct:validadorParametrosTEF"/>
+                    </when>
+                    <when id="rutavalidadorTEF">
+                        <simple>${body} contains 'validadorTEF'</simple>
+                        <setProperty id="inicioSetTipoRequest2" propertyName="tipoRequest">
+                            <constant>validadorTEF</constant>
+                        </setProperty>
+                        <setProperty id="setPropertyOrigenValidaciones" propertyName="origen">
+                            <constant>validaciones</constant>
+                        </setProperty>
+                        <to id="validadorTEFValidator" uri="validator:xsd/soapValidaTEF.xsd"/>
+                        <to id="validadorTEFTo" uri="direct:validadorTEF"/>
+                    </when>
+                </choice>
+                <doCatch id="inicioDoCatchExchangeTimedOutException">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="setCodigoExchangeTimedOutException" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="inicioToExchangeTimedOutException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatchNetSocketException">
+                    <exception>java.net.SocketException</exception>
+                    <setProperty id="setCodigoNetSocketException" propertyName="codigoError">
+                        <constant>503</constant>
+                    </setProperty>
+                    <to id="inicioToNetSocketException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatchIllegalArgumentException">
+                    <exception>java.lang.IllegalArgumentException</exception>
+                    <setProperty id="setCodigoIllegalArgumentException" propertyName="codigoError">
+                        <constant>111</constant>
+                    </setProperty>
+                    <to id="inicioToIllegalArgumentException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatchSchemaValidation">
+                    <exception>org.apache.camel.processor.validation.SchemaValidationException</exception>
+                    <setProperty
+                            id="exceptionSchemaValidationCodigoError" propertyName="codigoError">
+                        <constant>417</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcionSchemaValidation" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="exceptionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="inicioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+                <doFinally>
+                   <log id="logBodyFinal" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ValidaTef(mismo) ||  Type: Outbound  || Body: ${body}" />
+                </doFinally>                
+            </doTry>
+        </route>
+        <!-- Inicio: Valida Parametros de entrada y reglas de negocio para la transaccion. -->
+        <route id="validadorParametrosTEF">
+            <from id="validadorParametrosTEFFrom" uri="direct:validadorParametrosTEF"/>
+            <choice id="validadorParametrosTEFevaluaEntrada">
+                <when id="validadorParametrosTEFError">
+                    <xpath resultType="String">normalize-space(//userID)='' or number(//cuentaOrigen) &lt;= number(0) or
+                        normalize-space(//InstFinancieraOrigen)='' or //InstFinancieraOrigen='0' or
+                        normalize-space(//rutOrigen)='' or //rutOrigen='0' or normalize-space(//TipoCuentaOrigen)='' or
+                        //TipoCuentaOrigen='0' or normalize-space(//cuentaDestino)='' or number(//cuentaDestino) &lt;=
+                        number(0) or normalize-space(//InstFinancieraDestino)='' or //InstFinancieraDestino='0' or
+                        normalize-space(//rutDestinatario)='' or //rutDestinatario='0' or
+                        normalize-space(//TipoCuentaDestino)='' or //TipoCuentaDestino='0' or
+                        normalize-space(//montoTransferencia)='' or number(//montoTransferencia) &lt;= number(0)
+                    </xpath>
+                    <!-- XSLT para enviar errores del servicio. -->
+                    <to id="validadorParametrosTEFerrorDatos" uri="xslt://transformations/error/errorDatos.xsl"/>
+                    <setProperty
+                            id="setCodigoErrorValidaParametrosEntrada" propertyName="codigoErrorEntrada">
+                        <xpath>//codigoError/text()</xpath>
+                    </setProperty>
+                    <setProperty
+                            id="setDetalleErrorValidaParametrosEntrada" propertyName="detalleErrorEntrada">
+                        <xpath>//descripcionError/text()</xpath>
+                    </setProperty>
+                    <throwException
+                            exceptionType="java.lang.IllegalArgumentException"
+                            id="validaParametrosEntradaException" message="error en los datos de entrada"/>
+                </when>
+                <otherwise id="validadorParametrosTEFOk">
+                    <!-- Trama de entrada del IOC1400. -->
+                    <!-- Deja mensaje en una cola AMQ del AS400. -->
+                    <!-- Inicio: Pasa a XML la trama devuelta por el AS400. -->
+                    <setProperty id="_setProperty4" propertyName="rutOrigen_valida">
+                        <xpath resultType="String">//rutOrigen</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty5" propertyName="rutDestino_valida">
+                        <xpath resultType="String">//rutDestinatario</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty7" propertyName="cuentaOrigen_valida">
+                        <xpath resultType="String">//cuentaOrigen</xpath>
+                    </setProperty>
+                    <setProperty id="_setProperty10" propertyName="cuentaDestino_valida">
+                        <xpath resultType="String">//cuentaDestino</xpath>
+                    </setProperty>
+                    <bean id="validadorParametrosCorrelationId"
+                          method="crearJMSCorrelationId24" ref="routeFacade"/>
+                    <to id="validadorParametrosTEFXml2trama"
+                        uri="xslt://transformations/in/xml2tramaIOC140001I_validadorParametrosTEF.xsl"/>
+                    <to id="activemq-validadorParametrosTEF"
+                        uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                    <transform id="validadorParametrosTEFTransform">
+                        <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                    </transform>
+                    <to id="validadorParametrosTEFTrama2xml"
+                        uri="xslt://transformations/out/trama2xmlIOC140001O_validadorParametrosTEF.xsl?saxon=true"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Fin: Valida Parametros de entrada y reglas de negocio para la transaccion. -->
+        <!-- Inicio: Valida valores de entrada, reglas de negocio y aplica un modelo 
+			de fraude para la aceptacion/ rechazo transaccion. -->
+        <route id="validadorTEF">
+            <from id="validadorTEFFrom" uri="direct:validadorTEF"/>
+            <choice id="choiceValidaDatosEntrada">
+                <when id="whenValidaDatosEntrada">
+                    <xpath resultType="String">normalize-space(//userID)='' or number(//cuentaOrigen) &lt;= number(0) or
+                        normalize-space(//InstFinancieraOrigen)='' or //InstFinancieraOrigen='0' or
+                        normalize-space(//rutOrigen)='' or //rutOrigen='0' or normalize-space(//TipoCuentaOrigen)='' or
+                        //TipoCuentaOrigen='0' or normalize-space(//cuentaDestino)='' or number(//cuentaDestino) &lt;=
+                        number(0) or normalize-space(//InstFinancieraDestino)='' or //InstFinancieraDestino='0' or
+                        normalize-space(//rutDestinatario)='' or //rutDestinatario='0' or
+                        normalize-space(//TipoCuentaDestino)='' or //TipoCuentaDestino='0' or
+                        normalize-space(//montoTransferencia)='' or number(//montoTransferencia) &lt;= number(0)
+                    </xpath>
+                    <to id="toXsltValidarDatosValidadorTEF"
+                        uri="xslt://transformations/error/errorDatosValidadorTEF.xsl"/>
+                    <setProperty id="setCodigoErrorValidaEntrada" propertyName="codigoErrorEntrada">
+                        <xpath>//codigoError/text()</xpath>
+                    </setProperty>
+                    <setProperty id="setDetalleErrorValidaEntrada" propertyName="detalleErrorEntrada">
+                        <xpath>//descripcionError/text()</xpath>
+                    </setProperty>
+                    <throwException
+                            exceptionType="java.lang.IllegalArgumentException"
+                            id="validaEntradaException" message="error en los datos de entrada"/>
+                </when>
+            </choice>
+            <to id="toSetPropertiesValidadorTEF" uri="direct:setPropertiesValidadorTEF"/>
+            <choice id="choiceValidarCoopeuchPassActive">
+                <when id="whenValidarCoopeuchPassActive">
+                    <simple>${properties:coopeuchPass.validar.activo} == 1</simple>
+                    <to id="toValidarCoopeuchPassActive" uri="direct:coopeuchPassActivacion"></to>
+                </when>
+            </choice>
+            <bean id="validacionTransferenciaCorrelationId"
+                  method="crearJMSCorrelationId24" ref="routeFacade"/>
+            <to id="validacionTransferenciaXml2trama"
+                uri="xslt://transformations/in/xml2tramaIOC142001I_validaTransferencia.xsl"/>
+            <log id="validacionTransferencialogEntrada" message="XSLT Entrada Validador Parametros TEF: |${body}|"/>
+            <log id="logIOC1420Request" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IOC1420 || Type: Request || Body: ${body}" />
+            <setProperty id="setPropertyOrigenIOC1420" propertyName="origen">
+                <constant>IOC1420</constant>
+            </setProperty>
+            <to id="activemq-validacionTransferencia"
+                uri="AMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+            <log id="validacionTransferencialogSalida" message="\nSalida Validador Parametros TEF: \n|${body}|"/>
+            <log id="logIOC1420Response" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: IOC1420 || Type: Response || Body: ${body}" />
+            <bean id="obtenerVariablesSalida"
+                  method="obtenerVariablesSalida" ref="routeFacade"/>
+            <transform id="validadaTransferenciaTransform">
+                <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+            </transform>
+            <log id="_log3" message="parametroRC: ${property.parametroRC}"/>
+            <log id="_log5" message="validaReglas: ${property.validaReglas}"/>
+            <log id="_log9" message="codigoTransaccionCCA: ${property.codigoTransaccionCCA}"/>
+            <choice id="choiceErrorValidaTransferencia">
+                <when id="whenValidaFinalTef1">
+                    <simple>${property.parametroRC} == 1 and ${property.solicitudId} == 1 or ${property.validaReglas} ==
+                        '0'
+                    </simple>
+                    <wireTap id="remoteCall_validadorFraude_wiretap" uri="direct:remoteCall_validadorFraude"/>
+                </when>
+            </choice>
+            <to id="validadorTEFTrama2xml"
+                uri="xslt://transformations/out/xml2xmlIOC142001O_validaTransferencia.xsl?saxon=true"/>
+        </route>
+        <route id="remoteCall_validadorFraude">
+            <from id="remoteCall_validadorFraudeFrom" uri="direct:remoteCall_validadorFraude"/>
+            <doTry id="doTry-servicioFraude">
+                <setProperty id="setPropertyOrigenServicioFraude" propertyName="origen">
+                    <constant>ServicioFraude/validadorFraude</constant>
+                </setProperty>
+                <bean id="validaTef1" method="crearJMSCorrelationId24" ref="routeFacade"/>
+                <to id="remoteCall_validadorReglasXls"
+                    uri="xslt://transformations/mid/remoteCall_validadorReglas.xsl?saxon=true"/>
+                <log id="_log14" message="XSLT Entrada Validador Reglas: ${body}"/>
+                <log id="logServicioFraudeRequest" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioFraude || Type: Request || Body: ${body}" />
+                <to id="_to13" uri="AMQ:{{colas.servicio.fraude.in.temp}}??preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false"/>
+                <convertBodyTo id="_convertBodyTo5" type="java.lang.String"/>
+                <log id="_log15" message="XSLT Salida Validador Reglas: ${body}"/>
+                <log id="logServicioFraudeResponse" loggerRef="logTraceIncidencias" message="ID: ${exchangeProperty.idFlujoLog} || Componente: ServicioFraude || Type: Response || Body: ${body}" />
+                <doCatch id="validadorFraudeDoCatchExchangeTimedOutException">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setProperty id="validadorFraudeCodigoExchangeTimedOutException" propertyName="codigoError">
+                        <constant>502</constant>
+                    </setProperty>
+                    <to id="validadorFraudeToExchangeTimedOutException" uri="direct:excepcion"/>
+                </doCatch>
+                <doCatch id="validadorFraudeDoCatchException">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="validadorFraudeExceptionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="validadorFraudeToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="setPropertiesValidadorTEF">
+            <from id="setPropertiesValidadorTEFFrom" uri="direct:setPropertiesValidadorTEF"/>
+            <setProperty id="setPropertyUserId" propertyName="userID">
+                <xpath resultType="String">//userID</xpath>
+            </setProperty>
+            <setProperty id="setPropertyCuentaOrigen" propertyName="cuentaOrigen">
+                <xpath resultType="String">//cuentaOrigen</xpath>
+            </setProperty>
+            <setProperty id="setPropertyInsFinancieraOrigen" propertyName="InstFinancieraOrigen">
+                <xpath resultType="String">//InstFinancieraOrigen</xpath>
+            </setProperty>
+            <setProperty id="setPropertyRutOrigen" propertyName="rutOrigen">
+                <xpath resultType="String">//rutOrigen</xpath>
+            </setProperty>
+            <setProperty id="setPropertyTipoCuentaOrigen" propertyName="TipoCuentaOrigen">
+                <xpath resultType="String">//TipoCuentaOrigen</xpath>
+            </setProperty>
+            <setProperty id="setPropertyCuentaDestino" propertyName="cuentaDestino">
+                <xpath resultType="String">//cuentaDestino</xpath>
+            </setProperty>
+            <setProperty id="setPropertyInsFinancieraDestino" propertyName="InstFinancieraDestino">
+                <xpath resultType="String">//InstFinancieraDestino</xpath>
+            </setProperty>
+            <setProperty id="setPropertyRutDestinatario" propertyName="rutDestinatario">
+                <xpath resultType="String">//rutDestinatario</xpath>
+            </setProperty>
+            <setProperty id="setPropertyTipoCuentaDestino" propertyName="TipoCuentaDestino">
+                <xpath resultType="String">//TipoCuentaDestino</xpath>
+            </setProperty>
+            <setProperty id="setPropertyMontoTransferencia" propertyName="montoTransferencia">
+                <xpath resultType="String">//montoTransferencia</xpath>
+            </setProperty>
+            <setProperty id="setPropertyAliasDestino" propertyName="aliasDestino">
+                <xpath resultType="String">//aliasDestino</xpath>
+            </setProperty>
+            <setProperty id="setPropertyAsunto" propertyName="asunto">
+                <xpath resultType="String">//asunto/text()</xpath>
+            </setProperty>
+            <setProperty id="setPropertyIP" propertyName="IP">
+                <xpath resultType="String">//IP</xpath>
+            </setProperty>
+            <setProperty id="setPropertySolicitudId" propertyName="solicitudId">
+                <xpath resultType="String">//solicitudId</xpath>
+            </setProperty>
+            <setProperty id="setPropertyCanalLlamada" propertyName="canalLlamada">
+                <simple>{{canalLlamada}}</simple>
+            </setProperty>
+            <setProperty id="setPropertyValidadorFraudeActivo" propertyName="validadorFraudeActivo">
+                <simple>{{validadorFraude.activo}}</simple>
+            </setProperty>
+            <setProperty id="setPropertyCoopeuchPassActive" propertyName="coopeuchPassActive">
+                <simple>{{coopeuchPass.valor.indicador}}</simple>
+            </setProperty>
+        </route>
+        <route id="coopeuchPassActivacion">
+            <from id="coopeuchPassActivacionFrom" uri="direct:coopeuchPassActivacion"/>
+            <doTry id="coopeuchPassActivacionTry">
+                <to id="auditoriaDesafioSQL"
+                    uri="sql-stored:classpath:etc/sql/PA_SELCoopeuchPassEnrolamiento.sql?dataSource=#dataSourceSqlServer"/>
+                <setProperty id="coopeuchPassActivacionFromPA" propertyName="coopeuchPassActive">
+                    <simple>${body[enrolamientoRespuesta]}</simple>
+                </setProperty>
+                <setBody id="coopeuchPassActivacionBodyException">
+                    <simple>${exchangeProperty.requestEntrada}</simple>
+                </setBody>
+                <doCatch id="coopeuchPassActivacionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log message="${exception} " loggingLevel="ERROR"/>
+                    <setProperty id="coopeuchPassActivacionExceptionCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toCoopeuchPassActivacionExcepcion" uri="direct:excepcion"/>
+                    <setBody id="coopeuchPassActivacionBodyException">
+                        <simple>${exchangeProperty.requestEntrada}</simple>
+                    </setBody>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="excepcionBeanExcepcion"
+                      method="excepcionCrear" ref="routeFacade"/>
+                <marshal id="exceptionMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.validatef.xsd"/>
+                </marshal>
+                <wireTap id="wiretapGuardarErrorColaAMQ" uri="direct:guardarErrorColaAMQ"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR"
+                         message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="guardarErrorColaAMQ">
+            <from id="guardarErrorColaAMQFrom" uri="direct:guardarErrorColaAMQ"/>
+            <setProperty id="setMensajeError" propertyName="mensajeError">
+                <xpath resultType="String">//descripcionError</xpath>
+            </setProperty>
+            <bean id="beanExceptionAmq" method="excepcionAmq" ref="routeFacade"/>
+            <marshal id="excepcionMarshalJson">
+                <json library="Jackson"/>
+            </marshal>
+            <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+            <toD id="excepcionToAmqFault"
+                 uri="AMQ:${property.colaError}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly&amp;timeToLive={{cola.error.tiempo}}&amp;deliveryMode=1"/>
+        </route>
+    </camelContext>
+</blueprint>

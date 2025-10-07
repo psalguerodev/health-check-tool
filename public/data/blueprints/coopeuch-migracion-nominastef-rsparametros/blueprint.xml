@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal" persistent-id="wsparametrosnominas"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    
+    
+    <bean id="noErrorHandler" class="org.apache.camel.builder.NoErrorHandlerBuilder"/>    
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+
+    
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{coopeuch.sqlserver.url}]"/>
+        <property name="username" value="[{coopeuch.sqlserver.username}]"/>
+        <property name="password" value="[{coopeuch.sqlserver.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{coopeuch.sqlserver.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{coopeuch.sqlserver.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{coopeuch.sqlserver.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{coopeuch.sqlserver.maxActive}]"/>
+    </bean>
+	
+    
+    
+    <bean class="org.slf4j.LoggerFactory" factory-method="getLogger" id="rh1">
+        <argument index="0" value="rh1"/>
+    </bean>
+     <bean class="cl.coopeuch.integracion.parametros.util.RouteExcepcion" id="respuestaErrorProcessor"/>
+     <bean class="cl.coopeuch.integracion.parametros.util.RouteFacade" id="beanRouteFacade"/>
+     <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <bean
+        class="cl.coopeuch.integracion.parametros.exceptions.ErrorExcepcionInterceptor" id="ErrorExcepcionInterceptor"/>
+    <camelcxf:rsServer address="/nominastef/WSParametros" id="restApiEnpointParametros" serviceClass="cl.coopeuch.integracion.parametros.service.OperacionesService">
+        <camelcxf:extensionMappings>
+            <entry key="json" value="application/json"/>
+        </camelcxf:extensionMappings>
+        <camelcxf:providers>
+            <bean class="com.fasterxml.jackson.jaxrs.json.JacksonJsonProvider"/>
+            <bean class="cl.coopeuch.integracion.parametros.util.Filter"/>
+        </camelcxf:providers>
+        <camelcxf:outInterceptors>
+            <ref component-id="ErrorExcepcionInterceptor"/>
+        </camelcxf:outInterceptors>
+    </camelcxf:rsServer>
+
+   
+    <camelContext id="SERVICIO-WSPARAMETROS" streamCache="false"
+        xmlns="http://camel.apache.org/schema/blueprint">
+        <threadPoolProfile defaultProfile="true" id="changedProfile"
+            maxQueueSize="100" poolSize="1"/>
+        <dataFormats>
+            <json id="serializer" library="Jackson" prettyPrint="true"/>
+        </dataFormats>
+        <redeliveryPolicyProfile id="redeliveryPolicy"
+        maximumRedeliveries="2"
+        redeliveryDelay="1000" allowRedeliveryWhileStopping="false"
+        retryAttemptedLogLevel="INFO" />  
+        <onException id="CustomExceptionHandling" redeliveryPolicyRef="redeliveryPolicy" useOriginalMessage="true">
+            <exception>java.sql.SQLException</exception>
+            <handled>
+                <constant>true</constant>
+            </handled>
+            <log loggerRef="rh1" loggingLevel="ERROR" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.message}"/>
+            <log loggerRef="rh1" loggingLevel="DEBUG" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.stacktrace}"/>            
+            <setProperty propertyName="codigohttp">
+                 <simple>500</simple>
+            </setProperty>
+            <setProperty propertyName="codigo">
+                <simple>500</simple>
+            </setProperty>            
+            <setProperty propertyName="descripcion">
+                <simple> ${exception.message}</simple>
+            </setProperty>
+            <setProperty propertyName="mensajeError">
+                <simple> ${exception.message}</simple>
+            </setProperty>
+            <setProperty propertyName="codigoTimeout">
+                 <simple>500</simple>
+            </setProperty>
+            <setProperty propertyName="descripcionTimeout">
+                <simple>${exception.message}</simple>
+            </setProperty>
+             <wireTap id="respuestaError" uri="direct:excepcion"/>
+            <bean method="process" ref="respuestaErrorProcessor"/>
+            <stop/>
+        </onException>  
+        <onException id="CustomExceptionHandling" redeliveryPolicyRef="redeliveryPolicy" useOriginalMessage="true">
+            <exception>java.lang.Exception</exception>
+            <handled>
+                <constant>true</constant>
+            </handled>
+            <log loggerRef="rh1" loggingLevel="ERROR" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.message}"/>
+            <log loggerRef="rh1" loggingLevel="DEBUG" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.stacktrace}"/>            
+            <setProperty propertyName="codigohttp">
+                 <simple>500</simple>
+            </setProperty>
+            <setProperty propertyName="codigo">
+                <simple>500</simple>
+            </setProperty>
+            <setProperty propertyName="descripcion">
+                <simple> ${exception.message}</simple>
+            </setProperty>
+            <setProperty propertyName="codigoTimeout">
+                 <simple>500</simple>
+            </setProperty>
+            <setProperty propertyName="descripcionTimeout">
+                <simple>${exception.message}</simple>
+            </setProperty>
+             <wireTap id="respuestaError" uri="direct:excepcion"/>
+            <bean method="process" ref="respuestaErrorProcessor"/>
+            <stop/>
+        </onException>   
+        
+        <route id="ROUTE-PRINCIPAL-WSNOMINASTEF">
+            <from id="restInicioo" uri="cxfrs:bean:restApiEnpointParametros?bindingStyle=SimpleConsumer"/>
+            <setProperty propertyName="operacion">
+                <simple resultType="String">${header.operationName}</simple>
+            </setProperty>
+            <toD uri="direct:${header.operationName}"/>
+        </route>
+        
+        <route id="WsCargaNomina" streamCache="true" errorHandlerRef="noErrorHandler">
+            <from  uri="direct:consultar"/> 
+            	
+           		<marshal>
+            		<json library="Jackson"/>
+            	</marshal> 
+            	<setProperty id="restSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty> 
+	             <setProperty propertyName="idParametro"><jsonpath resultType="String">$.idParametro</jsonpath></setProperty>
+	             <setProperty propertyName="value"><jsonpath>$.valor</jsonpath></setProperty>
+	             <log message="((((${property.value}))))"/>
+	             <to uri="sql-stored:classpath:sql/pa_consultaIdParametro.sql?dataSource=#dataSourceSqlServer&amp;outputHeader=responseTablaParametros" />
+				 <setProperty propertyName="descripcionParametros"><simple>${header.responseTablaParametros.get('query')}</simple></setProperty>
+				 <removeHeaders pattern="responseTablaParametros"/>
+				 <setBody>
+				 	<simple>{"descripcion": "${property.descripcionParametros}"}</simple>
+				 </setBody>
+			<stop/>
+        </route>
+        
+
+		<route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>            
+             <bean id="beanRouteFacade" method="excepcionAmq" ref="beanRouteFacade"/>
+             <setProperty propertyName="Connection">
+            	<constant>0</constant>
+             </setProperty>
+             <marshal id="excepcionMarshalJson">
+                 <json library="Jackson"/>
+             </marshal>
+             <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>             
+             <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>  
+        </route>
+        
+    </camelContext>
+</blueprint>

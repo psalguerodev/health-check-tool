@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder persistent-id="wsgestorenviopago"
+        placeholder-prefix="[{" placeholder-suffix="}]" update-strategy="reload"/>
+    <!-- Configure IBM WebSphere MQ connection factory -->
+    <bean class="com.ibm.mq.jms.MQConnectionFactory" id="websphereConnectionFactory">
+        <property name="transportType" value="1"/>
+        <property name="hostName" value="{[ibm.mq.host]}"/>
+        <property name="port" value="{[ibm.mq.port]}"/>
+        <property name="queueManager" value="{[ibm.qm.name]}"/>
+        <property name="useConnectionPooling" value="true"/>
+        <property name="channel" value="{[ibm.qm.channel]}"/>
+    </bean>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="websphereConfig">
+        <property name="connectionFactory" ref="websphereConnectionFactory"/>
+        <property name="concurrentConsumers" value="[{ibm.mq.concurrentConsumers.gestor}]"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsComponent" id="websphere">
+        <property name="configuration" ref="websphereConfig"/>
+    </bean>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <camelcxf:rsClient
+        address="[{gestor.envio.pago.servicio.autenticacion.endpoint}]"
+        id="endpointAutenticar" loggingFeatureEnabled="true"/>
+    <camelcxf:rsClient
+        address="[{gestor.envio.pago.servicio.gestor.documental.endpoint}]"
+        id="endpointGestorDoc" loggingFeatureEnabled="true"/>
+    <bean
+        class="cl.coopeuch.integracion.wsgestorenviopago.util.RouteFacade" id="beanRouteFacade"/>
+    <camelContext id="servicio-gestor-envio-pago" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="routewmq">
+            <from id="_fromInicio" uri="websphere:queue:{{ibm.queuewsgestorenviopago.in}}"/>
+            <doTry id="_doTry1">
+                <unmarshal id="_unmarshalJMStoObject">
+                    <bindy
+                        classType="cl.coopeuch.integracion.wsgestorenviopago.modelo.RENTWFDDS" type="Fixed"/>
+                </unmarshal>
+                <setProperty id="_setProperty1" propertyName="cuerpo">
+                    <simple>${body}</simple>
+                </setProperty>
+                <to id="_toAutenticar" uri="direct:autenticar"/>
+                <to id="toGesDocumental" uri="direct:gestorDocumental"/>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty2" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="_to1" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeAutenticar">
+            <from id="_fromAutenticar" uri="direct:autenticar"/>
+            <doTry id="_doTry2">
+                <setProperty id="usuarioRest" propertyName="usuario">
+                    <simple>{{gestor.envio.pago.servicio.autenticacion.usuario}}</simple>
+                </setProperty>
+                <setProperty id="claveRest" propertyName="clave">
+                    <simple>{{gestor.envio.pago.servicio.autenticacion.clave}}</simple>
+                </setProperty>
+                <bean id="_bean1" method="requestAutenticar" ref="beanRouteFacade"/>
+                <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader1">
+                    <constant>application/json</constant>
+                </setHeader>
+                <to id="_toAutenticarEndPoint" uri="cxfrs:bean:endpointAutenticar?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                <unmarshal id="generarTokenToJson">
+                    <json library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsgestorenviopago.modelo.AutenticarJson"/>
+                </unmarshal>
+                <setProperty id="_setHeader2" propertyName="data">
+                    <simple>${body.data}</simple>
+                </setProperty>
+                <doCatch id="_doCatch2">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty3" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="_to2" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="_routeGestorDocumental">
+            <from id="fromGestorDocumental" uri="direct:gestorDocumental"/>
+            <doTry id="_doTry3">
+                <bean id="_bean2" method="requestGestorDocumental" ref="beanRouteFacade"/>
+                <removeHeaders id="enviarPreviredHeaderRemoveDos" pattern="*"/>
+                <setHeader headerName="CamelHttpQuery" id="CamelHttpPath">
+                    <simple>alf_ticket=${exchangeProperty.data}</simple>
+                </setHeader>
+                <setHeader customId="true" headerName="CamelHttpPath" id="CamelHttpPath">
+                    <constant>{{gestor.envio.pago.servicio.gestor.documental.path}}</constant>
+                </setHeader>
+                <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader4">
+                    <constant>application/json</constant>
+                </setHeader>
+                <to id="toGestorDoc" uri="cxfrs:bean:endpointGestorDoc"/>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioCodigoError" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+            <marshal id="excepcionMarshalJson">
+                <json library="Jackson"/>
+            </marshal>
+            <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+            <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+        </route>
+    </camelContext>
+</blueprint>

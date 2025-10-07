@@ -1,0 +1,524 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Servicio para gestionar Datos MERP -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsdatosmerp" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <http-conf:conduit name="*.http-conduit">
+        <http-conf:client ConnectionTimeout="5000" ReceiveTimeout="5000"/>
+    </http-conf:conduit>
+    <!-- Conexion AMQ -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSQLServerCreditos">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url}]/[{jdbc.sqlserver.bd.rentas}];charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive}]"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSQLServerRde">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url}]/[{jdbc.sqlserver.bd.rde}];charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.rde}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.rde}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive}]"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSQLServerPmt">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url}]/[{jdbc.sqlserver.bd.pmt}];charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.pmt}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.pmt}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive}]"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.datosmerp.util.StoredProcedureBean" id="dbo.pa_selXMLCotizaciones">
+        <argument ref="dataSourceSQLServerCreditos"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selXMLCotizaciones"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="diasCache"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.datosmerp.util.StoredProcedureBean" id="dbo.pa_insXmlPrevired">
+        <argument ref="dataSourceSQLServerCreditos"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_insXmlPrevired"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Xml"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.datosmerp.util.StoredProcedureBean" id="dbo.pa_selClusterRDE">
+        <argument ref="dataSourceSQLServerRde"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selClusterRDE"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="NumSolicitud"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.datosmerp.util.StoredProcedureBean" id="dbo.pa_selClusterPMT">
+        <argument ref="dataSourceSQLServerPmt"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selClusterPMT"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="NumSolicitud"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!-- Endpoint wsdl Servicio DatosMerp -->
+    <camelcxf:cxfEndpoint address="/WSDatosMerp"
+        id="endpointWsDatosMerp" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.datosmerp.wsdl.WSDatosMerpSOAPPortType" wsdlURL="etc/wsdl/WSDatosMerp.wsdl"/>
+    <bean class="cl.coopeuch.integracion.datosmerp.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="[{datosmerp.endpoint.Previred.url}]"
+        id="endpointServicioMonitorPrevired"
+        loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.datosmerp.monitorprevired.wsdl.CWSMensajeriaXML" wsdlURL="etc/wsdl/MonitorPrevired.wsdl"/>
+    <camelContext id="servicio-datosmerp" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml
+                enableFeatures="WRITE_DATES_AS_TIMESTAMPS,WRITE_DATES_WITH_ZONE_ID"
+                id="jack" prettyPrint="true"/>
+        </dataFormats>
+        <route id="cx-RuteoOperaciones">
+            <from id="WSDatosMerpEndpointListener" uri="cxf:bean:endpointWsDatosMerp?DataFormat=MESSAGE"/>
+            <to id="toInicioWSDL" uri="direct:inicio"/>
+        </route>
+        <route id="routeCola">
+            <from id="fromCola" uri="beanAMQ:{{datosmerp.amq.in.temp}}"/>
+            <to id="toInicioColas" uri="direct:inicio"/>
+            <setBody id="getBodyResp">
+                <xpath>/*:Envelope/*:Body/*</xpath>
+            </setBody>
+        </route>
+        <!-- Ruta que invoca operaciones del servicio web -->
+        <route id="cxf-Inicio">
+            <from id="inicioFrom" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <convertBodyTo id="convertBodyToIni" type="java.lang.String"/>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionEstimarRIP">
+                        <simple>${body} contains 'estimarRIP'</simple>
+                        <setProperty id="setPropertyOperacionEst" propertyName="operacion">
+                            <simple>estimarRIP</simple>
+                        </setProperty>
+                        <to id="toEstimarRIP" uri="direct:EstimarRIP"/>
+                    </when>
+                    <when id="inicioWhenOperacionObtDatosSocio">
+                        <simple>${body} contains 'obtenerDatosSocio'</simple>
+                        <setProperty id="setPropertyOperacionODS" propertyName="operacion">
+                            <simple>obtenerDatosSocio</simple>
+                        </setProperty>
+                        <to id="toODS" uri="direct:ObtenerDatosSocio"/>
+                    </when>
+                    <when id="inicioWhenOperacionObtClusterRDE">
+                        <simple>${body} contains 'obtenerClusterRDE'</simple>
+                        <setProperty id="setPropertyOperacionOCR" propertyName="operacion">
+                            <simple>obtenerClusterRDE</simple>
+                        </setProperty>
+                        <to id="toOCR" uri="direct:ObtenerClusterRDE"/>
+                    </when>
+                    <when id="inicioWhenOperacionObtClusterPMT">
+                        <simple>${body} contains 'obtenerClusterPMT'</simple>
+                        <setProperty id="setPropertyOperacionOCP" propertyName="operacion">
+                            <simple>obtenerClusterPMT</simple>
+                        </setProperty>
+                        <to id="toOCP" uri="direct:ObtenerClusterPMT"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="beanExcepcionDatosMerp"
+                        method="iniciarExcepcion" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta que consume cola MQ IBS y genera calgulo y estimacion RIP en 
+			IBS -->
+        <route id="estimarRIP">
+            <from id="estimarRIPFrom" uri="direct:EstimarRIP"/>
+            <doTry id="estimarRIPTry">
+                <convertBodyTo id="estimarRIPConvert" type="java.lang.String"/>
+                <setProperty id="_setProperty1" propertyName="userID">
+                    <xpath resultType="java.lang.String">//userID/text()</xpath>
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="canalLLamada">
+                    <xpath resultType="java.lang.String">//canalLLamada/text()</xpath>
+                </setProperty>
+                <setProperty id="propRegistroPrevired" propertyName="registroPrevired">
+                    <xpath resultType="java.lang.Boolean">boolean(//registroPrevired = 'true' or //registroPrevired = '1')</xpath>
+                </setProperty>
+                <setProperty id="_setProperty3" propertyName="user">
+                    <simple>{{datosmerp.user.toc}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty4" propertyName="pass">
+                    <simple>{{datosmerp.pass.toc}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty5" propertyName="codigoAutorizacion">
+                    <xpath resultType="java.lang.String">//datosTOC/codigoAutorizacion/text()</xpath>
+                </setProperty>
+                <setProperty id="_setProperty6" propertyName="rut">
+                    <xpath resultType="java.lang.String">//datosTOC/rutCliente/text()</xpath>
+                </setProperty>
+                <setHeader headerName="user" id="userEstimacion">
+                    <simple>${exchangeProperty.user}</simple>
+                </setHeader>
+                <setHeader headerName="pass" id="passEstimacion">
+                    <simple>${exchangeProperty.pass}</simple>
+                </setHeader>
+                <setHeader headerName="codigoAutorizacion" id="codigoAutorizacionEstimacion">
+                    <simple>${exchangeProperty.codigoAutorizacion}</simple>
+                </setHeader>
+                <setHeader headerName="Rut" id="rutEstimacionPA">
+                    <xpath resultType="java.lang.String">substring(//datosTOC/rutCliente/text(),1,string-length(//datosTOC/rutCliente/text())-1)</xpath>
+                </setHeader>
+                <setHeader headerName="diasCache" id="creditoListoHeaderNumeroDias">
+                    <constant>{{datosmerp.cache.numeroDias}}</constant>
+                </setHeader>
+                <to id="selXMLCotizacionesTo" uri="direct:selXMLCotizaciones"/>
+                <choice id="validaCache">
+                    <when id="encuentraCache">
+                        <simple>${body} contains 'respuesta'</simple>
+                        <to id="XmlCDATA" uri="xslt://etc/xslt/request/CDATA_respuestaPrevired.xsl?saxon=true"/>
+                        <to id="insRentasIOCTo" uri="direct:insRentasIOC"/>
+                    </when>
+                    <otherwise id="callPreviOtherwise">
+                        <to id="callPreviRedTo" uri="direct:callPreviRed"/>
+                        <choice id="choiceResultadoPrevired">
+                            <when id="evaluaErrorPreviRed">
+                                <simple>${headers.codErrorPrevired} == '0'</simple>
+                                <to id="previredXmlCDATA" uri="xslt://etc/xslt/request/CDATA_respuestaPrevired.xsl?saxon=true"/>
+                                <setHeader headerName="Xml" id="rentasPreviredHeaderXmlPrevired">
+                                    <simple>${body}</simple>
+                                </setHeader>
+                                <setProperty id="codigoResp" propertyName="codigoResp">
+                                    <xpath resultType="java.lang.String">/respuesta/respuestaservicio[2]/control/@codigo</xpath>
+                                </setProperty>
+                                <setHeader headerName="codigo" id="previRedGetCodigo">
+                                    <xpath resultType="java.lang.String">/respuesta/control/@codigo</xpath>
+                                </setHeader>
+                                <choice id="choiceCodRespPrevired">
+                                    <when id="whenCodRespPrevired">
+                                    <simple>${headers.codigo} != '9000'</simple>
+                                    <setHeader
+                                    headerName="codErrorPrevired" id="errorPrevired">
+                                    <constant>1</constant>
+                                    </setHeader>
+                                    <convertBodyTo
+                                    id="convertBodyToFault" type="java.lang.String"/>
+                                    <to id="previredFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                                    <bean
+                                    beanType="cl.coopeuch.integracion.datosmerp.util.BodyError"
+                                    id="consultaPrevired" method="setBodyError"/>
+                                    </when>
+                                    <otherwise id="otherwiseCodRespPrevired">
+                                    <choice id="choiceError">
+                                    <when id="whenError">
+                                    <simple>${headers.codErrorPrevired} == '0'</simple>
+                                    <choice id="choiceRegistroPrevired">
+                                    <when id="whenRegistroPrevired">
+                                    <simple>${exchangeProperty.registroPrevired}</simple>
+                                    <wireTap
+                                    id="insRentasCache" uri="direct:insXmlPrevired"/>
+                                    </when>
+                                    </choice>
+                                    <to id="insRentasIOCTo" uri="direct:insRentasIOC"/>
+                                    </when>
+                                    </choice>
+                                    </otherwise>
+                                </choice>
+                            </when>
+                            <otherwise id="evaluaOtherwise">
+                                <throwException
+                                    exceptionType="java.lang.Exception"
+                                    id="throwExceptionErrorGralPrevired" message="Error General en Previred "/>
+                            </otherwise>
+                        </choice>
+                    </otherwise>
+                </choice>
+                <convertBodyTo id="estimarRIPConvertBodyTo" type="java.lang.String"/>
+                <doCatch id="estimarRIPDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean
+                        beanType="cl.coopeuch.integracion.datosmerp.util.BodyError"
+                        id="estimarRIPError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="estimarRIPDoFinaly"/>
+            </doTry>
+        </route>
+        <!-- Llamada cache SQL Server PA de Consulta de Cotizaciones -->
+        <route id="selXMLCotizaciones">
+            <from id="selXMLCotizacionesFrom" uri="direct:selXMLCotizaciones"/>
+            <doTry id="selXMLCotizacionesDoTry">
+                <to id="pa_selXMLCotizacionesTo" uri="bean:dbo.pa_selXMLCotizaciones"/>
+                <marshal id="selXMLCotizacionesMarshal" ref="jack"/>
+                <convertBodyTo id="selXMLCotizacionesBodyTo" type="java.lang.String"/>
+                <doCatch id="selXMLCotizacionesDoCatch">
+                    <exception>java.sql.SQLException</exception>
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="insXmlPrevired">
+            <from id="insXmlPreviredFrom" uri="direct:insXmlPrevired"/>
+            <doTry id="insXmlPreviredDoTry">
+                <to id="pa_insXmlPreviredTo" uri="bean:dbo.pa_insXmlPrevired"/>
+                <marshal id="insXmlPreviredMarshal" ref="jack"/>
+                <convertBodyTo id="insXmlPreviredBodyTo" type="java.lang.String"/>
+                <doCatch id="insXmlPreviredDoCatch">
+                    <exception>java.sql.SQLException</exception>
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Llamada a PREVIRED -->
+        <route id="callPreviRed">
+            <from id="callPreviRedfrom" uri="direct:callPreviRed"/>
+            <transform id="vacio">
+                <simple>&lt;trama&gt;vacio&lt;/trama&gt;</simple>
+            </transform>
+            <doTry id="previRedDoTry">
+                <to id="previRed2Xml" uri="xslt://etc/xslt/request/CDATA_consultaPrevired.xsl?saxon=true"/>
+                <removeHeaders id="removeHeadersPrevi" pattern="operationName*"/>
+                <setHeader headerName="SOAPAction" id="setHeaderConsultarSoapAction">
+                    <constant>""</constant>
+                </setHeader>
+                <convertBodyTo id="previRedBodyTo" type="java.lang.String"/>
+                <to id="cxfPreviredUrl" uri="cxf:bean:endpointServicioMonitorPrevired?dataFormat=MESSAGE"/>
+                <convertBodyTo id="convertBodyToPrevi" type="java.lang.String"/>
+                <setHeader headerName="codErrorPrevired" id="sinErrorPrevired">
+                    <constant>0</constant>
+                </setHeader>
+                <doCatch id="previRedDoCatch">
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <setHeader headerName="codErrorPrevired" id="cxfPreviRedError">
+                        <constant>1</constant>
+                    </setHeader>
+                    <bean id="previredException"
+                        method="datosMerpExcepcion" ref="beanRouteFacade"/>
+                    <convertBodyTo id="previredConvertBodyTo" type="java.lang.String"/>
+                    <to id="previredCatchFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </doCatch>
+                <doFinally id="previRedDoFinaly"/>
+            </doTry>
+        </route>
+        <!-- Logica IBS Estimacion RIP -->
+        <route id="insRentasIOC">
+            <from id="insRentasIOCfrom" uri="direct:insRentasIOC"/>
+            <doTry id="insRentasIOCDoTry">
+                <to id="insRentasIOCToXSLTrama" uri="xslt://etc/xslt/request/IOC711001I_EstimarRIP.xsl?saxon=true"/>
+                <bean id="insRentasIOCBeanRouteFacadeUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="insRentasIOCToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="consultarTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="insRentasIOCToXSLSOAP" uri="xslt://etc/xslt/response/IOC711001O_EstimarRIP.xsl?saxon=true"/>
+                <doCatch id="insRentasIOCDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="insRentasIOCBeanExcepcion"
+                        method="ibsExcepcion" ref="beanRouteFacade"/>
+                    <convertBodyTo id="ibsConvertBodyTo" type="java.lang.String"/>
+                    <to id="insRentasIOCFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.datosmerp.util.BodyError"
+                        id="ibsError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Logica IBS Obtencion de Datos del Socio -->
+        <route id="obtenerDatosSocio">
+            <from id="ODSfrom" uri="direct:ObtenerDatosSocio"/>
+            <doTry id="ODSDoTry">
+                <to id="ODSToXSLTrama" uri="xslt://etc/xslt/request/IOC711002I_ObtenerDatosSocio.xsl?saxon=true"/>
+                <bean id="ODSBeanRouteFacadeUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="ODSToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="ODSTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="ODSToXSLSOAP" uri="xslt://etc/xslt/response/IOC711002O_ObtenerDatosSocio.xsl?saxon=true"/>
+                <doCatch id="ODSDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="ODSBeanExcepcion" method="ibsExcepcion" ref="beanRouteFacade"/>
+                    <convertBodyTo id="ODSconvertBodyTo" type="java.lang.String"/>
+                    <to id="ODSFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.datosmerp.util.BodyError"
+                        id="ODSibsError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="obtenerClusterRDE">
+            <from id="OCRfrom" uri="direct:ObtenerClusterRDE"/>
+            <doTry id="OCRDoTry">
+                <convertBodyTo id="obtenerClusterRDEConvert" type="java.lang.String"/>
+                <setProperty id="setPropertyNumSolConv" propertyName="numSolicitudConv">
+                    <xpath resultType="java.lang.String">//numSolicitudConv/text()</xpath>
+                </setProperty>
+                <setHeader headerName="NumSolicitud" id="NumSolicitud">
+                    <simple>${exchangeProperty.numSolicitudConv}</simple>
+                </setHeader>
+                <to id="selClusterRDETo" uri="direct:selClusterRDE"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.datosmerp.util.Formateo"
+                    id="OCRFormat" method="setFormateaFecha"/>
+                <to id="OCRToXSLSOAP" uri="xslt://etc/xslt/response/Respuesta_ObtenerClusterRDE.xsl?saxon=true"/>
+                <doCatch id="OCRDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <convertBodyTo id="OCRconvertBodyTo" type="java.lang.String"/>
+                    <to id="OCRFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.datosmerp.util.BodyError"
+                        id="OCRError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="selClusterRDE">
+            <from id="selClusterRDEFrom" uri="direct:selClusterRDE"/>
+            <doTry id="selClusterRDEDoTry">
+                <to id="pa_selClusterRDETo" uri="bean:dbo.pa_selClusterRDE"/>
+                <marshal id="pa_selClusterRDEMarshal" ref="jack"/>
+                <convertBodyTo id="pa_selClusterRDEBodyTo" type="java.lang.String"/>
+                <doCatch id="pa_selClusterRDEDoCatch">
+                    <exception>java.sql.SQLException</exception>
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="obtenerClusterPMT">
+            <from id="OCPfrom" uri="direct:ObtenerClusterPMT"/>
+            <doTry id="OCPDoTry">
+                <convertBodyTo id="obtenerClusterPMTConvert" type="java.lang.String"/>
+                <setProperty id="setPropertyNumSolConvPMT" propertyName="numSolicitudConv">
+                    <xpath resultType="java.lang.String">//numSolicitudConv/text()</xpath>
+                </setProperty>
+                <setHeader headerName="NumSolicitud" id="NumSolicitudPMT">
+                    <simple>${exchangeProperty.numSolicitudConv}</simple>
+                </setHeader>
+                <to id="selClusterPMTTo" uri="direct:selClusterPMT"/>
+                <bean
+                    beanType="cl.coopeuch.integracion.datosmerp.util.Formateo"
+                    id="OCPFormat" method="setFormateaFecha"/>
+                <to id="OCPToXSLSOAP" uri="xslt://etc/xslt/response/Respuesta_ObtenerClusterPMT.xsl?saxon=true"/>
+                <doCatch id="OCPDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <convertBodyTo id="OCPconvertBodyTo" type="java.lang.String"/>
+                    <to id="OCPFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean
+                        beanType="cl.coopeuch.integracion.datosmerp.util.BodyError"
+                        id="OCPError" method="setBodyError"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="selClusterPMT">
+            <from id="selClusterPMTFrom" uri="direct:selClusterPMT"/>
+            <doTry id="selClusterPMTDoTry">
+                <to id="pa_selClusterPMTTo" uri="bean:dbo.pa_selClusterPMT"/>
+                <marshal id="pa_selClusterPMTMarshal" ref="jack"/>
+                <convertBodyTo id="pa_selClusterPMTBodyTo" type="java.lang.String"/>
+                <doCatch id="pa_selClusterPMTDoCatch">
+                    <exception>java.sql.SQLException</exception>
+                    <exception>java.net.ConnectException</exception>
+                    <exception>java.io.IOException</exception>
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

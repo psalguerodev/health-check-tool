@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+	xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+	xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+	xmlns:http="http://cxf.apache.org/transports/http/configuration"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+	<cm:property-placeholder id="propertyGlobal"
+		persistent-id="global" placeholder-prefix="{[" placeholder-suffix="]}"
+		update-strategy="reload" />
+	<cm:property-placeholder id="propertyLocal"
+		persistent-id="wssaevalija" placeholder-prefix="[{"
+		placeholder-suffix="}]" update-strategy="reload" />
+	<bean
+		class="org.apache.activemq.camel.component.ActiveMQComponent"
+		id="beanAMQ">
+		<property name="brokerURL" value="{[amq.broker.url]}" />
+		<property name="userName" value="{[amq.username]}" />
+		<property name="password" value="{[amq.password]}" />
+		<property name="usePooledConnection" value="true" />
+	</bean>
+	<bean class="org.apache.commons.dbcp.BasicDataSource"
+		destroy-method="close" id="dataSourceSqlServer">
+		<property name="driverClassName"
+			value="net.sourceforge.jtds.jdbc.Driver" />
+		<property name="url"
+			value="[{sopd.sqlserver.url}];charset=iso_1" />
+		<property name="username" value="[{sopd.sqlserver.username}]" />
+		<property name="password" value="[{sopd.sqlserver.password}]" />
+		<property name="timeBetweenEvictionRunsMillis"
+			value="[{sopd.sqlserver.timeBetweenEvictionRunsMillis}]" />
+		<property name="numTestsPerEvictionRun"
+			value="[{sopd.sqlserver.numTestsPerEvictionRun}]" />
+		<property name="minEvictableIdleTimeMillis"
+			value="[{sopd.sqlserver.minEvictableIdleTimeMillis}]" />
+		<property name="maxActive"
+			value="[{sopd.sqlserver.maxActive}]" />
+	</bean>
+	<bean
+		class="cl.coopeuch.integracion.serviciowssaevalija.util.RouteFacade"
+		id="beanRouteFacade" />
+	<camelcxf:cxfEndpoint address="/WSSAEValija"
+		id="endpointWSSaevalija"
+		serviceClass="cl.coopeuch.integracion.serviciowssaevalija.wsdl.WSSaevalijaSOAPPortType"
+		wsdlURL="etc/wsdl/WSSaevalija.wsdl">
+		<camelcxf:properties>
+			<entry key="schema-validation-enabled" value="true" />
+		</camelcxf:properties>
+	</camelcxf:cxfEndpoint>
+	<camelContext id="servicio-wssaevalija"
+		xmlns="http://camel.apache.org/schema/blueprint">
+		<route id="inicio-soap">
+			<from id="inicioFromSoap" uri="cxf:bean:endpointWSSaevalija" />
+			<to id="soapToInicioWs" uri="direct:cxf-inicio" />
+		</route>
+
+		<route id="cxf-inicio">
+			<from id="inicioFromServicio" uri="direct:cxf-inicio" />
+			<log id="_log1" message="!!!!!!!!!!!!!  ${header.operationName}" />
+			<doTry id="inicioTry">
+				<setProperty id="inicioSetRequest"
+					propertyName="requestEntrada">
+					<simple>${body}</simple>
+				</setProperty>
+				<setProperty id="inicioSetTipoRequest"
+					propertyName="tipoRequest">
+					<simple>$simple{body.get(0).class.getSimpleName()}</simple>
+				</setProperty>
+				<setBody id="inicioSetBody">
+					<simple>$simple{body.get(0)}</simple>
+				</setBody>
+				<choice id="inicioChoiceOperacion">
+					<when id="inicioWhenOperacionConsultar">
+						<simple>${header.operationName} == 'consultarEstadosTarjeta'
+						</simple>
+						<to id="toConsultar" uri="direct:consultar" />
+					</when>
+					<otherwise id="inicioOtherwise">
+						<throwException exceptionType="java.lang.Exception"
+							id="throwExceptionOperacionInvalida"
+							message="La operacion solicitada es invalida" />
+					</otherwise>
+				</choice>
+				<doCatch id="inicioDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="inicioError"
+						propertyName="codigoError">
+							<simple resultType="Integer">437</simple>
+				</setProperty>
+					<setHeader headerName="validacion" >
+						<simple>${exception.message}</simple>
+					</setHeader>
+					<to id="inicioToExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="consultar">
+			<from id="consultarFrom" uri="direct:consultar" />
+			<doTry id="consultarTry">
+				<setHeader headerName="rutSocio" id="_setHeader1">
+					<simple resultType="String">$simple{body.rutSocio}</simple>
+				</setHeader>
+				<setHeader headerName="numeroTarjeta" id="_setHeader2">
+					<simple>$simple{body.numeroTarjeta}</simple>
+				</setHeader>
+				<bean id="_bean1" method="validaringreso" ref="beanRouteFacade" />
+				<choice>
+					<when>
+						<simple>${headers.validacion}</simple>
+						<to uri="direct:excepcion"></to>
+						<stop/>
+					</when>
+				</choice>
+				<choice>
+					<when>
+						<simple>${headers.validaciont}</simple>
+						<to id="_to1"
+							uri="sql-stored:classpath:etc/sql/prc_consultaUltimosEstados.sql?outputHeader=listarPaResponse&amp;dataSource=dataSourceSqlServer" />
+					</when>
+					<otherwise>
+						<to id="_to1"
+							uri="sql-stored:classpath:etc/sql/prc_consultaUltimosEstadoscontarjeta.sql?outputHeader=listarPaResponse&amp;dataSource=dataSourceSqlServer" />
+					</otherwise>
+				</choice>
+				<setBody><simple>${headers.listarPaResponse}</simple></setBody>
+				<choice>	
+				
+				<when><simple>${body.get('#result-set-1').get(0).get('numeroTarjeta')}</simple>
+				<bean id="procesoConsultarResponse"
+					method="procesoCrearResponse" ref="beanRouteFacade" />
+				<stop id="_stop1" />
+				</when>
+				<otherwise>
+				<to  uri="direct:excepcion" />
+				<stop/>							
+				</otherwise>
+				</choice>
+				
+				<log id="_log2" loggingLevel="ERROR"
+					message="!!!!!!!!!Inicio     ${headers.validacion}  o ${headers.validaciont}  ${headers.listarPaResponse}" />
+				<bean id="procesoConsultarResponse"
+					method="procesoCrearResponse" ref="beanRouteFacade" />
+				<stop id="_stop1" />
+				<doCatch>
+					<exception>java.sql.SQLException</exception>
+					<setProperty propertyName="codigoError">
+						<simple resultType="Integer">437</simple>
+					</setProperty>
+					<setHeader headerName="validacion" >
+						<simple>${exception.message}</simple>
+					</setHeader>
+					
+					<to id="autenticarTokenToExcepcionSQL" uri="direct:excepcion" />
+				</doCatch>
+				<doCatch id="consultarDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setProperty id="consultarCodigoError"
+						propertyName="codigoError">
+						<simple resultType="Integer">437</simple>
+					</setProperty>
+					<setHeader headerName="validacion" >
+						<simple>La consulta no arrojo resultados</simple>
+					</setHeader>
+					<to id="toConsultarExcepcion" uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		<route id="excepcion">
+			<from id="excepcionfrom" uri="direct:excepcion" />
+			<doTry id="excepcionTry">
+				<bean id="beanExceptionAmq" method="excepcionAmq"
+					ref="beanRouteFacade" />
+					
+				<marshal id="excepcionMarshalJson">
+					<json library="Jackson" />
+				</marshal>
+				<log loggingLevel="ERROR"  message="!!!!!!!!!!!! ${body}"></log>
+				<convertBodyTo id="excepcionConvertTo"
+					type="java.lang.String" />
+				<to id="excepcionToAmqFault"
+					uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly" />
+				<bean id="excepcionBeanExcepcion" method="excepcionCrear"
+					ref="beanRouteFacade" />
+				<doCatch id="excepcionDoCatch">
+					<exception>java.lang.Exception</exception>
+					<setBody id="exceptionFinalSetBodyError">
+						<simple>${exception}, Body -&gt; ${body}</simple>
+					</setBody>
+					<log id="excepcionLog" loggingLevel="ERROR"
+						message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}" />
+				</doCatch>
+			</doTry>
+		</route>
+	</camelContext>
+</blueprint>

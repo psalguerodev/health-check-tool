@@ -1,0 +1,453 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                        http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wssegurowrapper" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.corredoraseguros}];charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.corredoraseguros}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.corredoraseguros}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.corredoraseguros}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.corredoraseguros}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.corredoraseguros}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.corredoraseguros}]"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.segurowrapper.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="cl.coopeuch.integracion.segurowrapper.util.RouteCuentaVista" id="beanRouteCuentaVista"/>
+    <bean class="cl.coopeuch.integracion.segurowrapper.util.RouteCuentaAhorro" id="beanRouteCuentaAhorro"/>
+    <bean class="cl.coopeuch.integracion.segurowrapper.util.RouteValidarCedula" id="beanRouteValidarCedula"/>    
+    
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.segurowrapper.util.AggregatorCuentaVistaConsultar" id="agregadorcuentavista"/>
+    <bean class="org.apache.camel.component.gson.GsonDataFormat" id="responseDetalle">
+        <property name="unmarshalType" value="cl.coopeuch.integracion.cuentavista.wsdl.ConsultarDetalleResponseObject"/>
+    </bean>
+    <camelcxf:rsClient
+        address="[{endpoint.wscuentavista.consultarDetalle}]"
+        id="endpointRSCuentaVistaConsultarDetalle" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient address="[{endpoint.wscuentavista.consultar}]"
+        id="endpointRSCuentaVistaConsultar" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient address="[{endpoint.wscuentaahorro.consultar}]"
+        id="endpointRSCuentaAhorroConsultar" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <camelcxf:rsClient address="[{endpoint.wsserviciovalidacedula.datoscedulaidentidad}]" id="endpointRSValidaCedula" loggingFeatureEnabled="true">
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    
+    
+    
+    <camelcxf:cxfEndpoint address="/corredoraseguros/WSSeguroWrapper"
+        id="endpointWSSeguroWrapper"
+        serviceClass="cl.coopeuch.integracion.segurowrapper.wsdl.WSSeguroWrapperSOAPPortType" wsdlURL="etc/wsdl/WSSeguroWrapper.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/corredoraseguros/RSSeguroWrapper"
+        id="endpointRSSeguroWrapper" serviceClass="cl.coopeuch.integracion.segurowrapper.wsdl.WSSeguroWrapperSOAPPortType"/>
+    <camelContext id="servicio-seguroswrapper" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSSeguroWrapper"/>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio-soap"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSSeguroWrapper"/>
+            <log id="_log1" message="Nombre Operacion: ${header.operationName}"/>
+            <choice id="choiceRestInicio">
+                <when id="consultarDetalle_when">
+                    <simple>${header.operationName} == 'consultarCV'</simple>
+                    <to id="restToInicioCV" uri="direct:cxf-inicio-consultar-cv"/>
+                    <marshal id="requestToJsonConsultarDetalle">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.segurowrapper.wsdl.ConsultarDetalleResponse"/>
+                    </marshal>
+                </when>
+                <when id="consultaSaldoAhorro_when">
+                    <simple>${header.operationName} == 'consultaSaldoAhorro'</simple>
+                    <to id="restToInicioConsultaSaldo" uri="direct:inicioConsultarSaldoAhorro"/>
+                    <marshal id="marshallRequestToJsonConsultaSaldo">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.segurowrapper.wsdl.ConsultaSaldoAhorroResponse"/>
+                    </marshal>
+                </when>
+                <when id="validarCedula_when">
+                    <simple>${header.operationName} == 'validarCedula'</simple>
+                    <to id="restToInicioValidarCedula" uri="direct:inicioValidarCedula"/>
+                    <marshal id="marshallRequestToJsonValidarCedula">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.segurowrapper.wsdl.ValidarCedulaResponse"/>
+                    </marshal>
+                </when>
+                <otherwise id="otherwiseInicio">
+                    <log id="_log2" message="No se envio ninguna operacion"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="cxf-inicio-soap">
+            <from id="inicioSoapFromServicio" uri="direct:cxf-inicio-soap"/>
+            <choice id="choiceInicioSoap">
+                <when id="inicioSoapConsultarDetalle_when">
+                    <simple>${header.operationName} == 'consultarCV'</simple>
+                    <to id="inicioSoapInicioCV" uri="direct:cxf-inicio-consultar-cv"/>
+                </when>
+                <when id="inicioSoapconsultaSaldoAhorro_when">
+                    <simple>${header.operationName} == 'consultaSaldoAhorro'</simple>
+                    <to id="inicioSoapConsultaSaldo" uri="direct:inicioConsultarSaldoAhorro"/>
+                </when>
+                <when id="inicioSoapValidarCedula_when">
+                    <simple>${header.operationName} == 'validarCedula'</simple>
+                    <to id="inicioSoapValidarCedula" uri="direct:inicioValidarCedula"/>
+                </when>
+                <otherwise id="inicioSoapOtherwise">
+                    <log id="_log4" message="No se envio ninguna operacion"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="cxf-inicio-consultar-cv" streamCache="true">
+            <from id="inicioConsultarCvFrom" uri="direct:cxf-inicio-consultar-cv"/>
+            <doTry id="inicioConsultarCvTry">
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setProperty id="setCanalesLlamada" propertyName="canalesDeLlamada">
+                    <simple>{{wscuentavista.canales}}</simple>
+                </setProperty>
+                <setProperty id="setRequestConsultarCuentaVista" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <to id="consultarDetalleCVTo" uri="direct:consultarDetalleCV"/>
+                <split id="_split1">
+                    <simple>${property.responseConsultarDetalleCV.cuentas}</simple>
+                    <to id="consultarPorCanalCVTo" uri="direct:consultarPorCanalCV"/>
+                </split>
+                <bean id="asegurarDataBeanCV"
+                    method="asegurarDataDetalleCV" ref="beanRouteCuentaVista"/>
+                <setBody id="setResponseConsultarCV">
+                    <simple>${property.responseConsultarDetalleCV}</simple>
+                </setBody>
+                <unmarshal id="consultarDetalleUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.segurowrapper.wsdl"/>
+                </unmarshal>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="logCodigoError" loggingLevel="ERROR" message="Ini Codigo Error: ${property.codigoError}"/>
+                    <choice id="choiceCodigoError">
+                        <when id="whenCodigoErrorNull">
+                            <simple>${property.codigoError} == null</simple>
+                            <setProperty id="setInicioCodigoNullError" propertyName="codigoError">
+                                <constant>500</constant>
+                            </setProperty>
+                        </when>
+                        <when id="whenCodigoError500">
+                            <simple>${property.codigoError} == ''</simple>
+                            <setProperty id="setInicioCodigoVacioError" propertyName="codigoError">
+                                <constant>500</constant>
+                            </setProperty>
+                        </when>
+                        <otherwise id="otherwiseCodigoError">
+                            <log id="logCodigoError" message="Codigo Error: ${property.codigoError}"/>
+                        </otherwise>
+                    </choice>
+                    <log id="logMensajeError" loggingLevel="INFO" message="Mensaje error: ${exception.message}"/>
+                    <log id="logCodigoErrorTratado" loggingLevel="ERROR" message="Codigo error: ${property.codigoError}"/>
+                    <setProperty id="crearDescripcionError" propertyName="descripcion">
+                        <simple>${exception.message}</simple>
+                    </setProperty>
+                    <setProperty id="setNombreServicioWSCuentaVista" propertyName="nombreServicioInvocado">
+                        <simple>WSCuentaVista</simple>
+                    </setProperty>
+                    <bean id="inicioExcepcion"
+                        method="excepcionSegurosWrapper" ref="beanRouteFacade"/>
+                    <toD id="inicioAmqFault" uri="beanAMQ:{{amq.queue.cuentavista.general}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean id="asegurarDataExceptionCV"
+                        method="asegurarDataDetalleCV" ref="beanRouteCuentaVista"/>
+                    <setBody id="setBodyResponseErrorConsultarCV">
+                        <simple>${property.responseConsultarDetalleCV}</simple>
+                    </setBody>
+                    <unmarshal id="consultarDetalleUnmarshal">
+                        <jaxb contextPath="cl.coopeuch.integracion.segurowrapper.wsdl"/>
+                    </unmarshal>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarPorCanalCV" streamCache="true">
+            <from id="consultarPorCanalCVFrom" uri="direct:consultarPorCanalCV"/>
+            <log id="_log3" loggingLevel="INFO" message="Numero: ${body.numero}"/>
+            <setProperty id="setCVConsultaDetalle" propertyName="consultaDetalle">
+                <simple>${body}</simple>
+            </setProperty>
+            <bean id="obtenerCanalesCuentaVistaBean"
+                method="splitCanales" ref="beanRouteCuentaVista"/>
+            <split id="splitCVConsultar" strategyRef="agregadorcuentavista">
+                <simple>${property.canalesDeLlamada}</simple>
+                <to id="consultarCVTo" uri="direct:consultarCV"/>
+            </split>
+        </route>
+        <route id="consultarCV" streamCache="true">
+            <from id="consultarCVFrom" uri="direct:consultarCV"/>
+            <log id="logConsultarCVHeaders" loggingLevel="INFO" message="Headers: ${headers}"/>
+            <log id="logConsultarCVBody" loggingLevel="INFO" message="Body: ${body}"/>
+            <setProperty id="setCanalLlamada" propertyName="canalLlamada">
+                <simple>${body}</simple>
+            </setProperty>
+            <bean id="beanConsultarCuentaVistaRequest"
+                method="requestConsultar" ref="beanRouteCuentaVista"/>
+            <log id="logRequestConsultarCuentaVista" loggingLevel="INFO" message="Mensaje Entrada: ${body}"/>
+            <to id="consultarCuentaVista-To" uri="cxfrs:bean:endpointRSCuentaVistaConsultar?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>            
+            <convertBodyTo id="consultaResponseConvertTo" type="java.lang.String"/>
+            <log id="logHeadersConsultarCuentaVista" loggingLevel="INFO" message="headers : ${headers}"/>
+            <log id="logSalidaConsultarCuentaVista" loggingLevel="INFO" message="Salida Cuenta Vista: ${body}"/>
+            <bean id="beanConsultarCuentaVistaRequest"
+                method="responseConsultar" ref="beanRouteCuentaVista"/>
+            <log id="logCuentaDetalleCV" loggingLevel="INFO" message="Objeto cuentaDetalleCV- Numero: ${property.cuentaDetalleCV.numero}"/>
+        </route>
+        <route id="consultarDetalleCV" streamCache="true">
+            <from id="consultarDetalleCVFrom" uri="direct:consultarDetalleCV"/>
+            <bean id="beanConsultarDetalleCuentaVistaRequest"
+                method="requestConsultarDetalle" ref="beanRouteCuentaVista"/>
+            <log id="logRequestConsultarDetalleCuentaVista"
+                loggingLevel="INFO" message="Mensaje Entrada: ${body}"/>
+            <to id="consultarDetalleCuentaVista-To" uri="cxfrs:bean:endpointRSCuentaVistaConsultarDetalle?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+            <convertBodyTo id="consultaDetalleResponseConvertTo" type="java.lang.String"/>
+            <bean id="beanConsultarDetalleCuentaVistaRequest"
+                method="responseConsultarDetalle" ref="beanRouteCuentaVista"/>
+        </route>
+        <route id="inicioConsultarSaldoAhorro" streamCache="true">
+            <from id="formInicioConsultarSaldoAhorro" uri="direct:inicioConsultarSaldoAhorro"/>
+            <doTry id="_doTry1">
+                <setProperty id="inicioConsultaSaldoSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioConsultaSaldoSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioConsultaSaldoSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <setProperty id="inicioConsultaSaldoSetCanal" propertyName="canalLlamada">
+                    <simple>${body.canalLlamada}</simple>
+                </setProperty>
+                <to id="toConsultaSaldoAhorro" uri="direct:consultaSaldoAhorro"/>
+                <choice id="choiceConsultaAhorro">
+                    <when id="whenPoliza">
+                        <simple>${body.ctaCoopeuch} != null</simple>
+                        <to id="_to1" uri="direct:consultaCuentaAhorro"/>
+                    </when>
+                    <otherwise id="otherwiseNoPoliza">
+                        <setProperty id="setDescripcionErrorBD" propertyName="descripcion">
+                            <simple>No fueron encontrados registros con los filtros ingresados.</simple>
+                        </setProperty>
+                        <setProperty id="setCodigoErrorBD" propertyName="codigoError">
+                            <simple>499</simple>
+                        </setProperty>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionConsultaSaldo" message="${property.descripcion}"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toConsultaSaldoErrorQueue" uri="direct:consultaSaldoErrorQueue"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultaSaldoErrorQueue" streamCache="true">
+            <from id="formConsultaSaldoErrorQueue" uri="direct:consultaSaldoErrorQueue"/>
+            <choice id="choiceDescripcion">
+                <when id="whenDescripcion">
+                    <simple>${property.descripcion} == null or ${property.descripcion} == ''</simple>
+                    <setProperty id="messageErrorConsultaSaldo" propertyName="descripcion">
+                        <simple>${exception.message}</simple>
+                    </setProperty>
+                </when>
+                <otherwise id="otherwiseDescripcion">
+                    <log id="setDescripcionQueue" message="Descripcion: ${property.descripcion}"/>
+                </otherwise>
+            </choice>
+            <setProperty id="nombreServicioConsultaSaldo" propertyName="nombreServicioInvocado">
+                <simple>WSCuentaAhorro</simple>
+            </setProperty>
+            <log id="logBodyErrorQueue" message="Body Error: ${body}"/>
+            <bean id="inicioConsultaSaldoExcepcion"
+                method="excepcionAmq" ref="beanRouteFacade"/>
+            <log id="logRequestErrorQueue" message="Body queue: ${body}"/>
+            <toD id="inicioConsultaSaldoAmqFault" uri="beanAMQ:{{amq.queue.cuentaahorro.general}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+            <bean id="setErrorConsultaSaldoAhorro"
+                method="responseErrorConsultaSaldoAhorro" ref="beanRouteCuentaAhorro"/>
+        </route>
+        <route id="consultaSaldoAhorro" streamCache="true">
+            <from id="formConsultarSaldoAhorro" uri="direct:consultaSaldoAhorro"/>
+            <log id="_log5" message="Poliza: ${body.nroPoliza}"/>
+            <to id="paPolizaRut" uri="sql:classpath:etc/sql/pa_SELPolizaRutCuentaAhorro.sql?dataSource=dataSourceSqlServer&amp;outputClass=cl.coopeuch.integracion.segurowrapper.wsdl.PolizaRut&amp;outputType=SelectOne"/>
+            <log id="_log6" message="Respuesta CAH: ${body.ctaCoopeuch}"/>
+        </route>
+        <route id="consultaCuentaAhorro" streamCache="true">
+            <from id="formConsultaCuentaAhorro" uri="direct:consultaCuentaAhorro"/>
+            <bean id="setRequestCuentaAhorro" method="requestConsultar" ref="beanRouteCuentaAhorro"/>
+            <to id="toConsultarCuentaAhorro" uri="cxfrs:bean:endpointRSCuentaAhorroConsultar?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+            <log id="_log7" message="Response Servicio: ${body}"/>
+            <convertBodyTo id="responseConvertToConsultaSaldoAhorro" type="java.lang.String"/>
+            <bean id="setResponseConsultaSaldoAhorro"
+                method="responseConsultaSaldoAhorro" ref="beanRouteCuentaAhorro"/>
+            <log id="_log8" message="Request: ${body}"/>
+        </route>
+        <route id="inicioValidarCedula" streamCache="true">
+            <from id="formInicioValidarCedula" uri="direct:inicioValidarCedula"/>
+            <doTry id="tryValidarCedula">
+                <setProperty id="inicioValidarCedulaSetRequest" propertyName="requestEntrada">
+                    <simple>$simple{body.get(0)}</simple>
+                </setProperty>
+                <setProperty id="inicioValidarCedulaSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setBody id="inicioValidarCedulaSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <log message="RUT ${body.rut}"></log>
+                <log message="Body: ${body}"></log>
+                <setProperty propertyName="rut">
+                	<simple>${body.rut}</simple>
+                </setProperty>
+                <choice id="choiceValidarCedula">
+                    <when id="whenValidarCedula">
+                        <simple>${body.rut} != null</simple>
+                        <to id="toConsultaIntentos" uri="direct:consultaIntentos"/>
+                    </when>
+                    <otherwise id="otherwiseValidaCedula">
+                        <setProperty id="setDescripcionErrorRut" propertyName="descripcion">
+                            <simple>Falta el RUT del afiliado.</simple>
+                        </setProperty>
+                        <setProperty id="setCodigoErrorRut" propertyName="codigoError">
+                            <simple>9305</simple>
+                        </setProperty>
+                        <throwException exceptionType="java.lang.Exception" id="throwExceptionValidaCedula" message="${property.descripcion}"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="doCatchValidaCedula">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toPersistenciaRutErrorQueue" uri="direct:persistenciaRutErrorQueue"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultaIntentos" streamCache="true">
+            <from id="formConsultaIntentos" uri="direct:consultaIntentos"/>
+            <!-- 
+            <doTry id="tryConsultaIntentos"> -->
+                <to id="paPersistenciaValidaCedula" uri="sql:classpath:etc/sql/PA_SELPersistenciaValidaCedula.sql?dataSource=dataSourceSqlServer&amp;outputClass=cl.coopeuch.integracion.segurowrapper.wsdl.PersistenciaValidaCedula&amp;outputType=SelectOne"/>                
+                <bean id="validarPersistenciaRut" method="validarPersistenciaRut" ref="beanRouteValidarCedula"/>
+                <log  message="fechaRegistro: ${property.fechaRegistro}"/>
+                <log  message="ultimoRegistro: ${property.ultimoRegistro}"/>
+                <log  message="numeroIntentos: ${property.numeroIntentos}"/>                
+                <log  message="Estado: ${property.STATUS}"/>
+                <log  message="STATEMENT: ${property.STATEMENT}"/>
+                <to id="toPersistenciaValidaCedula" uri="direct:persistenciaValidaCedula"/>
+                <choice id="choiceValidarEstado">
+                    <when id="whenValidarEstado">
+                        <simple>${property.STATUS} != 'BLOQUEADO'</simple>                                                
+                        <bean id="prepararRequest" method="prepararRequest" ref="beanRouteValidarCedula"/>
+                        <setProperty propertyName="nombreServicioInvocado">
+                        	<simple>ServicioValidaCedula</simple>
+                        </setProperty>
+                        <to id="consultarValidaCedula" uri="cxfrs:bean:endpointRSValidaCedula?exchangePattern=InOut&amp;throwExceptionOnFailure=false"/>
+                        <log message="Respuesta Servicio: ${body}"></log>
+                        <bean id="obtenerRespuestaValidaCedula" method="obtenerRespuestaValidaCedula" ref="beanRouteValidarCedula"/>
+                        
+                        <log message="Respuesta: ${body}"></log>            
+                    </when>
+                    <otherwise id="otherwiseValidarEstado">
+                    	<log message="otherwhise"></log>
+                        <setProperty id="setDescripcionErrorValidarEstado" propertyName="descripcion">
+                            <simple>La peticion esta bloqueada.</simple>
+                        </setProperty>
+                        <setProperty id="setCodigoErrorValidarEstado" propertyName="codigoError">
+                            <simple>9305</simple>
+                        </setProperty>
+                        <setProperty id="setOrigenError" propertyName="origenError">
+                            <simple>ValidarCedula</simple>
+                        </setProperty>
+                        <throwException exceptionType="java.lang.Exception" id="throwExceptionValidarEstado" message="${property.descripcion}"/>
+                    </otherwise>
+                </choice>
+                <!-- 
+                <doCatch id="doCatchConsultaIntentos">
+                    <exception>java.lang.Exception</exception>
+                    <log id="_log11" message="Error consultando los datos"/>
+                    
+                </doCatch>
+            </doTry> -->
+        </route>
+        <route id="persistenciaValidaCedula" streamCache="true">
+            <from id="formPersistenciaValidaCedula" uri="direct:persistenciaValidaCedula"/>
+             <choice id="choiceValidarStatement">
+                <when id="whenValidarStatement">
+                    <simple>${property.STATEMENT} == 'INSERT'</simple>
+        			<to id="paInsertPersistenciaValidaCedula" uri="sql:classpath:etc/sql/PA_INSPersistenciaValidaCedula.sql?dataSource=dataSourceSqlServer"/>
+        		</when>
+        		<when id="whenValidarStatement">
+                    <simple>${property.STATEMENT} == 'UPDATE'</simple>
+        			<to id="paUpdatePersistenciaValidaCedula" uri="sql:classpath:etc/sql/PA_UPDPersistenciaValidaCedula.sql?dataSource=dataSourceSqlServer"/>
+        		</when>
+                <otherwise id="otherwiseValidarStatement">
+                    <setProperty id="setDescripcionErrorValidarStatement" propertyName="descripcion">
+                        <simple>Los datos ingresados son incorrectos.</simple>
+                    </setProperty>
+                    <setProperty id="setCodigoErrorValidarStatement" propertyName="codigoError">
+                        <simple>417</simple>
+                    </setProperty>
+                    <throwException exceptionType="java.lang.Exception" id="throwExceptionValidarStatement" message="${property.descripcion}"/>
+                </otherwise>
+             </choice>
+        </route>
+        
+         <route id="persistenciaRutErrorQueue" streamCache="true">
+            <from id="formPersistenciaRutErrorQueue" uri="direct:persistenciaRutErrorQueue"/>
+            <choice id="choicePersistenciaRutErrorQueue">
+                <when id="whenPersistenciaRutErrorQueue">
+                    <simple>${property.descripcion} == null or ${property.descripcion} == ''</simple>
+                    <setProperty id="messageErrorPersistenciaRutErrorQueue" propertyName="descripcion">
+                        <simple>${exception.message}</simple>
+                    </setProperty>
+                </when>
+                <otherwise id="otherwisePersistenciaRutErrorQueue">
+                    <log id="setQueuePersistenciaRutErrorQueue" message="Descripcion: ${property.descripcion}"/>
+                </otherwise>
+            </choice>
+             <setProperty id="nombreServicioPersistenciaRutErrorQueue" propertyName="nombreServicioInvocado">
+                <simple>ServicioValidaCedula</simple>
+            </setProperty>
+            <bean id="excepcionPersistenciaRutErrorQueue" method="excepcionAmq" ref="beanRouteFacade"/>
+            <log id="logBodyPersistenciaRutErrorQueue" message="Body Error: ${body}"/>
+            <toD id="amqPersistenciaRutErrorQueue" uri="beanAMQ:{{amq.queue.validacedula.general}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+            <bean id="setErrorPersistenciaRutErrorQueue" method="responseErrorValidarCedula" ref="beanRouteValidarCedula"/>
+            <log id="logRequestPersistenciaRutErrorQueue" message="Body queue: ${body}"/>            
+        </route>
+        
+    </camelContext>
+</blueprint>

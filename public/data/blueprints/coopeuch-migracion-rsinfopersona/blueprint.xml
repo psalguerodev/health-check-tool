@@ -1,0 +1,258 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http-conf="http://cxf.apache.org/transports/http/configuration"
+    xmlns:sec="http://cxf.apache.org/configuration/security"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd  http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Servicio Informacion de Persona -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsinfopersona" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobalDb2"
+        persistent-id="globalDb2" placeholder-prefix="[["
+        placeholder-suffix="]]" update-strategy="reload"/>
+    <camelcxf:rsClient address="[{infopersona.sncr4401.endpoint}]"
+        id="servicioSinacofiPersonaEndpoint" loggingFeatureEnabled="true">
+        <camelcxf:properties>
+            <entry key="throwExceptionOnFailure" value="false"/>
+        </camelcxf:properties>
+        <camelcxf:providers>
+            <ref component-id="jsonProvider"/>
+        </camelcxf:providers>
+    </camelcxf:rsClient>
+    <http-conf:conduit name="*.http-conduit">
+        <http-conf:tlsClientParameters>
+            <sec:keyManagers keyPassword="[{servicio.sinacofi.certificado.pfx.clave}]">
+                <sec:keyStore
+                    file="[{servicio.sinacofi.certificado.pfx.path}]"
+                    password="[{servicio.sinacofi.certificado.pfx.clave}]" type="JKS"/>
+            </sec:keyManagers>
+        </http-conf:tlsClientParameters>
+        <http-conf:client AutoRedirect="true" Connection="Keep-Alive"
+            ConnectionTimeout="5000" ReceiveTimeout="5000"/>
+    </http-conf:conduit>
+    <!-- Conexion AMQ -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlDb2">
+        <property name="driverClassName" value="com.ibm.as400.access.AS400JDBCDriver"/>
+        <property name="url" value="[[jdbc.db2.url.servicio]]"/>
+        <property name="username" value="[[jdbc.db2.username.cuentas]]"/>
+        <property name="password" value="[[jdbc.db2.password.cuentas]]"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.infopersona.util.RouteFacade" id="beanRouteFacade"/>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider"/>
+    <camelcxf:cxfEndpoint address="/WSInfoPersona"
+        continuationTimeout="10000" id="endpointWSInfoPersona"
+        serviceClass="cl.coopeuch.integracion.infopersona.wsdl.WSInfoPersonaSOAPPortType" wsdlURL="etc/wsdl/WSInfoPersona.wsdl"/>
+    <camelcxf:cxfEndpoint address="[{infopersona.sncr4401.endpoint}]"
+        id="endpointServicioSNCR4401" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.infopersona.wsdl.sncr4401.SNCR4401SoapImpl" wsdlURL="etc/wsdl/SNCR4401.wsdl"/>
+    <camelcxf:rsServer address="/RSInfoPersona"
+        id="endpointRSInfoPersona" serviceClass="cl.coopeuch.integracion.infopersona.wsdl.WSInfoPersonaSOAPPortType"/>
+    <camelContext id="servicio-infopersona" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="autenticacionSinacofiJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.client.dto.in.AutenticarIn"/>
+            <json id="tokenSinacofiJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.client.dto.out.Tokens"/>
+            <json id="infoPersonaRequestJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.client.dto.in.ConsultaIn"/>
+            <json id="infoPersonaResponseJson" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.client.dto.out.DatosSalidaConsulta"/>
+        </dataFormats>
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:endpointWSInfoPersona"/>
+            <to id="soapToInicioWs" uri="direct:inicio"/>
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSInfoPersona"/>
+            <to id="restToInicioWs" uri="direct:inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="routeIdConsultarProperty" propertyName="routeId">
+                    <simple>consultar</simple>
+                </setProperty>
+                <bean id="consultarOperacionBean"
+                    method="obtenerDatosOperacion" ref="beanRouteFacade"/>
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetBody" propertyName="bodyEntrada">
+                    <simple>${body.get(0)}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="toFiltroConsulta" uri="direct:filtroConsulta"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultarCoopeuch">
+                        <simple>${header.operationName} == 'consultarCoopeuch'</simple>
+                        <to id="toFiltroConsulta" uri="direct:consultarCoopeuch"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioPropertyCodigo" propertyName="codigoError">
+                        <simple>500</simple>
+                    </setProperty>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="filtroConsulta">
+            <from id="filtroConsultaFrom" uri="direct:filtroConsulta"/>
+            <doTry id="filtroConsultaTry">
+                <choice id="filtroConsultaChoice">
+                    <when id="validaConsultaWhen">
+                        <simple>${exchange.getProperty('consultas')} == '26'</simple>
+                        <to id="toConsultar" uri="direct:consultar"/>
+                    </when>
+                    <when id="otrasConsultasWhen">
+                        <simple>${exchange.getProperty('consultas')} != '26' &amp;&amp; ${exchange.getProperty('consultas')} != ''</simple>
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="FiltroIncorrectoThrowException" message="Valor ingresado en parametro consultas invalido"/>
+                        <setProperty
+                            id="filtroConsultaPropertyCodigoError" propertyName="codigoError">
+                            <simple>500</simple>
+                        </setProperty>
+                        <to id="ExcepcionToConsultaInvalida" uri="direct:excepcion"/>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="otherThrowException" message="Debe ingresar valor en parametro consultas"/>
+                        <setProperty id="otherPropertyCodigoError" propertyName="codigoError">
+                            <simple>500</simple>
+                        </setProperty>
+                        <to id="ExcepcionToSinFiltro" uri="direct:excepcion"/>
+                    </otherwise>
+                </choice>
+            </doTry>
+        </route>
+        <!-- Ruta Encargada de consultar datos de persona al WS de Sinacofi -->
+        <route id="consultar">
+            <!--             <doTry id="consultarTry"> -->
+            <from id="consultarFrom" uri="direct:consultar"/>
+            <to id="_to2" uri="direct:authSinacofi"/>
+            <removeHeaders id="consultarRemoveHeaders" pattern="*"/>
+            <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader4">
+                <constant>application/json</constant>
+            </setHeader>
+            <setHeader headerName="CamelHttpMethod" id="_setHeader5">
+                <constant>POST</constant>
+            </setHeader>
+            <setHeader headerName="Authorization" id="_setHeader6">
+                <simple>${property.auth}</simple>
+            </setHeader>
+            <bean id="consultarBean" method="consulta" ref="beanRouteFacade"/>
+            <marshal id="_marshal1" ref="infoPersonaRequestJson"/>
+            <convertBodyTo id="_convertBodyTo1" type="String"/>
+            <to id="personaToServicioSinacofi" uri="cxfrs://bean://servicioSinacofiPersonaEndpoint"/>
+            <unmarshal id="_unmarshal2" ref="infoPersonaResponseJson"/>
+            <bean id="consultarResponseBean" method="consultarResponse" ref="beanRouteFacade"/>
+            <!--                 <doCatch id="consultarDoCatch"> -->
+            <!--                     <exception>java.lang.Exception</exception> -->
+            <!--                     <setProperty id="consultarPropertyCodigoError" propertyName="codigoError"> -->
+            <!--                         <simple>504</simple> -->
+            <!--                     </setProperty> -->
+            <!--                     <throwException exceptionType="java.lang.Exception" -->
+            <!--                         id="throwExceptionConsultar" message="Error en la comunicacion con el servicio externo SNCR4401 - consulta"/> -->
+            <!--                     <to id="consultarExcepcionTo" uri="direct:excepcion"/> -->
+            <!--                 </doCatch> -->
+            <!--             </doTry> -->
+        </route>
+        <route id="consultarCoopeuch">
+            <from id="_from1" uri="direct:consultarCoopeuch"/>
+            <doTry id="consultarCoopeuchTry">
+                <setBody id="_setBody1">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <setProperty id="_setProperty1" propertyName="rut">
+                    <simple>${body.rut}</simple>
+                </setProperty>
+                <setProperty id="_setProperty2" propertyName="codigoCliente">
+                    <simple>${body.codigoCliente}</simple>
+                </setProperty>
+                <to id="consultarCoopeuch-To" uri="sql-stored:classpath:sql/pa_seldatosbasicos_ws.sql?dataSource=dataSourceSqlDb2&amp;outputHeader=responseDB2"/>
+                <bean id="consultarCoopeuchResponseBean"
+                    method="consultarCoopeuchResponse" ref="beanRouteFacade"/>
+                <log id="_log1" message="(${body})"/>
+                <doCatch id="consultarCoopeuchDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <!--                     <throwException exceptionType="java.lang.Exception" -->
+                    <!--                         id="throwExceptionConsultarCoopeuch" message="Error interno del servidor"/> -->
+                    <setProperty
+                        id="consultarCoopeuchPropertyCodigoError" propertyName="codigoError">
+                        <simple>500</simple>
+                    </setProperty>
+                    <to id="consultarCoopeuchExcepcionTo" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Ruta encargada de generar excepcion del servicio -->
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <log id="_log2" loggingLevel="ERROR" message="ERROR2 ${body}"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="autenticarSinacofi_route">
+            <from id="_from2" uri="direct:authSinacofi"/>
+            <setProperty id="_setProperty3" propertyName="cuerpo">
+                <simple>${body}</simple>
+            </setProperty>
+            <removeHeaders id="_removeHeaders1" pattern="*"/>
+            <setHeader headerName="Exchange.CONTENT_TYPE" id="_setHeader1">
+                <constant>application/json</constant>
+            </setHeader>
+            <setHeader headerName="client_id" id="_setHeader2">
+                <simple>{{servicio.sinacofi.autenticar.clientid}}</simple>
+            </setHeader>
+            <setHeader headerName="client_secret" id="_setHeader3">
+                <simple>{{servicio.sinacofi.autenticar.clientsecret}}</simple>
+            </setHeader>
+            <bean id="_bean1" method="autenticarRequest" ref="beanRouteFacade"/>
+            <marshal id="_marshal2" ref="autenticacionSinacofiJson"/>
+            <to id="_to1" uri="{{servicio.sinacofi.autenticar.endpoint}}"/>
+            <unmarshal id="_unmarshal1" ref="tokenSinacofiJson"/>
+            <setProperty id="_setProperty4" propertyName="auth">
+                <simple>${body.token_type} ${body.access_token}</simple>
+            </setProperty>
+            <log id="_log3" message="${property.auth}"/>
+            <setBody id="_setBody2">
+                <simple>${property.cuerpo}</simple>
+            </setBody>
+        </route>
+    </camelContext>
+</blueprint>

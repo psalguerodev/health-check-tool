@@ -1,0 +1,989 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd      http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cxf:cxfEndpoint address="/convenios/WSDetallesPlanilla"
+        id="servicioDetallesPlanillaEndpoint" wsdlURL="etc/wsdl/WSDetallesPlanilla.wsdl"/>
+    <cm:property-placeholder id="serviciodetallesplanilla"
+        persistent-id="wsdetallesplanilla" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSource">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="{[jdbc.url.usuarioConvenio]};charset=iso_1"/>
+        <property name="username" value="{[jdbc.username.usuarioConvenio]}"/>
+        <property name="password" value="{[jdbc.password.usuarioConvenio]}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="{[jdbc.timeBetweenEvictionRunsMillis.usuarioConvenio]}"/>
+        <property name="numTestsPerEvictionRun" value="{[jdbc.numTestsPerEvictionRun.usuarioConvenio]}"/>
+        <property name="minEvictableIdleTimeMillis" value="{[jdbc.minEvictableIdleTimeMillis.usuarioConvenio]}"/>
+        <property name="maxActive" value="{[jdbc.maxActive.usuarioConvenio]}"/>
+    </bean>
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.detallesplanilla.util.RouteFacade" id="beanRouteFacade"/>
+    <!-- Define the stored procedure bean with the input and output params -->
+    <bean
+        class="cl.coopeuch.integracion.detallesplanilla.util.db.ContarRazonesPendientes" id="call_sp_get_planillas_without_reason">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_get_planillas_without_reason"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="inputSolicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="inputRutVisdor"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.detallesplanilla.util.db.GuardarRazonesPendientes" id="call_sp_update_planilla_Reason">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_update_planilla_reason"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="inputSolicitude"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="inputIdPlanilla"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="inputRutSocio"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="inputMonthYear"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="inputReason"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="inputReasonCode"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="inputRutExecutor"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!-- will change this name when done with Sp -->
+    <bean
+        class="cl.coopeuch.integracion.detallesplanilla.util.db.GuardarDetallePlanillaModificada" id="call_sp_update_planilla_details1">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_update_planilla_details"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="solicitudid"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="discountperiod"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="idplanilla"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="nombresocio"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="numerodeproductos"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="montoinformado"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="montodescontar"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="totalapplied"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="reason"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="rutExecutor"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.detallesplanilla.util.db.ListarRazonesPendientes" id="call_sp_list_planillas_without_reason">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_list_planillas_without_reason"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="inputSolicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="inputRutId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.detallesplanilla.util.db.ConsultarDetallePlanillasModificas" id="call_sp_get_modified_planillas">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_get_modified_planillas"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <!--  <map>
+                    <entry key="name" value="inputPlanillaId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map> -->
+                <map>
+                    <entry key="name" value="inputSolicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="inputMonth"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="inputYear"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!-- Define the stored procedure bean with the input and output params -->
+    <bean
+        class="cl.coopeuch.integracion.detallesplanilla.util.db.DeclararPlanillaArchivo" id="call_sp_declare_planilla">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_declare_planilla"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="solicitude"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="monthValue"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="yearValue"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="informedAmount"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="declaredAmount"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="fileName"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="declareFile"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="rutExecutor"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.detallesplanilla.util.db.StoredProcedureBean" id="call_sp_get_convenio">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_get_convenio"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="inputSolicitudId"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="convenio"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.detallesplanilla.util.db.StoredProcedureBean" id="call_sp_get_mediopagos">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_get_mediopagos"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.detallesplanilla.util.db.ProcedimientoListaEstadoPlanillas" id="call_sp_obtener_estados_planillas">
+        <argument ref="dataSource"/>
+        <argument value="java.sql.Types"/>
+        <argument value="sp_obtener_estados_planillas"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="inputIdsDePlanilla"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <camelContext id="servicio-detallesplanilla" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml id="jacksonTransform" prettyPrint="true"/>
+        </dataFormats>
+        <route id="cxf-inicio">
+            <from id="servicioDetallesPlanillaEndpointistener" uri="cxf:bean:servicioDetallesPlanillaEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="cxf-inicioTry">
+                <convertBodyTo id="cxf-inicioBodyTo" type="java.lang.String"/>
+                <bean id="backupBody" method="backupBody" ref="beanRouteFacade"/>
+                <choice id="routeOperations">
+                    <when id="routeSendMailDeclarePlanilla">
+                        <simple>${body} contains 'sendMailDeclarePlanillaRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest0" propertyName="tipoRequest">
+                            <simple>SendMailDeclarePlanillaRequest</simple>
+                        </setProperty>
+                        <to id="tosendMailDeclarePlanilla" uri="direct:sendMailDeclarePlanillaRouteOperation"/>
+                    </when>
+                    <when id="contarRazonesPendientesRequest">
+                        <simple>${body} contains 'contarRazonesPendientesRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest1" propertyName="tipoRequest">
+                            <simple>ContarRazonesPendientesRequest</simple>
+                        </setProperty>
+                        <to id="toContarRazonesPendientes" uri="direct:contarRazonesPendientesRouteOperation"/>
+                    </when>
+                    <when id="registrarRazonesPendientesRequest">
+                        <simple>${body} contains 'registrarRazonesPendientesRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest2" propertyName="tipoRequest">
+                            <simple>RegistrarRazonesPendientesRequest</simple>
+                        </setProperty>
+                        <to id="toregistrarRazonesPendientesRequest" uri="direct:registrarRazonesPendientesRouteOperation"/>
+                    </when>
+                    <when id="consultarRazonesPendientesRequest">
+                        <simple>${body} contains 'consultarRazonesPendientesRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest3" propertyName="tipoRequest">
+                            <simple>ConsultarRazonesPendientesRequest</simple>
+                        </setProperty>
+                        <to id="toconsultarRazonesPendientesRequest" uri="direct:consultarRazonesPendientesRouteOperation"/>
+                    </when>
+                    <when id="_when1">
+                        <simple>${body} contains 'getDetailPlanillaPorMesAnoRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest4" propertyName="tipoRequest">
+                            <simple>GetDetailPlanillaPorMesAnoRequest</simple>
+                        </setProperty>
+                        <to id="toGetDetailPlanillaPorMesAno" uri="direct:getDetailPlanillaPorMesAnoOperation"/>
+                    </when>
+                    <when id="_whenDetailPlanillaPorRutRequest">
+                        <simple>${body} contains 'getDetailPlanillaPorRutRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest5" propertyName="tipoRequest">
+                            <simple>GetDetailPlanillaPorRutRequest</simple>
+                        </setProperty>
+                        <to id="togetDetailPlanillaPorRut" uri="direct:getDetailPlanillaPorRutOperation"/>
+                    </when>
+                    <when id="_whenConsultarDetallePlanillasModificadasRequest">
+                        <simple>${body} contains 'consultarDetallePlanillasModificadasRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest6" propertyName="tipoRequest">
+                            <simple>ConsultarDetallePlanillasModificadasRequest</simple>
+                        </setProperty>
+                        <to id="toDetallePlanillasModificadas" uri="direct:consultarDetallePlanillasModificadasOperation"/>
+                    </when>
+                    <when id="_whenregistrarDetallePlanillaModificadaRequest">
+                        <simple>${body} contains 'registrarDetallePlanillaModificadaRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest7" propertyName="tipoRequest">
+                            <simple>RegistrarDetallePlanillaModificadaRequest</simple>
+                        </setProperty>
+                        <to id="toregistrarDetallePlanillaModificada" uri="direct:registrarDetallePlanillaModificadaOperation"/>
+                    </when>
+                    <when id="declararPlanillaArchivoRequest">
+                        <simple>${body} contains 'declararPlanillaArchivoRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest7" propertyName="tipoRequest">
+                            <simple>DeclararPlanillaArchivoRequest</simple>
+                        </setProperty>
+                        <to id="toDeclararPlanillaArchivoRequest" uri="direct:declararPlanillaArchivoRouteOperation"/>
+                    </when>
+                    <when id="consultarEstadoPlanillaRequest">
+                        <simple>${body} contains 'consultarEstadoPlanillaRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest8" propertyName="tipoRequest">
+                            <simple>ConsultarEstadoPlanillaRequest</simple>
+                        </setProperty>
+                        <to id="toconsultarEstadoPlanillaRequest" uri="direct:consultarEstadoPlanillaRouteOperation"/>
+                    </when>
+                    <when id="consultarConvenioRequest">
+                        <simple>${body} contains 'consultarConvenioRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest9" propertyName="tipoRequest">
+                            <simple>ConsultarConvenioRequest</simple>
+                        </setProperty>
+                        <to id="toconsultarConvenioRequest" uri="direct:consultarConvenioOperation"/>
+                    </when>
+                    <when id="consultarMedioPagoRequest">
+                        <simple>${body} contains 'consultarMedioPagoRequest'</simple>
+                        <setProperty id="inicioSetTipoRequest10" propertyName="tipoRequest">
+                            <simple>ConsultarMedioPagoRequest</simple>
+                        </setProperty>
+                        <to id="toconsultarMedioPagoRequest" uri="direct:consultarMedioPagoOperation"/>
+                    </when>
+                </choice>
+                <doCatch id="cxf-inicioCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="cxf-inicioPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="cxf-inicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="sendMailDeclarePlanillaRouteOperation">
+            <from id="sendMailDeclarePlanillaEndpointListener" uri="direct:sendMailDeclarePlanillaRouteOperation"/>
+            <doTry id="sendMailDeclarePlanillaTry">
+                <convertBodyTo id="sendMailDeclarePlanillaBody" type="java.lang.String"/>
+                <setHeader headerName="executiveEmail" id="executiveEmail">
+                    <xpath resultType="String">//executiveEmail</xpath>
+                </setHeader>
+                <setHeader headerName="solicitude" id="solicitude">
+                    <xpath resultType="String">//solicitude</xpath>
+                </setHeader>
+                <setHeader headerName="nombreSolicitude" id="nombreSolicitude">
+                    <xpath resultType="String">//nombreSolicitude</xpath>
+                </setHeader>
+                <setHeader headerName="monthText" id="monthText">
+                    <xpath resultType="String">//monthText</xpath>
+                </setHeader>
+                <!-- utf8 -->
+                <setHeader headerName="yearValue" id="yearValue">
+                    <xpath resultType="String">//yearValue</xpath>
+                </setHeader>
+                <!-- utf8 -->
+                <setHeader headerName="montoInformadoValue" id="montoInformadoValue">
+                    <xpath resultType="String">//montoInformadoValue</xpath>
+                </setHeader>
+                <!-- utf8 -->
+                <setHeader headerName="montoPagarValue" id="montoPagarValue">
+                    <xpath resultType="String">//montoPagarValue</xpath>
+                </setHeader>
+                <!-- utf8 -->
+                <setHeader headerName="estadoValue" id="estadoValue">
+                    <xpath resultType="String">//estadoValue</xpath>
+                </setHeader>
+                <setHeader headerName="archivo_1" id="archivo_1">
+                    <xpath resultType="String">//archivo_1</xpath>
+                </setHeader>
+                <!-- utf8 -->
+                <setHeader headerName="nombre_archivo_1" id="nombre_archivo_1">
+                    <xpath resultType="String">//nombre_archivo_1</xpath>
+                </setHeader>
+                <!-- utf8 -->
+                <setHeader headerName="tipo_archivo_1" id="tipo_archivo_1">
+                    <xpath resultType="String">//tipo_archivo_1</xpath>
+                </setHeader>
+                <setProperty id="sendMailDeclarePlanillaUserID" propertyName="userId">
+                    <simple>{{user.id}}</simple>
+                </setProperty>
+                <setProperty id="sendMailDeclarePlanillaCanal" propertyName="canal">
+                    <simple>{{canal}}</simple>
+                </setProperty>
+                <setProperty id="_setProperty9" propertyName="Exchange.HTTP_CHARACTER_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty10" propertyName="Exchange.CONTENT_TYPE">
+                    <constant>text/xml;charset=utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty11" propertyName="Exchange.CONTENT_ENCODING">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <setProperty id="_setProperty12" propertyName="Exchange.CHARSET_NAME">
+                    <constant>utf-8</constant>
+                </setProperty>
+                <to id="sendMailDeclarePlanillaRequestXsl" uri="xslt://etc/xsl/request/sendMailDeclarePlanillaRequest.xsl"/>
+                <removeHeaders id="_removeHeaders7" pattern="JMS*"/>
+                <removeHeaders id="removeSoapActionHeader" pattern="SOAPAction*"/>
+                <convertBodyTo id="sendMailDeclarePlanillaRequestBody" type="java.lang.String"/>
+                <to id="cxfsendMailDeclarePlanillaRequest" uri="cxf:{{endpoint.notifications.service}}?dataFormat=MESSAGE"/>
+                <convertBodyTo id="sendMailDeclarePlanillaResponseBody" type="java.lang.String"/>
+                <to id="sendMailDeclarePlanillaResponseXml" uri="xslt://etc/xsl/response/sendMailDeclarePlanillaResponse.xsl"/>
+                <removeHeaders id="_removeHeaders8" pattern="*"/>
+                <doCatch id="sendMailDeclarePlanillaCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="sendMailDeclarePlanillaCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="sendMailDeclarePlanillaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="contarRazonesPendientesRouteOperation">
+            <from id="contarRazonesPendientesEndpointListener" uri="direct:contarRazonesPendientesRouteOperation"/>
+            <doTry id="contarRazonesPendientesTry">
+                <convertBodyTo id="routeOperationBody" type="java.lang.String"/>
+                <setHeader headerName="inputSolicitudId" id="inputSolicitudId1">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <setHeader headerName="inputRutVisdor" id="inputRutVisdor1">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <to id="to_call_sp_get_planillas_without_reason" uri="bean:call_sp_get_planillas_without_reason"/>
+                <removeHeaders id="removeHeader1" pattern="*"/>
+                <doCatch id="contarRazonesPendientesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <setProperty
+                        id="contarRazonesPendientesPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="contarRazonesPendientesExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="registrarRazonesPendientesRouteOperation">
+            <from id="registrarRazonesPendientesEndpointListener" uri="direct:registrarRazonesPendientesRouteOperation"/>
+            <doTry id="registrarRazonesPendientesTry">
+                <convertBodyTo id="routeOperationBody2" type="java.lang.String"/>
+                <setHeader headerName="inputSolicitude" id="inputSolicitudeUpdate">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <setHeader headerName="inputIdPlanilla" id="inputIdPlanillaUpdate">
+                    <xpath resultType="String">//idPlanilla</xpath>
+                </setHeader>
+                <setHeader headerName="inputRutSocio" id="inputRutSocioUpdate">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <setHeader headerName="inputMonthYear" id="inputMonthYearUpdate">
+                    <xpath resultType="String">//discountPeriod</xpath>
+                </setHeader>
+                <setHeader headerName="inputReason" id="inputReasonUpdate">
+                    <xpath resultType="String">//reason</xpath>
+                </setHeader>
+                <setHeader headerName="inputReasonCode" id="inputReasonCodeUpdate">
+                    <xpath resultType="String">//reasonCode</xpath>
+                </setHeader>
+                <setHeader headerName="inputRutExecutor" id="inputRutExecutorUpdate">
+                    <xpath resultType="String">//rutExecutor</xpath>
+                </setHeader>
+                <to id="to_call_sp_update_planilla_Reason" uri="bean:call_sp_update_planilla_Reason"/>
+                <removeHeaders id="removeHeader2" pattern="*"/>
+                <doCatch id="registrarRazonesPendientesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <setProperty
+                        id="registrarRazonesPendientesPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="registrarRazonesPendientesExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarRazonesPendientesRouteOperation">
+            <from id="consultarRazonesPendientesEndpointListener" uri="direct:consultarRazonesPendientesRouteOperation"/>
+            <doTry id="consultarRazonesPendientesRequestTry">
+                <convertBodyTo id="routeOperationBody3" type="java.lang.String"/>
+                <setHeader headerName="inputSolicitudId" id="inputSolicitudId2">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <setHeader headerName="inputRutId" id="inputRutId2">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <to id="id_call_sp_list_planillas_without_reason" uri="bean:call_sp_list_planillas_without_reason"/>
+                <doCatch id="consultarRazonesPendientesRequestCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <setProperty
+                        id="consultarRazonesPendientesPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="consultarRazonesPendientesExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="getDetailPlanillaPorMesAnoOperation">
+            <from id="getDetailPlanillaPorMesAnoEndpointListener" uri="direct:getDetailPlanillaPorMesAnoOperation"/>
+            <doTry id="getDetailPlanillaPorMesAnoTry">
+                <convertBodyTo id="routeOperationBody344" type="java.lang.String"/>
+                <setProperty id="requestUsuario" propertyName="requestUsuario">
+                    <xpath resultType="String">//usuario</xpath>
+                </setProperty>
+                <setProperty id="requestCanalDeLlamada" propertyName="requestCanalDeLlamada">
+                    <xpath resultType="String">//canalDeLlamada</xpath>
+                </setProperty>
+                <setProperty id="requestIdentidadIni" propertyName="requestIdentidadIni">
+                    <xpath resultType="String">//identidadIni</xpath>
+                </setProperty>
+                <setProperty id="requestIdentidadFin" propertyName="requestIdentidadFin">
+                    <xpath resultType="String">//identidadFin</xpath>
+                </setProperty>
+                <setProperty id="requestLineasADesplegarPm" propertyName="requestLineasADesplegar">
+                    <xpath resultType="String">//lineasADesplegar</xpath>
+                </setProperty>
+                <setProperty id="requestFlagAvanzarRetrocede" propertyName="requestFlagAvanzarRetrocede">
+                    <xpath resultType="String">//flagAvanzarRetrocede</xpath>
+                </setProperty>
+                <setProperty id="requestNumeroDePlanilla" propertyName="requestNumeroDePlanilla">
+                    <xpath resultType="String">//numeroDePlanilla</xpath>
+                </setProperty>
+                <setProperty id="requestCuotaMes" propertyName="requestCuotaMes">
+                    <xpath resultType="String">//cuotaMes</xpath>
+                </setProperty>
+                <setProperty id="requestCuotaAno" propertyName="requestCuotaAno">
+                    <xpath resultType="String">//cuotaAno</xpath>
+                </setProperty>
+                <setProperty id="requestIdentidad" propertyName="requestIdentidad">
+                    <xpath resultType="String">//identidad</xpath>
+                </setProperty>
+                <bean id="getDetailPlanillaPorMesAnoUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="getDetailPlanillaPorMesAnoToXSLTrama" uri="xslt://etc/xsl/request/IOC737001I_getDetailPlanillaPorMesAno.xsl"/>
+                <log id="TBD3" message="getDetailPlanillaPorMesAnoOperation request:  ${body}"/>
+                <bean id="startTimerDetailPlanillaPorMesAnoToAmq"
+                    method="startTimer(*,'DetailPlanillaPorMesAnoToAmq')" ref="beanRouteFacade"/>
+                <to id="getDetailPlanillaPorMesAnoToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;synchronous=true&amp;exchangePattern=InOut&amp;requestTimeout=360000&amp;replyToOverride={{amq.queue.res}}"/>
+                <log id="TBD4" message="getDetailPlanillaPorMesAnoOperation response:  ${body}"/>
+                <setBody id="getDetailPlanillaPorMesAnoResponseBody">
+                    <method
+                        beanType="cl.coopeuch.integracion.detallesplanilla.util.RouteFacade"
+                        id="detailPlanillaByMesAnoResponseExtractor" method="extractDetailPlanillaPorMesAnoResponse(${body})"/>
+                </setBody>
+                <bean id="endTimerDetailPlanillaPorMesAnoToAmq"
+                    method="endTimer(*,'DetailPlanillaPorMesAnoToAmq')" ref="beanRouteFacade"/>
+                <doCatch id="getDetailPlanillaPorMesAnoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <setProperty
+                        id="getDetailPlanillaPorMesAnoPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="getDetailPlanillaPorMesAnoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="getDetailPlanillaPorRutOperation">
+            <from id="getDetailPlanillaPorRutListener" uri="direct:getDetailPlanillaPorRutOperation"/>
+            <doTry id="getDetailPlanillaPorRutTry">
+                <!-- Extract data from plain response -->
+                <convertBodyTo id="routeOperationBody356" type="java.lang.String"/>
+                <setProperty id="requestUsuario1" propertyName="requestUsuario">
+                    <xpath resultType="String">//usuario</xpath>
+                </setProperty>
+                <setProperty id="requestCanalDeLlamada1" propertyName="requestCanalDeLlamada">
+                    <xpath resultType="String">//canalDeLlamada</xpath>
+                </setProperty>
+                <setProperty id="requestNumeroDePlanillaIn" propertyName="requestNumeroDePlanillaIn">
+                    <xpath resultType="String">//numeroDePlanillaIn</xpath>
+                </setProperty>
+                <setProperty id="requestNumeroDePlanillaFi" propertyName="requestNumeroDePlanillaFi">
+                    <xpath resultType="String">//numeroDePlanillaFi</xpath>
+                </setProperty>
+                <setProperty id="requestLineasADesplegarPr" propertyName="requestLineasADesplegar">
+                    <xpath resultType="String">//lineasADesplegar</xpath>
+                </setProperty>
+                <setProperty id="requestIdentidad1" propertyName="requestIdentidad">
+                    <xpath resultType="String">//rutIdentidad</xpath>
+                </setProperty>
+                <setProperty id="requestSolicitudId" propertyName="requestNumeroSolicitud">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setProperty>
+                <bean id="getDetailPlanillaPorRutUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="getDetailPlanillaPorRutToXSLTrama1" uri="xslt://etc/xsl/request/IOC737002I_getDetailPlanillaPorRut.xsl"/>
+                <log id="TBD1" message="getDetailPlanillaPorRutOperation planilla list request:  ${body}"/>
+                <bean id="startTimerDetailPlanillaPorRutToAmq"
+                    method="startTimer(*,'DetailPlanillaPorRutToAmq')" ref="beanRouteFacade"/>
+                <to id="getDetailPlanillaPorRutToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;requestTimeout=180000&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <log id="TBD2" message="getDetailPlanillaPorRutOperation planilla list response:  ${body}"/>
+                <setBody id="getDetailPlanillaPorRutResponseBody">
+                    <method
+                        beanType="cl.coopeuch.integracion.detallesplanilla.util.RouteFacade"
+                        id="getDetailPlanillaPorRutResponseExtractor" method="extractDetailPlanillaPorRutResponse(${body})"/>
+                </setBody>
+                <bean id="endTimerDetailPlanillaPorRutToAmq"
+                    method="endTimer(*,'DetailPlanillaPorRutToAmq')" ref="beanRouteFacade"/>
+                <doCatch id="getDetailPlanillaPoRutCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <setProperty
+                        id="getDetailPlanillaPorRutPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="getDetailPlanillaPorRutExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarDetallePlanillasModificadasOperation">
+            <from
+                id="consultarDetallePlanillasModificadasEndpointListener" uri="direct:consultarDetallePlanillasModificadasOperation"/>
+            <doTry id="consultarDetallePlanillasModificadasRequestTry">
+                <convertBodyTo id="routeOperationBody4" type="java.lang.String"/>
+                <setHeader headerName="inputPlanillaId" id="inputPlanillaId">
+                    <xpath resultType="String">//planillaId</xpath>
+                </setHeader>
+                <setHeader headerName="inputSolicitudId" id="inputSolicitudId3">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <setHeader headerName="inputMonth" id="inputMonth">
+                    <xpath resultType="String">//month</xpath>
+                </setHeader>
+                <setHeader headerName="inputYear" id="inputYear">
+                    <xpath resultType="String">//year</xpath>
+                </setHeader>
+                <to
+                    id="id_call_sp_consultar_detalle_planillas_modificas" uri="bean:call_sp_get_modified_planillas"/>
+                <removeHeaders id="removeHeader3" pattern="*"/>
+                <doCatch id="consultarDetallePlanillasModificadasCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <setProperty
+                        id="consultarDetallePlanillasModificadasPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to
+                        id="consultarDetallePlanillasModificadasExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="registrarDetallePlanillaModificadaOperation">
+            <from
+                id="registrarDetallePlanillaModificadaEndpointListener" uri="direct:registrarDetallePlanillaModificadaOperation"/>
+            <doTry id="registrarDetallePlanillaModificadaTry">
+                <convertBodyTo
+                    id="registrarDetallePlanillaModificadaOperationBody" type="java.lang.String"/>
+                <setHeader headerName="solicitudid" id="solicitudeHead1">
+                    <xpath resultType="String">//solicitudId</xpath>
+                </setHeader>
+                <setHeader headerName="discountperiod" id="monthValueHead1">
+                    <xpath resultType="String">//discountPeriod</xpath>
+                </setHeader>
+                <setHeader headerName="rut" id="rutHead1">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <setHeader headerName="idplanilla" id="idplanillaHead1">
+                    <xpath resultType="String">//planillaId</xpath>
+                </setHeader>
+                <setHeader headerName="nombresocio" id="nombreSocioHead1">
+                    <xpath resultType="String">//nombreSocio</xpath>
+                </setHeader>
+                <setHeader headerName="numerodeproductos" id="numeroDeProductosHead1">
+                    <xpath resultType="String">//numeroDeProductos</xpath>
+                </setHeader>
+                <setHeader headerName="montoinformado" id="montoInformadoHead1">
+                    <xpath resultType="String">//montoInformado</xpath>
+                </setHeader>
+                <setHeader headerName="montodescontar" id="montoDescontarHead1">
+                    <xpath resultType="String">//montoDescontar</xpath>
+                </setHeader>
+                <setHeader headerName="totalapplied" id="totalAppliedHead1">
+                    <xpath resultType="String">//totalApplied</xpath>
+                </setHeader>
+                <setHeader headerName="reason" id="reasonHead1">
+                    <xpath resultType="String">//reason</xpath>
+                </setHeader>
+                <setHeader headerName="rutExecutor" id="rutExecutorHead1">
+                    <xpath resultType="String">//rutExecutor</xpath>
+                </setHeader>
+                <to id="to_call_sp_update_planilla_details1" uri="bean:call_sp_update_planilla_details1"/>
+                <setProperty
+                    id="registrarDetallePlanillaModificadaResponseBodyProperty" propertyName="guardarDetallePlanillaModificadaResponseBodyProperty">
+                    <simple>${body}</simple>
+                </setProperty>
+                <convertBodyTo
+                    id="registrarDetallePlanillaModificadaAuditResponse" type="java.lang.String"/>
+                <setBody id="registrarDetallePlanillaModificadaResponseBody">
+                    <simple>${exchangeProperty.guardarDetallePlanillaModificadaResponseBodyProperty}</simple>
+                </setBody>
+                <removeHeaders id="removeHeader4" pattern="*"/>
+                <doCatch id="registrarDetallePlanillaModificadaCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <setProperty
+                        id="registrarDetallePlanillaModificadaPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="registrarDetallePlanillaModificadaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Code to process declare planilla -->
+        <route id="declararPlanillaArchivoRouteOperation">
+            <from id="declararPlanillaArchivoRouteEndpointListener" uri="direct:declararPlanillaArchivoRouteOperation"/>
+            <doTry id="declararPlanillaArchivoTry">
+                <convertBodyTo
+                    id="declararPlanillaArchivoRouteOperationBody" type="java.lang.String"/>
+                <setHeader headerName="solicitude" id="solicitudeHead">
+                    <xpath resultType="String">//solicitude</xpath>
+                </setHeader>
+                <setHeader headerName="monthValue" id="monthValueHead">
+                    <xpath resultType="String">//mes</xpath>
+                </setHeader>
+                <setHeader headerName="monthText" id="monthValueHead">
+                    <xpath resultType="String">//mesTexto</xpath>
+                </setHeader>
+                <setHeader headerName="yearValue" id="yearValueHead">
+                    <xpath resultType="String">//ano</xpath>
+                </setHeader>
+                <setHeader headerName="informedAmount" id="informedAmountHead">
+                    <xpath resultType="String">//montoInformado</xpath>
+                </setHeader>
+                <setHeader headerName="declaredAmount" id="declaredAmounthead">
+                    <xpath resultType="String">//montoDeclarado</xpath>
+                </setHeader>
+                <setHeader headerName="fileName" id="fileNameHead">
+                    <xpath resultType="String">//nombreDelArchivo</xpath>
+                </setHeader>
+                <setHeader headerName="rut" id="declararPlanillaRut">
+                    <xpath resultType="String">//rut</xpath>
+                </setHeader>
+                <setHeader headerName="idplanilla" id="declararPlanillaId">
+                    <xpath resultType="String">//idplanilla</xpath>
+                </setHeader>
+                <setHeader headerName="nombreSolicitude" id="declararNombrePlanilla">
+                    <xpath resultType="String">//nombreSolicitude</xpath>
+                </setHeader>
+                <setHeader headerName="declareFile" id="declararDeclararPorArchivo">
+                    <xpath resultType="String">//declararPorArchivo</xpath>
+                </setHeader>
+                <setHeader headerName="rutExecutor" id="declararPlanillaRutExecutor">
+                    <xpath resultType="String">//rutExecutor</xpath>
+                </setHeader>
+                <setProperty id="declararPlanillaSendEmailUserID" propertyName="userId">
+                    <simple>{{user.id}}</simple>
+                </setProperty>
+                <setProperty id="declararPlanillaSendEmailCanal" propertyName="canal">
+                    <simple>{{canal}}</simple>
+                </setProperty>
+                <to id="to_call_sp_declare_planilla" uri="bean:call_sp_declare_planilla"/>
+                <setProperty
+                    id="declararPlanillaArchivoResponseBodyProperty" propertyName="declararPlanillaArchivoResponseBodyProperty">
+                    <simple>${body}</simple>
+                </setProperty>
+                <choice id="validateUserRutFeild">
+                    <when id="validateRutNotEmpty">
+                        <simple>${headers.rut} != '' and ${headers.idplanilla} != ''</simple>
+                        <to id="declararPlanillaAuditRequestXsl" uri="xslt://etc/xsl/request/declararPlanillaAuditRequest.xsl"/>
+                        <to id="declararPlanillaAuditRequest" uri="cxf:{{endpoint.audit.service}}?dataFormat=MESSAGE"/>
+                        <convertBodyTo id="declararPlanillaAuditResponse" type="java.lang.String"/>
+                    </when>
+                </choice>
+                <setBody id="declararPlanillaArchivoResponseBody">
+                    <simple>${exchangeProperty.declararPlanillaArchivoResponseBodyProperty}</simple>
+                </setBody>
+                <removeHeaders id="removeHeader5" pattern="*"/>
+                <doCatch id="declararPlanillaArchivoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <setProperty
+                        id="declararPlanillaArchivoPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="declararPlanillaArchivoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarEstadoPlanillaRouteOperation">
+            <from id="consultarEstadoPlanillaEndpointListener" uri="direct:consultarEstadoPlanillaRouteOperation"/>
+            <doTry id="consultarEstadoPlanillaRequestTry">
+                <convertBodyTo
+                    id="consultarEstadoPlanillaRouteOperationBody" type="java.lang.String"/>
+                <setHeader headerName="inputIdsDePlanilla" id="inputIdsDePlanilla">
+                    <xpath resultType="String">//planillaIds</xpath>
+                </setHeader>
+                <to id="id_call_sp_obtener_estados_planillas" uri="bean:call_sp_obtener_estados_planillas"/>
+                <removeHeaders id="removeHeader9" pattern="*"/>
+                <doCatch id="consultarEstadoPlanillaRequestCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <setProperty
+                        id="consultarEstadoPlanillaPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="consultarEstadoPlanillaExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarConvenioOperation">
+            <from id="consultarConvenioEndpointListener" uri="direct:consultarConvenioOperation"/>
+            <doTry id="consultarConvenioRequestTry">
+                <setHeader headerName="inputSolicitudId" id="inputSolicitudId10">
+                    <xpath resultType="String">//inputSolicitudId</xpath>
+                </setHeader>
+                <to id="to_call_sp_get_convenio" uri="bean:call_sp_get_convenio"/>
+                <setProperty id="convenioResponse" propertyName="convenio">
+                    <xpath resultType="String">//convenio</xpath>
+                </setProperty>
+                <to id="consultarConvenioResponseXml" uri="xslt://etc/xsl/response/code.xsl"/>
+                <removeHeaders id="removeHeader10" pattern="*"/>
+                <doCatch id="consultarConvenioRequestCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <setProperty
+                        id="consultarConvenioPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="consultarConvenioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarMedioPagoOperation">
+            <from id="consultarMedioPagoEndpointListener" uri="direct:consultarMedioPagoOperation"/>
+            <doTry id="consultarMedioPagoRequestTry">
+            	<convertBodyTo id="consultarMedioPagoOperationBody" type="java.lang.String"/>
+                <to id="to_call_sp_get_mediopagos" uri="bean:call_sp_get_mediopagos"/>
+                <removeHeaders id="removeHeader11" pattern="*"/>
+                <doCatch id="consultarMedioPagoRequestCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <setProperty
+                        id="consultarMedioPagoPropertyCodigo" propertyName="codigoError">
+                        <simple>800</simple>
+                    </setProperty>
+                    <to id="consultarMedioPagoExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

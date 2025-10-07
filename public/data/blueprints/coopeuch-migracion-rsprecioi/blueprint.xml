@@ -1,0 +1,281 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+     xmlns:camel="http://camel.apache.org/schema/blueprint"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+        
+    <cm:property-placeholder id="propertyValidaTef" persistent-id="wsprecio"
+        placeholder-prefix="{{" placeholder-suffix="}}" update-strategy="reload"/>
+        
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProviderIn"/>
+    <bean
+        class="cl.coopeuch.integracion.wsprecio.util.RouteFacade" id="beanRouteFacade"/>
+        
+    <camelcxf:cxfEndpoint address="/WSPrecioI"
+        id="endpointWSPrecio"
+        serviceClass="cl.coopeuch.integracion.wsprecio.wsdl.WsPrecioSOAPPortType" wsdlURL="etc/wsdl/WsPrecio.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    
+    <camelcxf:rsServer address="/RSPrecio"
+        id="endpointRSPrecio" serviceClass="cl.coopeuch.integracion.wsprecio.wsdl.WsPrecioSOAPPortType"/>
+        
+    
+    
+    <camelcxf:cxfEndpoint address="{{coopeuch.wsprecio.inPricing}}"
+        id="endpointWsPricing" serviceClass="cl.coopeuch.integracion.wsprecio.wsdl.pricing.InPricingOl"/>
+    	
+    
+    <camelContext id="servicio-Precio" xmlns="http://camel.apache.org/schema/blueprint" streamCache="true">
+    
+    <onException id="CustomExceptionHandling">
+            <exception>java.lang.Exception</exception>
+            <handled>
+                <constant>true</constant>
+            </handled>
+            <log loggingLevel="ERROR" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.message}"/>
+            <log loggingLevel="DEBUG" message="ERROR: ${camelId} || ${routeId} || ${id} || ${date:now:yyyy-MM-dd'T'HH:mm:ss:SSS} || ${exception.stacktrace}"/>            
+            <choice>
+            	<when>
+            		<simple>${property.tipoServicio} == 'REST'</simple>
+            		
+            		<bean id="restFault" method="restFault" ref="beanRouteFacade"/>
+	               <stop/>
+            	</when>
+            	<otherwise>
+            		<bean id="soapFault" method="soapFault" ref="beanRouteFacade"/>
+            	</otherwise>
+            </choice>
+            <stop/>
+        </onException>
+        <route id="inicio-soap">
+            <from id="soapInicio" uri="cxf:bean:endpointWSPrecio"/>
+            <setProperty propertyName="tipoServicio"><constant>SOAP</constant></setProperty>
+            <to id="soapToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSPrecio"/>
+            <setProperty propertyName="tipoServicio"><constant>REST</constant></setProperty>
+            <to id="restToInicioWs" uri="direct:cxf-inicio"/>
+        </route>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionprecio">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="toConsultarCartola" uri="direct:consultar"/>
+                    </when>                     
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        
+        <route id="consultar">
+            <from id="consultarfrom" uri="direct:consultar"/>
+            <doTry id="consultarTryf">
+            	<setBody id="sSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="consultarMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsprecio.wsdl"/>
+                </marshal>
+                <setProperty id="operacionTipo" propertyName="operacionTipo">
+                        <xpath resultType="String">//operacionTipo/text()</xpath>
+                </setProperty>
+                <setProperty id="canalLlamada" propertyName="canalLlamada">
+                        <xpath resultType="String">//canalLlamada/text()</xpath>
+                </setProperty>
+                <setProperty id="operacionId" propertyName="operacionId">
+                        <xpath resultType="String">//operacionId/text()</xpath>
+                </setProperty>        
+                
+                
+                <setProperty id="cliente" propertyName="cliente">
+                        <xpath resultType="String">//cliente/text()</xpath>
+                </setProperty>  
+                <setProperty id="idFormaPago" propertyName="idFormaPago">
+                        <xpath resultType="String">//idFormaPago/text()</xpath>
+                </setProperty>  
+                <setProperty id="subProducto" propertyName="subProducto">
+                        <xpath resultType="String">//subProducto/text()</xpath>
+                </setProperty>  
+                <setProperty id="monto" propertyName="monto">
+                        <xpath resultType="String">//monto/text()</xpath>
+                </setProperty>  
+                <setProperty id="plazo" propertyName="plazo">
+                        <xpath resultType="String">//plazo/text()</xpath>
+                </setProperty>  
+                
+                <setProperty id="campana" propertyName="campana">
+                        <xpath resultType="String">//campana/text()</xpath>
+                </setProperty>      
+                <setProperty id="esRetencion" propertyName="esRetencion">
+                        <xpath resultType="String">//esRetencion/text()</xpath>
+                </setProperty>
+                <setProperty id="esReliquidacion" propertyName="esReliquidacion">
+                        <xpath resultType="String">//esReliquidacion/text()</xpath>
+                </setProperty>
+                <setProperty id="montoNeto" propertyName="montoNeto">
+                        <xpath resultType="String">//montoNeto/text()</xpath>
+                </setProperty>  
+                <setProperty id="IdEjecutivo" propertyName="IdEjecutivo">
+                        <xpath resultType="String">//IdEjecutivo/text()</xpath>
+                </setProperty>     
+                <bean id="codOperacion" method="codOperacion" ref="beanRouteFacade"/>
+            	<convertBodyTo type="java.lang.String"/>
+				<bean method="crearJMSCorrelationId24" ref="beanRouteFacade" />   
+                
+				<to id="validaTefXSLTrama1" uri="xslt://etc/xsl/request/IOC148001I_precio.xsl"/>
+                <log id="ATrama1" message="Trama generada = (${body})"/>
+                <to id="AToAmq1" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut&amp;requestTimeout=90000"/>
+                <transform id="ATransformBody1">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <log id="ATramaResponse" message="Trama recibida = (${body})"/>
+                <to id="AToXSLSOAP" uri="xslt://etc/xsl/response/IOC148001O_precio.xsl?saxon=true"/>                
+                <log id="ATramaResponse" message="Trama recibida = ${body}"/> 
+                <choice>
+                	<when>
+                		<simple>${body} contains 'ECNLERR'</simple>
+                		<unmarshal id="responseErrorIOC">
+		                    <jaxb contextPath="cl.coopeuch.integracion.wsprecio.wsdl"/>
+		                </unmarshal>
+                		<stop/>
+                	</when>                	
+                </choice>
+                <setProperty propertyName="rutSocio"><xpath resultType="String">//rutSocio/text()</xpath></setProperty>
+                <setProperty propertyName="idConvenio"><xpath resultType="String">//idConvenio/text()</xpath></setProperty>
+                <setProperty propertyName="idAmbito"><xpath resultType="String">//idAmbito/text()</xpath></setProperty>
+                <setProperty propertyName="subProducto"><xpath resultType="String">substring(//subProducto/text(), 1, 4)</xpath></setProperty>
+                <setProperty propertyName="plazo"><xpath resultType="String">//plazo/text()</xpath></setProperty>
+                <setProperty propertyName="plazoTiempo"><xpath resultType="String">//plazoTiempo/text()</xpath></setProperty>
+                <setProperty propertyName="cantCuentaVista"><xpath resultType="String">//cantCuentaVista/text()</xpath></setProperty>
+                <setProperty propertyName="cantOtrosCreditos"><xpath resultType="String">//cantOtrosCreditos/text()</xpath></setProperty>
+                <setProperty propertyName="fechaContexto"><simple>${date:now:yyyyMMdd}</simple></setProperty>
+<!--                 <setProperty propertyName="fechaContexto"><simple>20211229</simple></setProperty> -->
+<!--                 Consumo IPricing -->
+				<to uri="direct:pricing"/>
+				
+                
+                <stop/>
+               <doCatch>
+					<exception>org.apache.camel.ExchangeTimedOutException</exception>
+					<setProperty propertyName="codigoError">
+						<simple resultType="Integer">502</simple>
+					</setProperty>
+
+					<to uri="direct:excepcion" />
+				</doCatch>
+				<doCatch>
+					<exception>java.lang.Exception</exception>
+					<setProperty id="crearCodigoError" propertyName="codigoError">
+						<simple resultType="Integer">500</simple>
+					</setProperty>
+					<to uri="direct:excepcion" />
+				</doCatch>
+			</doTry>
+		</route>
+		
+		<route>
+			<from uri="direct:pricing"/>
+			<bean id="requestPricing" method="requestPricing"
+				ref="beanRouteFacade" />
+			<removeHeaders pattern="CamelHttp*"/>
+           <setHeader headerName="Content-Type">
+               <constant>application/xml</constant>
+           </setHeader>    
+           <setHeader headerName="CamelHttpMethod">
+               <constant>POST</constant>
+           </setHeader>
+           <log message="Request_Pricing: ${body}"/>
+           
+			<toD uri="cxf:bean:endpointWsPricing?dataFormat=MESSAGE&amp;LoggingFeatureEnabled=true"/>
+<!-- 			<toD uri="{{coopeuch.wsprecio.inPricing}}?httpClient.connectTimeout=10000&amp;bridgeEndpoint=true&amp;throwExceptionOnFailure=false&amp;sslContextParameters=#mySslContext"/> -->
+			<convertBodyTo type="String"/>		
+			<log message="Response_Pricing: ${body}"/>
+			<choice>
+				<when>
+					<xpath>//codigoRetorno/text() = '-1'</xpath>
+					<setProperty propertyName="glosaRetorno"><xpath resultType="String">//glosaRetorno/text()</xpath></setProperty>
+					<log message="ERROR"/>
+					<throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionConsumoPricing" message="Error al consumir InPricingOnlineWS: ${property.glosaRetorno}"/>
+				</when>
+				<otherwise>
+					<split>
+		         		<xpath>//resultadoflexible/variableSalida</xpath>
+		         		<setProperty propertyName="nombreParametro"><xpath resultType="String">//nombreParametro/text()</xpath></setProperty>
+		         		<setProperty propertyName="valor"><xpath resultType="String">//valor/text()</xpath></setProperty>
+		         		<bean id="mapeoResultadoFlexible" method="mapeoResultadoFlexible"
+							ref="beanRouteFacade" /> 
+		         	</split>
+		         	<setProperty propertyName="nombreMejorPrecio"><xpath resultType="String">//nombreMejorPrecio/text()</xpath></setProperty>
+					<bean id="propertiesResultadoFlexible" method="propertiesResultadoFlexible"
+						ref="beanRouteFacade" />
+					<log message="tasaPizarra: ${property.tasaPizarra} || tasaBase: ${property.tasaBase} || tipoResultado: ${property.tipoResultado} || tasaMinima: ${property.tasaMinima} || tasaMaxima: ${property.tasaMaxima} || tasaSugerida: ${property.tasaSugerida}"/>
+					
+					<setBody><xpath>//return</xpath></setBody>
+					<to id="responsePricing" uri="xslt://etc/xsl/response/responsePricing.xsl?saxon=true"/>   
+					<convertBodyTo type="String" charset="UTF-8"/>	
+				<unmarshal id="cPricingUnmarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.wsprecio.wsdl" encoding="UTF-8"/>
+                </unmarshal>
+                
+				</otherwise>			
+			</choice>
+			
+			
+			
+		</route>
+        
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

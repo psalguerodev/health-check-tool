@@ -1,0 +1,276 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="generacionTicket" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="cl.coopeuch.integracion.util.RouteFacade" id="beanRouteFacade"/>
+    <cxf:cxfEndpoint address="/WSTicketSae"
+        id="servicioGeneracionTicketEndpoint"
+        serviceClass="cl.coopeuch.integracion.wsdl.WSTicketSae" wsdlURL="etc/wsdl/ServicioGeneracionTicket.wsdl"/>
+    <!-- Conexion Base de datos -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.ds.ticket}]/creditos;charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.ds.ticket}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.ds.ticket}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.ds.ticket}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.ds.ticket}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.ds.ticket}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.ds.ticket}]"/>
+    </bean>
+    <!-- Conexion Colas AMQ -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.util.ConcatenarDocumentos" id="concatenarDocumentos"/>
+    <cxf:rsServer address="/RSTicketSae" id="ticketSaeREST" serviceClass="cl.coopeuch.integracion.services.rest.AdministracionTicket"/>
+    <camelContext id="servicio-wsticket" streamCache="true" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="JacksonReqCrearTicket" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsdl.IngresarTicketRequest"/>
+            <json id="JacksonReqRechazarTicket" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsdl.RechazarTicketRequest"/>
+            <json id="JacksonRespCrearTicket" include="NON_NULL"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsdl.IngresarTicketResponse"/>
+            <json id="JacksonRespRechazarTicket" include="NON_NULL"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.wsdl.RechazarTicketResponse"/>
+        </dataFormats>
+        <!-- ruta SOAP de inicio -->
+        <route id="cx-RuteoGeneracionTicketSoap">
+            <from id="wsTicketEndpointSOAP" uri="cxf:bean:servicioGeneracionTicketEndpoint"/>
+            <toD id="RuteoGeneracionTicketSoapToSpTo" uri="direct:${header.operationName}"/>
+            <removeHeaders id="_removeHeaders1" pattern="*"/>
+        </route>
+        <!-- cxf-Rest -->
+        <route id="_routeRest" streamCache="true">
+            <from id="_fromRest" uri="cxfrs:bean:ticketSaeREST?bindingStyle=SimpleConsumer&amp;provider=jsonProvider"/>
+            <choice id="_choice4">
+                <when id="_when4">
+                    <simple>${header.operationName} == 'generar'</simple>
+                    <unmarshal id="unmarshall_generar" ref="JacksonReqCrearTicket"/>
+                    <toD id="RuteoTicketRest1" uri="direct:${header.operationName}"/>
+                    <marshal id="_marshal1" ref="JacksonRespRechazarTicket"/>
+                </when>
+                <when id="_when5">
+                    <simple>${header.operationName} == 'rechazar'</simple>
+                    <unmarshal id="unmarshall_rechazar" ref="JacksonReqRechazarTicket"/>
+                    <toD id="RuteoTicketRest2" uri="direct:${header.operationName}"/>
+                    <marshal id="_marshal2" ref="JacksonRespCrearTicket"/>
+                </when>
+            </choice>
+        </route>
+        <!-- ruta que contiene logica de generacion de ticket -->
+        <route id="cx-RuteoGeneracionTicketSp">
+            <from id="RuteoGeneracionTicketSpFrom" uri="direct:generar"/>
+<!--             <doTry id="RuteoGeneracionTicketSpTry"> -->
+                <bean
+                    beanType="cl.coopeuch.integracion.util.RouteFacade"
+                    id="_bean1" method="cambiarIngresarTicketRequest"/>
+                <setProperty id="_setProperty1" propertyName="bodyRespaldo">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="_setProperty6" propertyName="codigoOficina">
+                    <simple>${body.entrada.codigoOficina}</simple>
+                </setProperty>
+                <setProperty id="_setProperty4" propertyName="rut">
+                    <simple>${body.entrada.rutSocio}${body.entrada.dvSocio}</simple>
+                </setProperty>
+                <choice id="_choice5">
+                    <when id="_when6">
+                        <simple>${body.entrada.rutasDocumentos} == null</simple>
+                        <bean id="guardaSerializadoBean"
+                            method="guardarSerializado" ref="beanRouteFacade"/>
+                        <bean id="asignarFechaHeaderBean"
+                            method="asignarPropiedades" ref="beanRouteFacade"/>
+                        <loop id="_loop1">
+                            <simple>${header.CamelLoopSize}</simple>
+                            <setProperty id="_setProperty8" propertyName="nombreArchivo">
+                                <simple>${property.ListnombreArchivo[${header[CamelLoopIndex]}]}</simple>
+                            </setProperty>
+                            <setProperty id="_setProperty9" propertyName="tipoArchivo">
+                                <simple>${property.ListtipoArchivo[${header[CamelLoopIndex]}].toUpperCase()}</simple>
+                            </setProperty>
+                            <setProperty id="_setProperty11" propertyName="cantidadDocumentos">
+                                <simple>${property.ListcantidadDocumentos[${header[CamelLoopIndex]}]}</simple>
+                            </setProperty>
+                            <setProperty id="_setProperty2" propertyName="FileName">
+                                <simple>${property.ListRuta[${header[CamelLoopIndex]}]}</simple>
+                            </setProperty>
+                            <choice id="_choice1">
+                                <when id="_when1">
+                                    <simple>${property.tipoArchivo} not regex 'TIF' and ${property.tipoArchivo} not regex 'PNG' and ${property.tipoArchivo} not regex 'JPEG' and ${property.tipoArchivo} not regex 'JPG'</simple>
+                                    <setProperty id="_setProperty3" propertyName="urlArchivo">
+                                    <simple>{{url.archivos.ticket}}/${property.nombreArchivo}/${property.nombreArchivo}</simple>
+                                    </setProperty>
+                                </when>
+                                <otherwise id="_otherwise1">
+                                    <bean id="modificarPlantilla1"
+                                    method="modificarPlantilla" ref="beanRouteFacade"/>
+                                </otherwise>
+                            </choice>
+                            <to id="spVirtualFile1" uri="sql-stored:classpath:etc/sql/StoreProcedureVirtualFile.sql?dataSource=dataSourceSqlServer&amp;outputHeader=spResponse"/>
+                            <bean id="obtenerSpInsVF"
+                                method="getSpResponse" ref="beanRouteFacade"/>
+                        </loop>
+                    </when>
+                    <otherwise id="_otherwise2">
+                        <bean
+                            beanType="cl.coopeuch.integracion.util.RouteFacade"
+                            id="beanExisteObjects" method="beanExisteObjects"/>
+                        <removeHeaders id="_removeHeaders2" pattern="*"/>
+                        <bean id="beanSetPropiedadesArchivo"
+                            method="beanSetPropiedadesArchivo" ref="beanRouteFacade"/>
+                        <bean id="asignarFechaHeaderBean1"
+                            method="asignarPropiedades" ref="beanRouteFacade"/>
+                        <setProperty id="_setProperty8" propertyName="nombreArchivo">
+                            <simple>${property.nombreArchivo}</simple>
+                        </setProperty>
+                        <setProperty id="_setProperty9" propertyName="tipoArchivo">
+                            <simple>${property.tipoArchivo.toUpperCase()}</simple>
+                        </setProperty>
+                        <setProperty id="_setProperty11" propertyName="cantidadDocumentos">
+                            <simple>${property.cantidadDocumentos}</simple>
+                        </setProperty>
+                        <setProperty id="_setProperty2" propertyName="FileName">
+                            <simple>${property.Ruta}</simple>
+                        </setProperty>
+                        <setProperty id="_setProperty3" propertyName="urlArchivo">
+                            <simple>{{url.archivos.ticket}}/${property.nombreArchivo}/${property.nombreArchivo}</simple>
+                        </setProperty>
+                        <setBody id="_setBody1">
+                            <simple>${property.bodyRespaldo}</simple>
+                        </setBody>
+                        <bean id="beanGeneraPlantillas"
+                            method="generaPlantillas" ref="beanRouteFacade"/>
+                        <to id="spVirtualFile1" uri="sql-stored:classpath:etc/sql/StoreProcedureVirtualFile.sql?dataSource=dataSourceSqlServer&amp;outputHeader=spResponse"/>
+                        <bean id="obtenerSpInsVF" method="getSpResponse" ref="beanRouteFacade"/>
+                        <wireTap id="wireTapToTicketDocumento" uri="direct:ticketDocumento"/>
+                    </otherwise>
+                </choice>
+                <to id="spTicketCreditoSel" uri="sql-stored:classpath:etc/sql/StoreProcedureTicketCreditoSEL.sql?dataSource=dataSourceSqlServer&amp;outputHeader=ticketSelResponse"/>
+                <bean id="obtenerSpSelTC" method="getTicketSelResponse" ref="beanRouteFacade"/>
+                <choice id="_choice2">
+                    <when id="_when2">
+                        <simple>${property.buscaTicket} regex 'true'</simple>
+                        <to id="spVirtualFileSel" uri="sql-stored:classpath:etc/sql/StoreProcedureVirtualFileSEL.sql?dataSource=dataSourceSqlServer&amp;outputHeader=virtualSelResponse"/>
+                        <bean id="obtenerSelInsVF"
+                            method="getVirtualSelResponse" ref="beanRouteFacade"/>
+                        <choice id="_choice3">
+                            <when id="_when3">
+                                <simple>${property.buscaTicketLog} regex 'true'</simple>
+                                <to id="spLogEstadoSel" uri="sql-stored:classpath:etc/sql/StoreProcedureLogEstadoCreditoSEL.sql?dataSource=dataSourceSqlServer&amp;outputHeader=logEstadoSelResponse"/>
+                                <bean id="obtenerSelEC"
+                                    method="getEstadoSelResponse" ref="beanRouteFacade"/>
+                            </when>
+                        </choice>
+                        <to id="spTicketCreditoSel2" uri="sql-stored:classpath:etc/sql/StoreProcedureTicketCreditoSEL.sql?dataSource=dataSourceSqlServer&amp;outputHeader=ticketSelResponse"/>
+                        <bean id="obtenerSpSelTC2"
+                            method="getTicketSelResponse" ref="beanRouteFacade"/>
+                    </when>
+                </choice>
+                <choice id="_choiceUpdate">
+                    <when id="whenUpdate">
+                        <simple>${property.realizarUpdate} == null</simple>
+                        <to id="spTicketCreditoUpd" uri="sql-stored:classpath:etc/sql/StoreProcedureTicketCreditoUPD.sql?dataSource=dataSourceSqlServer&amp;outputHeader=idTicketResponse"/>
+                    </when>
+                </choice>
+                <to id="RuteoGeneracionTicketResponseTo" uri="direct:RuteoGeneracionTicketResponse"/>
+<!--                 <doCatch id="RuteoGeneracionTicketSpCatch"> -->
+<!--                     <exception>java.lang.Exception</exception> -->
+<!--                     <to id="RuteoGeneracionTicketSoapToSpErrorTo" uri="direct:excepcion"/> -->
+<!--                 </doCatch> -->
+<!--             </doTry> -->
+        </route>
+        <!-- ruta SOAP de respuesta del servicio -->
+        <route id="cx-RuteoGeneracionTicketResponse">
+            <from id="RuteoGeneracionTicketResponseFrom" uri="direct:RuteoGeneracionTicketResponse"/>
+<!--             <doTry id="RuteoGeneracionTicketResponseTry"> -->
+                <to id="_to1" uri="sql-stored:classpath:etc/sql/StoreProcedureSp_SEL_Cantidad_Set.sql?dataSource=dataSourceSqlServer&amp;outputHeader=cantidadSet"/>
+                <setHeader headerName="cantidadSetFormateada" id="_setHeader2">
+                    <simple>${header.cantidadSet[#result-set-1]}</simple>
+                </setHeader>
+                <bean id="_bean5" method="generarTicketResponse" ref="beanRouteFacade"/>
+<!--                 <doCatch id="RuteoGeneracionTicketResponseCatch"> -->
+<!--                     <exception>java.lang.Exception</exception> -->
+<!--                     <to id="RuteoGeneracionTicketSoapToResponseErrorTo" uri="direct:excepcion"/> -->
+<!--                 </doCatch> -->
+<!--             </doTry> -->
+        </route>
+        <!-- Ruta encargada de obtener los datos del ticket y actualizar el campo de rechazo -->
+        <route id="_routeObtenerTicket">
+            <from id="getTicketfrom" uri="direct:getTiket"/>
+<!--             <doTry id="_doTry1"> -->
+                <to id="spTicketCreditoSel1" uri="sql-stored:classpath:etc/sql/StoreProcedureTicketCreditoSEL.sql?dataSource=dataSourceSqlServer&amp;outputHeader=ticketSelectResponse"/>
+                <setHeader headerName="entrada.rechazo.id" id="_setHeaderIdRechaso">
+                    <simple>{{entrada.rechazo.id}}</simple>
+                </setHeader>
+                <bean id="bloqueoTicketPA"
+                    method="ejecutarTicketCreditoUPD" ref="beanRouteFacade"/>
+                <to id="spTicketCreditoUPD2" uri="sql-stored:classpath:etc/sql/StoreProcedureTicketCreditoUPDObject.sql?dataSource=dataSourceSqlServer"/>
+                <bean id="salidaOK1"
+                    method="ejecutarTicketCreditoUPDResponse" ref="beanRouteFacade"/>
+<!--                 <doCatch id="_doCatch1"> -->
+<!--                     <exception>java.lang.Exception</exception> -->
+<!--                     <log id="_log3" loggingLevel="ERROR" message="${property.CamelExceptionCaught}"/> -->
+<!--                     <bean -->
+<!--                         beanType="cl.coopeuch.integracion.util.RouteExcepcion" -->
+<!--                         id="salidaNOOK" method="excepcionBloquearTicket"/> -->
+<!--                 </doCatch> -->
+<!--             </doTry> -->
+        </route>
+        <route id="ticketDocumento">
+            <from id="ticketDocumentoFrom" uri="direct:ticketDocumento"/>
+<!--             <doTry id="ticketDocumentoDoTry"> -->
+                <bean id="beanRequestAmqTicketDocumento"
+                    method="beanRequestAmqTicketDocumento" ref="beanRouteFacade"/>
+                <convertBodyTo id="ticketDocumentoConvertTo" type="java.lang.String"/>
+                <to id="ticketDocumentoToAmq" uri="beanAMQ:{{amq.ticketdocumento.req}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+<!--                 <doCatch id="ticketDocumentoDoCatch"> -->
+<!--                     <exception>java.lang.Exception</exception> -->
+<!--                     <to id="ticketDocumentoToException" uri="direct:excepcion"/> -->
+<!--                 </doCatch> -->
+<!--             </doTry> -->
+        </route>
+        <!-- Ruta encargada de guardar el id para proceder con el rechazo. -->
+        <route id="_routeRechazarTicket">
+            <from id="updateTicketfrom" uri="direct:rechazar"/>
+            <bean beanType="cl.coopeuch.integracion.util.RouteFacade"
+                id="_bean2" method="cambiarRechazarTicketRequest"/>
+            <setHeader headerName="idTicket" id="_setHeader1">
+                <simple>${body.entrada.idTicket}</simple>
+            </setHeader>
+            <to id="_toGetTicket" uri="direct:getTiket"/>
+        </route>
+        <!-- ruta que captura errores del servicio -->
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+<!--             <doTry id="excepcionTry"> -->
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="generarExcepcion" ref="beanRouteFacade"/>
+<!--                 <doCatch id="excepcionDoCatch"> -->
+<!--                     <exception>java.lang.NullPointerException</exception> -->
+<!--                     <bean id="_bean4" method="generarExcepcion" ref="beanRouteFacade"/> -->
+<!--                 </doCatch> -->
+<!--                 <doCatch id="excepcionDoCatch"> -->
+<!--                     <exception>java.lang.Exception</exception> -->
+<!--                     <setBody id="exceptionFinalSetBodyError"> -->
+<!--                         <simple>${exception}, Body -&gt; ${body}</simple> -->
+<!--                     </setBody> -->
+<!--                 </doCatch> -->
+<!--             </doTry> -->
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Servicio para la crecion y consulta de cheque a terceros -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <camelcxf:cxfEndpoint address="/WSChequeTercero"
+        id="endpointWsChequeTerceros"
+        serviceClass="cl.coopeuch.integracion.chequetercero.wsdl.WSChequeTerceroSOAPPortType" wsdlURL="etc/wsdl/WSChequeTercero.wsdl"/>
+    <bean class="cl.coopeuch.integracion.chequetercero.util.RouteFacade" id="beanRouteFacade"/>
+    <reference id="bindy"
+        interface="org.apache.camel.spi.DataFormatResolver" timeout="30000"/>
+    <camelContext id="servicio-cheque-tercero" xmlns="http://camel.apache.org/schema/blueprint">
+        <propertyPlaceholder location="blueprint:propertyGlobal"
+            prefixToken="{{" suffixToken="}}"/>
+        <route id="cxf-inicio">
+            <from id="inicioFromServicioSoap" uri="cxf:bean:endpointWsChequeTerceros"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetPropertyRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionCrear">
+                        <simple>${header.operationName} == 'crear'</simple>
+                        <to id="inicioToCrear" uri="direct:ChequeTercerosCrear"/>
+                    </when>
+                    <when id="inicioWhenOperacionConsultar">
+                        <simple>${header.operationName} == 'consultar'</simple>
+                        <to id="inicioToCrear" uri="direct:ChequeTercerosConsultar"/>
+                    </when>
+                    <when id="inicioWhenOperacionCrearCheque">
+                        <simple>${header.operationName} == 'crearChequePortabilidad'</simple>
+                        <to id="inicioToCrear" uri="direct:crearChequePortabilidad"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="inicioBeanExceptionAmq"
+                        method="excepcionAmq" ref="beanRouteFacade"/>
+                    <marshal id="inicioMarshalJson">
+                        <json library="Jackson"/>
+                    </marshal>
+                    <convertBodyTo id="inicioConvertTo" type="java.lang.String"/>
+                    <to id="inicioToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="crearChequePortabilidad">
+            <from id="fromCrearChequePortabilidad" uri="direct:crearChequePortabilidad"/>
+            <doTry id="_doTry1">
+                <bean id="_bean1" method="xmltoIOC7035" ref="beanRouteFacade"/>
+                <bean id="createJMSCorrelationIdPortabilidad"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <marshal id="_marshal1">
+                    <bindy
+                        classType="cl.coopeuch.integracion.chequetercero.modelo.IOC703501I" type="Fixed"/>
+                </marshal>
+                <to id="activemq-IngresarPortabilidad" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <choice id="_choice1">
+                    <when id="_when1">
+                        <simple>${body} contains 'ECNLERR'</simple>
+                        <unmarshal id="_unmarshal1">
+                            <bindy
+                                classType="cl.coopeuch.integracion.chequetercero.modelo.IOCERROR" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="_beanTransformaErrorIOC"
+                            method="errorIOC7035" ref="beanRouteFacade"/>
+                    </when>
+                    <otherwise id="_otherwise1">
+                        <unmarshal id="_unmarshal2">
+                            <bindy
+                                classType="cl.coopeuch.integracion.chequetercero.modelo.IOC703501O" type="Fixed"/>
+                        </unmarshal>
+                        <bean id="_beanSalidaOK"
+                            method="IOCtoXmlIOC7035" ref="beanRouteFacade"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="_doCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="_setProperty1" propertyName="error">
+                        <constant>Error interno del servidor</constant>
+                    </setProperty>
+                    <setProperty id="_setProperty2" propertyName="codigoError">
+                        <constant>500</constant>
+                    </setProperty>
+                    <log id="_log1" loggingLevel="ERROR" message="${property.CamelExceptionCaught}"/>
+                    <bean id="_bean3" method="errorGeneral" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="crear">
+            <from id="crearfrom" uri="direct:ChequeTercerosCrear"/>
+            <doTry id="crearTry">
+                <setBody id="crearSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="crearMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.chequetercero.wsdl"/>
+                </marshal>
+                <convertBodyTo id="crearConvertBodyToString" type="java.lang.String"/>
+                <bean id="crearBeanRouteFacadeUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="crearToXSLTrama" uri="xslt://etc/xslt/request/IOC703001I_crear.xsl"/>
+                <to id="crearToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="crearTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="crearToXSLSOAP" uri="xslt://etc/xslt/response/IOC703001O_crear.xsl?saxon=true"/>
+                <convertBodyTo id="crearConvertBodyToResponse" type="cl.coopeuch.integracion.chequetercero.wsdl.CrearResponse"/>
+                <doCatch id="crearDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="crearBeanExceptionAmq"
+                        method="excepcionAmq" ref="beanRouteFacade"/>
+                    <marshal id="crearMarshalJson">
+                        <json library="Jackson"/>
+                    </marshal>
+                    <convertBodyTo id="crearConvertTo" type="java.lang.String"/>
+                    <to id="crearToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean id="crearbeanExcepcion"
+                        method="excepcionCrear" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultar">
+            <from id="consultarfrom" uri="direct:ChequeTercerosConsultar"/>
+            <doTry id="consultarTry">
+                <setBody id="consultarSetBody">
+                    <simple>$simple{body.get(0)}</simple>
+                </setBody>
+                <marshal id="consultarMarshal">
+                    <jaxb contextPath="cl.coopeuch.integracion.chequetercero.wsdl"/>
+                </marshal>
+                <convertBodyTo id="consultarConvertBodyToString" type="java.lang.String"/>
+                <bean id="consultarBeanRouteFacadeUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultarToXSLTrama" uri="xslt://etc/xslt/request/IOC705001I_consultar.xsl"/>
+                <to id="consultarToAmq" uri="beanAMQ:{{amq.queue.temp.int}}?preserveMessageQos=true&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;replyToDeliveryPersistent=false"/>
+                <transform id="consultarTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="consultarToXSLSOAP" uri="xslt://etc/xslt/response/IOC705001O_consultar.xsl?saxon=true"/>
+                <convertBodyTo id="consultarConvertBodyToResponse" type="cl.coopeuch.integracion.chequetercero.wsdl.ConsultarResponse"/>
+                <doCatch id="consultarDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <bean id="consultarBeanExceptionAmq"
+                        method="excepcionAmq" ref="beanRouteFacade"/>
+                    <marshal id="consultarMarshalJson">
+                        <json library="Jackson"/>
+                    </marshal>
+                    <convertBodyTo id="consultarConvertTo" type="java.lang.String"/>
+                    <to id="consultarToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean id="consultarBeanExcepcion"
+                        method="excepcionConsultar" ref="beanRouteFacade"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

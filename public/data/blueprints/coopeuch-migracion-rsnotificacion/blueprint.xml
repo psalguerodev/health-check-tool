@@ -1,0 +1,506 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camel="http://camel.apache.org/schema/blueprint"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0      https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                   http://camel.apache.org/schema/blueprint/cxf      http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd          http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0 http://aries.apache.org/schemas/blueprint-cm/blueprint-cm-1.1.0.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyLocal"
+        persistent-id="wsnotificacion" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <cxf:cxfEndpoint address="/ServicioNotificacion"
+        id="servicioNotificacionEndpoint"
+        serviceClass="cl.coopeuch.core.notificacion.servicionotificacion.NotificacionPortType" wsdlURL="wsdl/ServicioNotificacion.wsdl"/>
+    <!-- Cliente Rest Appcelerator -->
+    <cxf:rsClient address="[{endpoint.appcelerator.notify.token.url}]" id="restAppcelerator">
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <cxf:rsClient address="[{endpoint.ubank.url}]" id="restUbank">
+        <cxf:providers>
+            <ref component-id="jsonProvider"/>
+        </cxf:providers>
+    </cxf:rsClient>
+    <bean class="org.apache.cxf.jaxrs.provider.json.JSONProvider" id="jsonProvider">
+        <property name="ignoreNamespaces" value="true"/>
+    </bean>
+    <!-- Conexion AMQ -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Configure IBM WebSphere MQ connection factory -->
+    <bean class="com.ibm.mq.jms.MQConnectionFactory" id="websphereConnectionFactory">
+        <property name="transportType" value="1"/>
+        <property name="hostName" value="{[ibm.mq.host]}"/>
+        <property name="port" value="{[ibm.mq.port]}"/>
+        <property name="queueManager" value="{[ibm.qm.name]}"/>
+        <property name="useConnectionPooling" value="true"/>
+        <property name="channel" value="{[ibm.qm.channel]}"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="websphereConfig">
+        <property name="connectionFactory" ref="websphereConnectionFactory"/>
+        <property name="concurrentConsumers" value="[{ibm.mq.concurrentConsumers.notificaciones}]"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsComponent" id="websphere">
+        <property name="configuration" ref="websphereConfig"/>
+    </bean>
+    <bean class="cl.coopeuch.notificacion.util.RouteFacade" id="beanRouteFacade"/>
+    <!-- Conexion SqlServer 2017 -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServerAU">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.wsahorroautomatico}];charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.wsahorroautomatico}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.wsahorroautomatico}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.wsahorroautomatico}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.wsahorroautomatico}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.wsahorroautomatico}]"/>
+    </bean>
+    <!-- Conexion SqlServer -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.notificacion}]"/>
+        <property name="username" value="[{jdbc.sqlserver.username.notificacion}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.notificacion}]"/>
+    </bean>
+    <!-- Llamada Procedimiento Almacenado -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_selTokenCliente">
+        <argument ref="dataSourceSqlServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selTokenCliente"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_selNotificaciones">
+        <argument ref="dataSourceSqlServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selNotificaciones"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="Token"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumTarjeta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="TipoTarjeta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumCuenta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="FechaDesde"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="FechaHasta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_insNotificaciones">
+        <argument ref="dataSourceSqlServer"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_insNotificaciones"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="Token"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="FechaTrx"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="HoraTrx"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="TipoTarjeta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumTarjeta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumCuenta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="MontoTrx"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="DescripcionTrx"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="OrigenTrx"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="CanalNotif"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="varchar"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <camelContext id="servicio-notificacion-context" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml disableFeatures="WRITE_DATES_AS_TIMESTAMPS"
+                id="jack" prettyPrint="true"/>
+            <xmljson elementName="resultado" id="xmljsonJson2Xml" rootName="salida"/>
+            <json id="gsonMap2Json" library="Gson" prettyPrint="true"/>
+            <json id="ubankRequest" library="Jackson" unmarshalTypeName="cl.coopeuch.notificacion.util.UbankRequest"/>
+            <json id="ubankResponse" include="NON_NULL"
+                library="Jackson" unmarshalTypeName="cl.coopeuch.notificacion.util.UbankResponse"/>
+        </dataFormats>
+        <!-- Ruta que invoca operaciones de servicio Web -->
+        <route id="cx-RuteoOperaciones">
+            <from id="servicioNotificacionEndpointListener" uri="cxf:bean:servicioNotificacionEndpoint?DataFormat=MESSAGE"/>
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean
+                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                    id="backupBody" method="guardaBody"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutaobtenerNotificaciones">
+                        <simple>${body} contains 'obtenerNotificaciones'</simple>
+                        <to id="obtenerNotificacionesTo" uri="direct:obtenerNotificaciones"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="ruteoOperacionesRestoreBody" method="restauraBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <!-- ruta de servicio Web que consulta notificaciones ingresadas -->
+        <route id="obtenerNotificaciones">
+            <from id="obtenerNotificacionesFrom" uri="direct:obtenerNotificaciones"/>
+            <doTry id="obtenerNotificacionesTry">
+                <setHeader headerName="Rut" id="obtenerNotificacionesHeaderrut">
+                    <xpath resultType="java.lang.String">//rut/text()</xpath>
+                </setHeader>
+                <setHeader headerName="Token" id="obtenerNotificacionesHeadertoken">
+                    <xpath resultType="java.lang.String">//token/text()</xpath>
+                </setHeader>
+                <setHeader headerName="NumTarjeta" id="obtenerNotificacionesHeadernumeroTarjeta">
+                    <xpath resultType="java.lang.String">//numeroTarjeta/text()</xpath>
+                </setHeader>
+                <setHeader headerName="TipoTarjeta" id="obtenerNotificacionesHeadertipoTarjeta">
+                    <xpath resultType="java.lang.String">//tipoTarjeta/text()</xpath>
+                </setHeader>
+                <setHeader headerName="NumCuenta" id="obtenerNotificacionesHeadernumeroCuenta">
+                    <xpath resultType="java.lang.String">//numeroCuenta/text()</xpath>
+                </setHeader>
+                <setHeader headerName="FechaDesde" id="obtenerNotificacionesHeaderfechaDesde">
+                    <xpath resultType="java.lang.String">//fechaDesde/text()</xpath>
+                </setHeader>
+                <setHeader headerName="FechaHasta" id="obtenerNotificacionesHeaderfechaHasta">
+                    <xpath resultType="java.lang.String">//fechaHasta/text()</xpath>
+                </setHeader>
+                <to id="dbo.pa_selNotificaciones" uri="bean:dbo.pa_selNotificaciones"/>
+                <marshal id="obtenerNotificacionesMarshal" ref="gsonMap2Json"/>
+                <unmarshal id="obtenerNotificacionesUnMarshal" ref="xmljsonJson2Xml"/>
+                <to id="obtenerNotificacionesXml2xml" uri="xslt://transformations/out/resultset2xml_consultarNotificaciones.xsl?saxon=true"/>
+                <doCatch id="obtenerNotificacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="obtenerNotificacionesRestoreBody" method="restauraBody"/>
+                    <setBody id="obtenerNotificacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="obtenerNotificacionesFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                        id="obtenerNotificacionesSetBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="obtenerNotificacionesFinally"/>
+            </doTry>
+        </route>
+        <!--Ruta que consume cola MQ y envia notificaciones de transacciones a 
+			dispositivo movil -->
+        <route id="notificarTransaccion">
+            <from id="notificarTransaccionFrom" uri="websphere:queue:{{ibm.queueNotificaTrx.out}}?disableReplyTo=true"/>
+            <doTry id="notificarTransaccionTry">
+                <convertBodyTo id="notificarTransaccionBodyTo" type="java.lang.String"/>
+                <setProperty id="tramaEntrada" propertyName="tramaEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <log id="_log2" message="Trama-Cola-MQ:${body}"/>
+                <transform id="notificarTransaccionTransform">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <to id="trama2xml_notificarTransaccion" uri="xslt://transformations/in/trama2xmlNOTIFSRV01I_notificarTransaccion.xsl?saxon=true"/>
+                <setProperty id="requestSNSXML" propertyName="requestSNSXML">
+                    <simple>${body}</simple>
+                </setProperty>
+                <bean
+                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                    id="GuardarTramaNotificacionBody" method="guardaBodyTrama"/>
+                <setHeader headerName="Rut" id="notificarTransaccionRutHeader">
+                    <xpath resultType="java.lang.String">//search/rutSinFormato/text()</xpath>
+                </setHeader>
+                <bean
+                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                    id="notificarTransaccionGuardarBodyPA1" method="guardaBody"/>
+                <to id="pa_selTokenCliente" uri="bean:dbo.pa_selTokenCliente"/>
+                <marshal id="consultarIDClienteset2xml" ref="jack"/>
+                <setHeader headerName="CantToken" id="notificarTransaccionCantTokenHeader">
+                    <xpath resultType="java.lang.String">//LinkedHashMap/resultSet/SALIDA/text()</xpath>
+                </setHeader>
+                <wireTap id="wireTap" uri="direct:ubank"/>
+                <wireTap id="wireTapSNS" uri="direct:wiretapSNS"/>
+                <choice id="choiceRs">
+                    <when id="whenRs">
+                        <simple>${header.CantToken} == '' or ${header.CantToken} == null</simple>
+                        <bean
+                            beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                            id="RestauraTramaNotificacionBody" method="restauraBodyTrama"/>
+                        <bean
+                            beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                            id="guardarMsjMQ" method="asignaTramaMQ"/>
+                    </when>
+                </choice>
+                <doCatch id="notificarTransaccionCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="notificarTransaccionRestoreBody" method="restauraBody"/>
+                    <setBody id="notificarTransaccionSetBodyError">
+                        <simple>ERROR:${exception}\n\nENTRADA:${body}</simple>
+                    </setBody>
+                    <choice id="choiceCodResp">
+                        <when id="whenCodResp">
+                            <simple>${property.CodigoRespRest} != '200'</simple>
+                            <to id="notificarTransaccionFault" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                        </when>
+                    </choice>
+                </doCatch>
+                <doFinally id="notificarTransaccionFinally"/>
+            </doTry>
+        </route>
+        <route id="routeWiretapSNS">
+            <from id="fromWiretapSNS" uri="direct:wiretapSNS"/>
+            <bean id="generaRequestSNS" method="generaRequestSNS" ref="beanRouteFacade"/>
+            <marshal id="bodySNSJsonMarshal" ref="gsonMap2Json"/>
+            <log id="adasd" message="mensaje a cola FIFO: \n\n\n${body}"/>
+            <bean id="enviaMensajeSNS" method="enviaMensajeSNS" ref="beanRouteFacade"/>
+        </route>
+        <route id="ubank">
+            <from id="fromUbank" uri="direct:ubank"/>
+            <doTry id="doTryUbank">
+                <setBody id="setBodyUbank">
+                    <simple>${property.tramasetbody}</simple>
+                </setBody>
+                <to id="validarUsuarioUbank-To" uri="direct:validarUsuarioUbank"/>
+                <when id="whenSigoUbank">
+                    <simple>${property.sigoUbank} == 'S'</simple>
+                    <unmarshal id="unmarshalUbank">
+                        <jaxb contextPath="cl.coopeuch.jaxb.notificacion"/>
+                    </unmarshal>
+                    <log id="_log1" message="\n\n WSNotificaciones Auditoria >> Trama-XML Entrada a Notificacion:: ${body}"/>
+                    <log id="validarTipoUbank-Log" message="\n\n WSNotificaciones Auditoria >>  tipo:${body.tipo} tipoTarjeta:${body.tipoTarjeta} tipoTrx:${body.origenTrx} \n"/>
+                    <when id="whenTipoUbank">
+                        <simple>${body.tipo} == '+' and ${body.tipoTarjeta} == 'CV' and ${body.origenTrx} == 'POS' or ${body.origenTrx} == 'WEBPAY' or ${body.origenTrx} == 'ABONO_REMUNERACION'</simple>
+                        <removeHeaders id="_removeHeaders2" pattern="*"/>
+                        <setProperty id="setPropertyBodySearch" propertyName="BodySearch">
+                            <simple>${body}</simple>
+                        </setProperty>
+                        <to id="servicioPersona-To" uri="direct:persona"/>
+                        <setBody id="setBodyPersonaSalida">
+                            <xpath>//salida</xpath>
+                        </setBody>
+                        <setBody id="setBodyMetodoResponse">
+                            <simple>&lt;NS1:traerDatosBasicosResponse xmlns:NS1="http://persona.core.coopeuch.cl"
+		        				&gt;${body}&lt;/NS1:traerDatosBasicosResponse&gt;</simple>
+                        </setBody>
+                        <bean id="ubankRequestBean"
+                            method="requestUbank" ref="beanRouteFacade"/>
+                        <setProperty id="setPropertyBodyUbankReq" propertyName="BodyUbankReq">
+                            <simple>${body}</simple>
+                        </setProperty>
+                        <setProperty id="setPropertyUbankReq" propertyName="origenDatosCifrado">
+                            <simple resultType="java.lang.String">requestUbank</simple>
+                        </setProperty>
+                        <bean id="wscifrado-EntradaUbank"
+                            method="enviarDatosCifrado" ref="beanRouteFacade"/>
+                        <to id="to-wscifradoUbank" uri="direct:wscifrado"/>
+                        <unmarshal id="unmarshalRespReqUbank">
+                            <jaxb contextPath="cl.coopeuch.core.notificacion.cifrado.wsdl"/>
+                        </unmarshal>
+                        <bean id="EntradaUbank-Restaura"
+                            method="restauraRequestEntrada" ref="beanRouteFacade"/>
+                        <marshal id="ubankRequestMarshal" ref="ubankRequest"/>
+                        <convertBodyTo id="convertBodyToA" type="java.lang.String"/>
+                        <setHeader headerName="access_token" id="_setHeader3">
+                            <simple>{{header.ubank.access.token}}</simple>
+                        </setHeader>
+                        <to id="restUbankTo" uri="cxfrs:bean:restUbank?exchangePattern=InOut&amp;throwExceptionOnFailure=false&amp;loggingFeatureEnabled=true"/>
+                        <convertBodyTo id="convertBodyToD" type="java.lang.String"/>
+                        <when id="whenValidaRespUbank">
+                            <simple>${body} contains 'user_id'</simple>
+                            <unmarshal id="ubankResponseUnmarshal" ref="ubankResponse"/>
+                            <bean id="ubankResponseBean"
+                                method="responseUbank" ref="beanRouteFacade"/>
+                        </when>
+                    </when>
+                </when>
+                <doCatch id="notificarTransaccionCatch1">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="notificarTransaccionRestoreBody1" method="restauraBody"/>
+                    <setBody id="notificarTransaccionSetBodyError1">
+                        <simple>ERROR:${exception}\n\nENTRADA:${body}</simple>
+                    </setBody>
+                    <to id="notificarTransaccionFault1" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Validacion en BD el usuario de Ubank -->
+        <route id="validarUsuarioUbank">
+            <from id="validaClienteUbank-From" uri="direct:validarUsuarioUbank"/>
+            <doTry id="doTryUsuarioUbank">
+                <setProperty id="_setProperty1" propertyName="rutUbank">
+                    <xpath resultType="java.lang.String">//rutSinFormato</xpath>
+                </setProperty>
+                <to id="PA_ValidarUsuarioTransferenciaUbank-To" uri="sql-stored:PA_ValidarUsuarioTransferenciaUbank(VARCHAR ${property.rutUbank},OUT VARCHAR pRetornoMsg  ,OUT INTEGER pRetornoId)?dataSource=dataSourceSqlServerAU&amp;outputHeader=responseValidarUsuarioTransferenciaUbank"/>
+                <bean
+                    id="responsePaValidarUsuarioTransferenciaUbank-Bean"
+                    method="responseValidarUsuarioTransferenciaUbank" ref="beanRouteFacade"/>
+                <when id="_when3">
+                    <simple>${property.sigoUbank} == 'S'</simple>
+                    <log id="validarUsuarioUbank-Log" message="\n\n WSNotificaciones Auditoria >> Rut:${property.rutUbank} - Entra al Flujo Ubank \n"/>
+                </when>
+                <doCatch id="validarUsuarioUbank-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="ExcepcionValidarUsuarioUbank-To" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Invocacion WSCifrado -->
+        <route id="wscifrado">
+            <from id="wscifrado-From" uri="direct:wscifrado"/>
+            <doTry id="wscifrado-DoTry">
+                <bean id="wscifrado-UUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="Cola-AMQ-wscifrado" uri="AMQ:{{wscifrado.amq.in.temp}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;explicitQosEnabled=true&amp;replyToDeliveryPersistent=false"/>
+                <bean id="wscifrado-Salida"
+                    method="obtenerDatosCifrados" ref="beanRouteFacade"/>
+                <doCatch id="encriptar-DoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <to id="ExcepcionEncriptarTO-To" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <stop id="encriptar-stop"/>
+                </doCatch>
+                <doCatch id="encriptar-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="encriptar-log" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="ExcepcionEncriptar-To" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <!-- Invocacion ServicioPersona -->
+        <route id="servicioPersona-TraerDatosBasicos">
+            <from id="servicioPersona-TraerDatosBasicos-From" uri="direct:persona"/>
+            <doTry id="servicioPersona-DoTry">
+                <bean id="servicioPersona-UUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <bean id="personaRequest-Bean" method="requestPersona" ref="beanRouteFacade"/>
+                <marshal id="marshalPersona">
+                    <jaxb contextPath="cl.coopeuch.core.notificacion.serviciopersona.wsdl"/>
+                </marshal>
+                <to id="Cola-AMQ-servicioPersona" uri="AMQ:{{wspersona.amq.in.temp}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;explicitQosEnabled=true&amp;replyToDeliveryPersistent=false"/>
+                <doCatch id="servicioPersona-DoCatch">
+                    <exception>org.apache.camel.ExchangeTimedOutException</exception>
+                    <to id="ExcepcionPersona-To" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <stop id="servicioPersona-stop"/>
+                </doCatch>
+                <doCatch id="servicioPersona-DoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="Persona-log" loggingLevel="ERROR" message="Ha ocurrido un error ::${exception}"/>
+                    <to id="ExcepcionPersona-To" uri="AMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

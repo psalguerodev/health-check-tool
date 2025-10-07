@@ -1,0 +1,3553 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+               xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+           xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="              http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd              http://camel.apache.org/schema/blueprint/cxf http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd              http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Property Placeholder -->
+    <cm:property-placeholder id="property-placeholder"
+                             persistent-id="serviceProperties" update-strategy="reload"/>
+    <!-- Endpoint wsdl credito scoring -->
+    <cxf:cxfEndpoint address="/Scoring/services/Scoring/sinacofiWS"
+                     id="servicioSinacofiEndpoint"
+                     serviceClass="cl.coopeuch.creditos.predictorriesgo.sinacofi.SinacofiWSPortType" wsdlURL="wsdl/ServicioSinacofi.wsdl"/>
+    <cxf:rsServer address="/RSCreditoScoring"
+                  id="servicioSinacofiRSEndpoint"
+                  serviceClass="cl.coopeuch.creditos.predictorriesgo.sinacofi.SinacofiWSPortType" >
+        <cxf:providers>
+            <bean id="jsonProvider" class="org.apache.cxf.jaxrs.provider.json.JSONProvider">
+                <property name="serializeAsArray" value="true"/>
+                <property name="arrayKeys">
+                    <list>
+                        <value>Morosidad</value>
+                        <value>IdConsulta</value>
+                        <value>DetalleInfraccionesLab</value>
+                        <value>PrendasSinDesplazamiento</value>
+                        <value>MultadosBcoCentral</value>
+                        <value>DeudaSistemaFinanciero</value>
+                        <value>DireccionesAsociadas</value>
+                        <value>DirectiorioPersonas</value>
+                        <value>AvaldoBienesRaices</value>
+                        <value>ProtestosyDocumentosVigentes</value>
+                    </list>
+                </property>
+            </bean>
+        </cxf:providers>
+    </cxf:rsServer>
+    <!-- Configure Active MQ connection factory -->
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="${amq.broker.url}"/>
+        <property name="userName" value="${amq.username}"/>
+        <property name="password" value="${amq.password}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <!-- Conexion Sybase -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+          destroy-method="close" id="dataSourceSybase">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="${jdbc.sybase.url.sinacofi};charset=iso_1"/>
+        <property name="username" value="${jdbc.sybase.username.sinacofi}"/>
+        <property name="password" value="${jdbc.sybase.password.sinacofi}"/>
+        <property name="timeBetweenEvictionRunsMillis" value="${jdbc.sybase.timeBetweenEvictionRunsMillis.sinacofi}"/>
+        <property name="numTestsPerEvictionRun" value="${jdbc.sybase.numTestsPerEvictionRun.sinacofi}"/>
+        <property name="minEvictableIdleTimeMillis" value="${jdbc.sybase.minEvictableIdleTimeMillis.sinacofi}"/>
+        <property name="maxActive" value="${jdbc.sybase.maxActive.sinacofi}"/>
+    </bean>
+    <!-- Llamada Procedimientos Almacenados -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_selultconsulsinacofi_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selultconsulsinacofi_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Frecuencia"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_selestadoced_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selestadoced_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_seldetallebic_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_seldetallebic_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_selinfraclaboral_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selinfraclaboral_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_seldetinfraclab_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_seldetinfraclab_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_selprendas_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selprendas_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_seldeudafinan_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_seldeudafinan_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_seldirecciones_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_seldirecciones_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_selidentificacion_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selidentificacion_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_selbienraiz_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selbienraiz_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_selmorconsolidada_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_selmorconsolidada_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!-- ##################################################################### -->
+    <!--  PA's de Insert -->
+    <!-- ##################################################################### -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_insprotestos_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_insprotestos_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumeroBoletinComercial"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="PaginaBoletin"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="IFechaBoletin"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="IFechaVencimiento"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="IdDocumento"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="IdMoneda"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Monto"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Decimal"/>
+                </map>
+                <map>
+                    <entry key="name" value="IdMotivo"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Localidad"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Notaria"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumeroOperacion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="BancoLibrador"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Sinacofi"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!--  -->
+    <!--  -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_insmorosidad_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_insmorosidad_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="IFeVencimiento"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="AportanteComercial"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="IdMoneda"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="IdDocumento"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Monto"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Decimal"/>
+                </map>
+                <map>
+                    <entry key="name" value="RutDeudor"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Direccion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Comuna"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Sinacofi"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!--  -->
+    <!--  -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_updatedetcedulas">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_updatedetcedulas_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Dv"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="TipoDocumento"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumeroSerie"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Razon"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Fecha"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Fuente"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Sinacofi"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!--  -->
+    <!--  -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_insdetallecedulas_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_insdetallecedulas"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Dv"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="TipoDocumento"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumeroSerie"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Razon"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Fecha"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Fuente"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Sinacofi"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!--  -->
+    <!--  -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_updatecedulasvigentes">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_updatecedulasvigentes_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="CedulaVigente"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumeroRegistros"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Sinacofi"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!--  -->
+    <!--  -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_inscedulasvigentes">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_inscedulasvigentes_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="CedulaVigente"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumeroRegistros"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Sinacofi"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!--  -->
+    <!--  -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_insfraclaborales_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_insfraclaborales_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumDeudasPrev"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumMultas"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Sinacofi"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!--  -->
+    <!--  -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_insdetinfraclabor_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_insdetinfraclabor_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumBoletin"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="PaginaBoletin"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="IFeBoletin"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="TipoInfraccion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumMesesAdeu"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="MontoDeuImp"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Decimal"/>
+                </map>
+                <map>
+                    <entry key="name" value="RegInspec"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumInspec"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="AnoResol"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumResol"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="MotivoInfrac"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="NombreAfp"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Sinacofi"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!--  -->
+    <!--  -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_insprendas_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_insprendas_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="IFeDiarioOficial"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Cuerpo"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Pagina"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Extracto"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="RutAcreedor"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="NombreAcreedor"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="RutNotario"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="NombreNotario"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Sinacofi"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!--  -->
+    <!--  -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_insdeudasistfin_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_insdeudasistfin_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="IFecha"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="DeudaTotal"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="NombreSuperintendencia"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Sinacofi"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!--  -->
+    <!--  -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_insdetdeudasisfin_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_insdetdeudasisfin_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="IFechaDeuda"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="DeudaDirectaVigente"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="DeudaInversionesFinancieras"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="DeudaVencidaDirecta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="DeudaOperacionesConPacto"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="DeudaIndirectaVigente"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="DeudaIndirectaVencida"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="DeudaComercial"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="DeudaCreditosConsumo"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="NumAcreedoresCreditosConsumo"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="DeudaHipotecarios"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="DeudaMorosa"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="DeudaCastigadaDirecta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="DeudaCastigadaIndirecta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="LineaCreditoDisponible"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="DeudaComercialVigenteMEx"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="DeudaComercialVencidaMEx"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Sinacofi"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!--  -->
+    <!--  -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_insdirecciones_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_insdirecciones_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Direccion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Comuna"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Ciudad"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="IFecha"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Fuente"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Tipo"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Sinacofi"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!--  -->
+    <!--  -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_insdirpersonas_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_insdirpersonas_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Nombre"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Direccion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Comuna"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Ciudad"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Region"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="IFechaNacimiento"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Actividad"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="IFechaInformacion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="SituacionMilitar"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="IFechaDefuncion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Sinacofi"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!--  -->
+    <!--  -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_insbienesraices_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_insbienesraices_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Manzana"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Predio"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Comuna"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Direccion"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="TipoPropiedad"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Destino"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="Avaluo"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Sinacofi"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!--  -->
+    <!--  -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_insregistrocliente2_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_insregistrocliente2_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="ExisteCedula"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="ExisteProtesto"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="ExisteMorosidad"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="ExistePrendas"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="ExisteSistFinan"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="ExisteDirRut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="ExisteDirCli"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="ExisteBienRaiz"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="ExisteInfrLab"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!--  -->
+    <!--  -->
+    <!-- ##################################################################### -->
+    <!--  PA's de Update -->
+    <!-- ##################################################################### -->
+    <bean class="cl.coopeuch.util.db.StoredProcedureBean" id="dbo.pa_updatefechconsulta_MB">
+        <argument ref="dataSourceSybase"/>
+        <argument value="java.sql.Types"/>
+        <argument value="dbo.pa_updatefechconsulta_MB"/>
+        <argument value="false"/>
+        <argument>
+            <list>
+                <map>
+                    <entry key="name" value="IdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="UpdateIdConsulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Rut"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="Integer"/>
+                </map>
+                <map>
+                    <entry key="name" value="Consulta"/>
+                    <entry key="mode" value="in"/>
+                    <entry key="type" value="char"/>
+                </map>
+                <map>
+                    <entry key="name" value="resultSet"/>
+                    <entry key="mode" value="out"/>
+                    <entry key="type" value="ResultSet"/>
+                </map>
+            </list>
+        </argument>
+    </bean>
+    <!-- bean que genera correlationID para colas AMQ -->
+    <bean class="cl.coopeuch.util.jms.CorrelationId" id="convertCorrelationId"/>
+    <!--  -->
+    <!--  -->
+    <camelContext id="servicio-credito-scoring" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <jacksonxml disableFeatures="WRITE_DATES_AS_TIMESTAMPS"
+                        id="jack" prettyPrint="true"/>
+        </dataFormats>
+        <route id="inicio-soap">
+            <from id="inicioFromSoap" uri="cxf:bean:servicioSinacofiEndpoint?DataFormat=MESSAGE" />
+            <to id="soapToInicioWs" uri="direct:cxf-inicio" />
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:servicioSinacofiRSEndpoint" />
+            <setBody id="inicioSetBody">
+                <simple>$simple{body.get(0)}</simple>
+            </setBody>
+            <choice id="inicioChoiceOperacion">
+                <when>
+                    <simple>${header.operationName} == 'sinacofiWS'</simple>
+                    <to id="toSinacofiWS" uri="direct:datosConsulta" />
+                    <setBody>
+                        <xpath>//*[local-name()='salida']/*</xpath>
+                    </setBody>
+                    <transform>
+                        <simple>&lt;salida&gt;${body}&lt;/salida&gt;</simple>
+                    </transform>
+                    <unmarshal>
+                        <jaxb contextPath="cl.coopeuch.creditos.predictorriesgo.sinacofi"/>
+                    </unmarshal>
+                </when>
+                <otherwise id="inicioOtherwise">
+                    <throwException exceptionType="java.lang.Exception"
+                                        id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida" />
+                </otherwise>
+            </choice>
+        </route>
+        
+        <!-- Ruta que invoca operaciones de servicio Web -->
+        <route id="cx-RuteoOperaciones">
+            <from id="inicioFromServicio" uri="direct:cxf-inicio" />
+            <doTry id="ruteoOperacionesTry">
+                <convertBodyTo id="ruteoOperacionesBodyTo" type="java.lang.String"/>
+                <bean
+                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                    id="backupBody" method="guardaBody"/>
+                <choice id="ruteoOperaciones">
+                    <when id="rutadatosConsulta">
+                        <simple>${body} contains 'datosConsulta'</simple>
+                        <to id="datosConsultaTo" uri="direct:datosConsulta"/>
+                    </when>
+                </choice>
+                <doCatch id="ruteoOperacionesCatch">
+                    <exception>java.lang.Exception</exception>
+                    <exception>java.io.IOException</exception>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="ruteoOperacionesRestoreBody" method="restauraBody"/>
+                    <setBody id="ruteoOperacionesSetBodyError">
+                        <simple>ERROR:${exception}:${body}</simple>
+                    </setBody>
+                    <to id="ruteoOperacionesFault" uri="AMQ:{{amq.queue.amq.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                    <bean beanType="cl.coopeuch.util.error.BodyError"
+                          id="ruteoOperacionesBodyError" method="setBodyError"/>
+                </doCatch>
+                <doFinally id="ruteoOperacionesFinally"/>
+            </doTry>
+        </route>
+        <!-- Ruta que invoca servicio via Cola -->
+        <route id="datosConsultaAMQ">
+            <from id="recibeAMQdatosConsulta" uri="AMQ:{{amq.queue.creditoscoring.req}}"/>
+            <convertBodyTo id="datosConsultaAMQBodyTo" type="java.lang.String"/>
+            <setProperty id="_setProperty1" propertyName="rutAMQ">
+                <xpath resultType="java.lang.String">//rut</xpath>
+            </setProperty>
+            <setProperty id="_setProperty2" propertyName="dvAMQ">
+                <xpath resultType="java.lang.String">//dv</xpath>
+            </setProperty>
+            <setProperty id="_setProperty3" propertyName="qryAMQ">
+                <xpath resultType="java.lang.String">//qry</xpath>
+            </setProperty>
+            <setProperty id="_setProperty4" propertyName="serieAMQ">
+                <xpath resultType="java.lang.String">//serie</xpath>
+            </setProperty>
+            <setProperty id="_setProperty5" propertyName="cacheAMQ">
+                <xpath resultType="java.lang.String">//cache</xpath>
+            </setProperty>
+            <choice id="_choice19">
+                <when id="_when19">
+                    <xpath>//qry='B'</xpath>
+                    <to id="salidaScore" uri="xslt://transformations/out/salidaScore.xsl?saxon=true"/>
+                </when>
+                <when id="_when51">
+                    <xpath>//qry[contains(.,'A1')] or //qry[contains(.,'A3')] or //qry[contains(.,'A2')] or //qry[contains(.,'A7')] or //qry[contains(.,'A8')] or //qry[contains(.,'A16')] or //qry[contains(.,'A18')] or //qry[contains(.,'A26')] or //qry[contains(.,'A32')]</xpath>
+                    <to id="entradaScoringAMQ" uri="xslt://transformations/in/xml2xmlin_entradaScoringAMQ.xsl?saxon=true"/>
+                    <to id="datosConsultaSinacofiTo" uri="direct:datosConsulta"/>
+                    <to id="eliminaNSAMQ" uri="xslt://transformations/mid/eliminarNamespaces.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="_bean3" method="asignaHeadersAMQ"/>
+                    <to id="salidaScoringAMQ" uri="xslt://transformations/out/xml2xmlout_salidaScoringAMQ.xsl?saxon=true"/>
+                </when>
+            </choice>
+        </route>
+        <!-- Ruta principal de servicio credito scoring -->
+        <route id="datosConsulta">
+            <from id="datosConsultaFrom" uri="direct:datosConsulta"/>
+            <setHeader headerName="Rut" id="Rut">
+                <xpath resultType="java.lang.String">//rut</xpath>
+            </setHeader>
+            <setHeader headerName="dv" id="dv">
+                <xpath resultType="java.lang.String">//dv</xpath>
+            </setHeader>
+            <setHeader headerName="Rutdv" id="Rutdv">
+                <xpath resultType="java.lang.String">concat(//rut,//dv)</xpath>
+            </setHeader>
+            <setHeader headerName="validaRut" id="creaUsuarioHeaderValidaRut">
+                <method beanType="cl.coopeuch.util.transformacion.Rut"
+                        id="creaUsuarioValidaRut" method="validaRut(${headers.Rutdv})"/>
+            </setHeader>
+            <setHeader headerName="serie" id="serie">
+                <xpath resultType="java.lang.String">//serie</xpath>
+            </setHeader>
+            <setHeader headerName="Frecuencia" id="Frecuencia">
+                <constant>7</constant>
+            </setHeader>
+            <setHeader headerName="consultas" id="consultas">
+                <xpath resultType="java.lang.String">//consultas</xpath>
+            </setHeader>
+            <to id="xml2xmlin_datosConsulta" uri="xslt://transformations/in/xml2xmlin_datosConsulta.xsl?saxon=true"/>
+            <setHeader headerName="consultas.error" id="_setHeaderERROR">
+                <xpath resultType="String">//Consulta/@numero=999</xpath>
+            </setHeader>
+            <choice id="EvaluarDatos">
+                <when id="DatosVacios">
+                    <simple>${headers.Rut} == '' || ${headers.Rut} == ' ' || ${headers.dv} == '' || ${headers.dv} == ' ' || ${headers.consultas} == '' || ${headers.consultas} == ' '</simple>
+                    <to id="errorDatoVacio" uri="xslt://transformations/error/validarDatosEntrada.xsl?saxon=true"/>
+                </when>
+                <when id="ConsultaIncorrecta">
+                    <simple>${headers.consultas.error}</simple>
+                    <to id="errorDatoVacio" uri="xslt://transformations/error/validarDatosEntrada.xsl?saxon=true"/>
+                </when>
+                <when id="RutIncorrecto">
+                    <simple>${headers.validaRut} == 'Incorrecto'</simple>
+                    <to id="errorDatoVacio" uri="xslt://transformations/error/validarDatosEntrada.xsl?saxon=true"/>
+                </when>
+                <otherwise id="IdClienteNoVacio">
+                    <setHeader headerName="consulta1.status" id="_setHeader1">
+                        <xpath resultType="String">//Consulta/@numero=1</xpath>
+                    </setHeader>
+                    <setHeader headerName="consulta2.status" id="_setHeader2">
+                        <xpath resultType="String">//Consulta/@numero=2</xpath>
+                    </setHeader>
+                    <setHeader headerName="consulta7.status" id="_setHeader3">
+                        <xpath resultType="String">//Consulta/@numero=7</xpath>
+                    </setHeader>
+                    <setHeader headerName="consulta8.status" id="_setHeader4">
+                        <xpath resultType="String">//Consulta/@numero=8</xpath>
+                    </setHeader>
+                    <setHeader headerName="consulta14.status" id="_setHeader5">
+                        <xpath resultType="String">//Consulta/@numero=14</xpath>
+                    </setHeader>
+                    <setHeader headerName="consulta16.status" id="_setHeader6">
+                        <xpath resultType="String">//Consulta/@numero=16</xpath>
+                    </setHeader>
+                    <setHeader headerName="consulta18.status" id="_setHeader7">
+                        <xpath resultType="String">//Consulta/@numero=18</xpath>
+                    </setHeader>
+                    <setHeader headerName="consulta26.status" id="_setHeader8">
+                        <xpath resultType="String">//Consulta/@numero=26</xpath>
+                    </setHeader>
+                    <setHeader headerName="consulta32.status" id="_setHeader9">
+                        <xpath resultType="String">//Consulta/@numero=32</xpath>
+                    </setHeader>
+                    <setHeader headerName="consulta82.status" id="_setHeader10">
+                        <xpath resultType="String">//Consulta/@numero=82</xpath>
+                    </setHeader>
+                    <to id="PA_selultconsulsinacofi_MB" uri="bean:dbo.pa_selultconsulsinacofi_MB"/>
+                    <marshal id="selultconsulsinacofi_MBResultset2xml" ref="jack"/>
+                    <convertBodyTo id="limpieza" type="java.lang.String"/>
+                    <transform id="limpia">
+                        <simple>${in.body.replaceAll('#','')}</simple>
+                    </transform>
+                    <setHeader headerName="NoExisteEnCache" id="_setHeader56">
+                        <xpath resultType="java.lang.String">not(boolean(//resultSet))</xpath>
+                    </setHeader>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.HeadersPropagator"
+                        id="_bean30" method="setupNoExisteEnCache"/>
+                    <choice id="_choice1">
+                        <when id="_when1.0">
+                            <simple>${headers.consulta1.status} == 'true'</simple>
+                            <choice id="_choice21">
+                                <when id="_when1">
+                                    <xpath>//IdConsultaCedula!='-1' and //UltimaConsultaCedula &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta1.via" id="_setHeader11">
+                                        <constant>sinacofi</constant>
+                                        <!--                                 <constant>cache</constant> Nunca se va a buscar Cédula a caché-->
+                                    </setHeader>
+                                    <setHeader headerName="consulta1.Id" id="_setHeader12">
+                                        <xpath resultType="String">//IdConsultaCedula</xpath>
+                                    </setHeader>
+                                </when>
+                                <when id="_when52">
+                                    <xpath>//IdConsultaCedula ='-1' and //UltimaConsultaCedula!='-1' and //UltimaConsultaCedula &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta1.via" id="_setHeader14.1">
+                                        <constant>cache</constant>
+                                    </setHeader>
+                                    <setHeader headerName="consulta1.Id" id="_setHeader14.2">
+                                        <xpath resultType="String">//IdConsultaCedula</xpath>
+                                    </setHeader>
+                                </when>
+                                <otherwise id="_otherwise1">
+                                    <setHeader headerName="consulta1.Id" id="_setHeader117">
+                                        <xpath resultType="String">//IdConsultaCedula</xpath>
+                                    </setHeader>
+                                    <setHeader
+                                        headerName="consulta1.via" id="_setHeader13">
+                                        <constant>sinacofi</constant>
+                                    </setHeader>
+                                </otherwise>
+                            </choice>
+                        </when>
+                    </choice>
+                    <choice id="_choice2">
+                        <when id="_when2.0">
+                            <simple>${headers.consulta2.status} == 'true'</simple>
+                            <choice id="_choice44">
+                                <when id="_when2">
+                                    <xpath>//IdConsultaMorosidad!='-1' and //UltimaConsultaMorosidad &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta2.via" id="_setHeader14">
+                                        <constant>cache</constant>
+                                    </setHeader>
+                                    <setHeader headerName="consulta2.Id" id="_setHeader15">
+                                        <xpath resultType="String">//IdConsultaMorosidad</xpath>
+                                    </setHeader>
+                                </when>
+                                <when id="_when2.1">
+                                    <xpath>//IdConsultaMorosidad ='-1' and //UltimaConsultaMorosidad!='-1' and //UltimaConsultaMorosidad &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta2.via" id="_setHeader14.1">
+                                        <constant>cache</constant>
+                                    </setHeader>
+                                    <setHeader headerName="consulta2.Id" id="_setHeader15.1">
+                                        <xpath resultType="String">//IdConsultaMorosidad</xpath>
+                                    </setHeader>
+                                </when>
+                                <otherwise id="_otherwise2">
+                                    <setHeader
+                                        headerName="consulta2.via" id="_setHeader16">
+                                        <constant>sinacofi</constant>
+                                    </setHeader>
+                                </otherwise>
+                            </choice>
+                        </when>
+                    </choice>
+                    <choice id="_choice7">
+                        <when id="_when53">
+                            <simple>${headers.consulta7.status} == 'true'</simple>
+                            <choice id="_choice45">
+                                <when id="_when7">
+                                    <xpath>//IdConsultaInfrLab!='-1' and //UltimaConsultaInfrLab &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta7.via" id="_setHeader714">
+                                        <constant>cache</constant>
+                                    </setHeader>
+                                    <setHeader headerName="consulta7.Id" id="_setHeader715">
+                                        <xpath resultType="String">//IdConsultaInfrLab</xpath>
+                                    </setHeader>
+                                </when>
+                                <when id="_when54">
+                                    <xpath>//IdConsultaInfrLab ='-1' and //UltimaConsultaInfrLab!='-1' and //UltimaConsultaInfrLab &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta7.via" id="_setHeader714.1">
+                                        <constant>cache</constant>
+                                    </setHeader>
+                                    <setHeader headerName="consulta7.Id" id="_setHeader715.1">
+                                        <xpath resultType="String">//IdConsultaInfrLab</xpath>
+                                    </setHeader>
+                                </when>
+                                <otherwise id="_otherwise7">
+                                    <setHeader
+                                        headerName="consulta7.via" id="_setHeader716">
+                                        <constant>sinacofi</constant>
+                                    </setHeader>
+                                </otherwise>
+                            </choice>
+                        </when>
+                    </choice>
+                    <choice id="_choice8">
+                        <when id="_when55">
+                            <simple>${headers.consulta8.status} == 'true'</simple>
+                            <choice id="_choice46">
+                                <when id="_when8">
+                                    <xpath>//IdConsultaPrendas!='-1' and //UltimaConsultaPrendas &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta8.via" id="_setHeader814">
+                                        <constant>cache</constant>
+                                    </setHeader>
+                                    <setHeader headerName="consulta8.Id" id="_setHeader815">
+                                        <xpath resultType="String">//IdConsultaPrendas</xpath>
+                                    </setHeader>
+                                </when>
+                                <when id="_when56">
+                                    <xpath>//IdConsultaPrendas ='-1' and //UltimaConsultaPrendas!='-1' and //UltimaConsultaPrendas &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta8.via" id="_setHeader814.1">
+                                        <constant>cache</constant>
+                                    </setHeader>
+                                    <setHeader headerName="consulta8.Id" id="_setHeader815.1">
+                                        <xpath resultType="String">//IdConsultaPrendas</xpath>
+                                    </setHeader>
+                                </when>
+                                <otherwise id="_otherwise8">
+                                    <setHeader
+                                        headerName="consulta8.via" id="_setHeader816">
+                                        <constant>sinacofi</constant>
+                                    </setHeader>
+                                </otherwise>
+                            </choice>
+                        </when>
+                    </choice>
+                    <choice id="_choice16">
+                        <when id="_when57">
+                            <simple>${headers.consulta16.status} == 'true'</simple>
+                            <choice id="_choice47">
+                                <when id="_when16">
+                                    <xpath>//IdConsultaSistFin!='-1' and //UltimaConsultaSistFin &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta16.via" id="_setHeader1614">
+                                        <constant>cache</constant>
+                                    </setHeader>
+                                    <setHeader
+                                        headerName="consulta16.Id" id="_setHeader1615">
+                                        <xpath resultType="String">//IdConsultaSistFin</xpath>
+                                    </setHeader>
+                                </when>
+                                <when id="_when58">
+                                    <xpath>//IdConsultaSistFin ='-1' and //UltimaConsultaSistFin!='-1' and //UltimaConsultaSistFin &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta16.via" id="_setHeader1614">
+                                        <constant>cache</constant>
+                                    </setHeader>
+                                    <setHeader
+                                        headerName="consulta16.Id" id="_setHeader1615">
+                                        <xpath resultType="String">//IdConsultaSistFin</xpath>
+                                    </setHeader>
+                                </when>
+                                <otherwise id="_otherwise16">
+                                    <setHeader
+                                        headerName="consulta16.via" id="_setHeader1616">
+                                        <constant>sinacofi</constant>
+                                    </setHeader>
+                                </otherwise>
+                            </choice>
+                        </when>
+                    </choice>
+                    <choice id="_choice18">
+                        <when id="_when59">
+                            <simple>${headers.consulta18.status} == 'true'</simple>
+                            <choice id="_choice48">
+                                <when id="_when18">
+                                    <xpath>//IdConsultaDirRut!='-1' and //UltimaConsultaDirRut &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta18.via" id="_setHeader1814">
+                                        <constant>cache</constant>
+                                    </setHeader>
+                                    <setHeader
+                                        headerName="consulta18.Id" id="_setHeader1815">
+                                        <xpath resultType="String">//IdConsultaDirRut</xpath>
+                                    </setHeader>
+                                </when>
+                                <when id="_when60">
+                                    <xpath>//IdConsultaDirRut ='-1' and //UltimaConsultaDirRut != '-1' and //UltimaConsultaDirRut &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta18.via" id="_setHeader1814.1">
+                                        <constant>cache</constant>
+                                    </setHeader>
+                                    <setHeader
+                                        headerName="consulta18.Id" id="_setHeader1815.1">
+                                        <xpath resultType="String">//IdConsultaDirRut</xpath>
+                                    </setHeader>
+                                </when>
+                                <otherwise id="_otherwise2">
+                                    <setHeader
+                                        headerName="consulta18.via" id="_setHeader1816">
+                                        <constant>sinacofi</constant>
+                                    </setHeader>
+                                </otherwise>
+                            </choice>
+                        </when>
+                    </choice>
+                    <choice id="_choice26">
+                        <when id="_when61">
+                            <simple>${headers.consulta26.status} == 'true'</simple>
+                            <choice id="_choice49">
+                                <when id="_when26">
+                                    <xpath>//IdConsultaDirCliente!='-1' and //UltimaConsultaDirCliente &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta26.via" id="_setHeader2614">
+                                        <constant>cache</constant>
+                                    </setHeader>
+                                    <setHeader
+                                        headerName="consulta26.Id" id="_setHeader2615">
+                                        <xpath resultType="String">//IdConsultaDirCliente</xpath>
+                                    </setHeader>
+                                </when>
+                                <when id="_when62">
+                                    <xpath>//IdConsultaDirCliente ='-1' and //UltimaConsultaDirCliente != '-1' and //UltimaConsultaDirCliente &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta26.via" id="_setHeader2614.1">
+                                        <constant>cache</constant>
+                                    </setHeader>
+                                    <setHeader
+                                        headerName="consulta26.Id" id="_setHeader2615.1">
+                                        <xpath resultType="String">//IdConsultaDirCliente</xpath>
+                                    </setHeader>
+                                </when>
+                                <otherwise id="_otherwise2">
+                                    <setHeader
+                                        headerName="consulta26.via" id="_setHeader2616">
+                                        <constant>sinacofi</constant>
+                                    </setHeader>
+                                </otherwise>
+                            </choice>
+                        </when>
+                    </choice>
+                    <choice id="_choice32">
+                        <when id="_when32.0">
+                            <simple>${headers.consulta32.status} == 'true'</simple>
+                            <choice id="_choice43">
+                                <when id="_when32">
+                                    <xpath>//IdConsultaBienRaiz!='-1' and //UltimaConsultaBienRaiz &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta32.via" id="_setHeader3217">
+                                        <constant>cache</constant>
+                                    </setHeader>
+                                    <setHeader
+                                        headerName="consulta32.Id" id="_setHeader3218">
+                                        <xpath resultType="String">//IdConsultaBienRaiz</xpath>
+                                    </setHeader>
+                                </when>
+                                <when id="_when32.1">
+                                    <xpath>//IdConsultaBienRaiz ='-1' and //UltimaConsultaBienRaiz!='-1' and //UltimaConsultaBienRaiz &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta32.via" id="_setHeader14">
+                                        <constant>cache</constant>
+                                    </setHeader>
+                                    <setHeader headerName="consulta2.Id" id="_setHeader15">
+                                        <xpath resultType="String">//IdConsultaMorosidad</xpath>
+                                    </setHeader>
+                                </when>
+                                <otherwise id="_otherwise32">
+                                    <setHeader
+                                        headerName="consulta32.via" id="_setHeader3219">
+                                        <constant>sinacofi</constant>
+                                    </setHeader>
+                                </otherwise>
+                            </choice>
+                        </when>
+                    </choice>
+                    <choice id="_choice82">
+                        <when id="_when63">
+                            <simple>${headers.consulta82.status} == 'true'</simple>
+                            <choice id="_choice50">
+                                <when id="_when82">
+                                    <xpath>//IdConsultaProtestos!='-1' and //UltimaConsultaProtestos &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta82.via" id="_setHeader17">
+                                        <constant>cache</constant>
+                                    </setHeader>
+                                    <setHeader
+                                        headerName="consulta82.Id" id="_setHeader18">
+                                        <xpath resultType="String">//IdConsultaProtestos</xpath>
+                                    </setHeader>
+                                </when>
+                                <when id="_when64">
+                                    <xpath>//IdConsultaProtestos ='-1' and //UltimaConsultaProtestos!='-1' and //UltimaConsultaProtestos &lt; 7</xpath>
+                                    <setHeader
+                                        headerName="consulta82.via" id="_setHeader17.1">
+                                        <constant>cache</constant>
+                                    </setHeader>
+                                    <setHeader
+                                        headerName="consulta82.Id" id="_setHeader18.1">
+                                        <xpath resultType="String">//IdConsultaProtestos</xpath>
+                                    </setHeader>
+                                </when>
+                                <otherwise id="_otherwise3">
+                                    <setHeader
+                                        headerName="consulta82.via" id="_setHeader19">
+                                        <constant>sinacofi</constant>
+                                    </setHeader>
+                                </otherwise>
+                            </choice>
+                        </when>
+                    </choice>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.HeadersPropagatorViasyStatus"
+                        id="_beassn1zlk" method="setupViasyStatus"/>
+                    <to id="ConsultaCedulaTo" uri="direct:ConsultaCedula"/>
+                    <to id="ConsultaMorosidadTo" uri="direct:ConsultaMorosidad"/>
+                    <to id="ConsultaInfrLabTo" uri="direct:ConsultaInfrLab"/>
+                    <to id="ConsultaPrendasTo" uri="direct:ConsultaPrendas"/>
+                    <to id="ConsultaSistFinTo" uri="direct:ConsultaSistFin"/>
+                    <to id="ConsultaDirRutTo" uri="direct:ConsultaDirRut"/>
+                    <to id="ConsultaDirClienteTo" uri="direct:ConsultaDirCliente"/>
+                    <to id="ConsultaBienRaizTo" uri="direct:ConsultaBienRaiz"/>
+                    <to id="ConsultaProtestosTo" uri="direct:ConsultaProtestos"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.HeadersPropagator"
+                        id="_bean1" method="setupRut"/>
+                    <choice id="_choice42">
+                        <when id="_when90">
+                            <simple>${headers.consulta1.via} == 'sinacofi' or ${headers.consulta2.via} == 'sinacofi' or ${headers.consulta7.via} == 'sinacofi' or ${headers.consulta8.via} == 'sinacofi' or ${headers.consulta16.via} == 'sinacofi' or ${headers.consulta18.via} == 'sinacofi' or ${headers.consulta26.via} == 'sinacofi' or ${headers.consulta32.via} == 'sinacofi' or ${headers.consulta82.via} == 'sinacofi'</simple>
+                            <to id="ConsultaCedulaSinacofiTo" uri="direct:ConsultaCedulaSinacofi"/>
+                            <to id="ConsultaMorosidadSinacofiTo" uri="direct:ConsultaMorosidadSinacofi"/>
+                            <to id="ConsultaProtestosSinacofiTo" uri="direct:ConsultaProtestosSinacofi"/>
+                            <to id="ConsultaInfrLabSinacofiTo" uri="direct:ConsultaInfrLabSinacofi"/>
+                            <to id="ConsultaPrendasSinacofiTo" uri="direct:ConsultaPrendasSinacofi"/>
+                            <to id="ConsultaSistFinSinacofiTo" uri="direct:ConsultaSistFinSinacofi"/>
+                            <to id="ConsultaBienRaizSinacofiTo" uri="direct:ConsultaBienRaizSinacofi"/>
+                            <to id="ConsultaDirRutSinacofiTo" uri="direct:ConsultaDirRutSinacofi"/>
+                            <to id="ConsultaDirClienteSinacofiTo" uri="direct:ConsultaDirClienteSinacofi"/>
+                            <bean
+                                beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                                id="xmlSinacofi" method="generaConsultaSinacofi"/>
+                            <bean id="_bean11"
+                                  method="createJMSCorrelationId24" ref="convertCorrelationId"/>
+                            <to id="activemq-ConsultasSinacofi" uri="AMQ:{{amq.queue.sinacofi.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyToType=Temporary&amp;synchronous=true&amp;exchangePattern=InOut&amp;deliveryPersistent=false&amp;explicitQosEnabled=true&amp;replyToDeliveryPersistent=false"/>
+                            <bean
+                                beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                                id="guardaXmlSinacofi" method="guardaXmlSinacofi"/>
+                            <choice id="_choice51">
+                                <when id="_when65">
+                                    <xpath resultType="String">boolean(//ResultsEstadoCedula/EstadoCedula)</xpath>
+                                    <setHeader headerName="ExisteCedula" id="_setHeader29">
+                                        <constant>1</constant>
+                                    </setHeader>
+                                </when>
+                                <when id="_when81">
+                                    <simple>${body} contains 'ResultsEstadoCedula'</simple>
+                                    <setHeader headerName="ExisteCedula" id="_setHeader29">
+                                        <constant>-1</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta1"
+                                        id="_bean26" method="guardaBodyConsulVacio"/>
+                                </when>
+                                <otherwise id="_otherwise15">
+                                    <setHeader headerName="ExisteCedula" id="_setHeader30">
+                                        <constant>0</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta1"
+                                        id="BB1" method="guardaBodyConsulVacio"/>
+                                </otherwise>
+                            </choice>
+                            <choice id="_choice20">
+                                <when id="_when20">
+                                    <xpath>/Agregado/ResultsMorosidad/Morosidad/*</xpath>
+                                    <setHeader
+                                        headerName="ExisteMorosidad" id="_setHeader31">
+                                        <constant>1</constant>
+                                    </setHeader>
+                                </when>
+                                <when id="_when49">
+                                    <simple>${body} contains 'ResultsMorosidad'</simple>
+                                    <setHeader
+                                        headerName="ExisteMorosidad" id="_setHeader32">
+                                        <constant>-1</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta2"
+                                        id="BB2" method="guardaBodyConsulVacio"/>
+                                </when>
+                                <otherwise id="_otherwise17">
+                                    <setHeader
+                                        headerName="ExisteMorosidad" id="_setHeader32">
+                                        <constant>0</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta2"
+                                        id="BB2" method="guardaBodyConsulVacio"/>
+                                </otherwise>
+                            </choice>
+                            <choice id="_choice52">
+                                <when id="_when21">
+                                    <xpath>/Agregado/ResultsInfraccionesLaborales/ResultsDetalleInfraccionesLab/*</xpath>
+                                    <setHeader
+                                        headerName="ExisteInfrLab" id="_setHeader33">
+                                        <constant>1</constant>
+                                    </setHeader>
+                                </when>
+                                <when id="_when66">
+                                    <simple>${body} contains 'ResultsInfraccionesLaborales'</simple>
+                                    <setHeader
+                                        headerName="ExisteInfrLab" id="_setHeader118">
+                                        <constant>-1</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta7"
+                                        id="_bean12" method="guardaBodyConsulVacio"/>
+                                </when>
+                                <otherwise id="_otherwise18">
+                                    <setHeader
+                                        headerName="ExisteInfrLab" id="_setHeader34">
+                                        <constant>0</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta7"
+                                        id="BB71" method="guardaBodyConsulVacio"/>
+                                </otherwise>
+                            </choice>
+                            <choice id="_choice40">
+                                <when id="_when40">
+                                    <xpath>/Agregado/ResultsProtestosyDocumentosVigentes/ProtestosyDocumentosVigentes/*</xpath>
+                                    <setHeader
+                                        headerName="ExisteProtesto" id="_setHeader54">
+                                        <constant>1</constant>
+                                    </setHeader>
+                                </when>
+                                <when id="_when67">
+                                    <simple>${body} contains 'ResultsProtestosyDocumentosVigentes'</simple>
+                                    <setHeader
+                                        headerName="ExisteProtesto" id="_setHeader119">
+                                        <constant>-1</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta82"
+                                        id="_bean13" method="guardaBodyConsulVacio"/>
+                                </when>
+                                <otherwise id="_otherwise25">
+                                    <setHeader
+                                        headerName="ExisteProtesto" id="_setHeader55">
+                                        <constant>0</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta82"
+                                        id="BB82" method="guardaBodyConsulVacio"/>
+                                </otherwise>
+                            </choice>
+                            <choice id="_choice22">
+                                <when id="_when22">
+                                    <xpath>/Agregado/ResultsPrendasSinDesplazamiento/PrendasSinDesplazamiento/*</xpath>
+                                    <setHeader
+                                        headerName="ExistePrendas" id="_setHeader35">
+                                        <constant>1</constant>
+                                    </setHeader>
+                                </when>
+                                <when id="_when68">
+                                    <simple>${body} contains 'ResultsPrendasSinDesplazamiento'</simple>
+                                    <setHeader
+                                        headerName="ExistePrendas" id="_setHeader120">
+                                        <constant>-1</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta8"
+                                        id="_bean14" method="guardaBodyConsulVacio"/>
+                                </when>
+                                <otherwise id="_otherwise19">
+                                    <setHeader
+                                        headerName="ExistePrendas" id="_setHeader36">
+                                        <constant>0</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta8"
+                                        id="BB8" method="guardaBodyConsulVacio"/>
+                                </otherwise>
+                            </choice>
+                            <choice id="_choice23">
+                                <when id="_when23">
+                                    <xpath>/Agregado/ResultsDeudaSistemaFinanciero/DeudaSistemaFinanciero/*</xpath>
+                                    <setHeader
+                                        headerName="ExisteSistFinan" id="_setHeader37">
+                                        <constant>1</constant>
+                                    </setHeader>
+                                </when>
+                                <when id="_when69">
+                                    <simple>${body} contains 'ResultsDeudaSistemaFinanciero'</simple>
+                                    <setHeader
+                                        headerName="ExisteSistFinan" id="_setHeader121">
+                                        <constant>-1</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta16"
+                                        id="_bean16" method="guardaBodyConsulVacio"/>
+                                </when>
+                                <otherwise id="_otherwise20">
+                                    <setHeader
+                                        headerName="ExisteSistFinan" id="_setHeader47">
+                                        <constant>0</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta16"
+                                        id="BB16" method="guardaBodyConsulVacio"/>
+                                </otherwise>
+                            </choice>
+                            <choice id="_choice27">
+                                <when id="_when27">
+                                    <xpath>/Agregado/ResultsAvaldoBienesRaices/AvaldoBienesRaices/*</xpath>
+                                    <setHeader
+                                        headerName="ExisteBienRaiz" id="_setHeader52">
+                                        <constant>1</constant>
+                                    </setHeader>
+                                </when>
+                                <when id="_when70">
+                                    <simple>${body} contains 'ResultsAvaldoBienesRaices'</simple>
+                                    <setHeader
+                                        headerName="ExisteBienRaiz" id="_setHeader122">
+                                        <constant>-1</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta32"
+                                        id="_bean22" method="guardaBodyConsulVacio"/>
+                                </when>
+                                <otherwise id="_otherwise23">
+                                    <setHeader
+                                        headerName="ExisteBienRaiz" id="_setHeader53">
+                                        <constant>0</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta32"
+                                        id="BB32" method="guardaBodyConsulVacio"/>
+                                </otherwise>
+                            </choice>
+                            <choice id="_choice24">
+                                <when id="_when24">
+                                    <xpath>/Agregado/ResultsDireccionesAsociadas/DireccionesAsociadas/*</xpath>
+                                    <setHeader headerName="ExisteDirRut" id="_setHeader48">
+                                        <constant>1</constant>
+                                    </setHeader>
+                                </when>
+                                <when id="_when71">
+                                    <simple>${body} contains 'ResultsDireccionesAsociadas'</simple>
+                                    <setHeader headerName="ExisteDirRut" id="_setHeader123">
+                                        <constant>-1</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta18"
+                                        id="_bean23" method="guardaBodyConsulVacio"/>
+                                </when>
+                                <otherwise id="_otherwise21">
+                                    <setHeader headerName="ExisteDirRut" id="_setHeader49">
+                                        <constant>0</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta18"
+                                        id="BB18" method="guardaBodyConsulVacio"/>
+                                </otherwise>
+                            </choice>
+                            <choice id="_choice25">
+                                <when id="_when25">
+                                    <xpath>/Agregado/ResultsDirectiorioPersonas/DirectiorioPersonas/*</xpath>
+                                    <setHeader headerName="ExisteDirCli" id="_setHeader50">
+                                        <constant>1</constant>
+                                    </setHeader>
+                                </when>
+                                <when id="_when72">
+                                    <simple>${body} contains 'ResultsDirectiorioPersonas'</simple>
+                                    <setHeader headerName="ExisteDirCli" id="_setHeader124">
+                                        <constant>-1</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta26"
+                                        id="_bean24" method="guardaBodyConsulVacio"/>
+                                </when>
+                                <otherwise id="_otherwise22">
+                                    <setHeader headerName="ExisteDirCli" id="_setHeader51">
+                                        <constant>0</constant>
+                                    </setHeader>
+                                    <bean
+                                        beanType="cl.coopeuch.util.transformacion.BodyConsulta26"
+                                        id="BB26" method="guardaBodyConsulVacio"/>
+                                </otherwise>
+                            </choice>
+                        </when>
+                        <otherwise id="_otherwise27"/>
+                    </choice>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.HeadersPropagatorViasyStatus"
+                        id="_bean1wezlk1" method="getViasyStatus"/>
+                    <wireTap id="_wireTap1" uri="direct:insertUpdateBaseDatos"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="aggregatorBody" method="agregaRespSinacofiCache"/>
+                    <to id="salidaSinacofi" uri="xslt://transformations/out/salidaSinacofi.xsl?saxon=true"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Ruta que inserta datos de Sinacofi en cache -->
+        <route id="_route10_insertaBaseDatos">
+            <from id="_from10" uri="direct:insertUpdateBaseDatos"/>
+            <choice id="_choice17">
+                <when id="_when17">
+                    <simple>${headers.NoExisteEnCache}</simple>
+                    <to id="PA_dbo.pa_insregistrocliente2_MB" uri="bean:dbo.pa_insregistrocliente2_MB"/>
+                    <to id="_to1" uri="direct:preparaHeaders"/>
+                </when>
+            </choice>
+            <choice id="_choice29">
+                <when id="_when29">
+                    <simple>${headers.ExisteCedula} == 1</simple>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="restauraXmlCedula" method="restauraXmlSinacofi"/>
+                    <to id="_to2" uri="direct:InsertUpdate-DetalleCedulas"/>
+                </when>
+            </choice>
+            <choice id="_choice30">
+                <when id="_when30">
+                    <simple>${headers.ExisteMorosidad} == 1</simple>
+                    <setHeader headerName="IdConsulta" id="_setHeader57">
+                        <simple>${headers.IdConsultaMorosidad}</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader58">
+                        <simple>${headers.ExisteMorosidad}</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader59">
+                        <constant>A2</constant>
+                    </setHeader>
+                    <to id="_to9" uri="direct:updatefechconsulta_MB"/>
+                    <setHeader headerName="IdConsultaMorosidad" id="_setHeader60">
+                        <simple>${headers.IdConsulta}</simple>
+                    </setHeader>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="restauraXmlMorosidad" method="restauraXmlSinacofi"/>
+                    <split id="_split1">
+                        <tokenize token="Morosidad" xml="true"/>
+                        <to id="_to3" uri="direct:insMorosidad"/>
+                    </split>
+                </when>
+                <when id="_when50">
+                    <simple>${headers.ExisteMorosidad} == '-1'</simple>
+                    <setHeader headerName="IdConsulta" id="_setHeader57">
+                        <simple>-1</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader58">
+                        <simple>0</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader59">
+                        <constant>A2</constant>
+                    </setHeader>
+                    <to id="_to9" uri="direct:updatefechconsulta_MB"/>
+                </when>
+            </choice>
+            <choice id="_choice31">
+                <when id="_when31">
+                    <simple>${headers.ExisteProtesto} == 1</simple>
+                    <!--  -->
+                    <!--  -->
+                    <setHeader headerName="IdConsulta" id="_setHeader61">
+                        <simple>${headers.IdConsultaProtesto}</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader62">
+                        <simple>${headers.ExisteProtesto}</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader63">
+                        <constant>A1</constant>
+                    </setHeader>
+                    <to id="_to14" uri="direct:updatefechconsulta_MB"/>
+                    <setHeader headerName="IdConsultaProtesto" id="_setHeader64">
+                        <simple>${headers.IdConsulta}</simple>
+                    </setHeader>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="restauraXmlProtesto" method="restauraXmlSinacofi"/>
+                    <split id="_split2">
+                        <tokenize token="ProtestosyDocumentosVigentes" xml="true"/>
+                        <to id="_to4" uri="direct:insProtestos"/>
+                    </split>
+                </when>
+                <when id="_when73">
+                    <simple>${headers.ExisteProtesto} == '-1'</simple>
+                    <setHeader headerName="IdConsulta" id="_setHeader125">
+                        <simple>-1</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader126">
+                        <simple>0</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader127">
+                        <constant>A1</constant>
+                    </setHeader>
+                    <to id="_to6" uri="direct:updatefechconsulta_MB"/>
+                </when>
+            </choice>
+            <choice id="_choice33">
+                <when id="_when33">
+                    <simple>${headers.ExisteBienRaiz} == 1</simple>
+                    <setHeader headerName="IdConsulta" id="_setHeader87">
+                        <simple>${headers.IdConsultaBienRaiz}</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader88">
+                        <simple>${headers.ExisteBienRaiz}</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader89">
+                        <constant>A32</constant>
+                    </setHeader>
+                    <to id="_to17" uri="direct:updatefechconsulta_MB"/>
+                    <setHeader headerName="IdConsultaBienRaiz" id="_setHeader90">
+                        <simple>${headers.IdConsulta}</simple>
+                    </setHeader>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="restauraXmlSinacofi" method="restauraXmlSinacofi"/>
+                    <split id="_split3">
+                        <tokenize token="AvaldoBienesRaices" xml="true"/>
+                        <to id="_to5" uri="direct:insBienesRaices"/>
+                    </split>
+                </when>
+                <when id="_when74">
+                    <simple>${headers.ExisteBienRaiz} == '-1'</simple>
+                    <setHeader headerName="IdConsulta" id="_setHeader128">
+                        <simple>-1</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader129">
+                        <simple>0</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader130">
+                        <constant>A32</constant>
+                    </setHeader>
+                    <to id="_to23" uri="direct:updatefechconsulta_MB"/>
+                </when>
+            </choice>
+            <choice id="_choice34">
+                <when id="_when34">
+                    <simple>${headers.ExisteDirCli} == 1</simple>
+                    <!--                     <to id="_to6" uri="direct:insDirPersonas"/> -->
+                    <setHeader headerName="IdConsulta" id="_setHeader91">
+                        <simple>${headers.IdConsultaDirCli}</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader92">
+                        <simple>${headers.ExisteDirCli}</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader93">
+                        <constant>A26</constant>
+                    </setHeader>
+                    <to id="_to18" uri="direct:updatefechconsulta_MB"/>
+                    <setHeader headerName="IdConsultaDirCli" id="_setHeader94">
+                        <simple>${headers.IdConsulta}</simple>
+                    </setHeader>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="restauraXmlDirectorio" method="restauraXmlSinacofi"/>
+                    <split id="_split4ds">
+                        <tokenize token="DirectiorioPersonas" xml="true"/>
+                        <to id="_to6xd" uri="direct:insDirPersonas"/>
+                    </split>
+                </when>
+                <when id="_when76">
+                    <simple>${headers.ExisteDirCli} == '-1'</simple>
+                    <setHeader headerName="IdConsulta" id="_setHeader131">
+                        <simple>-1</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader132">
+                        <simple>0</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader133">
+                        <constant>A26</constant>
+                    </setHeader>
+                    <to id="_to24" uri="direct:updatefechconsulta_MB"/>
+                </when>
+            </choice>
+            <choice id="_choice35">
+                <when id="_when35">
+                    <simple>${headers.ExisteDirRut} == 1</simple>
+                    <setHeader headerName="IdConsulta" id="_setHeader95">
+                        <simple>${headers.IdConsultaDirRut}</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader96">
+                        <simple>${headers.ExisteDirRut}</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader97">
+                        <constant>A18</constant>
+                    </setHeader>
+                    <to id="_to19" uri="direct:updatefechconsulta_MB"/>
+                    <setHeader headerName="IdConsultaDirRut" id="_setHeader98">
+                        <simple>${headers.IdConsulta}</simple>
+                    </setHeader>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="restauraXmlDirecciones" method="restauraXmlSinacofi"/>
+                    <split id="_split4">
+                        <tokenize token="DireccionesAsociadas" xml="true"/>
+                        <to id="_to7" uri="direct:insDirecciones"/>
+                    </split>
+                </when>
+                <when id="_when77">
+                    <simple>${headers.ExisteDirRut} == '-1'</simple>
+                    <setHeader headerName="IdConsulta" id="_setHeader134">
+                        <simple>-1</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader135">
+                        <simple>0</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader136">
+                        <constant>A18</constant>
+                    </setHeader>
+                    <to id="_to25" uri="direct:updatefechconsulta_MB"/>
+                </when>
+            </choice>
+            <choice id="_choice36">
+                <when id="_when36">
+                    <simple>${headers.ExisteInfrLab} == 1</simple>
+                    <setHeader headerName="IdConsulta" id="_setHeader99">
+                        <simple>${headers.IdConsultaInfrLab}</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader100">
+                        <simple>${headers.ExisteInfrLab}</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader101">
+                        <constant>A7</constant>
+                    </setHeader>
+                    <to id="_to20" uri="direct:updatefechconsulta_MB"/>
+                    <setHeader headerName="IdConsultaInfrLab" id="_setHeader102">
+                        <simple>${headers.IdConsulta}</simple>
+                    </setHeader>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="restauraXmlInfrLab" method="restauraXmlSinacofi"/>
+                    <to id="_to8" uri="direct:insInsfracLaborales"/>
+                    <!--
+                                       <split id="_split5">
+                                           <tokenize token="Detalle" xml="true"/>
+                                           <to id="_to9" uri="direct:insInsfracLaborales"/>                        
+                                       </split>
+                    -->
+                </when>
+                <when id="_when78">
+                    <simple>${headers.ExisteInfrLab} == '-1'</simple>
+                    <setHeader headerName="IdConsulta" id="_setHeader137">
+                        <simple>-1</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader138">
+                        <simple>0</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader139">
+                        <constant>A7</constant>
+                    </setHeader>
+                    <to id="_to26" uri="direct:updatefechconsulta_MB"/>
+                </when>
+            </choice>
+            <choice id="_choice37">
+                <when id="_when37">
+                    <simple>${headers.ExistePrendas} == 1</simple>
+                    <setHeader headerName="IdConsulta" id="_setHeader103">
+                        <simple>${headers.IdConsultaPrendas}</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader104">
+                        <simple>${headers.ExistePrendas}</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader105">
+                        <constant>A8</constant>
+                    </setHeader>
+                    <to id="_to21" uri="direct:updatefechconsulta_MB"/>
+                    <setHeader headerName="IdConsultaPrendas" id="_setHeader106">
+                        <simple>${headers.IdConsulta}</simple>
+                    </setHeader>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="restauraXmlPrendas" method="restauraXmlSinacofi"/>
+                    <split id="_split6">
+                        <tokenize token="PrendasSinDesplazamiento" xml="true"/>
+                        <to id="_to10" uri="direct:insPrendas"/>
+                    </split>
+                </when>
+                <when id="_when79">
+                    <simple>${headers.ExistePrendas} == '-1'</simple>
+                    <setHeader headerName="IdConsulta" id="_setHeader140">
+                        <simple>-1</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader141">
+                        <simple>0</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader142">
+                        <constant>A8</constant>
+                    </setHeader>
+                    <to id="_to27" uri="direct:updatefechconsulta_MB"/>
+                </when>
+            </choice>
+            <choice id="_choice38">
+                <when id="_when38">
+                    <simple>${headers.ExisteSistFinan} == 1</simple>
+                    <setHeader headerName="IdConsulta" id="_setHeader107">
+                        <simple>${headers.IdConsultaSistFinan}</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader108">
+                        <simple>${headers.ExisteSistFinan}</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader109">
+                        <constant>A16</constant>
+                    </setHeader>
+                    <to id="_to22" uri="direct:updatefechconsulta_MB"/>
+                    <setHeader headerName="IdConsultaSistFinan" id="_setHeader110">
+                        <simple>${headers.IdConsulta}</simple>
+                    </setHeader>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                        id="restauraXmlSistFin" method="restauraXmlSinacofi"/>
+                    <to id="_to11" uri="direct:insDeudaSistFin"/>
+                </when>
+                <when id="_when80">
+                    <simple>${headers.ExisteSistFinan} == '-1'</simple>
+                    <setHeader headerName="IdConsulta" id="_setHeader143">
+                        <simple>-1</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader144">
+                        <simple>0</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader145">
+                        <constant>A16</constant>
+                    </setHeader>
+                    <to id="_to28" uri="direct:updatefechconsulta_MB"/>
+                </when>
+            </choice>
+        </route>
+        <!-- Ruta que actualiza tabla de cabecera cache -->
+        <route id="RutaUpdatefechconsulta_MB">
+            <from id="_from11" uri="direct:updatefechconsulta_MB"/>
+            <choice id="_choice28">
+                <when id="_when28">
+                    <simple>${headers.NoExisteEnCache}</simple>
+                </when>
+                <otherwise id="_otherwise24">
+                    <to id="PA_dbo.pa_updatefechconsulta_MB2" uri="bean:dbo.pa_updatefechconsulta_MB"/>
+                    <marshal id="Marshalpa_updatefechconsulta_MB2" ref="jack"/>
+                    <convertBodyTo id="_convertBodyTo2" type="java.lang.String"/>
+                    <transform id="_transform2">
+                        <simple>${in.body.replaceAll('#','')}</simple>
+                    </transform>
+                    <transform id="_transform3">
+                        <simple>${in.body.replaceAll('&lt;&gt;','&lt;IdConsulta&gt;')}</simple>
+                    </transform>
+                    <transform id="_transform4">
+                        <simple>${in.body.replaceAll('&lt;/&gt;','&lt;/IdConsulta&gt;')}</simple>
+                    </transform>
+                    <setHeader headerName="IdConsulta" id="_setHeaderrs19efdfdc">
+                        <xpath resultType="String">//IdConsulta</xpath>
+                    </setHeader>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Ruta que prepara headers antes de insertar en tabla cabecera -->
+        <route id="_preparaHeaders">
+            <from id="_from11" uri="direct:preparaHeaders"/>
+            <marshal id="_marshal1" ref="jack"/>
+            <convertBodyTo id="_convertBodyTo1" type="java.lang.String"/>
+            <transform id="_transform1">
+                <simple>${in.body.replaceAll('#','')}</simple>
+            </transform>
+            <setHeader headerName="IdConsultaCedula" id="_setHeader38">
+                <xpath resultType="String">//IdConsultaCedula</xpath>
+            </setHeader>
+            <setHeader headerName="IdConsultaProtesto" id="_setHeader39">
+                <xpath resultType="String">//IdConsultaProtesto</xpath>
+            </setHeader>
+            <setHeader headerName="IdConsultaMorosidad" id="_setHeader40">
+                <xpath resultType="String">//IdConsultaMorosidad</xpath>
+            </setHeader>
+            <setHeader headerName="IdConsultaPrendas" id="_setHeader41">
+                <xpath resultType="String">//IdConsultaPrendas</xpath>
+            </setHeader>
+            <setHeader headerName="IdConsultaSistFinan" id="_setHeader42">
+                <xpath resultType="String">//IdConsultaSistFinan</xpath>
+            </setHeader>
+            <setHeader headerName="IdConsultaDirRut" id="_setHeader43">
+                <xpath resultType="String">//IdConsultaDirRut</xpath>
+            </setHeader>
+            <setHeader headerName="IdConsultaDirCli" id="_setHeader44">
+                <xpath resultType="String">//IdConsultaDirCli</xpath>
+            </setHeader>
+            <setHeader headerName="IdConsultaBienRaiz" id="_setHeader45">
+                <xpath resultType="String">//IdConsultaBienRaiz</xpath>
+            </setHeader>
+            <setHeader headerName="IdConsultaInfrLab" id="_setHeader46">
+                <xpath resultType="String">//IdConsultaInfrLab</xpath>
+            </setHeader>
+        </route>
+        <!-- Ruta que consulta cache de Cedula -->
+        <route id="ConsultaCedula_1">
+            <!--  -->
+            <from id="ConsultaCedula" uri="direct:ConsultaCedula"/>
+            <choice id="_choice4">
+                <when id="_when4">
+                    <simple>${headers.consulta1.via} == 'cache' and ${headers.consulta1.status}</simple>
+                    <setHeader headerName="IdConsulta" id="IdConsultaCedula">
+                        <simple>${headers.consulta1.Id}</simple>
+                    </setHeader>
+                    <to id="PA_dbo.pa_selestadoced_MB" uri="bean:dbo.pa_selestadoced_MB"/>
+                    <marshal id="selestadoced_MBResultset2xml" ref="jack"/>
+                    <convertBodyTo id="limpieza1" type="java.lang.String"/>
+                    <transform id="limpia1">
+                        <simple>${in.body.replaceAll('#','')}</simple>
+                    </transform>
+                    <to id="selultconsulsinacofi_MBXml2xml" uri="xslt://transformations/out/resultset2xml_selestadoced_MB.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta1"
+                        id="backupBody1" method="guardaBodyResp"/>
+                </when>
+                <otherwise id="_otherwise4">
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta1"
+                        id="backupBody1x" method="guardaBodyConsulVacio"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Ruta que consulta cache de Morosidad -->
+        <route id="ConsultaMorosidad_2">
+            <from id="ConsultaMorosidad" uri="direct:ConsultaMorosidad"/>
+            <choice id="_choice5">
+                <when id="_when5">
+                    <simple>${headers.consulta2.via} == 'cache' and ${headers.consulta2.status}</simple>
+                    <setHeader headerName="IdConsulta" id="IdConsultaMorosidad">
+                        <simple>${headers.consulta2.Id}</simple>
+                    </setHeader>
+                    <to id="PA_dbo.pa_selmorconsolidada_MB" uri="bean:dbo.pa_selmorconsolidada_MB"/>
+                    <marshal id="selmorconsolidada_MBResultset2xml" ref="jack"/>
+                    <convertBodyTo id="limpieza2" type="java.lang.String"/>
+                    <transform id="limpia2">
+                        <simple>${in.body.replaceAll('#','')}</simple>
+                    </transform>
+                    <to id="selmorconsolidada_MBXml2xml" uri="xslt://transformations/out/resultset2xml_selmorconsolidada_MB.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta2"
+                        id="backupBody2" method="guardaBodyResp"/>
+                </when>
+                <otherwise id="_otherwise5">
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta2"
+                        id="backupBody2x" method="guardaBodyConsulVacio"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Ruta que consulta cache de Infraccion Laboral -->
+        <route id="ConsultaInfrLab_7">
+            <from id="ConsultaInfrLab" uri="direct:ConsultaInfrLab"/>
+            <choice id="_choice75">
+                <when id="_when75">
+                    <simple>${headers.consulta7.via} == 'cache' and ${headers.consulta7.status}</simple>
+                    <setHeader headerName="IdConsulta" id="IdConsultaInfrLab">
+                        <simple>${headers.consulta7.Id}</simple>
+                    </setHeader>
+                    <to id="PA_dbo.pa_selinfraclaboral_MB" uri="bean:dbo.pa_selinfraclaboral_MB"/>
+                    <marshal id="selinfraclaboral_MBResultset2xml" ref="jack"/>
+                    <convertBodyTo id="limpieza7a" type="java.lang.String"/>
+                    <transform id="limpia7a">
+                        <simple>${in.body.replaceAll('#','')}</simple>
+                    </transform>
+                    <setHeader headerName="NumDeudasPrev" id="NumDeudasPrev">
+                        <xpath resultType="String">//NumDeudasPrev</xpath>
+                    </setHeader>
+                    <setHeader headerName="NumMultas" id="NumMultas">
+                        <xpath resultType="String">//NumMultas</xpath>
+                    </setHeader>
+                    <to id="PA_dbo.pa_seldetinfraclab_MB" uri="bean:dbo.pa_seldetinfraclab_MB"/>
+                    <marshal id="seldetinfraclab_MBResultset2xml" ref="jack"/>
+                    <convertBodyTo id="limpieza7b" type="java.lang.String"/>
+                    <transform id="limpia7b">
+                        <simple>${in.body.replaceAll('#','')}</simple>
+                    </transform>
+                    <to id="selinfraclaboral_MBXml2xml" uri="xslt://transformations/out/resultset2xml_selinfraclaboral_MB.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta7"
+                        id="backupBody7" method="guardaBodyResp"/>
+                </when>
+                <otherwise id="_otherwise6">
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta7"
+                        id="backupBody7x" method="guardaBodyConsulVacio"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Ruta que consulta cache de Prendas -->
+        <route id="ConsultaPrendas_8">
+            <from id="ConsultaPrendas" uri="direct:ConsultaPrendas"/>
+            <choice id="_choice85">
+                <when id="_when85">
+                    <simple>${headers.consulta8.via} == 'cache' and ${headers.consulta8.status}</simple>
+                    <setHeader headerName="IdConsulta" id="IdConsultaPrendas">
+                        <simple>${headers.consulta8.Id}</simple>
+                    </setHeader>
+                    <to id="PA_dbo.pa_selprendas_MB" uri="bean:dbo.pa_selprendas_MB"/>
+                    <marshal id="selprendas_MBResultset2xml" ref="jack"/>
+                    <convertBodyTo id="limpieza8" type="java.lang.String"/>
+                    <transform id="limpia8">
+                        <simple>${in.body.replaceAll('#','')}</simple>
+                    </transform>
+                    <to id="selprendas_MBXml2xml" uri="xslt://transformations/out/resultset2xml_selprendas_MB.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta8"
+                        id="backupBody8" method="guardaBodyResp"/>
+                </when>
+                <otherwise id="_otherwise9">
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta8"
+                        id="backupBody8x" method="guardaBodyConsulVacio"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Ruta que consulta cache de Sistema Financiero -->
+        <route id="ConsultaSistFin_16">
+            <from id="ConsultaSistFin" uri="direct:ConsultaSistFin"/>
+            <choice id="_choice1685">
+                <when id="_when1685">
+                    <simple>${headers.consulta16.via} == 'cache' and ${headers.consulta16.status}</simple>
+                    <!-- -->
+                    <setHeader headerName="IdConsulta" id="IdConsultaSistFin">
+                        <simple>${headers.consulta16.Id}</simple>
+                    </setHeader>
+                    <to id="PA_dbo.pa_seldeudafinan_MB" uri="bean:dbo.pa_seldeudafinan_MB"/>
+                    <marshal id="seldeudafinan_MBResultset2xml" ref="jack"/>
+                    <convertBodyTo id="limpieza16" type="java.lang.String"/>
+                    <transform id="limpia16">
+                        <simple>${in.body.replaceAll('#','')}</simple>
+                    </transform>
+                    <to id="seldeudafinan_MBXml2xml" uri="xslt://transformations/out/resultset2xml_seldeudafinan_MB.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta16"
+                        id="backupBody16" method="guardaBodyResp"/>
+                </when>
+                <otherwise id="_otherwise10">
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta16"
+                        id="backupBody16x" method="guardaBodyConsulVacio"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Ruta que consulta cache de Direcciones -->
+        <route id="ConsultaDirRut_18">
+            <from id="ConsultaDirRut" uri="direct:ConsultaDirRut"/>
+            <choice id="_choice185">
+                <when id="_when185">
+                    <simple>${headers.consulta18.via} == 'cache' and ${headers.consulta18.status}</simple>
+                    <setHeader headerName="IdConsulta" id="IdConsultaDirRut">
+                        <simple>${headers.consulta18.Id}</simple>
+                    </setHeader>
+                    <to id="PA_dbo.pa_seldirecciones_MB" uri="bean:dbo.pa_seldirecciones_MB"/>
+                    <marshal id="seldirecciones_MBResultset2xml" ref="jack"/>
+                    <convertBodyTo id="limpieza18" type="java.lang.String"/>
+                    <transform id="limpia18">
+                        <simple>${in.body.replaceAll('#','')}</simple>
+                    </transform>
+                    <to id="seldirecciones_MBXml2xml" uri="xslt://transformations/out/resultset2xml_seldirecciones_MB.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta18"
+                        id="backupBody18" method="guardaBodyResp"/>
+                </when>
+                <otherwise id="_otherwise11">
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta18"
+                        id="backupBody18x" method="guardaBodyConsulVacio"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Ruta que consulta cache de Directorio Personas -->
+        <route id="ConsultaDirCliente_26">
+            <from id="ConsultaDirCliente" uri="direct:ConsultaDirCliente"/>
+            <choice id="_choice265">
+                <when id="_when265">
+                    <simple>${headers.consulta26.via} == 'cache' and ${headers.consulta26.status}</simple>
+                    <setHeader headerName="IdConsulta" id="IdConsultaDirCliente">
+                        <simple>${headers.consulta26.Id}</simple>
+                    </setHeader>
+                    <to id="PA_dbo.pa_selidentificacion_MB" uri="bean:dbo.pa_selidentificacion_MB"/>
+                    <marshal id="selidentificacion_MBResultset2xml" ref="jack"/>
+                    <convertBodyTo id="limpieza26" type="java.lang.String"/>
+                    <transform id="limpia26">
+                        <simple>${in.body.replaceAll('#','')}</simple>
+                    </transform>
+                    <to id="selidentificacion_MBXml2xml" uri="xslt://transformations/out/resultset2xml_selidentificacion_MB.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta26"
+                        id="backupBody26" method="guardaBodyResp"/>
+                </when>
+                <otherwise id="_otherwise12">
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta26"
+                        id="backupBody26x" method="guardaBodyConsulVacio"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Ruta que consulta cache de Bienes Raices -->
+        <route id="ConsultaBienRaiz_32">
+            <from id="ConsultaBienRaiz" uri="direct:ConsultaBienRaiz"/>
+            <choice id="_choice326">
+                <when id="_when326">
+                    <simple>${headers.consulta32.via} == 'cache' and ${headers.consulta32.status}</simple>
+                    <setHeader headerName="IdConsulta" id="IdConsultaBienRaiz">
+                        <simple>${headers.consulta32.Id}</simple>
+                    </setHeader>
+                    <to id="PA_dbo.pa_selbienraiz_MB" uri="bean:dbo.pa_selbienraiz_MB"/>
+                    <marshal id="pa_selbienraiz_MBResultset2xml" ref="jack"/>
+                    <convertBodyTo id="limpieza32" type="java.lang.String"/>
+                    <transform id="limpia32">
+                        <simple>${in.body.replaceAll('#','')}</simple>
+                    </transform>
+                    <to id="selbienraiz_MBXml2xml" uri="xslt://transformations/out/resultset2xml_selbienraiz_MB.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta32"
+                        id="backupBody32" method="guardaBodyResp"/>
+                </when>
+                <otherwise id="_otherwise13">
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta32"
+                        id="backupBody32x" method="guardaBodyConsulVacio"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Ruta que consulta cache de Protestos -->
+        <route id="ConsultaProtestos_82">
+            <from id="ConsultaProtestos" uri="direct:ConsultaProtestos"/>
+            <choice id="_choice6">
+                <when id="_when6">
+                    <simple>${headers.consulta82.via} == 'cache' and ${headers.consulta82.status}</simple>
+                    <setHeader headerName="IdConsulta" id="IdConsultaProtestos">
+                        <simple>${headers.consulta82.Id}</simple>
+                    </setHeader>
+                    <to id="PA_dbo.pa_seldetallebic_MB" uri="bean:dbo.pa_seldetallebic_MB"/>
+                    <marshal id="seldetallebic_MBResultset2xml" ref="jack"/>
+                    <convertBodyTo id="limpieza82" type="java.lang.String"/>
+                    <transform id="limpia82">
+                        <simple>${in.body.replaceAll('#','')}</simple>
+                    </transform>
+                    <to id="seldetallebic_MBXml2xml" uri="xslt://transformations/out/resultset2xml_seldetallebic_MB.xsl?saxon=true"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta82"
+                        id="backupBody82" method="guardaBodyResp"/>
+                </when>
+                <otherwise id="_otherwise14">
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta82"
+                        id="backupBody82x" method="guardaBodyConsulVacio"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Ruta que prepara consulta Cedula a Sinacofi -->
+        <route id="ConsultaCedulaSinacofi">
+            <from id="ConsultaCedulaSinacofi" uri="direct:ConsultaCedulaSinacofi"/>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.HeadersPropagatorViasyStatus"
+                id="_beasfn1zlk1" method="getViasyStatus"/>
+            <setHeader headerName="ExisteCedula" id="_setHeader20">
+                <constant>0</constant>
+            </setHeader>
+            <choice id="_choice3">
+                <when id="_when3">
+                    <simple>${headers.consulta1.status} and ${headers.Rut} != '0'</simple>
+                    <transform id="ConsultaCedulaSinacofiTransform">
+                        <simple>&lt;Cedula&gt;&lt;Sinacofi&gt;&lt;Consulta&gt;1&lt;/Consulta&gt;&lt;Rut&gt;${headers.Rut}&lt;/Rut&gt;&lt;dv&gt;${headers.dv}&lt;/dv&gt;&lt;serie&gt;${headers.serie}&lt;/serie&gt;&lt;/Sinacofi&gt;&lt;/Cedula&gt;</simple>
+                    </transform>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.HeadersPropagator"
+                        id="_bean2" method="setupExisteCedula"/>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta1"
+                        id="_bean25" method="guardaBodyConsul"/>
+                </when>
+            </choice>
+        </route>
+        <!-- Ruta que prepara consulta Morosidad a Sinacofi -->
+        <route id="ConsultaMorosidadSinacofi">
+            <from id="ConsultaMorosidadSinacofi" uri="direct:ConsultaMorosidadSinacofi"/>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.HeadersPropagatorViasyStatus"
+                id="_bex1zlk1" method="getViasyStatus"/>
+            <setHeader headerName="ExisteMorosidad" id="_setHeader21">
+                <constant>0</constant>
+            </setHeader>
+            <choice id="_choice9">
+                <when id="_when9">
+                    <simple>${headers.consulta2.via} == 'sinacofi' and ${headers.consulta2.status}</simple>
+                    <transform id="ConsultaMorosidadSinacofiTransform">
+                        <simple>&lt;Morosidad&gt;&lt;Sinacofi&gt;&lt;Consulta&gt;2&lt;/Consulta&gt;&lt;Rut&gt;${headers.Rut}&lt;/Rut&gt;&lt;dv&gt;${headers.dv}&lt;/dv&gt;&lt;/Sinacofi&gt;&lt;/Morosidad&gt;</simple>
+                    </transform>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta2"
+                        id="_bean15" method="guardaBodyConsul"/>
+                </when>
+            </choice>
+        </route>
+        <!-- Ruta que prepara consulta Infraccion Laboral a Sinacofi -->
+        <route id="ConsultaInfrLabSinacofi">
+            <from id="ConsultaInfrLabSinacofi" uri="direct:ConsultaInfrLabSinacofi"/>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.HeadersPropagatorViasyStatus"
+                id="_bedxtan1zlk1" method="getViasyStatus"/>
+            <setHeader headerName="ExisteInfrLab" id="_setHeader22">
+                <constant>0</constant>
+            </setHeader>
+            <choice id="_choice10">
+                <when id="_when10">
+                    <simple>${headers.consulta7.via} == 'sinacofi' and ${headers.consulta7.status}</simple>
+                    <transform id="ConsultaInfrLabSinacofiTransform">
+                        <simple>&lt;InfrLab&gt;&lt;Sinacofi&gt;&lt;Consulta&gt;7&lt;/Consulta&gt;&lt;Rut&gt;${headers.Rut}&lt;/Rut&gt;&lt;dv&gt;${headers.dv}&lt;/dv&gt;&lt;/Sinacofi&gt;&lt;/InfrLab&gt;</simple>
+                    </transform>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta7"
+                        id="BB7" method="guardaBodyConsul"/>
+                </when>
+            </choice>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.HeadersPropagator"
+                id="_bean4" method="setupExisteInfrLab"/>
+        </route>
+        <!-- Ruta que prepara consulta Prendas a Sinacofi -->
+        <route id="ConsultaPrendasSinacofi">
+            <from id="ConsultaPrendasSinacofi" uri="direct:ConsultaPrendasSinacofi"/>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.HeadersPropagatorViasyStatus"
+                id="_bean1zljhk1" method="getViasyStatus"/>
+            <setHeader headerName="ExistePrendas" id="_setHeader23">
+                <constant>0</constant>
+            </setHeader>
+            <choice id="_choice11">
+                <when id="_when11">
+                    <simple>${headers.consulta8.via} == 'sinacofi' and ${headers.consulta8.status}</simple>
+                    <transform id="ConsultaPrendasSinacofiTransform">
+                        <simple>&lt;Prenda&gt;&lt;Sinacofi&gt;&lt;Consulta&gt;8&lt;/Consulta&gt;&lt;Rut&gt;${headers.Rut}&lt;/Rut&gt;&lt;dv&gt;${headers.dv}&lt;/dv&gt;&lt;/Sinacofi&gt;&lt;/Prenda&gt;</simple>
+                    </transform>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta8"
+                        id="_bean17" method="guardaBodyConsul"/>
+                </when>
+            </choice>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.HeadersPropagator"
+                id="_bean6" method="setupExistePrendas"/>
+        </route>
+        <!-- Ruta que prepara consulta Sistema Financiero a Sinacofi -->
+        <route id="ConsultaSistFinSinacofi">
+            <from id="ConsultaSistFinSinacofi" uri="direct:ConsultaSistFinSinacofi"/>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.HeadersPropagatorViasyStatus"
+                id="_bean1zlk1qw" method="getViasyStatus"/>
+            <setHeader headerName="ExisteSistFinan" id="_setHeader24">
+                <constant>0</constant>
+            </setHeader>
+            <choice id="_choice12">
+                <when id="_when12">
+                    <simple>${headers.consulta16.via} == 'sinacofi' and ${headers.consulta16.status}</simple>
+                    <transform id="ConsultaSistFinSinacofiTransform">
+                        <simple>&lt;SistFin&gt;&lt;Sinacofi&gt;&lt;Consulta&gt;16&lt;/Consulta&gt;&lt;Rut&gt;${headers.Rut}&lt;/Rut&gt;&lt;dv&gt;${headers.dv}&lt;/dv&gt;&lt;/Sinacofi&gt;&lt;/SistFin&gt;</simple>
+                    </transform>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta16"
+                        id="_bean5" method="guardaBodyConsul"/>
+                </when>
+            </choice>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.HeadersPropagator"
+                id="_bean7" method="setupExisteSistFinan"/>
+        </route>
+        <!-- Ruta que prepara consulta Direcciones a Sinacofi -->
+        <route id="ConsultaDirRutSinacofi">
+            <from id="ConsultaDirRutSinacofi" uri="direct:ConsultaDirRutSinacofi"/>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.HeadersPropagatorViasyStatus"
+                id="_bafan1zlk1" method="getViasyStatus"/>
+            <setHeader headerName="ExisteDirRut" id="_setHeader25">
+                <constant>0</constant>
+            </setHeader>
+            <choice id="_choice13">
+                <when id="_when13">
+                    <simple>${headers.consulta18.via} == 'sinacofi' and ${headers.consulta18.status}</simple>
+                    <transform id="ConsultaDirRutSinacofiTransform">
+                        <simple>&lt;Direcciones&gt;&lt;Sinacofi&gt;&lt;Consulta&gt;18&lt;/Consulta&gt;&lt;Rut&gt;${headers.Rut}&lt;/Rut&gt;&lt;dv&gt;${headers.dv}&lt;/dv&gt;&lt;/Sinacofi&gt;&lt;/Direcciones&gt;</simple>
+                    </transform>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta18"
+                        id="_bean18" method="guardaBodyConsul"/>
+                </when>
+            </choice>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.HeadersPropagator"
+                id="_bean8" method="setupExisteDirRut"/>
+        </route>
+        <!-- Ruta que prepara consulta Directorio Personas a Sinacofi -->
+        <route id="ConsultaDirClienteSinacofi">
+            <from id="ConsultaDirClienteSinacofi" uri="direct:ConsultaDirClienteSinacofi"/>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.HeadersPropagatorViasyStatus"
+                id="_kjan1zlk1" method="getViasyStatus"/>
+            <setHeader headerName="ExisteDirCli" id="_setHeader26">
+                <constant>0</constant>
+            </setHeader>
+            <choice id="_choice14">
+                <when id="_when14">
+                    <simple>${headers.consulta26.via} == 'sinacofi' and ${headers.consulta26.status}</simple>
+                    <transform id="ConsultaDirClienteSinacofiTransform">
+                        <simple>&lt;DirPersona&gt;&lt;Sinacofi&gt;&lt;Consulta&gt;26&lt;/Consulta&gt;&lt;Rut&gt;${headers.Rut}&lt;/Rut&gt;&lt;dv&gt;${headers.dv}&lt;/dv&gt;&lt;/Sinacofi&gt;&lt;/DirPersona&gt;</simple>
+                    </transform>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta26"
+                        id="_bean19" method="guardaBodyConsul"/>
+                </when>
+            </choice>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.HeadersPropagator"
+                id="_bean9" method="setupExisteDirCli"/>
+        </route>
+        <!-- Ruta que prepara consulta Bienes Raices a Sinacofi -->
+        <route id="ConsultaBienRaizSinacofi">
+            <from id="ConsultaBienRaizSinacofi" uri="direct:ConsultaBienRaizSinacofi"/>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.HeadersPropagatorViasyStatus"
+                id="_bean14951" method="getViasyStatus"/>
+            <setHeader headerName="ExisteBienRaiz" id="_setHeader27">
+                <constant>0</constant>
+            </setHeader>
+            <choice id="_choice15">
+                <when id="_when15">
+                    <simple>${headers.consulta32.via} == 'sinacofi' and ${headers.consulta32.status}</simple>
+                    <transform id="ConsultaBienRaizSinacofiTransform">
+                        <simple>&lt;BienesRaices&gt;&lt;Sinacofi&gt;&lt;Consulta&gt;32&lt;/Consulta&gt;&lt;Rut&gt;${headers.Rut}&lt;/Rut&gt;&lt;dv&gt;${headers.dv}&lt;/dv&gt;&lt;/Sinacofi&gt;&lt;/BienesRaices&gt;</simple>
+                    </transform>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta32"
+                        id="_bean20" method="guardaBodyConsul"/>
+                </when>
+            </choice>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.HeadersPropagator"
+                id="_bean10" method="setupExisteBienRaiz"/>
+        </route>
+        <!-- Ruta que prepara consulta Protestos a Sinacofi -->
+        <route id="ConsultaProtestosSinacofi">
+            <from id="ConsultaProtestosSinacofi" uri="direct:ConsultaProtestosSinacofi"/>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.HeadersPropagatorViasyStatus"
+                id="_bean1zlk1" method="getViasyStatus"/>
+            <setHeader headerName="ExisteProtesto" id="_setHeader28">
+                <constant>0</constant>
+            </setHeader>
+            <choice id="_choice39">
+                <when id="_when39">
+                    <simple>${headers.consulta82.via} == 'sinacofi' and ${headers.consulta82.status}</simple>
+                    <transform id="ConsultaProtestosSinacofiTransform">
+                        <simple>&lt;Protesto&gt;&lt;Sinacofi&gt;&lt;Consulta&gt;82&lt;/Consulta&gt;&lt;Rut&gt;${headers.Rut}&lt;/Rut&gt;&lt;dv&gt;${headers.dv}&lt;/dv&gt;&lt;/Sinacofi&gt;&lt;/Protesto&gt;</simple>
+                    </transform>
+                    <bean
+                        beanType="cl.coopeuch.util.transformacion.BodyConsulta82"
+                        id="_bean21" method="guardaBodyConsul"/>
+                </when>
+            </choice>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.HeadersPropagator"
+                id="_bean1fht1" method="setupExisteProtesto"/>
+        </route>
+        <!-- Ruta que prepara headers para insertar o actualizar cache de Cedula -->
+        <route id="_HeaderInsertUddateCedula">
+            <from id="_from12" uri="direct:HeadersCedula"/>
+            <removeHeader headerName="dv" id="_removeHeader1"/>
+            <setHeader headerName="IdConsulta" id="consultaCedulaSinacofiHeaderIdConsulta">
+                <simple>${headers.IdConsultaCedula}</simple>
+            </setHeader>
+            <setHeader headerName="Rut" id="consultaCedulaSinacofiHeaderRut">
+                <xpath resultType="java.lang.String">//Rut</xpath>
+            </setHeader>
+            <setHeader headerName="CedulaVigente" id="consultaCedulaSinacofiHeaderCedulaVigente">
+                <constant>SI</constant>
+            </setHeader>
+            <setHeader headerName="NumeroRegistros" id="consultaCedulaSinacofiHeaderNumeroRegistros">
+                <constant>1</constant>
+            </setHeader>
+            <setHeader headerName="Sinacofi" id="consultaCedulaSinacofiHeaderSinacofi">
+                <constant>N</constant>
+            </setHeader>
+            <setHeader headerName="Dv" id="consultaCedulaSinacofiHeaderDv">
+                <xpath resultType="java.lang.String">//Dv</xpath>
+            </setHeader>
+            <setHeader headerName="TipoDocumento" id="consultaCedulaSinacofiHeaderTipoDocumento">
+                <xpath resultType="java.lang.String">//TipoDocumento</xpath>
+            </setHeader>
+            <setHeader headerName="NumeroSerie" id="consultaCedulaSinacofiHeaderNumeroSerie">
+                <xpath resultType="java.lang.String">//NumeroSerie</xpath>
+            </setHeader>
+            <setHeader headerName="Razon" id="consultaCedulaSinacofiHeaderRazon">
+                <xpath resultType="java.lang.String">//Razon</xpath>
+            </setHeader>
+            <setHeader headerName="Fecha" id="consultaCedulaSinacofiHeaderFecha">
+                <xpath resultType="java.lang.String">//Fecha</xpath>
+            </setHeader>
+            <setHeader headerName="Fuente" id="consultaCedulaSinacofiHeaderFuente">
+                <xpath resultType="java.lang.String">//Fuente</xpath>
+            </setHeader>
+        </route>
+        <!-- Ruta que inserta o actualiza cache de Cedula -->
+        <route id="_route_insertUpdate-DetalleCedulas">
+            <from id="_from1" uri="direct:InsertUpdate-DetalleCedulas"/>
+            <to id="_to15" uri="direct:HeadersCedula"/>
+            <choice id="_choice41">
+                <when id="_when41">
+                    <simple>${headers.consulta1.Id} == '-1' or ${headers.consulta1.Id} == ''</simple>
+                    <setHeader headerName="IdConsulta" id="_setHeader146">
+                        <simple>${headers.IdConsultaCedula}</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader147">
+                        <simple>${headers.ExisteCedula}</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader148">
+                        <constant>A3</constant>
+                    </setHeader>
+                    <to id="_to16" uri="direct:updatefechconsulta_MB"/>
+                    <setHeader headerName="IdConsultaCedula" id="_setHeader68">
+                        <simple>${headers.IdConsulta}</simple>
+                    </setHeader>
+                    <to id="PA_dbo.pa_inscedulasvigentes" uri="bean:dbo.pa_inscedulasvigentes"/>
+                    <to id="PA_dbo.pa_insdetallecedulas_MB" uri="bean:dbo.pa_insdetallecedulas_MB"/>
+                </when>
+                <otherwise id="_otherwise26">
+                    <setHeader headerName="IdConsulta" id="_setHeader65">
+                        <simple>${headers.consulta1.Id}</simple>
+                    </setHeader>
+                    <setHeader headerName="UpdateIdConsulta" id="_setHeader66">
+                        <simple>0</simple>
+                    </setHeader>
+                    <setHeader headerName="Consulta" id="_setHeader67">
+                        <constant>A3</constant>
+                    </setHeader>
+                    <to id="_to16" uri="direct:updatefechconsulta_MB"/>
+                    <setHeader headerName="IdConsultaCedula" id="_setHeader68">
+                        <simple>${headers.IdConsulta}</simple>
+                    </setHeader>
+                    <setHeader headerName="IdConsulta" id="_setHeader65">
+                        <simple>${headers.consulta1.Id}</simple>
+                    </setHeader>
+                    <to id="PA_dbo.pa_updatecedulasvigentes" uri="bean:dbo.pa_updatecedulasvigentes"/>
+                    <to id="PA_dbo.pa_updatedetcedulas" uri="bean:dbo.pa_updatedetcedulas"/>
+                </otherwise>
+            </choice>
+        </route>
+        <!-- Ruta que inserta cache de Morosidad -->
+        <route id="_route_insMorosidad">
+            <from id="_from2" uri="direct:insMorosidad"/>
+            <setHeader headerName="IdConsulta" id="consultaMorosidadSinacofiHeaderIdConsulta">
+                <simple>${headers.IdConsultaMorosidad}</simple>
+            </setHeader>
+            <setHeader headerName="IFeVencimiento" id="consultaMorosidadSinacofiHeaderIFeVencimiento">
+                <xpath resultType="java.lang.String">//IFeVencimiento</xpath>
+            </setHeader>
+            <setProperty id="_setProperty6" propertyName="aComercial">
+                <xpath resultType="java.lang.String">//AportanteComercial</xpath>
+            </setProperty>
+            <setHeader headerName="AportanteComercial" id="consultaMorosidadSinacofiHeaderAportanteComercial">
+                <method
+                    beanType="cl.coopeuch.util.transformacion.ProcesoCamel" method="formateaString(${property.aComercial})"/>
+            </setHeader>
+            <setHeader headerName="IdMoneda" id="consultaMorosidadSinacofiHeaderIdMoneda">
+                <xpath resultType="java.lang.String">//IdMoneda</xpath>
+            </setHeader>
+            <setHeader headerName="IdDocumento" id="consultaMorosidadSinacofiHeaderIdDocumento">
+                <xpath resultType="java.lang.String">//IdDocumento</xpath>
+            </setHeader>
+            <setHeader headerName="Monto" id="consultaMorosidadSinacofiHeaderMonto">
+                <xpath resultType="java.lang.String">//Monto</xpath>
+            </setHeader>
+            <setHeader headerName="RutDeudor" id="consultaMorosidadSinacofiHeaderRutDeudor">
+                <xpath resultType="java.lang.String">substring(//RutDeudor, 0,string-length(//RutDeudor)-1)</xpath>
+            </setHeader>
+            <when id="_when42">
+                <simple>${headers.RutDeudor} == ''</simple>
+                <setHeader headerName="RutDeudor" id="_setHeader69">
+                    <constant>0</constant>
+                </setHeader>
+            </when>
+            <setHeader headerName="Direccion" id="consultaMorosidadSinacofiHeaderDireccion">
+                <xpath resultType="java.lang.String">//Direccion</xpath>
+            </setHeader>
+            <setHeader headerName="Comuna" id="consultaMorosidadSinacofiHeaderComuna">
+                <xpath resultType="java.lang.String">//Comuna</xpath>
+            </setHeader>
+            <setHeader headerName="Sinacofi" id="consultaMorosidadSinacofiHeaderSinacofi">
+                <constant>N</constant>
+            </setHeader>
+            <to id="PA_dbo.pa_insmorosidad_MB" uri="bean:dbo.pa_insmorosidad_MB"/>
+        </route>
+        <!-- Ruta que inserta cache de Infraccion Laboral -->
+        <route id="_route3_insInsfracLaborales">
+            <from id="_from3" uri="direct:insInsfracLaborales"/>
+            <setHeader headerName="IdConsulta" id="consultaInfrLabSinacofiHeaderIdConsulta">
+                <simple>${headers.IdConsultaInfrLab}</simple>
+            </setHeader>
+            <setHeader headerName="NumDeudasPrev" id="consultaInfrLabSinacofiHeaderNumDeudasPrev">
+                <xpath resultType="java.lang.String">//NumDeudasPrev</xpath>
+            </setHeader>
+            <setHeader headerName="NumMultas" id="consultaInfrLabSinacofiHeaderNumMultas">
+                <xpath resultType="java.lang.String">//NumMultas</xpath>
+            </setHeader>
+            <setHeader headerName="Sinacofi" id="consultaInfrLabSinacofiHeaderSinacofi">
+                <constant>N</constant>
+            </setHeader>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                id="backuptemp1" method="guardaBodyTemp"/>
+            <to id="PA_dbo.pa_insfraclaborales_MB" uri="bean:dbo.pa_insfraclaborales_MB"/>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                id="backuptemp2" method="restauraBodyTemp"/>
+            <split id="_split7">
+                <tokenize token="DetalleInfraccionesLab" xml="true"/>
+                <to id="_to12" uri="direct:insDetInsfracLaborales"/>
+            </split>
+        </route>
+        <!-- Ruta que inserta detalle en cache de Infraccion Laboral -->
+        <route id="_route3a_insDetInsfracLaborales">
+            <from id="_from3a" uri="direct:insDetInsfracLaborales"/>
+            <setHeader headerName="NumBoletin" id="consultaInfrLabSinacofiHeaderNumBoletinDet">
+                <xpath resultType="java.lang.String">//NumBoletin</xpath>
+            </setHeader>
+            <setHeader headerName="PaginaBoletin" id="consultaInfrLabSinacofiHeaderPaginaBoletinDet">
+                <xpath resultType="java.lang.String">//PaginaBoletin</xpath>
+            </setHeader>
+            <setHeader headerName="IFeBoletin" id="consultaInfrLabSinacofiHeaderIFeBoletinDet">
+                <xpath resultType="java.lang.String">//IFeBoletin</xpath>
+            </setHeader>
+            <setHeader headerName="TipoInfraccion" id="consultaInfrLabSinacofiHeaderTipoInfraccionDet">
+                <xpath resultType="java.lang.String">//TipoInfraccion</xpath>
+            </setHeader>
+            <setHeader headerName="NumMesesAdeu" id="consultaInfrLabSinacofiHeaderNumMesesAdeuDet">
+                <xpath resultType="java.lang.String">//NumMesesAdeu</xpath>
+            </setHeader>
+            <setHeader headerName="MontoDeuImp" id="consultaInfrLabSinacofiHeaderMontoDeuImpDet">
+                <xpath resultType="java.lang.String">//MontoDeuImp</xpath>
+            </setHeader>
+            <setHeader headerName="RegInspec" id="consultaInfrLabSinacofiHeaderRegInspecDet">
+                <xpath resultType="java.lang.String">//RegInspec</xpath>
+            </setHeader>
+            <setHeader headerName="NumInspec" id="consultaInfrLabSinacofiHeaderNumInspecDet">
+                <xpath resultType="java.lang.String">//NumInspec</xpath>
+            </setHeader>
+            <setHeader headerName="AnoResol" id="consultaInfrLabSinacofiHeaderAnoResolDet">
+                <xpath resultType="java.lang.String">//AnoResol</xpath>
+            </setHeader>
+            <setHeader headerName="NumResol" id="consultaInfrLabSinacofiHeaderNumResolDet">
+                <xpath resultType="java.lang.String">//NumResol</xpath>
+            </setHeader>
+            <setHeader headerName="MotivoInfrac" id="consultaInfrLabSinacofiHeaderMotivoInfracDet">
+                <xpath resultType="java.lang.String">//MotivoInfrac</xpath>
+            </setHeader>
+            <setHeader headerName="NombreAfp" id="consultaInfrLabSinacofiHeaderNombreAfpDet">
+                <xpath resultType="java.lang.String">//NombreAFP</xpath>
+            </setHeader>
+            <to id="PA_dbo.pa_insdetinfraclabor_MB" uri="bean:dbo.pa_insdetinfraclabor_MB"/>
+        </route>
+        <!-- Ruta que inserta cache de Prendas -->
+        <route id="_route_insPrendas">
+            <from id="_from4" uri="direct:insPrendas"/>
+            <setHeader headerName="IdConsulta" id="consultaPrendasSinacofiHeaderIdConsulta">
+                <simple>${headers.IdConsultaPrendas}</simple>
+            </setHeader>
+            <setHeader headerName="IFeDiarioOficial" id="consultaPrendasSinacofiHeaderIFeDiarioOficial">
+                <xpath resultType="java.lang.String">//IFeDiarioOficial</xpath>
+            </setHeader>
+            <setHeader headerName="Cuerpo" id="consultaPrendasSinacofiHeaderCuerpo">
+                <xpath resultType="java.lang.String">//Cuerpo</xpath>
+            </setHeader>
+            <setHeader headerName="Pagina" id="consultaPrendasSinacofiHeaderPagina">
+                <xpath resultType="java.lang.String">//Pagina</xpath>
+            </setHeader>
+            <setHeader headerName="Extracto" id="consultaPrendasSinacofiHeaderExtracto">
+                <xpath resultType="java.lang.String">//Extracto</xpath>
+            </setHeader>
+            <setHeader headerName="RutAcreedor" id="consultaPrendasSinacofiHeaderRutAcreedor">
+                <xpath resultType="java.lang.String">substring(//RutAcreedor, 0,string-length(//RutAcreedor))</xpath>
+            </setHeader>
+            <setHeader headerName="NombreAcreedor" id="consultaPrendasSinacofiHeaderNombreAcreedor">
+                <xpath resultType="java.lang.String">//NombreAcreedor</xpath>
+            </setHeader>
+            <setHeader headerName="RutNotario" id="consultaPrendasSinacofiHeaderRutNotario">
+                <xpath resultType="java.lang.String">substring(//RutNotario, 0,string-length(//RutNotario))</xpath>
+            </setHeader>
+            <setHeader headerName="NombreNotario" id="consultaPrendasSinacofiHeaderNombreNotario">
+                <xpath resultType="java.lang.String">//NombreNotario</xpath>
+            </setHeader>
+            <setHeader headerName="Sinacofi" id="consultaPrendasSinacofiHeaderSinacofi">
+                <constant>N</constant>
+            </setHeader>
+            <to id="PA_dbo.pa_insprendas_MB" uri="bean:dbo.pa_insprendas_MB"/>
+        </route>
+        <!-- Ruta que inserta cache de Sistema Financiero -->
+        <route id="_route_insDeudaSistFin">
+            <!-- <bean beanType="cl.coopeuch.util.BodyBackup"
+            id="backupBody_insDeudaSistFin" method="backupBody"/> -->
+            <from id="_from5" uri="direct:insDeudaSistFin"/>
+            <setHeader headerName="IdConsulta" id="consultaSistFinSinacofiHeaderIdConsulta">
+                <simple>${headers.IdConsultaSistFinan}</simple>
+            </setHeader>
+            <setHeader headerName="IFecha" id="consultaSistFinSinacofiHeaderIFecha">
+                <!--                 <xpath resultType="java.lang.String">//IFecha</xpath> -->
+                <constant>0</constant>
+            </setHeader>
+            <setHeader headerName="DeudaTotal" id="consultaSistFinSinacofiHeaderDeudaTotal">
+                <!--                 <xpath resultType="java.lang.String">//DeudaTotal</xpath>  -->
+                <constant>0</constant>
+            </setHeader>
+            <setHeader headerName="NombreSuperintendencia" id="consultaSistFinSinacofiHeaderNombreSuperintendencia">
+                <xpath resultType="java.lang.String">//NombreSuperintendencia</xpath>
+            </setHeader>
+            <setHeader headerName="Sinacofi" id="consultaSistFinSinacofiHeaderSinacofi">
+                <constant>N</constant>
+            </setHeader>
+            <to id="PA_dbo.pa_insdeudasistfin_MB" uri="bean:dbo.pa_insdeudasistfin_MB"/>
+            <bean
+                beanType="cl.coopeuch.util.transformacion.ProcesoCamel"
+                id="restauraXmlSistFinanciero" method="restauraXmlSinacofi"/>
+            <split id="_split8">
+                <tokenize token="DeudaSistemaFinanciero" xml="true"/>
+                <to id="_to13" uri="direct:insDetDeudaSistFin"/>
+            </split>
+        </route>
+        <!-- Ruta que inserta detalle de Sistema Financiero en cache -->
+        <route id="_route5a_insDetDeudaSistFin">
+            <from id="_from5a" uri="direct:insDetDeudaSistFin"/>
+            <setHeader headerName="IFechaDeuda" id="_setHeader70">
+                <xpath resultType="java.lang.String">//IFechaDeuda</xpath>
+            </setHeader>
+            <setHeader headerName="DeudaDirectaVigente" id="_setHeader71">
+                <xpath resultType="java.lang.String">//DeudaDirectaVigente</xpath>
+            </setHeader>
+            <setHeader headerName="DeudaInversionesFinancieras" id="_setHeader72">
+                <xpath resultType="java.lang.String">//DeudaInversionesFinancieras</xpath>
+            </setHeader>
+            <setHeader headerName="DeudaVencidaDirecta" id="_setHeader73">
+                <xpath resultType="java.lang.String">//DeudaVencidaDirecta</xpath>
+            </setHeader>
+            <setHeader headerName="DeudaOperacionesConPacto" id="_setHeader74">
+                <xpath resultType="java.lang.String">//DeudaOperacionesConPacto</xpath>
+            </setHeader>
+            <setHeader headerName="DeudaIndirectaVigente" id="_setHeader75">
+                <xpath resultType="java.lang.String">//DeudaIndirectaVigente</xpath>
+            </setHeader>
+            <setHeader headerName="DeudaIndirectaVencida" id="_setHeader76">
+                <xpath resultType="java.lang.String">//DeudaIndirectaVencida</xpath>
+            </setHeader>
+            <setHeader headerName="DeudaComercial" id="_setHeader77">
+                <xpath resultType="java.lang.String">//DeudaComercial</xpath>
+            </setHeader>
+            <setHeader headerName="DeudaCreditosConsumo" id="_setHeader78">
+                <xpath resultType="java.lang.String">//DeudaCreditosConsumo</xpath>
+            </setHeader>
+            <setHeader headerName="NumAcreedoresCreditosConsumo" id="_setHeader79">
+                <xpath resultType="java.lang.String">//NumAcreedoresCreditosConsumo</xpath>
+            </setHeader>
+            <setHeader headerName="DeudaHipotecarios" id="_setHeader80">
+                <xpath resultType="java.lang.String">//DeudaHipotecarios</xpath>
+            </setHeader>
+            <setHeader headerName="DeudaMorosa" id="_setHeader81">
+                <xpath resultType="java.lang.String">//DeudaMorosa</xpath>
+            </setHeader>
+            <setHeader headerName="DeudaCastigadaDirecta" id="_setHeader82">
+                <xpath resultType="java.lang.String">//DeudaCastigadaDirecta</xpath>
+            </setHeader>
+            <setHeader headerName="DeudaCastigadaIndirecta" id="_setHeader83">
+                <xpath resultType="java.lang.String">//DeudaCastigadaIndirecta</xpath>
+            </setHeader>
+            <setHeader headerName="LineaCreditoDisponible" id="_setHeader84">
+                <xpath resultType="java.lang.String">//LineaCreditoDisponible</xpath>
+            </setHeader>
+            <setHeader headerName="DeudaComercialVigenteMEx" id="_setHeader85">
+                <xpath resultType="java.lang.String">//DeudaComercialVigenteMEx</xpath>
+            </setHeader>
+            <setHeader headerName="DeudaComercialVencidaMEx" id="_setHeader86">
+                <xpath resultType="java.lang.String">//DeudaComercialVencidaMEx</xpath>
+            </setHeader>
+            <to id="PA_dbo.pa_insdetdeudasisfin_MB" uri="bean:dbo.pa_insdetdeudasisfin_MB"/>
+        </route>
+        <!-- Ruta que inserta Direcciones en cache -->
+        <route id="_route_insDirecciones">
+            <from id="_from6" uri="direct:insDirecciones"/>
+            <setHeader headerName="IdConsulta" id="consultaDirRutSinacofiHeaderIdConsulta">
+                <simple>${headers.IdConsultaDirRut}</simple>
+            </setHeader>
+            <setHeader headerName="Direccion" id="consultaDirRutSinacofiHeaderDireccion">
+                <xpath resultType="java.lang.String">//Direccion</xpath>
+            </setHeader>
+            <setHeader headerName="Comuna" id="consultaDirRutSinacofiHeaderComuna">
+                <xpath resultType="java.lang.String">//Comuna</xpath>
+            </setHeader>
+            <setHeader headerName="Ciudad" id="consultaDirRutSinacofiHeaderCiudad">
+                <xpath resultType="java.lang.String">//Ciudad</xpath>
+            </setHeader>
+            <setHeader headerName="IFecha" id="consultaDirRutSinacofiHeaderIFecha">
+                <xpath resultType="java.lang.String">//IFecha</xpath>
+            </setHeader>
+            <setHeader headerName="Fuente" id="consultaDirRutSinacofiHeaderFuente">
+                <xpath resultType="java.lang.String">//Fuente</xpath>
+            </setHeader>
+            <setHeader headerName="Tipo" id="consultaDirRutSinacofiHeaderTipo">
+                <xpath resultType="java.lang.String">//Tipo</xpath>
+            </setHeader>
+            <setHeader headerName="Sinacofi" id="consultaDirRutSinacofiHeaderSinacofi">
+                <constant>N</constant>
+            </setHeader>
+            <to id="PA_dbo.pa_insdirecciones_MB" uri="bean:dbo.pa_insdirecciones_MB"/>
+        </route>
+        <!-- Ruta que inserta Directorio Personas en cache -->
+        <route id="_route_insDirPersonas">
+            <from id="_from7" uri="direct:insDirPersonas"/>
+            <setHeader headerName="IdConsulta" id="consultaDirClienteSinacofiHeaderIdConsulta">
+                <simple>${headers.IdConsultaDirCli}</simple>
+            </setHeader>
+            <setHeader headerName="Nombre" id="consultaDirClienteSinacofiHeaderNombre">
+                <xpath resultType="java.lang.String">//Nombre</xpath>
+            </setHeader>
+            <setHeader headerName="Direccion" id="consultaDirClienteSinacofiHeaderDireccion">
+                <xpath resultType="java.lang.String">//Direccion</xpath>
+            </setHeader>
+            <setHeader headerName="Comuna" id="consultaDirClienteSinacofiHeaderComuna">
+                <xpath resultType="java.lang.String">//Comuna</xpath>
+            </setHeader>
+            <setHeader headerName="Ciudad" id="consultaDirClienteSinacofiHeaderCiudad">
+                <xpath resultType="java.lang.String">//Ciudad</xpath>
+            </setHeader>
+            <setHeader headerName="Region" id="consultaDirClienteSinacofiHeaderRegion">
+                <xpath resultType="java.lang.String">//Region</xpath>
+            </setHeader>
+            <setHeader headerName="IFechaNacimiento" id="consultaDirClienteSinacofiHeaderIFechaNacimiento">
+                <xpath resultType="java.lang.String">//IFechaNacimiento</xpath>
+            </setHeader>
+            <when id="_when43">
+                <simple>${headers.IFechaNacimiento} == ''</simple>
+                <setHeader headerName="IFechaNacimiento" id="_setHeader111">
+                    <constant>0</constant>
+                </setHeader>
+            </when>
+            <setHeader headerName="Actividad" id="consultaDirClienteSinacofiHeaderActividad">
+                <xpath resultType="java.lang.String">//Actividad</xpath>
+            </setHeader>
+            <setHeader headerName="IFechaInformacion" id="consultaDirClienteSinacofiHeaderIFechaInformacion">
+                <xpath resultType="java.lang.String">//IFechaInformacion</xpath>
+            </setHeader>
+            <when id="_when44">
+                <simple>${headers.IFechaInformacion} == ''</simple>
+                <setHeader headerName="IFechaInformacion" id="_setHeader112">
+                    <constant>0</constant>
+                </setHeader>
+            </when>
+            <setHeader headerName="SituacionMilitar" id="consultaDirClienteSinacofiHeaderSituacionMilitar">
+                <xpath resultType="java.lang.String">//SituacionMilitar</xpath>
+            </setHeader>
+            <setHeader headerName="IFechaDefuncion" id="consultaDirClienteSinacofiHeaderIFechaDefuncion">
+                <xpath resultType="java.lang.String">//IFechaDefuncion</xpath>
+            </setHeader>
+            <when id="_when45">
+                <simple>${headers.IFechaDefuncion} == ''</simple>
+                <setHeader headerName="IFechaDefuncion" id="_setHeader113">
+                    <constant>0</constant>
+                </setHeader>
+            </when>
+            <setHeader headerName="Sinacofi" id="consultaDirClienteSinacofiHeaderSinacofi">
+                <constant>N</constant>
+            </setHeader>
+            <to id="PA_dbo.pa_insdirpersonas_MB" uri="bean:dbo.pa_insdirpersonas_MB"/>
+        </route>
+        <!-- Ruta que inserta Bienes Raices en cache -->
+        <route id="_route_insBienesRaices">
+            <from id="_from8" uri="direct:insBienesRaices"/>
+            <setHeader headerName="IdConsulta" id="consultaBienRaizSinacofiHeaderIdConsulta">
+                <simple>${headers.IdConsultaBienRaiz}</simple>
+            </setHeader>
+            <setHeader headerName="Manzana" id="consultaBienRaizSinacofiHeaderManzana">
+                <xpath resultType="java.lang.String">//Manzana</xpath>
+            </setHeader>
+            <when id="_when46">
+                <simple>${headers.Manzana} == ''</simple>
+                <setHeader headerName="Manzana" id="_setHeader114">
+                    <constant>0</constant>
+                </setHeader>
+            </when>
+            <setHeader headerName="Predio" id="consultaBienRaizSinacofiHeaderPredio">
+                <xpath resultType="java.lang.String">//Predio</xpath>
+            </setHeader>
+            <when id="_when47">
+                <simple>${headers.Predio} == ''</simple>
+                <setHeader headerName="Predio" id="_setHeader115">
+                    <constant>0</constant>
+                </setHeader>
+            </when>
+            <setHeader headerName="Comuna" id="consultaBienRaizSinacofiHeaderComuna">
+                <xpath resultType="java.lang.String">//Comuna</xpath>
+            </setHeader>
+            <setHeader headerName="Direccion" id="consultaBienRaizSinacofiHeaderDireccion">
+                <xpath resultType="java.lang.String">//Direccion</xpath>
+            </setHeader>
+            <setHeader headerName="TipoPropiedad" id="consultaBienRaizSinacofiHeaderTipoPropiedad">
+                <xpath resultType="java.lang.String">//TipoPropiedad</xpath>
+            </setHeader>
+            <setHeader headerName="Destino" id="consultaBienRaizSinacofiHeaderDestino">
+                <xpath resultType="java.lang.String">//Destino</xpath>
+            </setHeader>
+            <setHeader headerName="Avaluo" id="consultaBienRaizSinacofiHeaderAvaluo">
+                <xpath resultType="java.lang.String">//Avaluo</xpath>
+            </setHeader>
+            <when id="_when48">
+                <simple>${headers.Avaluo} == ''</simple>
+                <setHeader headerName="Avaluo" id="_setHeader116">
+                    <constant>0</constant>
+                </setHeader>
+            </when>
+            <setHeader headerName="Sinacofi" id="consultaBienRaizSinacofiHeaderSinacofi">
+                <constant>N</constant>
+            </setHeader>
+            <to id="PA_dbo.pa_insbienesraices_MB" uri="bean:dbo.pa_insbienesraices_MB"/>
+        </route>
+        <!-- Ruta que inserta Protestos en cache -->
+        <route id="_route_insProtestos">
+            <!--
+                       <setHeader headerName="Rut" id="consultaProtestosSinacofiHeaderRut">
+                           <xpath resultType="java.lang.String">//Rut</xpath>
+                       </setHeader>
+            -->
+            <from id="_from9" uri="direct:insProtestos"/>
+            <setHeader headerName="IdConsulta" id="consultaProtestosSinacofiHeaderIdConsulta">
+                <simple>${headers.IdConsultaProtesto}</simple>
+            </setHeader>
+            <setHeader headerName="NumeroBoletinComercial" id="consultaProtestosSinacofiHeaderNumeroBoletinComercial">
+                <xpath resultType="java.lang.String">//NumeroBoletinComercial</xpath>
+            </setHeader>
+            <setHeader headerName="PaginaBoletin" id="consultaProtestosSinacofiHeaderPaginaBoletin">
+                <xpath resultType="java.lang.String">//PaginaBoletin</xpath>
+            </setHeader>
+            <setHeader headerName="IFechaBoletin" id="consultaProtestosSinacofiHeaderIFechaBoletin">
+                <xpath resultType="java.lang.String">//IFechaBoletin</xpath>
+            </setHeader>
+            <setHeader headerName="IFechaVencimiento" id="consultaProtestosSinacofiHeaderIFechaVencimiento">
+                <xpath resultType="java.lang.String">//IFechaVencimiento</xpath>
+            </setHeader>
+            <setHeader headerName="IdDocumento" id="consultaProtestosSinacofiHeaderIdDocumento">
+                <xpath resultType="java.lang.String">//Doc</xpath>
+            </setHeader>
+            <setHeader headerName="IdMoneda" id="consultaProtestosSinacofiHeaderIdMoneda">
+                <xpath resultType="java.lang.String">//IdMoneda</xpath>
+            </setHeader>
+            <setHeader headerName="Monto" id="consultaProtestosSinacofiHeaderMonto">
+                <xpath resultType="java.lang.String">//Monto</xpath>
+            </setHeader>
+            <setHeader headerName="IdMotivo" id="consultaProtestosSinacofiHeaderIdMotivo">
+                <xpath resultType="java.lang.String">//IdMotivo</xpath>
+            </setHeader>
+            <setHeader headerName="Localidad" id="consultaProtestosSinacofiHeaderLocalidad">
+                <xpath resultType="java.lang.String">//Localidad</xpath>
+            </setHeader>
+            <setHeader headerName="Notaria" id="consultaProtestosSinacofiHeaderNotaria">
+                <xpath resultType="java.lang.String">//Notaria</xpath>
+            </setHeader>
+            <setHeader headerName="NumeroOperacion" id="consultaProtestosSinacofiHeaderNumeroOperacion">
+                <xpath resultType="java.lang.String">//NumeroOperacion</xpath>
+            </setHeader>
+            <setHeader headerName="BancoLibrador" id="consultaProtestosSinacofiHeaderBancoLibrador">
+                <xpath resultType="java.lang.String">//BancoLibrador</xpath>
+            </setHeader>
+            <setHeader headerName="Sinacofi" id="consultaProtestosSinacofiHeaderSinacofi">
+                <constant>N</constant>
+            </setHeader>
+            <to id="PA_dbo.pa_insprotestos_MB" uri="bean:dbo.pa_insprotestos_MB"/>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyMqLogNotificacion"
+        persistent-id="mqlognotificacion" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="AMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="dataSourceSqlServer">
+        <property name="driverClassName" value="net.sourceforge.jtds.jdbc.Driver"/>
+        <property name="url" value="[{jdbc.sqlserver.url.mq.log.notificacion}]/Notificacion;charset=iso_1"/>
+        <property name="username" value="[{jdbc.sqlserver.username.mq.log.notificacion}]"/>
+        <property name="password" value="[{jdbc.sqlserver.password.mq.log.notificacion}]"/>
+        <property name="timeBetweenEvictionRunsMillis" value="[{jdbc.sqlserver.timeBetweenEvictionRunsMillis.mq.log.notificacion}]"/>
+        <property name="numTestsPerEvictionRun" value="[{jdbc.sqlserver.numTestsPerEvictionRun.mq.log.notificacion}]"/>
+        <property name="minEvictableIdleTimeMillis" value="[{jdbc.sqlserver.minEvictableIdleTimeMillis.mq.log.notificacion}]"/>
+        <property name="maxActive" value="[{jdbc.sqlserver.maxActive.mq.log.notificacion}]"/>
+    </bean>
+    <bean class="cl.coopeuch.integracion.util.RouteFacade" id="beanRouteFacade"/>
+    <camelContext id="servicio-MQLogNotificaciones" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="AMQ:{{amq.queue.notificacion.log}}"/>
+            <unmarshal id="_unmarshal1">
+                <jaxb contextPath="cl.coopeuch.integracion.datos.amq"/>
+            </unmarshal>
+            <bean id="EnviarNotificacion-Bean" method="obtenerDatos" ref="beanRouteFacade"/>
+            <to id="pa_obtenerInformacionNotificacion-To" uri="sql-stored:classpath:etc/sql/pa_guardarAuditoriaNotificacion.sql?dataSource=dataSourceSqlServer&amp;outputHeader=responseInformacionNotificacion"/>
+        </route>
+    </camelContext>
+</blueprint>

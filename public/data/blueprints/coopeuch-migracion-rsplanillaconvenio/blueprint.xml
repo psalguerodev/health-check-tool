@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:sec="http://cxf.apache.org/configuration/security"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <!-- Servicio Utilizado para obtener datos de planillas de convenios -->
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.planillaconvenio.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSPlanillaConvenio"
+        continuationTimeout="10000" id="endpointWsPlanillaConvenio"
+        loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.planillaconvenio.wsdl.WSPlanillaConvenioSOAPPortType" wsdlURL="etc/wsdl/WSPlanillaConvenio.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelContext id="servicio-planilla-convenio" xmlns="http://camel.apache.org/schema/blueprint">
+        <route id="cxf-inicio">
+            <from id="inicioFromServicio" uri="cxf:bean:endpointWsPlanillaConvenio"/>
+            <doTry id="inicioTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <setProperty id="inicioSetBody" propertyName="bodyEntrada">
+                    <simple>${body.get(0)}</simple>
+                </setProperty>
+                <setProperty id="inicioSetTipoRequest" propertyName="tipoRequest">
+                    <simple>$simple{body.get(0).class.getSimpleName()}</simple>
+                </setProperty>
+                <setProperty id="inicioPropertyUsuario" propertyName="userid">
+                    <simple>$simple{body.get(0).userid}</simple>
+                </setProperty>
+                <setProperty id="inicioPropertyCanal" propertyName="canalLlamada">
+                    <simple>$simple{body.get(0).canalLlamada}</simple>
+                </setProperty>
+                <setProperty id="inicioPropertyNroSolicitud" propertyName="nroSolicitud">
+                    <simple>$simple{body.get(0).nroSolicitud}</simple>
+                </setProperty>
+                <setProperty id="inicioPropertyCantidadMeses" propertyName="cantidadMeses">
+                    <simple>$simple{body.get(0).cantidadMeses}</simple>
+                </setProperty>
+                <setProperty id="inicioPropertyEstadoPlanilla" propertyName="estadoPlanilla">
+                    <simple>$simple{body.get(0).estadoPlanilla}</simple>
+                </setProperty>
+                <choice id="inicioChoiceOperacion">
+                    <when id="inicioWhenOperacionCrear">
+                        <simple>${header.operationName} == 'consultarResumen'</simple>
+                        <to id="toCrear" uri="direct:consultarResumen"/>
+                    </when>
+                    <otherwise id="inicioOtherwise">
+                        <throwException
+                            exceptionType="java.lang.Exception"
+                            id="throwExceptionOperacionInvalida" message="La operacion solicitada es invalida"/>
+                    </otherwise>
+                </choice>
+                <doCatch id="inicioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="inicioPropertyCodigo" propertyName="codigoError">
+                        <simple>1</simple>
+                    </setProperty>
+                    <to id="toInicioExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="consultarResumen">
+            <from id="consultarResumenFrom" uri="direct:consultarResumen"/>
+            <doTry id="consultarResumenTry">
+                <removeHeaders id="consultarResumenRemoveHeaders" pattern="*"/>
+                <setBody id="consultarResumenXMLSetBody">
+                    <simple>&lt;trama&gt;&lt;/trama&gt;</simple>
+                </setBody>
+                <setHeader headerName="requestUser" id="headerUserConsultar">
+                    <simple>${exchangeProperty.userid}</simple>
+                </setHeader>
+                <setHeader headerName="requestCanalLlamada" id="headerCanalLlamadaConsultar">
+                    <simple>${exchangeProperty.canalLlamada}</simple>
+                </setHeader>
+                <setHeader headerName="requestNroSolicitud" id="headerNroSolicitudConsultar">
+                    <simple>${exchangeProperty.nroSolicitud}</simple>
+                </setHeader>
+                <setHeader headerName="requestCantidadMeses" id="headerCantidadMesesConsultar">
+                    <simple>${exchangeProperty.cantidadMeses}</simple>
+                </setHeader>
+                <setHeader headerName="requestEstadoPlanilla" id="headerEstadoPlanillaConsultar">
+                    <simple>${exchangeProperty.estadoPlanilla}</simple>
+                </setHeader>
+                <setBody id="setBodyEntradaConsulta">
+                    <simple>${exchangeProperty.bodyEntrada}</simple>
+                </setBody>
+                <bean id="consultarResumenUUID"
+                    method="crearJMSCorrelationId24" ref="beanRouteFacade"/>
+                <to id="consultarResumenToXSLTrama" uri="xslt://etc/xsl/request/IOC725001I_consultarResumen.xsl"/>
+                <log id="logTraceTramaConsultarResumen"
+                    loggingLevel="TRACE" message="trama generada = ${body}"/>
+                <to id="consultarResumenToAmq" uri="beanAMQ:{{amq.queue.req}}?preserveMessageQos=true&amp;errorHandlerLoggingLevel=TRACE&amp;jmsMessageType=Text&amp;replyTo={{amq.queue.res}}&amp;replyToType=Shared&amp;replyToOverride={{amq.queue.res}}&amp;synchronous=true&amp;exchangePattern=InOut"/>
+                <transform id="consultarResumenTransformBody">
+                    <simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+                </transform>
+                <log id="tramaConsultarResumenResponse"
+                    loggingLevel="TRACE" message="Trama recibida : ${body}"/>
+                <to id="consultarResumenToXSLSOAP" uri="xslt://etc/xsl/response/IOC725001O_consultarResumen.xsl?saxon=true"/>
+                <convertBodyTo
+                    id="consultarResumenConvertBodyToResponse" type="cl.coopeuch.integracion.planillaconvenio.wsdl.ConsultarResumenResponse"/>
+                <doCatch id="consultarResumenDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setProperty id="consultarResumenPropertyCodigo" propertyName="codigoError">
+                        <simple>900</simple>
+                    </setProperty>
+                    <to id="toConsultarResumenExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+                <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/>
+                <bean id="excepcionBeanExcepcion"
+                    method="excepcionCrear" ref="beanRouteFacade"/>
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>

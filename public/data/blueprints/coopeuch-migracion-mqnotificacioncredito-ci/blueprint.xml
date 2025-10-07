@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+	xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+	xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+	xmlns:http="http://cxf.apache.org/transports/http/configuration"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+	<cm:property-placeholder id="propertyGlobal"
+		persistent-id="global" placeholder-prefix="{[" placeholder-suffix="]}"
+		update-strategy="reload" />
+	<cm:property-placeholder id="propertyLocal"
+		persistent-id="mqnotificacioncredito" placeholder-prefix="[{"
+		placeholder-suffix="}]" update-strategy="reload" />
+	<bean class="org.apache.activemq.camel.component.ActiveMQComponent"
+		id="beanAMQ">
+		<property name="brokerURL" value="{[amq.broker.url]}" />
+		<property name="userName" value="{[amq.username]}" />
+		<property name="password" value="{[amq.password]}" />
+		<property name="usePooledConnection" value="true" />
+	</bean>
+	<bean class="com.ibm.mq.jms.MQConnectionFactory" id="websphereConnectionFactory">
+		<property name="transportType" value="1" />
+		<property name="hostName" value="{[ibm.mq.host]}" />
+		<property name="port" value="{[ibm.mq.port]}" />
+		<property name="queueManager" value="{[ibm.qm.name]}" />
+		<property name="useConnectionPooling" value="true" />
+		<property name="channel" value="{[ibm.qm.channel]}" />
+	</bean>
+	<bean class="org.apache.camel.component.jms.JmsConfiguration" id="websphereConfig">
+		<property name="connectionFactory" ref="websphereConnectionFactory" />
+		<property name="concurrentConsumers" value="[{ibm.mq.concurrentConsumers}]" />
+	</bean>
+	<bean class="org.apache.camel.component.jms.JmsComponent" id="websphere">
+		<property name="configuration" ref="websphereConfig" />
+	</bean>
+	<bean class="cl.coopeuch.integracion.entidad.servicioMQNotificacionCredito.util.RouteFacade" id="beanRouteFacade"/>
+	<camelContext id="servicio-MQNotificacionCredito"
+		xmlns="http://camel.apache.org/schema/blueprint">
+		<route id="notificacionCurseCredito">
+			<from id="notificacionCurseCreditoFrom"
+				uri="websphere:queue:{{ibm.queue.notificacioncursecredito.in}}?disableReplyTo=true" />
+			<log message="1: Trama-Cola-MQ:(${body})" />
+			<convertBodyTo id="notificacionCurseCreditoBodyTo"
+				type="java.lang.String" />
+				
+			<choice>
+				<when>
+					<simple>${body} contains ' '</simple>
+					<log message="1: Trama-Cola-MQ:(${body})"/>
+					<transform id="notificacionCurseCreditoTransform">
+						<simple>&lt;trama&gt;${body}&lt;/trama&gt;</simple>
+					</transform>
+					<log message="2:(${body})"/>
+					<to id="trama2xml_notificarTransaccion" uri="xslt://transformations/in/trama2xml_notificarCurse.xsl?saxon=true"/>
+					<log message="3:(${body})"/>
+					<setProperty propertyName="canalCurse"><xpath>//canalCurse/text()</xpath></setProperty>			
+					<unmarshal>
+						<jaxb contextPath="cl.coopeuch.integracion.entidad.servicioMQNotificacionCredito.aws.wsdl"/>
+					</unmarshal>
+					<log message="4:(${body})"/>
+					<marshal>
+					<json library="Jackson"></json>
+					</marshal>
+					<log message="5: salidaXmlFormat:(jack: (${body})" />
+					<log message="6: SETHEADER CamelAwsSnsMessageAttributes (${body})"/>
+					<bean id="enviaMensajeSNS" method="enviaMensajeSNS" ref="beanRouteFacade"/>
+					<log message="7: (${body})ENVIA MENSAJE A AWS!!!!"/>
+				</when>
+				<otherwise>
+					  <log message="1: Trama-Cola-Caracteres-Erroneos:(${body})"/>
+				</otherwise>
+			</choice>
+			
+			<stop/>
+		</route>		
+	</camelContext>
+</blueprint>

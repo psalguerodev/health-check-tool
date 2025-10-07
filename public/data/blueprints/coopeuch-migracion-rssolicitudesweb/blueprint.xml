@@ -1,0 +1,1087 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:camelcxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:http="http://cxf.apache.org/transports/http/configuration"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder id="propertyGlobal" persistent-id="global"
+        placeholder-prefix="{[" placeholder-suffix="]}" update-strategy="reload"/>
+    <cm:property-placeholder id="propertyWsSolicitudesWeb"
+        persistent-id="wssolicitudesweb" placeholder-prefix="[{"
+        placeholder-suffix="}]" update-strategy="reload"/>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="beanAMQ">
+        <property name="brokerURL" value="{[amq.broker.url]}"/>
+        <property name="userName" value="{[amq.username]}"/>
+        <property name="password" value="{[amq.password]}"/>
+        <property name="usePooledConnection" value="true"/>
+    </bean>
+    <bean
+        class="cl.coopeuch.integracion.solicitudesweb.util.RouteFacade" id="beanRouteFacade"/>
+    <camelcxf:cxfEndpoint address="/WSSolicitudesWeb"
+        id="endpointWSSolicitudesWeb" loggingFeatureEnabled="true"
+        serviceClass="cl.coopeuch.integracion.solicitudesweb.wsdl.SolicitudesWebSoap" wsdlURL="etc/wsdl/SolicitudesWeb.wsdl">
+        <camelcxf:properties>
+            <entry key="schema-validation-enabled" value="true"/>
+        </camelcxf:properties>
+    </camelcxf:cxfEndpoint>
+    <camelcxf:rsServer address="/RSSolicitudesWeb"
+        id="endpointRSSolicitudesWeb" loggingFeatureEnabled="true" serviceClass="cl.coopeuch.integracion.solicitudesweb.util.SolicitudesWebRest"/>
+    
+    
+    <camelcxf:cxfEndpoint address="[{solicitudesweb.endpoint}]"
+        id="endpointSolicitudesWeb"
+        serviceClass="cl.coopeuch.integracion.solicitudesweb.wsdl.SolicitudesWebSoap" wsdlURL="etc/wsdl/SolicitudesWeb.wsdl"/>
+        
+    <camelcxf:cxfEndpoint address="[{solicitudesweb.endpoint.newAsmx}]"
+        id="endpointSolicitudesWebNewASMX"
+        serviceClass="cl.coopeuch.integracion.solicitudesweb.soap.newAsmx.SolicitudesWebSoap" wsdlURL="etc/wsdl/SolicitudesWebCRM_NUEVO.wsdl"/>
+        
+    <camelcxf:cxfEndpoint address="[{solicitudesweb.endpoint.reprogramacionCuotas}]"
+        id="endpointReprogramacionCuotasASMX"
+        serviceClass="cl.coopeuch.integracion.solicitudesweb.soap.reprogramacionCuotas.WSReprogramacionCuotasSoap" wsdlURL="etc/wsdl/ReprogramacionCuotas.wsdl"/>
+        
+    <camelcxf:cxfEndpoint address="[{solicitudesweb.endpoint.portabilidad}]"
+        id="endpointPortabilidadASMX"
+        serviceClass="cl.coopeuch.integracion.solicitudesweb.soap.wsportabilidad.WSPortabilidadSoap" wsdlURL="etc/wsdl/WsPortabilidad.wsdl"/>
+    
+    <camelcxf:cxfEndpoint address="[{solicitudesweb.endpoint.wshorario}]"
+        id="endpointHorarioASMX"
+        serviceClass="cl.coopeuch.integracion.solicitudesweb.soap.wshorario.WSHorarioSoap" wsdlURL="etc/wsdl/WsHorario.wsdl"/>
+        
+    <camelcxf:cxfEndpoint address="[{solicitudesweb.endpoint.wssolicitudessocio}]"
+        id="endpointSolicitudesSocioASMX"
+        serviceClass="cl.coopeuch.integracion.solicitudesweb.soap.wssolicitudessocio.WSSolicitudesSocioSoap" wsdlURL="etc/wsdl/WsSolicitudesSocio.wsdl"/>
+        
+        
+    <camelContext id="servicio-solicitudes-web" xmlns="http://camel.apache.org/schema/blueprint" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+        <route id="inicio-soap" streamCache="true">
+            <from id="soapInicio" uri="cxf:bean:endpointWSSolicitudesWeb?dataFormat=MESSAGE"/>
+            <log message="SOAP::WsSolicitudesWeb::Request::(${body})"/>
+            <setProperty propertyName="requestType">
+	            <simple>SOAP</simple>
+	        </setProperty>
+	        <setProperty propertyName="OperationName">
+	            <xpath resultType="java.lang.String">local-name(/*[local-name()='Envelope']/*[local-name()='Body']/*)</xpath>
+	        </setProperty>
+            <convertBodyTo type="String"/>
+            <choice>
+            	<when>
+            		<simple>${property.OperationName} == 'solicitudesSimulador'</simple>
+            		<to uri="direct:propertiesSimulador"/>
+            		<setHeader headerName="SOAPAction">
+						<constant>crm.coopeuch.cl/SolicitudesWeb/solicitudesSimulador</constant>
+					</setHeader>
+					<to id="requestSimuladorNew" uri="xslt://etc/xslt/request/requestSimulador.xsl"/>
+					<to uri="direct:inicioNEW"/>
+                    <convertBodyTo type="java.lang.String"/>
+		        	<to id="responseSimuladorNew" uri="xslt://etc/xslt/response/responseSimulador.xsl"/>
+		        	<log message="SOAP::WsSolicitudesWeb::Response::(${body})"/>
+					<stop/>
+            	</when>
+            	<when>
+            		<simple>${property.OperationName} == 'solicitudesProductos'</simple>
+            		<setHeader headerName="SOAPAction">
+						<constant>crm.coopeuch.cl/SolicitudesWeb/solicitudesProductos</constant>
+					</setHeader>
+					<to uri="direct:propertiesSimulador"/>
+					<to id="requestProductosNew" uri="xslt://etc/xslt/request/requestProductos.xsl"/>
+					<to uri="direct:inicioNEW"/>
+					<convertBodyTo type="java.lang.String"/>
+		        	<to id="responseSimuladorNew" uri="xslt://etc/xslt/response/responseProductos.xsl"/>
+		        	<log message="SOAP::WsSolicitudesWeb::Response::(${body})"/>
+					<stop/>
+            	</when>
+            	<when>
+            		<simple>${property.OperationName} == 'solicitudesFormularios'</simple>
+            		<setHeader headerName="SOAPAction">
+						<constant>crm.coopeuch.cl/SolicitudesWeb/solicitudesFormularios</constant>
+					</setHeader>
+					<to uri="direct:propertiesSimulador"/>
+					<to id="requestProductosNew" uri="xslt://etc/xslt/request/requestFormularios.xsl"/>
+					<to uri="direct:inicioNEW"/>
+					<convertBodyTo type="java.lang.String"/>
+		        	<to id="responseSimuladorNew" uri="xslt://etc/xslt/response/responseFormularios.xsl"/>
+		        	<log message="SOAP::WsSolicitudesWeb::Response::(${body})"/>
+					<stop/>
+            	</when>
+            	<when>
+            		<simple>${property.OperationName} == 'solicitudesGiroVirtual'</simple>
+            		<setHeader headerName="SOAPAction">
+						<constant>crm.coopeuch.cl/SolicitudesWeb/solicitudesGiroVirtual</constant>
+					</setHeader>
+					<to uri="direct:propertiesSimulador"/>
+					<to id="requestProductosNew" uri="xslt://etc/xslt/request/requestGiroVirtual.xsl"/>
+					<to uri="direct:inicioNEW"/>
+					<convertBodyTo type="java.lang.String"/>
+		        	<to id="responseSimuladorNew" uri="xslt://etc/xslt/response/responseGiroVirtual.xsl"/>
+		        	<log message="SOAP::WsSolicitudesWeb::Response::(${body})"/>
+					<stop/>
+            	</when>
+            	<when>
+            		<simple>${property.OperationName} == 'solicitudesReferidos'</simple>
+            		<setHeader headerName="SOAPAction">
+						<constant>crm.coopeuch.cl/SolicitudesWeb/solicitudesReferidos</constant>
+					</setHeader>
+					<to uri="direct:propertiesSimulador"/>
+					<to id="requestProductosNew" uri="xslt://etc/xslt/request/requestReferidos.xsl"/>
+					<to uri="direct:inicioNEW"/>
+					<convertBodyTo type="java.lang.String"/>
+		        	<to id="responseSimuladorNew" uri="xslt://etc/xslt/response/responseReferidos.xsl"/>
+		        	<log message="SOAP::WsSolicitudesWeb::Response::(${body})"/>
+					<stop/>
+            	</when>
+            	<when>
+            		<simple>${property.OperationName} == 'obtieneDatosSolicitudReprogramacion'</simple>
+            		<setHeader headerName="SOAPAction">
+						<constant>crm.coopeuch.cl/WSReprogramacionCuotas/consultarSolicitudReprogramacion</constant>
+					</setHeader>
+					<to uri="direct:propertiesSimulador"/>
+					<to id="requestProductosNew" uri="xslt://etc/xslt/request/obtieneDatosSolicitudReprogramacion.xsl"/>
+					<unmarshal>
+						<jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.reprogramacionCuotas"/>
+					</unmarshal>
+					<bean                        
+                        method="ObtieneDatosSolicitudReprogramacionRest" ref="beanRouteFacade"/>
+					<to uri="direct:inicioWsReprogramacionCuotas"/>
+					<bean                       
+                        method="ObtieneDatosSolicitudReprogramacionResponseRest" ref="beanRouteFacade"/>
+					<unmarshal>
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.reprogramacionCuotas"/>
+                    </unmarshal>
+                    <convertBodyTo type="java.lang.String"/>			
+		        	<to id="responseSimuladorNew" uri="xslt://etc/xslt/response/obtieneDatosSolicitudReprogramacion.xsl"/>
+<!-- 		        	<removeHeaders  pattern="*"/> -->
+		        	<log message="SOAP::WsSolicitudesWeb::Response::(${body})"/>
+		        	<convertBodyTo type="java.io.InputStream"/>	
+					<stop/>
+            	</when>
+            	<when>
+            		<simple>${property.OperationName} == 'ActualizarPoderEspecial'</simple>
+            		<setHeader headerName="SOAPAction">
+						<constant>crm.coopeuch.cl/WSReprogramacionCuotas/actualizarPoderEspecial</constant>
+					</setHeader>
+					<to uri="direct:propertiesSimulador"/>
+					<to id="requestProductosNew" uri="xslt://etc/xslt/request/ActualizarPoderEspecial.xsl"/>
+					<unmarshal>
+						<jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.reprogramacionCuotas"/>
+					</unmarshal>
+					<bean                        
+                        method="actualizarPoderEspecialRest" ref="beanRouteFacade"/>
+					<to uri="direct:inicioWsReprogramacionCuotas"/>
+					<bean                       
+                        method="actualizarPoderEspecialResponseRest" ref="beanRouteFacade"/>
+					<unmarshal>
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.reprogramacionCuotas"/>
+                    </unmarshal>
+                    <convertBodyTo type="java.lang.String"/>	
+		        	<to id="responseSimuladorNew" uri="xslt://etc/xslt/response/ActualizarPoderEspecial.xsl"/>
+		        	<log message="SOAP::WsSolicitudesWeb::Response::(${body})"/>
+		        	<convertBodyTo type="java.io.InputStream"/>	
+					<stop/>
+            	</when>
+            	<when>
+            		<simple>${property.OperationName} == 'GeneraSolicitud'</simple>
+					<to uri="direct:propertiesSimulador"/>
+					<to id="requestProductosNew" uri="xslt://etc/xslt/request/GenerarSolicitud.xsl"/>
+					<unmarshal>
+						<jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.reprogramacionCuotas"/>
+					</unmarshal>
+					<bean                        
+                        method="GeneraSolicitudRest" ref="beanRouteFacade"/>
+					<to uri="direct:inicioWsReprogramacionCuotas"/>
+					<bean                       
+                        method="GeneraSolicitudResponseRest" ref="beanRouteFacade"/>
+					<unmarshal>
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.reprogramacionCuotas"/>
+                    </unmarshal>
+                    <convertBodyTo type="java.lang.String"/>	
+		        	<to id="responseSimuladorNew" uri="xslt://etc/xslt/response/GenerarSolicitud.xsl"/>
+		        	<log message="SOAP::WsSolicitudesWeb::Response::(${body})"/>
+		        	<convertBodyTo type="java.io.InputStream"/>	
+					<stop/>
+            	</when>
+            	<when>
+            		<simple>${property.OperationName} == 'ObtenerReprogramaciones'</simple>
+					<to uri="direct:propertiesSimulador"/>
+					<to id="requestProductosNew" uri="xslt://etc/xslt/request/ObtenerReprogramaciones.xsl"/>
+					<unmarshal>
+						<jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.reprogramacionCuotas"/>
+					</unmarshal>
+					<bean                        
+                        method="obtenerReprogramacionesRest" ref="beanRouteFacade"/>
+					<to uri="direct:inicioWsReprogramacionCuotas"/>
+					<bean                       
+                        method="obtenerReprogramacionesResponseRest" ref="beanRouteFacade"/>
+					<unmarshal>
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.reprogramacionCuotas"/>
+                    </unmarshal>
+                    <convertBodyTo type="java.lang.String"/>	
+		        	<to id="responseSimuladorNew" uri="xslt://etc/xslt/response/ObtenerReprogramaciones.xsl"/>
+		        	<log message="SOAP::WsSolicitudesWeb::Response::(${body})"/>
+		        	<convertBodyTo type="java.io.InputStream"/>	
+					<stop/>
+            	</when>
+            	<when>
+            		<simple>${property.OperationName} == 'GeneraSolicitudPortabilidad'</simple>
+					<to uri="direct:propertiesSimulador"/>
+					<to id="requestProductosNew" uri="xslt://etc/xslt/request/GeneraSolicitudPortabilidad.xsl"/>
+					<unmarshal>
+						<jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.wsportabilidad"/>
+					</unmarshal>
+					<bean                        
+                        method="generaSolicitudPortabilidadRest" ref="beanRouteFacade"/>
+					<to uri="direct:inicioWsPortabilidad"/>
+					<bean                       
+                        method="generaSolicitudPortabilidadResponseRest" ref="beanRouteFacade"/>
+					<unmarshal>
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.wsportabilidad"/>
+                    </unmarshal>
+                    <convertBodyTo type="java.lang.String"/>	
+		        	<to uri="xslt://etc/xslt/response/GeneraSolicitudPortabilidad.xsl"/>
+		        	<log message="SOAP::WsSolicitudesWeb::Response::(${body})"/>
+		        	<convertBodyTo type="java.io.InputStream"/>	
+					<stop/>
+            	</when>
+            	<when>
+            		<simple>${property.OperationName} == 'obtieneConfiguracionHorario'</simple>
+					<to uri="direct:propertiesSimulador"/>
+					<to  uri="xslt://etc/xslt/request/obtieneConfiguracionHorario.xsl"/>
+					<unmarshal>
+						<jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.wshorario"/>
+					</unmarshal>
+					<bean                        
+                        method="ObtieneConfiguracionHorarioRest" ref="beanRouteFacade"/>
+					<to uri="direct:inicioWsHorario"/>
+					<bean                       
+                        method="ObtieneConfiguracionHorarioResponseRest" ref="beanRouteFacade"/>
+					<unmarshal>
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.wshorario"/>
+                    </unmarshal>
+                    <convertBodyTo type="java.lang.String"/>	
+		        	<to uri="xslt://etc/xslt/response/obtieneConfiguracionHorario.xsl"/>
+		        	<log message="SOAP::WsSolicitudesWeb::Response::obtieneConfiguracionHorario::(${body})"/>
+		        	<convertBodyTo type="java.io.InputStream"/>	
+					<stop/>
+            	</when>
+            	<when>
+            		<simple>${property.OperationName} == 'verificaHorarioHabil'</simple>
+					<to uri="direct:propertiesSimulador"/>
+					<to  uri="xslt://etc/xslt/request/verificaHorarioHabil.xsl"/>
+					<unmarshal>
+						<jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.wshorario"/>
+					</unmarshal>
+					<bean                        
+                        method="verificaHorarioHabilRest" ref="beanRouteFacade"/>
+					<to uri="direct:inicioWsHorario"/>
+					<bean                       
+                        method="verificaHorarioHabilResponseRest" ref="beanRouteFacade"/>
+					<unmarshal>
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.wshorario"/>
+                    </unmarshal>
+                    <convertBodyTo type="java.lang.String"/>	
+		        	<to uri="xslt://etc/xslt/response/verificaHorarioHabil.xsl"/>
+		        	<log message="SOAP::WsSolicitudesWeb::Response::verificaHorarioHabil::(${body})"/>
+		        	<convertBodyTo type="java.io.InputStream"/>	
+					<stop/>
+            	</when>
+            	<when>
+            		<simple>${property.OperationName} == 'solicitudesActualizaDatosSocio'</simple>
+					<to uri="direct:propertiesSimulador"/>
+					<to  uri="xslt://etc/xslt/request/solicitudesActualizaDatosSocio.xsl"/>
+					<unmarshal>
+						<jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.wssolicitudessocio"/>
+					</unmarshal>
+					<bean                        
+                        method="SolicitudesActualizaDatosSocioRest" ref="beanRouteFacade"/>
+					<to uri="direct:inicioWsSolicitudesSocio"/>
+					<bean                       
+                        method="SolicitudesActualizaDatosSocioResponseRest" ref="beanRouteFacade"/>
+					<unmarshal>
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.wssolicitudessocio"/>
+                    </unmarshal>
+                    <convertBodyTo type="java.lang.String"/>	
+		        	<to uri="xslt://etc/xslt/response/solicitudesActualizaDatosSocio.xsl"/>
+		        	<log message="SOAP::WsSolicitudesWeb::Response::solicitudesActualizaDatosSocio::(${body})"/>
+		        	<convertBodyTo type="java.io.InputStream"/>	
+					<stop/>
+            	</when>
+            	<when>
+            		<simple>${property.OperationName} == 'getActualizaDatosSocio'</simple>
+					<to uri="direct:propertiesSimulador"/>
+					<to  uri="xslt://etc/xslt/request/getActualizaDatosSocio.xsl"/>
+					<unmarshal>
+						<jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.wssolicitudessocio"/>
+					</unmarshal>
+					<bean                        
+                        method="GetActualizaDatosSocioRest" ref="beanRouteFacade"/>
+					<to uri="direct:inicioWsSolicitudesSocio"/>
+					<bean                       
+                        method="GetActualizaDatosSocioResponseRest" ref="beanRouteFacade"/>
+					<unmarshal>
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.wssolicitudessocio"/>
+                    </unmarshal>
+                    <convertBodyTo type="java.lang.String"/>	
+		        	<to uri="xslt://etc/xslt/response/getActualizaDatosSocio.xsl"/>
+		        	<log message="SOAP::WsSolicitudesWeb::Response::getActualizaDatosSocio::(${body})"/>
+		        	<convertBodyTo type="java.io.InputStream"/>	
+					<stop/>
+            	</when>
+            </choice>
+            
+            <log message="(((((((NO ENTROOO A LAS 5 OP Modificadas:: ${body})))))))"/>
+            <setHeader headerName="OperationName">
+	            <xpath resultType="java.lang.String">local-name(/*[local-name()='Envelope']/*[local-name()='Body']/*)</xpath>
+	        </setHeader>
+			<log message="((OPERACION: ${header.OperationName})"/>
+            <setHeader headerName="SOAPAction">
+				<simple>{{nameSpace.soap.crm}}/${header.OperationName}</simple>
+			</setHeader>
+			<log message="((SOAPAction::: ${header.SOAPAction}))"/>
+            <to id="soapToInicioWs" uri="direct:inicio"/>
+            
+            
+        </route>
+        <route id="inicio-rest">
+            <from id="restInicio" uri="cxfrs:bean:endpointRSSolicitudesWeb"/>
+            <setProperty propertyName="requestType">
+	            <simple>REST</simple>
+	        </setProperty>
+            <choice id="fromOperation">
+                <when id="whengeneraDocumentoHipo">
+                    <simple>${header.operationName} == 'generaDocumentoHipo'</simple>
+                    <unmarshal id="unmarshalgeneraDocumentoHipo">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.DatosGeneraDocHipo"/>
+                    </unmarshal>
+                    <bean id="generaDocumentoHipoRequest"
+                        method="GeneraDocumentoHipoRest" ref="beanRouteFacade"/>
+                    <marshal id="marshalgeneraDocumentoHipo">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap"/>
+                    </marshal>
+                    <setHeader headerName="SOAPAction">
+						<constant>http://tempuri.org/GeneraDocumentoHipo</constant>
+					</setHeader>
+                    <to id="restgeneraDocumentoHipoToInicio" uri="direct:inicio"/>
+                    <unmarshal id="unmarshalgeneraDocumentoHipoResponse">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap"/>
+                    </unmarshal>
+                    <bean id="generaDocumentoHipoResponse"
+                        method="GeneraDocumentoHipoResponseRest" ref="beanRouteFacade"/>
+                    <marshal id="marshalgeneraDocumentoHipoResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.GeneraDocumentoHipoResponse"/>
+                    </marshal>
+                </when>
+                
+                
+<!--                 GeneraeSolicitud ReprogramacionCuotas -->
+                <when id="whengeneraSolicitud">
+                    <simple>${header.operationName} == 'GeneraSolicitud'</simple>
+                    <unmarshal id="unmarshalgeneraSolicitud">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.reprogramacionCuotas.DatosEntidad"/>
+                    </unmarshal>
+                    <bean id="generaSolicitudRequest"
+                        method="GeneraSolicitudRest" ref="beanRouteFacade"/>
+                    <to id="restgeneraSolicitudToInicio" uri="direct:inicioWsReprogramacionCuotas"/>
+                    <bean id="generaSolicitudResponse"
+                        method="GeneraSolicitudResponseRest" ref="beanRouteFacade"/>
+                    <unmarshal>
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.reprogramacionCuotas"/>
+                    </unmarshal>
+                    <convertBodyTo type="String"/>
+                    <to  uri="xslt://etc/xslt/response/GenerarSolicitud.xsl"/>
+		        	<log message="SOAP::WsSolicitudesWeb::Response::(${body})"/>
+		        	<unmarshal>
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.solicitudesOld"/>
+                    </unmarshal>
+                    <marshal>
+                        <json include="NON_NULL" library="Jackson"/>
+                    </marshal>
+                </when>
+                <when id="whenObtieneDatosSolicitudReprogramacionHipo">
+                    <simple>${header.operationName} == 'obtieneDatosSolicitudReprogramacionHipo'</simple>
+                    <unmarshal id="unmarshalObtieneDatosSolicitudReprogramacionHipo">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.ObtieneDatosSolicitudReprogramacionHipo"/>
+                    </unmarshal>
+                    <bean
+                        id="ObtieneDatosSolicitudReprogramacionHipoRequest"
+                        method="ObtieneDatosSolicitudReprogramacionHipoRest" ref="beanRouteFacade"/>
+                    <marshal id="marshalObtieneDatosSolicitudReprogramacionHipo">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap"/>
+                    </marshal>
+                    <setHeader headerName="SOAPAction">
+						<constant>http://tempuri.org/obtieneDatosSolicitudReprogramacionHipo</constant>
+					</setHeader>
+                    <to
+                        id="restObtieneDatosSolicitudReprogramacionHipoToInicio" uri="direct:inicio"/>
+                    <unmarshal id="unmarshalObtieneDatosSolicitudReprogramacionHipoResponse">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap"/>
+                    </unmarshal>
+                    <bean
+                        id="ObtieneDatosSolicitudReprogramacionHipoResponse"
+                        method="ObtieneDatosSolicitudReprogramacionHipoResponseRest" ref="beanRouteFacade"/>
+                    <marshal id="marshalObtieneDatosSolicitudReprogramacionHipoResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.ObtieneDatosSolicitudReprogramacionHipoResponse"/>
+                    </marshal>
+                </when>
+                <when id="whenGetActualizaDatosSocio">
+                    <simple>${header.operationName} == 'getActualizaDatosSocio'</simple>
+                    <unmarshal id="unmarshalGetActualizaDatosSocio">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.wssolicitudessocio.DatosGetActualizacion"/>
+                    </unmarshal>
+                    <bean id="GetActualizaDatosSocioRequest"
+                        method="GetActualizaDatosSocioRest" ref="beanRouteFacade"/>
+                    <to id="restGetActualizaDatosSocioToInicio" uri="direct:inicioWsSolicitudesSocio"/>
+                    <bean id="GetActualizaDatosSocioResponse"
+                        method="GetActualizaDatosSocioResponseRest" ref="beanRouteFacade"/>
+                    <unmarshal id="unmarshalsolicitudesgetActualizaDatosSocioResponse">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.wssolicitudessocio"/>
+                    </unmarshal>
+                    <convertBodyTo type="java.lang.String"/>	
+		        	<to uri="xslt://etc/xslt/response/getActualizaDatosSocio.xsl"/>
+					<log message="(${body})"/>
+					<unmarshal>
+			            <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.solicitudesOld"/>
+			        </unmarshal>
+					<marshal>
+			            <json include="NON_NULL" library="Jackson" />
+			        </marshal>
+			        <log message="RESPONSE::SERVICIO::WSSOLICITUDESWEB::GETACTUALIZADATOSSOCIO::(${body})"/> 
+                </when>
+                
+<!--                 WsHorario obtieneConfiguracionHorario -->
+                <when id="whenObtieneConfiguracionHorario">
+                    <simple>${header.operationName} == 'obtieneConfiguracionHorario'</simple>
+                    <unmarshal id="unmarshalObtieneConfiguracionHorario">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.wshorario.ObtieneConfiguracionHorario"/>
+                    </unmarshal>
+                    <bean id="ObtieneConfiguracionHorarioRequest"
+                        method="ObtieneConfiguracionHorarioRest" ref="beanRouteFacade"/>
+                    <to id="restObtieneConfiguracionHorarioToInicio" uri="direct:inicioWsHorario"/>
+                    <bean id="ObtieneConfiguracionHorarioResponse"
+                        method="ObtieneConfiguracionHorarioResponseRest" ref="beanRouteFacade"/>
+                    <unmarshal id="unmarshalObtieneDatosSolicitudWsHorario">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.wshorario"/>
+                    </unmarshal>
+                    <convertBodyTo type="java.lang.String"/>	
+		        	<to uri="xslt://etc/xslt/response/obtieneConfiguracionHorario.xsl"/>
+					<log message="(${body})"/>
+					<unmarshal>
+			            <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.solicitudesOld"/>
+			        </unmarshal>
+					<marshal>
+			            <json include="NON_NULL" library="Jackson" />
+			        </marshal>
+			        <log message="RESPONSE::SERVICIO::WSSOLICITUDESWEB::OBTIENECONFIGURACIONHORARIO::(${body})"/>
+                </when>
+                
+<!--                 obtieneDatosSolicitudReprogramacion REPROGRAMACION CUOTAS -->
+                <when id="whenObtieneDatosSolicitudReprogramacion">
+                    <simple>${header.operationName} == 'obtieneDatosSolicitudReprogramacion'</simple>
+                    <unmarshal id="unmarshalObtieneDatosSolicitudReprogramacion">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.reprogramacionCuotas.ConsultarSolicitudReprogramacion"/>
+                    </unmarshal>
+                    <bean
+                        id="ObtieneDatosSolicitudReprogramacionRequest"
+                        method="ObtieneDatosSolicitudReprogramacionRest" ref="beanRouteFacade"/>
+                    <to
+                        id="restObtieneDatosSolicitudReprogramacionToInicio" uri="direct:inicioWsReprogramacionCuotas"/>
+                    <bean
+                        id="ObtieneDatosSolicitudReprogramacionResponse"
+                        method="ObtieneDatosSolicitudReprogramacionResponseRest" ref="beanRouteFacade"/>
+                    <unmarshal id="unmarshalObtieneDatosSolicitudReprogramacionResponse">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.reprogramacionCuotas"/>
+                    </unmarshal>
+                    <convertBodyTo type="java.lang.String"/>	
+		        	<to uri="xslt://etc/xslt/response/obtieneDatosSolicitudReprogramacion.xsl"/>
+					<log message="(${body})"/>
+					<unmarshal>
+			            <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.solicitudesOld"/>
+			        </unmarshal>
+					<marshal>
+			            <json include="NON_NULL" library="Jackson" />
+			        </marshal>
+			        <log message="RESPONSE::SERVICIO::WSSOLICITUDESWEB::(${body})"/>
+                </when>
+                
+                <when id="whenSolicitudesActualizaDatosSocio">
+                    <simple>${header.operationName} == 'solicitudesActualizaDatosSocio'</simple>
+                    <unmarshal id="unmarshalSolicitudesActualizaDatosSocio">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.wssolicitudessocio.DatosActualizacion"/>
+                    </unmarshal>
+                    <bean id="SolicitudesActualizaDatosSocioRequest"
+                        method="SolicitudesActualizaDatosSocioRest" ref="beanRouteFacade"/>
+                    <to id="restSolicitudesActualizaDatosSocioToInicio" uri="direct:inicioWsSolicitudesSocio"/>
+                    <bean id="SolicitudesActualizaDatosSocioResponse"
+                        method="SolicitudesActualizaDatosSocioResponseRest" ref="beanRouteFacade"/>
+                    <unmarshal id="unmarshalsolicitudesActualizaDatosSocioResponse">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.wssolicitudessocio"/>
+                    </unmarshal>
+                    <convertBodyTo type="java.lang.String"/>	
+		        	<to uri="xslt://etc/xslt/response/solicitudesActualizaDatosSocio.xsl"/>
+					<log message="(${body})"/>
+					<unmarshal>
+			            <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.solicitudesOld"/>
+			        </unmarshal>
+					<marshal>
+			            <json include="NON_NULL" library="Jackson" />
+			        </marshal>
+			        <log message="RESPONSE::SERVICIO::WSSOLICITUDESWEB::SOLICITUDESACTUALIZADATOSSOCIO::(${body})"/> 
+                </when>
+<!--                 solicitudesFormularios YA -->
+                <when id="whenSolicitudesFormularios">
+                    <simple>${header.operationName} == 'solicitudesFormularios'</simple>
+                    <unmarshal id="unmarshalSolicitudesFormularios">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.newAsmx.DatosFormularios"/>
+                    </unmarshal>
+                    <bean id="SolicitudesFormulariosRequest"
+                        method="SolicitudesFormulariosRest" ref="beanRouteFacade"/>
+                    <marshal id="marshalSolicitudesFormularios">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.newAsmx"/>
+                    </marshal>
+                    <log message="(REQUEST::REST:::(${body})"/>
+                    <to id="restSolicitudesFormulariosToInicio" uri="direct:inicioNEWREST"/>
+                    <log message="(RESPONSE::REST:::(${body})"/>
+                    <unmarshal id="unmarshalSolicitudesFormulariosResponse">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.newAsmx"/>
+                    </unmarshal>
+                    <bean id="SolicitudesFormulariosResponse"
+                        method="SolicitudesFormulariosResponseRest" ref="beanRouteFacade"/>
+                    <marshal id="marshalSolicitudesFormulariosResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.SolicitudesFormulariosResponse"/>
+                    </marshal>
+                </when>
+<!--                 solicitudesFormularios YA -->
+<!--                 solicitudesGiroVirtual YA -->
+                <when id="whenSolicitudesGiroVirtual">
+                    <simple>${header.operationName} == 'solicitudesGiroVirtual'</simple>
+                    <unmarshal id="unmarshalSolicitudesGiroVirtual">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.newAsmx.DatosGiroVirtual"/>
+                    </unmarshal>
+                    <bean id="SolicitudesGiroVirtualRequest"
+                        method="SolicitudesGiroVirtualRest" ref="beanRouteFacade"/>
+                    <marshal id="marshalSolicitudesGiroVirtual">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.newAsmx"/>
+                    </marshal>
+                    <log message="(REQUEST::REST:::(${body})"/>
+                    <to id="restSolicitudesGiroVirtualToInicio" uri="direct:inicioNEWREST"/>
+                    <log message="(RESPONSE::REST:::(${body})"/>
+                    <unmarshal id="unmarshalSolicitudesGiroVirtualResponse">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.newAsmx"/>
+                    </unmarshal>
+                    <bean id="SolicitudesGiroVirtualResponse"
+                        method="SolicitudesGiroVirtualResponseRest" ref="beanRouteFacade"/>
+                    <marshal id="marshalSolicitudesGiroVirtualResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.SolicitudesGiroVirtualResponse"/>
+                    </marshal>
+                </when>
+<!--                 solicitudesGiroVirtual YA -->
+<!--            solicitudesProductos     YA -->
+                <when id="whenSolicitudesProductos">
+                    <simple>${header.operationName} == 'solicitudesProductos'</simple>
+                    <unmarshal id="unmarshalSolicitudesProductos">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.newAsmx.DatosEntrada"/>
+                    </unmarshal>
+                    <bean id="SolicitudesProductosRequest"
+                        method="SolicitudesProductosRestNewASMX" ref="beanRouteFacade"/>
+                    <marshal id="marshalSolicitudesProductos">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.newAsmx"/>
+                    </marshal>
+                    <log message="(REQUEST::REST:::(${body})"/>
+                    <to id="restSolicitudesProductosToInicio" uri="direct:inicioNEWREST"/>
+                    <log message="(RESPONSE::REST:::(${body})"/>
+                    <unmarshal id="unmarshalSolicitudesProductosResponse">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.newAsmx"/>
+                    </unmarshal>
+                    <bean id="SolicitudesProductosResponse"
+                        method="SolicitudesProductosResponseRestNewASMX" ref="beanRouteFacade"/>
+                    <marshal id="marshalSolicitudesProductosResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.newAsmx.SolicitudesProductosResponse"/>
+                    </marshal>
+                </when>
+<!--             solicitudesProductos    YA -->
+<!-- 				solicitudesReferidos YA -->
+                <when id="whenSolicitudesReferidos">
+                    <simple>${header.operationName} == 'solicitudesReferidos'</simple>
+                    <unmarshal id="unmarshalSolicitudesReferidos">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.newAsmx.DatosReferidos"/>
+                    </unmarshal>
+                    <bean id="SolicitudesReferidosRequest"
+                        method="SolicitudesReferidosRest" ref="beanRouteFacade"/>
+                    <marshal id="marshalSolicitudesReferidos">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.newAsmx"/>
+                    </marshal>
+                    <log message="(REQUEST::REST:::(${body})"/>
+                    <to id="restSolicitudesReferidosToInicio" uri="direct:inicioNEWREST"/>
+                    <log message="(RESPONSE::REST:::(${body})"/>
+                    <unmarshal id="unmarshalSolicitudesReferidosResponse">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.newAsmx"/>
+                    </unmarshal>
+                    <bean id="SolicitudesReferidosResponse"
+                        method="SolicitudesReferidosResponseRest" ref="beanRouteFacade"/>
+                    <marshal id="marshalSolicitudesReferidosResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.SolicitudesReferidosResponse"/>
+                    </marshal>
+                </when>
+<!--                 solicitudesReferidos YA -->
+<!--                 solicitudesSimulador YA -->
+                <when id="whenSolicitudesSimulador">
+                    <simple>${header.operationName} == 'solicitudesSimulador'</simple>
+                    <unmarshal id="unmarshalSolicitudesSimulador">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.newAsmx.DatosSimulacion"/>
+                    </unmarshal>
+                    <bean id="SolicitudesSimuladorRequest"
+                        method="SolicitudesSimuladorRest" ref="beanRouteFacade"/>
+                    <marshal id="marshalSolicitudesSimulador">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.newAsmx"/>
+                    </marshal>
+                    <log message="((((((((REQUEST::::::(${body})))))))))"/>
+                    <to id="restSolicitudesSimuladorToInicio" uri="direct:inicioNEWREST"/>
+                    <log message="((((((((RESPONSEEEE::::::(${body})))))))))"/>
+                    <unmarshal id="unmarshalSolicitudesSimuladorResponse">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.newAsmx"/>
+                    </unmarshal>
+                    <bean id="SolicitudesSimuladorResponse"
+                        method="SolicitudesSimuladorResponseRest" ref="beanRouteFacade"/>
+                    <marshal id="marshalSolicitudesSimuladorResponse">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.SolicitudesSimuladorResponse"/>
+                    </marshal>
+                </when>
+<!--                 solicitudesSimulador YA -->
+                <when id="whenVerificaHorarioHabil">
+                    <simple>${header.operationName} == 'verificaHorarioHabil'</simple>
+                    <unmarshal id="unmarshalVerificaHorarioHabil">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.wshorario.VerificaHorarioHabil"/>
+                    </unmarshal>
+                    <bean id="VerificaHorarioHabilRequest"
+                        method="verificaHorarioHabilRest" ref="beanRouteFacade"/>
+                    <to id="restVerificaHorarioHabilToInicio" uri="direct:inicioWsHorario"/>
+                    <bean id="VerificaHorarioHabilResponse"
+                        method="verificaHorarioHabilResponseRest" ref="beanRouteFacade"/>
+                    <unmarshal id="unmarshalverificaHorarioHabilWsHorario">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.wshorario"/>
+                    </unmarshal>
+                    <convertBodyTo type="java.lang.String"/>	
+		        	<to uri="xslt://etc/xslt/response/verificaHorarioHabil.xsl"/>
+					<log message="(${body})"/>
+					<unmarshal>
+			            <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.solicitudesOld"/>
+			        </unmarshal>
+					<marshal>
+			            <json include="NON_NULL" library="Jackson" />
+			        </marshal>
+			        <log message="RESPONSE::SERVICIO::WSSOLICITUDESWEB::VERIFICAHORARIOHABIL::(${body})"/>
+                </when>
+                <when id="whenObtenerReprogramaciones">
+                    <simple>${header.operationName} == 'ObtenerReprogramaciones'</simple>
+                    <unmarshal id="unmarshalObtenerReprogramaciones">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.reprogramacionCuotas.ConsultarReprogramaciones"/>
+                    </unmarshal>
+                    <bean id="ObtenerReprogramacionesRequest"
+                        method="obtenerReprogramacionesRest" ref="beanRouteFacade"/>
+                    <to id="restObtenerReprogramacionesToInicio" uri="direct:inicioWsReprogramacionCuotas"/>
+                    <bean id="ObtenerReprogramacionesResponse"
+                        method="obtenerReprogramacionesResponseRest" ref="beanRouteFacade"/>
+                    <unmarshal id="unmarshalActualizarPoderEspecialResponse">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.reprogramacionCuotas"/>
+                    </unmarshal>
+                    <convertBodyTo type="java.lang.String"/>	
+		        	<to uri="xslt://etc/xslt/response/ObtenerReprogramaciones.xsl"/>
+					<log message="(${body})"/>
+					<unmarshal>
+			            <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.solicitudesOld"/>
+			        </unmarshal>
+					<marshal>
+			            <json include="NON_NULL" library="Jackson" />
+			        </marshal>
+			        <log message="RESPONSE::SERVICIO::WSSOLICITUDESWEB::(${body})"/>
+                </when>
+                <when id="whenActualizarPoderEspecial">
+                    <simple>${header.operationName} == 'ActualizarPoderEspecial'</simple>
+                    <unmarshal id="unmarshalActualizarPoderEspecial">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.reprogramacionCuotas.ActualizarPoderEspecial"/>
+                    </unmarshal>
+                    <bean id="ActualizarPoderEspecialRequest"
+                        method="actualizarPoderEspecialRest" ref="beanRouteFacade"/>
+                    <to id="restActualizarPoderEspecialToInicio" uri="direct:inicioWsReprogramacionCuotas"/>
+                    <bean id="ActualizarPoderEspecialResponse"
+                        method="actualizarPoderEspecialResponseRest" ref="beanRouteFacade"/>
+                    <unmarshal id="unmarshalActualizarPoderEspecialResponse">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.reprogramacionCuotas"/>
+                    </unmarshal>
+                    <convertBodyTo type="java.lang.String"/>	
+		        	<to uri="xslt://etc/xslt/response/ActualizarPoderEspecial.xsl"/>
+					<log message="(${body})"/>
+					<unmarshal>
+			            <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.solicitudesOld"/>
+			        </unmarshal>
+					<marshal>
+			            <json include="NON_NULL" library="Jackson" />
+			        </marshal>
+			        <log message="RESPONSE::SERVICIO::WSSOLICITUDESWEB::(${body})"/>
+                </when>
+                <when id="whenGeneraSolicitudPortabilidad">
+                    <simple>${header.operationName} == 'GeneraSolicitudPortabilidad'</simple>
+                    <unmarshal id="unmarshalGeneraSolicitudPortabilidad">
+                        <json include="NON_NULL" library="Jackson" unmarshalTypeName="cl.coopeuch.integracion.solicitudesweb.soap.wsportabilidad.Crear"/>
+                    </unmarshal>
+                    <bean id="GeneraSolicitudPortabilidadRequest"
+                        method="generaSolicitudPortabilidadRest" ref="beanRouteFacade"/>
+                    <to id="restGeneraSolicitudPortabilidadToInicio" uri="direct:inicioWsPortabilidad"/>
+                    <bean id="GeneraSolicitudPortabilidadResponse"
+                        method="generaSolicitudPortabilidadResponseRest" ref="beanRouteFacade"/>
+                    <unmarshal id="unmarshalGeneraSolicitudPortabilidadResponse">
+                        <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.wsportabilidad"/>
+                    </unmarshal>
+                    <convertBodyTo type="java.lang.String"/>	
+		        	<to uri="xslt://etc/xslt/response/GeneraSolicitudPortabilidad.xsl"/>
+					<log message="(${body})"/>
+					<unmarshal>
+			            <jaxb contextPath="cl.coopeuch.integracion.solicitudesweb.soap.solicitudesOld"/>
+			        </unmarshal>
+					<marshal>
+			            <json include="NON_NULL" library="Jackson" />
+			        </marshal>
+			        <log message="RESPONSE::SERVICIO::WSSOLICITUDESWEB::(${body})"/>
+                </when>
+            </choice>
+        </route>
+        <route id="cxf-inicio" streamCache="true">
+            <from id="solicitudesWebFrom" uri="direct:inicio"/>
+            <doTry id="solicitudesWebTry">
+                <setProperty id="inicioSetRequest" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <removeHeaders id="removeHeadersSolicitudesWeb" pattern="CamelHttp*"/>
+                <log message="(REQUEST::CRM::WSSolicitudesWeb::(${body})"/>
+                <to id="solicitudesWebTo" uri="cxf:bean:endpointSolicitudesWeb?dataFormat=MESSAGE"/>
+                <log message="(RESPONSE::CRM::WSSolicitudesWeb::(${body})"/>
+                <doCatch id="solicitudesWebDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="solicitudesWebToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="cxf-inicio-Portabilidad" streamCache="true">
+            <from id="solicitudesWebPortabilidadFrom" uri="direct:inicioWsPortabilidad"/>
+            <doTry id="solicitudesWebPortabilidadTry">
+                <setProperty propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <removeHeaders pattern="CamelHttp*"/>
+                <log message="(REQUEST::CRM::WSSolicitudesWeb::WSPortabilidad::(${body})"/>
+                <to id="solicitudesWebPortabilidadTo" uri="cxf:bean:endpointPortabilidadASMX"/>
+                <log message="(RESPONSE::CRM::WSSolicitudesWeb::WSPortabilidad::(${body})"/>
+                <doCatch id="solicitudesWebPortabilidadDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="solicitudesWebPortabilidadToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        <route id="cxf-inicio-ReprogramacionCuotas" streamCache="true">
+            <from id="solicitudesWebReproCuotasFrom" uri="direct:inicioWsReprogramacionCuotas"/>
+            <doTry id="solicitudesWebReproCuotasTry">
+                <setProperty propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <removeHeaders pattern="CamelHttp*"/>
+                <log message="(REQUEST::CRM::WSSolicitudesWeb::WSReprogramacioCuotas::(${body})"/>
+                <to id="solicitudesWebReproCuotasTo" uri="cxf:bean:endpointReprogramacionCuotasASMX"/>
+                <log message="(RESPONSE::CRM::WSSolicitudesWeb::WSReprogramacioCuotas::(${body})"/>
+                <doCatch id="solicitudesWebReproCuotasDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="solicitudesWebReproCuotasToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="cxf-inicio-Horario" streamCache="true">
+            <from id="solicitudesWebHorarioFrom" uri="direct:inicioWsHorario"/>
+            <doTry id="solicitudesWebHorarioTry">
+                <setProperty propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <removeHeaders pattern="CamelHttp*"/>
+                <log message="(REQUEST::CRM::WSSolicitudesWeb::WSHorario::(${body})"/>
+                <to id="solicitudesWebHorarioTo" uri="cxf:bean:endpointHorarioASMX"/>
+                <log message="(RESPONSE::CRM::WSSolicitudesWeb::WSHorario::(${body})"/>
+                <doCatch id="solicitudesWebHorarioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="solicitudesWebHorarioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="cxf-inicio-SolicitudesSocio" streamCache="true">
+            <from id="solicitudesWebSocioFrom" uri="direct:inicioWsSolicitudesSocio"/>
+            <doTry id="solicitudesWebSolicitudesSocioTry">
+                <setProperty propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <removeHeaders pattern="CamelHttp*"/>
+                <log message="(REQUEST::CRM::WSSolicitudesWeb::WSSolicitudesSocio::(${body})"/>
+                <to id="solicitudesWebSolicitudesSocioTo" uri="cxf:bean:endpointSolicitudesSocioASMX"/>
+                <log message="(RESPONSE::CRM::WSSolicitudesWeb::WSSolicitudesSocio::(${body})"/>
+                <doCatch id="solicitudesWebSolicitudesSocioDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="solicitudesWebSolicitudesSocioToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="cxf-inicio-new" streamCache="true">
+            <from id="solicitudesWebNewFrom" uri="direct:inicioNEW"/>
+            <doTry id="solicitudesWebNewTry">
+                <setProperty id="inicioSetRequestNew" propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <removeHeaders id="removeHeadersSolicitudesWebNew" pattern="CamelHttp*"/>
+                <log message="(REQUEST::CRM::WSSolicitudesWeb::(${body})"/>
+                <to id="solicitudesWebNewTo" uri="cxf:bean:endpointSolicitudesWebNewASMX?dataFormat=MESSAGE"/>
+                <log message="(RESPONSE::CRM::WSSolicitudesWeb::(${body})"/>
+                <doCatch id="solicitudesWebNewDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <to id="solicitudesWebNewToExcepcion" uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="cxf-inicio-new-Rest" streamCache="true">
+            <from id="solicitudesWebNewFrom" uri="direct:inicioNEWREST"/>
+            <doTry>
+                <setProperty propertyName="requestEntrada">
+                    <simple>${body}</simple>
+                </setProperty>
+                <removeHeaders pattern="CamelHttp*"/>
+                <log message="(REQUEST::REST:::(${body})"/>
+                <to uri="cxf:bean:endpointSolicitudesWebNewASMX?dataFormat=PAYLOAD"/>
+                <log message="(RESPONSE::REST:::(${body})"/>
+                <doCatch>
+                    <exception>java.lang.Exception</exception>
+                    <to uri="direct:excepcion"/>
+                </doCatch>
+            </doTry>
+        </route>
+        
+        <route id="cxf-properties-simulador" streamCache="true" xmlns:tem="http://tempuri.org/">
+            <from uri="direct:propertiesSimulador"/>
+                
+            <setProperty propertyName="idSolicitud">
+        		<xpath>//tem:ID_SOLICITUD/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="formatoId">
+        		<xpath>//tem:FORMATO_ID/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="rutTitular">
+        		<xpath>//tem:RUT_TITULAR/text()</xpath>
+        	</setProperty>
+         	<setProperty propertyName="dvTitular">
+        		<xpath>//tem:DV_TITULAR/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="nombres">
+        		<xpath>//tem:NOMBRES/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="apellidoPat">
+        		<xpath>//tem:APELLIDO_PAT/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="apellidoMat">
+        		<xpath>//tem:APELLIDO_MAT/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="email">
+        		<xpath>//tem:EMAIL/text()</xpath>
+        	</setProperty>
+         	<setProperty propertyName="codcelular">
+        		<xpath>//tem:CODCELULAR/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="telefono">
+        		<xpath>//tem:TELEFONO/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="comentario">
+        		<xpath>//tem:COMENTARIO/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="monto">
+        		<xpath>//tem:MONTO/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="cuotas">
+        		<xpath>//tem:CUOTAS/text()</xpath>
+        	</setProperty>
+         	<setProperty propertyName="fechaPrimerVencimiento">
+        		<xpath>//tem:FECHA_PRIMER_VENCIMIENTO/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="montoCesantia">
+        		<xpath>//tem:MONTO_CESANTIA/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="montoDesgravamen">
+        		<xpath>//tem:MONTO_DESGRAVAMEN/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="montoEnfermedadesGraves">
+        		<xpath>//tem:MONTO_ENFERMEDADES_GRAVES/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="montoHospitalizacion">
+        		<xpath>//tem:MONTO_HOSPITALIZACION/text()</xpath>
+        	</setProperty>
+         	<setProperty propertyName="montoInvalidez">
+        		<xpath>//tem:MONTO_INVALIDEZ/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="montoVida23">
+        		<xpath>//tem:MONTO_VIDA23/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="totalSeguros">
+        		<xpath>//tem:TOTAL_SEGUROS/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="totalCredito">
+        		<xpath>//tem:TOTAL_CREDITO/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="tasaInteresMensual">
+        		<xpath>//tem:TASA_INTERES_MENSUAL/text()</xpath>
+        	</setProperty>
+         	<setProperty propertyName="tasaInteresAnual">
+        		<xpath>//tem:TASA_INTERES_ANUAL/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="cae">
+        		<xpath>//tem:CAE/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="valorCuota">
+        		<xpath>//tem:VALOR_CUOTA/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="empleador">
+        		<xpath>//tem:EMPLEADOR/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="prioridad">
+        		<xpath>//tem:PRIORIDAD/text()</xpath>
+        	</setProperty>
+         	<setProperty propertyName="vector">
+        		<xpath>//tem:VECTOR/text()</xpath>
+        	</setProperty>
+        	
+<!--         	Productos -->
+			<setProperty propertyName="region">
+        		<xpath>//tem:REGION/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="comuna">
+        		<xpath>//tem:COMUNA/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="ingresoMensual">
+        		<xpath>//tem:INGRESO_MENSUAL/text()</xpath>
+        	</setProperty>
+        	
+<!--         	Giro Virtual -->
+			<setProperty propertyName="tipocuenta">
+        		<xpath>//tem:TIPOCUENTA/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="producto">
+        		<xpath>//tem:PRODUCTO/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="numcuenta">
+        		<xpath>//tem:NUMCUENTA/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="banco">
+        		<xpath>//tem:BANCO/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="cuentaOrigen">
+        		<xpath>//tem:CUENTA_ORIGEN/text()</xpath>
+        	</setProperty>
+        	
+<!--         	Referidos -->
+        	<setProperty propertyName="rutReferido">
+        		<xpath>//tem:RUT_REFERIDO/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="dvReferido">
+        		<xpath>//tem:DV_REFERIDO/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="nombreReferido">
+        		<xpath>//tem:NOMBRE_REFERIDO/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="apellidoPatreferido">
+        		<xpath>//tem:APELLIDO_PATREFERIDO/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="apellidoMatreferido">
+        		<xpath>//tem:APELLIDO_MATREFERIDO/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="emailReferido">
+        		<xpath>//tem:EMAIL_REFERIDO/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="codefoneReferido">
+        		<xpath>//tem:CODEFONE_REFERIDO/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="telefonoReferido">
+        		<xpath>//tem:TELEFONO_REFERIDO/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="regionReferido">
+        		<xpath>//tem:REGION_REFERIDO/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="comunaReferido">
+        		<xpath>//tem:COMUNA_REFERIDO/text()</xpath>
+        	</setProperty>
+        	
+<!--         	obtieneDatosSolicitudReprogramacion -->
+			<setProperty propertyName="rut">
+        		<xpath>//tem:rut/text()</xpath>
+        	</setProperty>
+        	
+<!--         	ActualizarPoderEspecial -->
+        	<setProperty propertyName="rutActualizarPoderEspecial">
+        		<xpath>//tem:Rut/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="dvActualizarPoderEspecial">
+        		<xpath>//tem:DV/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="bancoActualizarPoderEspecial">
+        		<xpath>//tem:Banco/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="tipoCuentaActualizarPoderEspecial">
+        		<xpath>//tem:TipoCuenta/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="numCuentaActualizarPoderEspecial">
+        		<xpath>//tem:NumeroCuenta/text()</xpath>
+        	</setProperty>
+        	
+<!--         	GeneraSolicitud ReprogramacionCuotas -->
+			<setProperty propertyName="entidadGenerarSolicitud">
+        		<xpath>//tem:Entidad/text()</xpath>
+        	</setProperty>
+        	<setProperty propertyName="camposGenerarSolicitud">
+        		<xpath>//tem:Campos/*</xpath>
+        	</setProperty>
+        	
+<!--         	ObtenerReprogramaciones ReprogramacionCuotas -->
+			<setProperty propertyName="numOperacioObtenerReprogramaciones">
+        		<xpath>//tem:numOperacion/text()</xpath>
+        	</setProperty>
+        	
+<!--         	GeneraSolicitudPortabilidad WsPortabilidad -->
+			<setProperty propertyName="datosGeneraSolicitudPortabilidad">
+        		<xpath>//tem:datos/*</xpath>
+        	</setProperty>
+			
+<!-- 			obtieneConfiguracionHorario WsHorario  -->
+        	<setProperty propertyName="parametroWsHorario">
+        		<xpath>//tem:parametro/text()</xpath>
+        	</setProperty>
+        	
+<!--         	solicitudesActualizaDatosSocio WSSolicitudessocio -->
+        	<setProperty propertyName="parametroWsSolicitudesSocio">
+        		<xpath>//tem:peticion/*</xpath>
+        	</setProperty>
+        	
+        </route>
+        
+        <route id="excepcion">
+            <from id="excepcionfrom" uri="direct:excepcion"/>
+            <doTry id="excepcionTry">
+                <bean id="beanExceptionAmq" method="excepcionAmq" ref="beanRouteFacade"/>
+                <marshal id="excepcionMarshalJson">
+                    <json library="Jackson"/>
+                </marshal>
+                <convertBodyTo id="excepcionConvertTo" type="java.lang.String"/>
+<!--                 <to id="excepcionToAmqFault" uri="beanAMQ:{{amq.queue.fault}}?errorHandlerLoggingLevel=TRACE&amp;exchangePattern=InOnly"/> -->
+                <doCatch id="excepcionDoCatch">
+                    <exception>java.lang.Exception</exception>
+                    <setBody id="exceptionFinalSetBodyError">
+                        <simple>${exception}, Body -&gt; ${body}</simple>
+                    </setBody>
+                    <log id="excepcionLog" loggingLevel="ERROR" message="Ha ocurrido un error al escribir en la cola de errores o en la ejecucion del servicio: ${body}"/>
+                </doCatch>
+            </doTry>
+        </route>
+    </camelContext>
+</blueprint>
