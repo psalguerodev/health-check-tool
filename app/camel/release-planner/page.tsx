@@ -35,6 +35,9 @@ import {
   Tag,
   RefreshCw,
   ArrowUp,
+  Eye,
+  EyeOff,
+  ExternalLink,
 } from 'lucide-react';
 import PageHeader from '../../components/PageHeader';
 import Breadcrumbs from '../../components/Breadcrumbs';
@@ -144,6 +147,13 @@ export default function ReleasePlannerPage() {
     serviceId: string;
     serviceName: string;
   } | null>(null);
+  const [isReadOnlyMode, setIsReadOnlyMode] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
+    new Set()
+  );
+  const [collapsedSubGroups, setCollapsedSubGroups] = useState<Set<string>>(
+    new Set()
+  );
 
   // Estados para credenciales
   const [bitbucketUsername, setBitbucketUsername] = useState('');
@@ -1083,6 +1093,30 @@ export default function ReleasePlannerPage() {
         `Servicio "${serviceToDelete.serviceName}" eliminado correctamente`
       );
     }
+  };
+
+  const toggleGroupCollapse = (groupId: string) => {
+    setCollapsedGroups((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(groupId)) {
+        newSet.delete(groupId);
+      } else {
+        newSet.add(groupId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSubGroupCollapse = (subGroupId: string) => {
+    setCollapsedSubGroups((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(subGroupId)) {
+        newSet.delete(subGroupId);
+      } else {
+        newSet.add(subGroupId);
+      }
+      return newSet;
+    });
   };
 
   const startEditingGroup = (
@@ -2267,21 +2301,25 @@ export default function ReleasePlannerPage() {
                 </div>
 
                 <div className="flex items-center space-x-2">
-                  <button
-                    onClick={createNewGroup}
-                    className="flex items-center space-x-1 px-3 py-1 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <FolderPlus className="w-4 h-4" />
-                    <span>Nuevo Grupo</span>
-                  </button>
+                  {!isReadOnlyMode && (
+                    <>
+                      <button
+                        onClick={createNewGroup}
+                        className="flex items-center space-x-1 px-3 py-1 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <FolderPlus className="w-4 h-4" />
+                        <span>Nuevo Grupo</span>
+                      </button>
 
-                  <button
-                    onClick={() => setShowSearchModal(true)}
-                    className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                    title="Agregar servicios"
-                  >
-                    <Plus className="w-5 h-5" />
-                  </button>
+                      <button
+                        onClick={() => setShowSearchModal(true)}
+                        className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="Agregar servicios"
+                      >
+                        <Plus className="w-5 h-5" />
+                      </button>
+                    </>
+                  )}
 
                   {/* Botón de pantalla completa */}
                   <button
@@ -2300,44 +2338,73 @@ export default function ReleasePlannerPage() {
                     )}
                   </button>
 
+                  {/* Botón de vista de solo lectura */}
                   <button
-                    onClick={() => setShowImportModal(true)}
-                    className="p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                    title="Importar Release Plan"
+                    onClick={() => setIsReadOnlyMode(!isReadOnlyMode)}
+                    className={`p-2 rounded-lg transition-colors ${
+                      isReadOnlyMode
+                        ? 'text-blue-600 bg-blue-50'
+                        : 'text-gray-500 hover:text-blue-600 hover:bg-blue-50'
+                    }`}
+                    title={
+                      isReadOnlyMode
+                        ? 'Cambiar a modo edición'
+                        : 'Ver en modo solo lectura'
+                    }
                   >
-                    <Upload className="w-5 h-5" />
+                    {isReadOnlyMode ? (
+                      <EyeOff className="w-5 h-5" />
+                    ) : (
+                      <Eye className="w-5 h-5" />
+                    )}
                   </button>
 
-                  <button
-                    onClick={exportToExcel}
-                    className="p-2 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                    title="Exportar a Excel"
-                  >
-                    <Download className="w-5 h-5" />
-                  </button>
+                  {!isReadOnlyMode && (
+                    <>
+                      <button
+                        onClick={() => setShowImportModal(true)}
+                        className="p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                        title="Importar Release Plan"
+                      >
+                        <Upload className="w-5 h-5" />
+                      </button>
 
-                  {/* Botón de configuración de Bitbucket */}
-                  <button
-                    onClick={() => setShowBitbucketConfigModal(true)}
-                    className="p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                    title="Configurar repositorio Bitbucket"
-                  >
-                    <GitBranch className="w-5 h-5" />
-                  </button>
-
-                  {/* Botón de publicar a Bitbucket */}
-                  {releasePlan.groups.length > 0 && bitbucketRepo && (
-                    <button
-                      onClick={openCommitModal}
-                      className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                      title="Publicar en Bitbucket"
-                      disabled={isSyncing}
-                    >
-                      <ArrowUp className="w-5 h-5" />
-                    </button>
+                      <button
+                        onClick={exportToExcel}
+                        className="p-2 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                        title="Exportar a Excel"
+                      >
+                        <Download className="w-5 h-5" />
+                      </button>
+                    </>
                   )}
 
-                  {releasePlan.groups.length > 0 && (
+                  {!isReadOnlyMode && (
+                    <>
+                      {/* Botón de configuración de Bitbucket */}
+                      <button
+                        onClick={() => setShowBitbucketConfigModal(true)}
+                        className="p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                        title="Configurar repositorio Bitbucket"
+                      >
+                        <GitBranch className="w-5 h-5" />
+                      </button>
+
+                      {/* Botón de publicar a Bitbucket */}
+                      {releasePlan.groups.length > 0 && bitbucketRepo && (
+                        <button
+                          onClick={openCommitModal}
+                          className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Publicar en Bitbucket"
+                          disabled={isSyncing}
+                        >
+                          <ArrowUp className="w-5 h-5" />
+                        </button>
+                      )}
+                    </>
+                  )}
+
+                  {!isReadOnlyMode && releasePlan.groups.length > 0 && (
                     <button
                       onClick={clearReleasePlan}
                       className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
@@ -2458,13 +2525,278 @@ export default function ReleasePlannerPage() {
                     <p className="text-sm text-gray-500 mb-3">
                       No hay grupos creados. Crea tu primer grupo para comenzar.
                     </p>
-                    <button
-                      onClick={createNewGroup}
-                      className="flex items-center space-x-1 px-3 py-1 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 mx-auto"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Crear Primer Grupo</span>
-                    </button>
+                    {!isReadOnlyMode && (
+                      <button
+                        onClick={createNewGroup}
+                        className="flex items-center space-x-1 px-3 py-1 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 mx-auto"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Crear Primer Grupo</span>
+                      </button>
+                    )}
+                  </div>
+                ) : isReadOnlyMode ? (
+                  // Vista de solo lectura compacta
+                  <div className="space-y-2 p-3">
+                    {getFilteredGroups().map((group) => {
+                      const isCollapsed = collapsedGroups.has(group.id);
+                      const totalServices =
+                        group.services.length +
+                        (group.subGroups?.reduce(
+                          (acc, sg) => acc + sg.services.length,
+                          0
+                        ) || 0);
+
+                      return (
+                        <div
+                          key={group.id}
+                          className="bg-white border border-gray-200 rounded-lg shadow-sm"
+                        >
+                          {/* Header del grupo clickeable */}
+                          <div
+                            className="bg-blue-50 px-3 py-2 border-b border-gray-200 rounded-t-lg cursor-pointer hover:bg-blue-100 transition-colors"
+                            onClick={() => toggleGroupCollapse(group.id)}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-2">
+                                {isCollapsed ? (
+                                  <ChevronRight className="w-4 h-4 text-blue-600" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4 text-blue-600" />
+                                )}
+                                <Folder className="w-4 h-4 text-blue-600" />
+                                <h3 className="text-base font-semibold text-gray-900">
+                                  {group.name}
+                                </h3>
+                                <span className="px-2 py-1 text-xs font-medium text-blue-600 bg-blue-100 rounded-full">
+                                  {totalServices} servicios
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {!isCollapsed && (
+                            <div className="p-3 space-y-2">
+                              {/* Servicios del grupo principal */}
+                              {group.services.length > 0 && (
+                                <div className="space-y-1">
+                                  {group.services.map((service) => (
+                                    <div
+                                      key={service.id}
+                                      className="bg-gray-50 border border-gray-200 rounded p-2"
+                                    >
+                                      <div className="flex items-start justify-between">
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center space-x-2 mb-1">
+                                            <h5 className="font-medium text-gray-900 text-sm truncate">
+                                              {service.has_blueprint ? (
+                                                <a
+                                                  href={`/camel/${service.repo_slug}`}
+                                                  className="text-blue-600 hover:text-blue-800 hover:underline"
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                >
+                                                  {service.name}
+                                                </a>
+                                              ) : (
+                                                service.name
+                                              )}
+                                            </h5>
+                                            {service.has_blueprint && (
+                                              <ExternalLink className="w-3 h-3 text-blue-500 flex-shrink-0" />
+                                            )}
+                                          </div>
+
+                                          {/* Información compacta del servicio */}
+                                          <div className="text-xs text-gray-600 mb-1">
+                                            <span className="font-medium">
+                                              {service.workspace}
+                                            </span>{' '}
+                                            /{' '}
+                                            <span className="font-medium">
+                                              {service.project_key}
+                                            </span>
+                                          </div>
+
+                                          {/* Asignado y dependencias en una línea */}
+                                          <div className="flex items-center space-x-3 text-xs mb-1">
+                                            {service.assignedTo && (
+                                              <div className="flex items-center space-x-1">
+                                                <User className="w-3 h-3 text-gray-500" />
+                                                <span className="text-gray-600">
+                                                  {service.assignedTo}
+                                                </span>
+                                              </div>
+                                            )}
+
+                                            {service.dependencies &&
+                                              service.dependencies.length >
+                                                0 && (
+                                                <div className="flex items-center space-x-1">
+                                                  <GitBranch className="w-3 h-3 text-gray-500" />
+                                                  <span className="text-gray-600">
+                                                    {
+                                                      service.dependencies
+                                                        .length
+                                                    }{' '}
+                                                    deps
+                                                  </span>
+                                                </div>
+                                              )}
+                                          </div>
+
+                                          {/* Comentarios en línea separada */}
+                                          {service.comment && (
+                                            <div className="flex items-start space-x-1">
+                                              <MessageSquare className="w-3 h-3 text-gray-500 mt-0.5 flex-shrink-0" />
+                                              <span className="text-gray-600 text-xs leading-relaxed">
+                                                {service.comment}
+                                              </span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Subgrupos */}
+                              {group.subGroups &&
+                                group.subGroups.length > 0 && (
+                                  <div className="space-y-1">
+                                    {group.subGroups.map((subGroup) => {
+                                      const isSubGroupCollapsed =
+                                        collapsedSubGroups.has(subGroup.id);
+
+                                      return (
+                                        <div
+                                          key={subGroup.id}
+                                          className="border border-gray-200 rounded"
+                                        >
+                                          <div
+                                            className="bg-gray-50 px-2 py-1 border-b border-gray-200 rounded-t cursor-pointer hover:bg-gray-100 transition-colors"
+                                            onClick={() =>
+                                              toggleSubGroupCollapse(
+                                                subGroup.id
+                                              )
+                                            }
+                                          >
+                                            <div className="flex items-center space-x-2">
+                                              {isSubGroupCollapsed ? (
+                                                <ChevronRight className="w-3 h-3 text-gray-600" />
+                                              ) : (
+                                                <ChevronDown className="w-3 h-3 text-gray-600" />
+                                              )}
+                                              <FolderOpen className="w-3 h-3 text-gray-600" />
+                                              <h4 className="font-medium text-gray-900 text-sm">
+                                                {subGroup.name}
+                                              </h4>
+                                              <span className="px-1 py-0.5 text-xs font-medium text-gray-600 bg-gray-200 rounded">
+                                                {subGroup.services.length}
+                                              </span>
+                                            </div>
+                                          </div>
+
+                                          {!isSubGroupCollapsed && (
+                                            <div className="p-2 space-y-1">
+                                              {subGroup.services.map(
+                                                (service) => (
+                                                  <div
+                                                    key={service.id}
+                                                    className="bg-white border border-gray-200 rounded p-2"
+                                                  >
+                                                    <div className="flex items-start justify-between">
+                                                      <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center space-x-2 mb-1">
+                                                          <h5 className="font-medium text-gray-900 text-sm truncate">
+                                                            {service.has_blueprint ? (
+                                                              <a
+                                                                href={`/camel/${service.repo_slug}`}
+                                                                className="text-blue-600 hover:text-blue-800 hover:underline"
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                              >
+                                                                {service.name}
+                                                              </a>
+                                                            ) : (
+                                                              service.name
+                                                            )}
+                                                          </h5>
+                                                          {service.has_blueprint && (
+                                                            <ExternalLink className="w-3 h-3 text-blue-500 flex-shrink-0" />
+                                                          )}
+                                                        </div>
+
+                                                        {/* Información compacta del servicio */}
+                                                        <div className="text-xs text-gray-600 mb-1">
+                                                          <span className="font-medium">
+                                                            {service.workspace}
+                                                          </span>{' '}
+                                                          /{' '}
+                                                          <span className="font-medium">
+                                                            {
+                                                              service.project_key
+                                                            }
+                                                          </span>
+                                                        </div>
+
+                                                        {/* Asignado y dependencias en una línea */}
+                                                        <div className="flex items-center space-x-3 text-xs mb-1">
+                                                          {service.assignedTo && (
+                                                            <div className="flex items-center space-x-1">
+                                                              <User className="w-3 h-3 text-gray-500" />
+                                                              <span className="text-gray-600">
+                                                                {
+                                                                  service.assignedTo
+                                                                }
+                                                              </span>
+                                                            </div>
+                                                          )}
+
+                                                          {service.dependencies &&
+                                                            service.dependencies
+                                                              .length > 0 && (
+                                                              <div className="flex items-center space-x-1">
+                                                                <GitBranch className="w-3 h-3 text-gray-500" />
+                                                                <span className="text-gray-600">
+                                                                  {
+                                                                    service
+                                                                      .dependencies
+                                                                      .length
+                                                                  }{' '}
+                                                                  deps
+                                                                </span>
+                                                              </div>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Comentarios en línea separada */}
+                                                        {service.comment && (
+                                                          <div className="flex items-start space-x-1">
+                                                            <MessageSquare className="w-3 h-3 text-gray-500 mt-0.5 flex-shrink-0" />
+                                                            <span className="text-gray-600 text-xs leading-relaxed">
+                                                              {service.comment}
+                                                            </span>
+                                                          </div>
+                                                        )}
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                                                )
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="space-y-2">
